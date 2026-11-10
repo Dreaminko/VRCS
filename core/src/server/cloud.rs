@@ -277,7 +277,8 @@ fn unavailable_profile_value(profile: &ApiProfile, config: &crate::config::AppCo
         "active": false,
         "translation_active": false,
         "status": if provider.is_some() { "credential_error" } else { "unsupported" },
-        "credential": { "configured": false, "stored_configured": false, "environment_override": false, "source": null },
+        "credential": { "configured": false, "stored_configured": false, "environment_override": false, "source": null,
+            "storage_available": false, "reason_code": "credentials.read_failed" },
         "capabilities": providers::profile_capabilities(profile).map_or_else(|| json!({
             "supports_asr": false, "supports_translation": false, "supports_text_generation": false,
             "supports_image_understanding": false, "supports_model_listing": false,
@@ -688,14 +689,13 @@ pub(super) async fn profile_delete(
             json!({ "side_effects": profile_usages(&current, &profile_id) }),
         ));
     }
-    let previous_credential = asr::read_stored_credential(&profile.id, &profile.provider);
+    let previous_credential = crate::credentials::read_profile_stored_for_use(&profile.id, &profile.provider)
+        .map_err(credential_error)?;
     commit_profile_config(&state, candidate).await?;
     if let Err(error) = asr::delete_credential(&profile.id, &profile.provider) {
         let mut recovery_errors = Vec::new();
-        if let Ok(previous) = previous_credential {
-            if let Err(recovery) = restore_credential(&profile, previous) {
-                recovery_errors.push(format!("credential rollback failed: {recovery}"));
-            }
+        if let Err(recovery) = restore_credential(&profile, previous_credential) {
+            recovery_errors.push(format!("credential rollback failed: {recovery}"));
         }
         if let Err(recovery) = commit_profile_config(&state, current).await {
             recovery_errors.push(api_detail(&recovery));
@@ -737,7 +737,7 @@ pub(super) async fn credential_write(
         profile_invalid(format!("Unsupported API provider: {}", profile.provider))
     })?;
     let previous =
-        asr::read_stored_credential(&profile.id, &profile.provider).map_err(credential_error)?;
+        crate::credentials::read_profile_stored_for_use(&profile.id, &profile.provider).map_err(credential_error)?;
     asr::write_credential(&profile.id, &profile.provider, &input.api_key)
         .map_err(credential_error)?;
     reload_after_credential_change(&state, &config, &profile, previous).await?;
@@ -770,7 +770,7 @@ pub(super) async fn credential_delete(
         ));
     }
     let previous =
-        asr::read_stored_credential(&profile.id, &profile.provider).map_err(credential_error)?;
+        crate::credentials::read_profile_stored_for_use(&profile.id, &profile.provider).map_err(credential_error)?;
     asr::delete_credential(&profile.id, &profile.provider).map_err(credential_error)?;
     reload_after_credential_change(&state, &config, &profile, previous).await?;
     Ok(Json(
@@ -801,6 +801,10 @@ pub(super) async fn profile_activate(
         return Err(profile_invalid(
             "The selected service does not support speech recognition".into(),
         ));
+    }
+    if profile.requires_api_key() {
+        crate::credentials::read_credential_for_use(&profile.id, &profile.provider)
+            .map_err(credential_error)?;
     }
     let status =
         asr::credential_status(&profile.id, &profile.provider).map_err(credential_error)?;
@@ -892,7 +896,21 @@ async fn service_models(
     let api_key = if service.supports_model_listing
         || service.id == providers::SERVICE_OPENROUTER_TRANSCRIPTION
     {
-        profile_api_key(profile)?
+        if query.refresh {
+            profile_api_key(profile)?
+        } else {
+            match asr::read_credential(&profile.id, &profile.provider) {
+                Ok(Some(key)) => key,
+                Ok(None) => String::new(),
+                Err(error) if query.cached_only => {
+                    return Ok(Json(json!({
+                        "models": [], "model_details": {}, "updated_at": null,
+                        "reason_code": crate::credentials::error_reason_code(&error),
+                    })));
+                }
+                Err(error) => return Err(credential_error(error)),
+            }
+        }
     } else {
         String::new()
     };
@@ -978,7 +996,7 @@ pub(super) fn profile_api_key(profile: &ApiProfile) -> ApiResult<String> {
     if !profile.requires_api_key() {
         return Ok(String::new());
     }
-    asr::read_credential(&profile.id, &profile.provider)
+    crate::credentials::read_credential_for_use(&profile.id, &profile.provider)
         .map_err(credential_error)?
         .ok_or_else(|| {
             api_error(
@@ -1107,7 +1125,7 @@ pub(super) fn ensure_asr_profile_ready(profile: &ApiProfile) -> ApiResult<()> {
 fn credential_error(detail: String) -> (StatusCode, Json<Value>) {
     api_error(
         StatusCode::INTERNAL_SERVER_ERROR,
-        "profile.credential_store_failed",
+        crate::credentials::error_reason_code(&detail).unwrap_or("profile.credential_store_failed"),
         detail,
     )
 }

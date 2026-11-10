@@ -26,6 +26,8 @@ function profileView(
       configured: false,
       stored_configured: false,
       environment_override: false,
+      storage_available: true,
+      reason_code: null,
       source: null,
     },
     capabilities: {

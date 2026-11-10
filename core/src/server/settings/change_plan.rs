@@ -76,14 +76,14 @@ impl SettingsChangePlan {
         api_key: &str,
     ) -> ApiResult<Self> {
         let current = state.config.config.read().expect("config lock").clone();
-        let credential_error = |detail| {
+        let credential_error = |detail: String| {
             api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "profile.credential_store_failed",
+                crate::credentials::error_reason_code(&detail).unwrap_or("profile.credential_store_failed"),
                 detail,
             )
         };
-        let previous = crate::asr::read_stored_credential(&profile.id, &profile.provider)
+        let previous = crate::credentials::read_profile_stored_for_use(&profile.id, &profile.provider)
             .map_err(credential_error)?;
         crate::asr::write_credential(&profile.id, &profile.provider, api_key)
             .map_err(credential_error)?;

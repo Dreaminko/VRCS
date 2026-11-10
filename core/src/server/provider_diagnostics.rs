@@ -214,6 +214,7 @@ async fn test_recognition_service(
     service: &ProviderServiceDefinition,
 ) -> ApiResult<()> {
     ensure_asr_profile_ready(profile)?;
+    profile_api_key(profile)?;
     match service.adapter {
         ServiceAdapter::QwenRealtime
         | ServiceAdapter::QwenLiveTranslate
@@ -230,7 +231,7 @@ async fn test_recognition_service(
                 .map_err(|error| {
                     api_error(
                         StatusCode::SERVICE_UNAVAILABLE,
-                        "asr.cloud_test_failed",
+                        crate::credentials::error_reason_code(&error).unwrap_or("asr.cloud_test_failed"),
                         error,
                     )
                 })?;
@@ -241,7 +242,7 @@ async fn test_recognition_service(
                 .map_err(|error| {
                     api_error(
                         StatusCode::SERVICE_UNAVAILABLE,
-                        "asr.cloud_test_failed",
+                        crate::credentials::error_reason_code(&error).unwrap_or("asr.cloud_test_failed"),
                         error,
                     )
                 })?;

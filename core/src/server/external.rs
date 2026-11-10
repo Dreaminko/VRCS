@@ -18,7 +18,7 @@ pub(super) async fn token_status() -> ApiResult<Json<credentials::CredentialStat
         .map_err(|error| {
             api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "external_api.token_status_failed",
+                credentials::error_reason_code(&error).unwrap_or("external_api.token_status_failed"),
                 error,
             )
         })
@@ -45,7 +45,7 @@ pub(super) async fn token_write(
     let current = credentials::external_api_token_status().map_err(|error| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "external_api.token_status_failed",
+            credentials::error_reason_code(&error).unwrap_or("external_api.token_status_failed"),
             error,
         )
     })?;
@@ -56,10 +56,10 @@ pub(super) async fn token_write(
             "VRCS_EXTERNAL_API_TOKEN overrides stored credentials",
         ));
     }
-    let previous = credentials::read_stored_external_api_token().map_err(|error| {
+    let previous = credentials::read_stored_external_api_token_for_use().map_err(|error| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "external_api.token_status_failed",
+            credentials::error_reason_code(&error).unwrap_or("external_api.token_status_failed"),
             error,
         )
     })?;
@@ -67,7 +67,7 @@ pub(super) async fn token_write(
     credentials::write_external_api_token(&token).map_err(|error| {
         api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
-            "external_api.token_invalid",
+            credentials::error_reason_code(&error).unwrap_or("external_api.token_invalid"),
             error,
         )
     })?;
@@ -116,7 +116,7 @@ pub(super) async fn token_delete(
     let current = credentials::external_api_token_status().map_err(|error| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "external_api.token_status_failed",
+            credentials::error_reason_code(&error).unwrap_or("external_api.token_status_failed"),
             error,
         )
     })?;
@@ -130,7 +130,7 @@ pub(super) async fn token_delete(
     credentials::delete_external_api_token().map_err(|error| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "external_api.token_delete_failed",
+            credentials::error_reason_code(&error).unwrap_or("external_api.token_delete_failed"),
             error,
         )
     })?;

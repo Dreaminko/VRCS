@@ -23,6 +23,7 @@ import { resolveModelSelection, translationSelectionReady } from "../model-selec
 import { ReasoningControlField } from "../ReasoningControlField";
 import type { ModelBinding, ModelSelection, TranslationTargetSettings } from "../types";
 import { visionModels } from "../vision-settings";
+import { CapabilityNotice, usePlatformCapabilities } from "../../core-client/capabilities";
 
 export interface ModelChoice extends ModelSelection {
   thinking_enabled?: boolean;
@@ -60,6 +61,7 @@ function TranslationBackendToggle({ value, profiles, disabled = false, iconOnly 
   onChange: (value: ModelChoice) => void;
 }) {
   const { t } = useTranslation();
+  const { core } = usePlatformCapabilities();
   const apiBinding = useRef<ModelBinding | null>(
     (value.backend ?? "api") === "api"
       ? { backend: "api", profile_id: value.profile_id, model: value.model }
@@ -72,7 +74,10 @@ function TranslationBackendToggle({ value, profiles, disabled = false, iconOnly 
       const label = t(`settings.translation.backends.${backend}`);
       return <button key={backend} type="button" aria-label={label}
         aria-pressed={(value.backend ?? "api") === backend}
-        className={(value.backend ?? "api") === backend ? "active" : ""} disabled={disabled}
+        className={(value.backend ?? "api") === backend ? "active" : ""}
+        disabled={disabled || (backend === "plamo_local" && !core?.inference.local_translation.supported)}
+        title={backend === "plamo_local" && !core?.inference.local_translation.supported
+          ? t("platform.local_translation_unavailable") : undefined}
         data-tooltip={iconOnly ? label : undefined}
         onClick={() => {
           if ((value.backend ?? "api") === backend) return;
@@ -158,6 +163,7 @@ export function ModelBindingEditor({
   onChange: (value: ModelChoice) => void;
 }) {
   const { t } = useTranslation();
+  const { core } = usePlatformCapabilities();
   const local = capability === "text_translation" && value.backend === "plamo_local";
   const compatible = profiles.filter((profile) => profileSupportsCapability(profile, capability));
   const selected = compatible.find((profile) => profile.id === value.profile_id);
@@ -192,6 +198,7 @@ export function ModelBindingEditor({
       <span>{t("settings.translation.localModel")}</span>
       <strong>PLaMo 3 Translate 0.8B · CPU</strong>
     </div>}
+    {local && <CapabilityNotice capability={core?.inference.local_translation} />}
     {!local && !hideBinding && <div className="field">
       <span>{t("settings.translation.profile")}</span>
       <DropdownField label={t("settings.translation.profile")} value={value.profile_id ?? ""}

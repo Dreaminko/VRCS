@@ -22,6 +22,7 @@ import type {
 } from "../../providers/types";
 import { Select } from "../SettingsControls";
 import { ApiCapabilitySelector, type ApiCapabilityTests } from "./ApiCapabilitySelector";
+import { CapabilityNotice, usePlatformCapabilities } from "../../core-client/capabilities";
 
 export type { ApiProfileEditorDraft } from "../../providers/api-profile-draft";
 
@@ -61,6 +62,7 @@ export function ApiProfileEditor({
   onRemoveCredential?: () => void;
 }) {
   const { t } = useTranslation();
+  const { core } = usePlatformCapabilities();
   const formRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (!errorField || saving) return;
@@ -75,6 +77,9 @@ export function ApiProfileEditor({
     ? providerDefinitions.filter((item) => providerCapabilities(item).includes(requiredCapability))
     : providerDefinitions;
   const credentialAvailable = credential?.configured || Boolean(draft.api_key.trim());
+  const credentialCapability = credential?.reason_code && !credential.storage_available && core?.credentials
+    ? { ...core.credentials, available: false, reason_code: credential.reason_code }
+    : core?.credentials;
   const errors = apiProfileDraftErrors(
     draft,
     definition,
@@ -208,7 +213,7 @@ export function ApiProfileEditor({
                 value={draft.api_key}
                 autoComplete="off"
                 spellCheck={false}
-                disabled={saving || credential?.environment_override}
+                disabled={saving || credential?.environment_override || !core?.credentials.supported}
                 placeholder={credential?.configured
                   ? t("settings.apiManagement.credentialConfigured")
                   : requireCredential
@@ -219,6 +224,7 @@ export function ApiProfileEditor({
               />
             </label>
           )}
+          {draft.auth_mode !== "none" && <CapabilityNotice capability={credentialCapability} />}
         </div>
 
         {showAdvancedHttp && (

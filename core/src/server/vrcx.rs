@@ -16,7 +16,7 @@ pub(super) async fn token_status() -> ApiResult<Json<credentials::CredentialStat
     credentials::vrcx_token_status().map(Json).map_err(|error| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "vrcx.token_status_failed",
+            credentials::error_reason_code(&error).unwrap_or("vrcx.token_status_failed"),
             error,
         )
     })
@@ -36,7 +36,7 @@ pub(super) async fn token_write(
     let current = credentials::vrcx_token_status().map_err(|error| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "vrcx.token_status_failed",
+            credentials::error_reason_code(&error).unwrap_or("vrcx.token_status_failed"),
             error,
         )
     })?;
@@ -51,7 +51,7 @@ pub(super) async fn token_write(
     credentials::write_vrcx_token(&token).map_err(|error| {
         api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
-            "vrcx.token_invalid",
+            credentials::error_reason_code(&error).unwrap_or("vrcx.token_invalid"),
             error,
         )
     })?;
@@ -72,7 +72,7 @@ pub(super) async fn token_delete(
     let current = credentials::vrcx_token_status().map_err(|error| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "vrcx.token_status_failed",
+            credentials::error_reason_code(&error).unwrap_or("vrcx.token_status_failed"),
             error,
         )
     })?;
@@ -86,7 +86,7 @@ pub(super) async fn token_delete(
     credentials::delete_vrcx_token().map_err(|error| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "vrcx.token_delete_failed",
+            credentials::error_reason_code(&error).unwrap_or("vrcx.token_delete_failed"),
             error,
         )
     })?;
@@ -101,11 +101,11 @@ pub(super) async fn test_connection(
 ) -> ApiResult<Json<crate::vrcx::VrcxRuntimeStatus>> {
     let config =
         crate::config::apply_feature_gates(&state.config.config.read().expect("config lock")).vrcx;
-    let token = credentials::read_vrcx_token()
+    let token = credentials::read_vrcx_token_for_use()
         .map_err(|error| {
             api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "vrcx.token_status_failed",
+                credentials::error_reason_code(&error).unwrap_or("vrcx.token_status_failed"),
                 error,
             )
         })?

@@ -28,7 +28,7 @@ impl ExternalApiChange {
             credentials::read_external_api_token().map_err(|error| {
                 api_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "external_api.token_status_failed",
+                    credentials::error_reason_code(&error).unwrap_or("external_api.token_status_failed"),
                     error,
                 )
             })?
