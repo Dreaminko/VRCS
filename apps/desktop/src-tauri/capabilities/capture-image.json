@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "capture-image",
+  "description": "Frozen image region picker without access to Core or credentials",
+  "windows": ["capture-image"],
+  "permissions": [
+    "core:default",
+    "store:allow-load",
+    "store:allow-get",
+    "allow-report-frontend-error",
+    "allow-desktop-capture-frame",
+    "allow-desktop-capture-select",
+    "allow-desktop-capture-cancel"
+  ]
+}

@@ -119,6 +119,11 @@ impl Manager {
         self.state.lock().unwrap().status.clone()
     }
 
+    #[cfg(target_os = "linux")]
+    pub fn shortcut_binding(&self) -> Option<String> {
+        self.state.lock().unwrap().binding.as_ref().and_then(|binding| binding.0.clone())
+    }
+
     pub fn start(
         &self,
         service: VisionService,
@@ -167,7 +172,7 @@ impl Manager {
     }
 
     fn configure(&self, lifecycle: u64, config: &VisionConfig, ocr: &VrOcrConfig) {
-        let available = cfg!(windows) && config.enabled && config.desktop_enabled;
+        let available = cfg!(any(windows, target_os = "linux")) && config.enabled && config.desktop_enabled;
         let conflict = available
             && ocr.desktop_enabled
             && shortcuts_match(&config.desktop_shortcut, &ocr.shortcut);
@@ -233,6 +238,7 @@ impl Manager {
         Ok(())
     }
 
+    #[cfg(windows)]
     pub fn shortcut_error_for(&self, lifecycle: u64, error: Option<String>) {
         let mut state = self.state.lock().unwrap();
         if state.lifecycle == lifecycle && state.status.shortcut_error != error {
@@ -386,12 +392,12 @@ impl Manager {
             .clone())
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     pub fn capture(&self) -> Result<(), String> {
         Err("desktop_vision.unavailable".into())
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub fn capture(&self) -> Result<(), String> {
         self.capture_inner(None)
     }
@@ -427,7 +433,7 @@ impl Manager {
         result
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     fn capture_inner(&self, lifecycle: Option<u64>) -> Result<(), String> {
         if self.status().state == "selecting" {
             if lifecycle.is_some_and(|value| self.state.lock().unwrap().lifecycle != value) {
@@ -437,12 +443,14 @@ impl Manager {
             return Ok(());
         }
         // Native window access can wait on the UI thread; do it before locking state.
+        #[cfg(windows)]
         let result_windows: Vec<isize> = ["ocr", "vision"]
             .into_iter()
             .filter_map(|label| self.app.get_webview_window(label))
             .filter_map(|window| window.hwnd().ok())
             .map(|hwnd| hwnd.0 as isize)
             .collect();
+        #[cfg(windows)]
         let hint = crate::desktop_capture::selection_hint(&self.app, "visionWindow");
         let mut state = self.state.lock().unwrap();
         if lifecycle.is_some_and(|value| state.lifecycle != value) {
@@ -450,6 +458,7 @@ impl Manager {
         }
         let service = state.ready()?;
         let config = service.configuration_for(VisionMode::Desktop);
+        #[cfg(windows)]
         let picker = crate::desktop_capture::reserve_picker()
             .map_err(|_| "desktop_vision.selection_busy".to_string())?;
         state.cancel();
@@ -462,6 +471,16 @@ impl Manager {
         let app = self.app.clone();
         state.task = Some(tauri::async_runtime::spawn(async move {
             let result = async {
+                #[cfg(target_os = "linux")]
+                {
+                    let selected = crate::desktop_capture::picker::capture_region(app.clone(), cancelled.clone(), || {
+                        app.state::<Self>().update(id, |state| state.status.state = "selecting");
+                    }).await?;
+                    let Some(image) = selected else { return Ok(None); };
+                    crate::vision_image::prepare_image(image, &config).map(Some)
+                }
+                #[cfg(windows)]
+                {
                 let capture = tauri::async_runtime::spawn_blocking(move || {
                     vrcs_core::ocr::desktop_capture::capture_desktop(&result_windows)
                 })
@@ -493,7 +512,7 @@ impl Manager {
                         .map_err(capture_error)?;
 
                     drop(capture);
-                    let image = crate::vr_overlay::renderer::Texture {
+                    let image = crate::desktop_capture::image::Image {
                         width: region.width,
                         height: region.height,
                         pixels,
@@ -504,6 +523,7 @@ impl Manager {
                 })
                 .await
                 .map_err(|_| "desktop_vision.capture_failed".to_string())?
+                }
             }
             .await;
             let manager = app.state::<Self>();

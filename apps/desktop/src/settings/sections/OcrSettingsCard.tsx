@@ -13,6 +13,7 @@ import { SettingsDisclosure } from "../components/SettingsDisclosure";
 import { DEFAULT_MODEL_SELECTION, EMPTY_MODEL_BINDING, resolveModelSelection } from "../model-selection";
 import type { ModelBinding } from "../types";
 import { useOcrModels } from "../ocr/useOcrModels";
+import { usePlatformCapabilities } from "../../core-client/capabilities";
 
 export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = EMPTY_MODEL_BINDING, disabled: saving, runtime, desktopStatus, onChange }: {
   vrAvailable: boolean;
@@ -25,6 +26,7 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
   onChange: (patch: Partial<VrOcrSettings>) => void;
 }) {
   const { t } = useTranslation();
+  const { core } = usePlatformCapabilities();
   const disabled = saving || !config.master_enabled;
   const { models } = useOcrModels();
   const [execution, setExecution] = useState<OcrExecutionStatus | null>(null);
@@ -68,7 +70,8 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
             helper={t("settings.vrOcr.deviceDescription")}
             options={[
               { value: "cpu", label: "CPU" },
-              { value: "directml", label: "GPU (DirectML)" },
+              { value: "directml", label: "GPU (DirectML)", disabled: !core?.inference.ocr_directml.supported,
+                description: !core?.inference.ocr_directml.supported ? t("platform.directml_unsupported") : undefined },
             ]}
             disabled={disabled} onChange={(device) => onChange({ device: device as VrOcrSettings["device"] })} />
           {execution?.active_device && <p role="status">

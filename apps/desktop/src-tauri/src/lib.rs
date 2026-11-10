@@ -4,8 +4,8 @@ mod desktop_ocr;
 mod desktop_vision;
 mod diagnostics;
 mod memory_compression;
+mod platform_capabilities;
 mod player_audio_elevation;
-#[cfg(windows)]
 mod vision_image;
 mod vr_overlay;
 
@@ -77,6 +77,7 @@ impl CoreRuntime {
 struct NativeUiState {
     show_item: Mutex<Option<MenuItem<tauri::Wry>>>,
     quit_item: Mutex<Option<MenuItem<tauri::Wry>>>,
+    tray_available: AtomicBool,
     compact_topmost: AtomicBool,
 }
 
@@ -376,6 +377,9 @@ fn set_compact_window_topmost(
     enabled: bool,
     native_ui: State<'_, NativeUiState>,
 ) -> Result<(), String> {
+    if enabled && platform_capabilities::session_type() == "wayland" {
+        return Err("platform.window_stacking_unavailable".into());
+    }
     apply_compact_topmost(&window, enabled, "mode_change")?;
     native_ui.compact_topmost.store(enabled, Ordering::Release);
     Ok(())
@@ -405,6 +409,13 @@ fn show_main_window(app: &tauri::AppHandle) {
 }
 
 fn minimize_to_tray_enabled(app: &tauri::AppHandle) -> bool {
+    if !app
+        .state::<NativeUiState>()
+        .tray_available
+        .load(Ordering::Acquire)
+    {
+        return false;
+    }
     app.store("preferences.json")
         .ok()
         .and_then(|store| store.get("minimizeToTray"))
@@ -531,10 +542,20 @@ pub fn run() {
             show_item: Mutex::new(None),
             quit_item: Mutex::new(None),
             compact_topmost: AtomicBool::new(false),
+            tray_available: AtomicBool::new(false),
         })
         .invoke_handler(tauri::generate_handler![
             core_connection,
+            #[cfg(target_os = "linux")]
+            desktop_capture::picker::desktop_capture_frame,
+            #[cfg(target_os = "linux")]
+            desktop_capture::picker::desktop_capture_select,
+            #[cfg(target_os = "linux")]
+            desktop_capture::picker::desktop_capture_cancel,
+            #[cfg(target_os = "linux")]
+            desktop_capture::portal_shortcuts::desktop_capture_register_shortcuts,
             core_startup,
+            platform_capabilities::platform_capabilities,
             retry_core,
             player_audio_elevation::player_audio_pending_action,
             player_audio_elevation::player_audio_consume_action,
@@ -628,7 +649,10 @@ pub fn run() {
             if let Some(icon) = app.default_window_icon() {
                 tray = tray.icon(icon.clone());
             }
-            tray.build(app)?;
+            match tray.build(app) {
+                Ok(_) => native_ui.tray_available.store(true, Ordering::Release),
+                Err(error) => tracing::warn!(%error, "Tray unavailable; closing the main window will exit VRCS"),
+            }
 
             let data_dir = app.path().local_data_dir()?.join(".vrcs");
             std::fs::create_dir_all(data_dir.join("models"))?;
@@ -639,6 +663,11 @@ pub fn run() {
                 .next()
                 .and_then(|value| value.parse().ok())
                 .ok_or_else(|| std::io::Error::other("core URL is missing a valid port"))?;
+            #[cfg(target_os = "linux")]
+            {
+                app.manage(desktop_capture::picker::Manager::default());
+                app.manage(desktop_capture::portal_shortcuts::Manager::default());
+            }
             app.manage(vr_overlay::Manager::new(app.handle().clone()));
             #[cfg(windows)]
             app.manage(vr_overlay::surface::SurfaceHub::default());

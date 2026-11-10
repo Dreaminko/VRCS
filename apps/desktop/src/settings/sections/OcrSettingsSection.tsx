@@ -6,13 +6,15 @@ import type { ApiProfileView } from "../../providers/types";
 import type { Settings } from "../types";
 import type { ApplySettings } from "../settings-types";
 import { getVrOverlayStatus, listenVrOverlayStatus, openVrOcrBindings } from "../../integrations/vr-overlay-native";
-import { getDesktopOcrStatus, listenDesktopOcrStatus } from "../../ocr/api";
+import { getDesktopOcrStatus, listenDesktopOcrStatus, scanDesktopOcr } from "../../ocr/api";
 import { applyDesktopOcrStatus, type DesktopOcrStatus } from "../../ocr/status";
 import { patchOcr } from "../vr-overlay-settings";
 import { OcrSettingsCard } from "./OcrSettingsCard";
 import { VisionSettingsCard } from "./VisionSettingsCard";
 import { patchVision } from "../vision-settings";
 import { PreferenceToggle } from "../SettingsControls";
+import { localizedError } from "../../app/app-utils";
+import { usePlatformCapabilities } from "../../core-client/capabilities";
 
 export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings, onManageLocalModels }: {
   vrAvailable: boolean;
@@ -22,6 +24,8 @@ export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings
   onManageLocalModels?: () => void;
 }) {
   const { t } = useTranslation();
+  const { desktop } = usePlatformCapabilities();
+  const [captureError, setCaptureError] = useState("");
   const [runtime, setRuntime] = useState<VrOcrStatus>();
   const [desktopStatus, setDesktopStatus] = useState<DesktopOcrStatus | null>(null);
   const [bindingError, setBindingError] = useState("");
@@ -61,6 +65,14 @@ export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings
         <HardDrive size={15} />{t("settings.modelAssignments.manageLocalModels")}
       </button>}
     </div>
+    {draft.features.ocr && <div className="vr-overlay-card-actions">
+      <button className="secondary-button" type="button"
+        disabled={!draft.ocr.master_enabled || !draft.ocr.desktop_enabled || !desktop?.screenshot.available || ["capturing", "selecting", "recognizing", "translating"].includes(desktopStatus?.state ?? "")}
+        onClick={() => { setCaptureError(""); void scanDesktopOcr().catch((reason) => setCaptureError(localizedError(reason, t, "ocrWindow.errors.failed"))); }}>
+        <ScanEye size={15} />{t("visionWindow.capture")}
+      </button>
+      {captureError && <p className="settings-validation-error" role="alert">{captureError}</p>}
+    </div>}
     {vrAvailable && <section className="vr-overlay-card" aria-label={t("settings.vrOcr.gesture")}>
       <PreferenceToggle title={t("settings.vrOcr.gesture")} checked={draft.ocr.hand_gesture_enabled}
         description={t("settings.vrOcr.gestureDescription")}

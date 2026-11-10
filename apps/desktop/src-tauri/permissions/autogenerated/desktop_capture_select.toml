@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-desktop-capture-select"
+description = "Enables the desktop_capture_select command without any pre-configured scope."
+commands.allow = ["desktop_capture_select"]
+
+[[permission]]
+identifier = "deny-desktop-capture-select"
+description = "Denies the desktop_capture_select command without any pre-configured scope."
+commands.deny = ["desktop_capture_select"]

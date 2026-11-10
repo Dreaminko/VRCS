@@ -11,6 +11,7 @@ import {
 import { initializeI18n } from "./i18n";
 import { initializeMotionPreference } from "./app/app-motion";
 import "./styles.css";
+import { CaptureImageWindow } from "./capture-image/CaptureImageWindow";
 
 const rootElement = document.getElementById("root")!;
 
@@ -23,6 +24,10 @@ async function render() {
   await initializeI18n({ nativePreferences: !vrPreview });
   const ocrWindow = route === "ocr" || windowLabel === "ocr";
   const visionWindow = route === "vision" || windowLabel === "vision";
+  if (route === "capture-image" || windowLabel === "capture-image") {
+    createRoot(rootElement).render(<StrictMode><AppErrorBoundary><CaptureImageWindow /></AppErrorBoundary></StrictMode>);
+    return;
+  }
   if (vrPreview) {
     const { VrPreview } = await import("./vr-preview/VrPreview");
     createRoot(rootElement).render(<StrictMode><AppErrorBoundary><VrPreview /></AppErrorBoundary></StrictMode>);

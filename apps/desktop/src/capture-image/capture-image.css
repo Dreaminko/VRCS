@@ -1,0 +1,8 @@
+.capture-image-window { height: 100dvh; display: flex; flex-direction: column; padding: 1rem; gap: .75rem; background: #17191f; color: #f4f4f5; }
+.capture-image-window header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.capture-image-window header p { margin: 0; }
+.capture-image-window button { padding: .5rem 1rem; border: 1px solid #777; border-radius: .4rem; background: #303440; color: inherit; }
+.capture-image-viewport { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.capture-image-bitmap { position: relative; display: flex; max-width: 100%; max-height: 100%; cursor: crosshair; touch-action: none; user-select: none; }
+.capture-image-bitmap img { display: block; max-width: 100%; max-height: calc(100dvh - 7rem); object-fit: contain; pointer-events: none; }
+.capture-image-region { position: absolute; border: 2px solid #70c6ff; background: #70c6ff22; pointer-events: none; box-sizing: border-box; }

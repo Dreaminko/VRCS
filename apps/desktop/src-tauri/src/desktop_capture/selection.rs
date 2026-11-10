@@ -7,6 +7,7 @@ pub struct Region {
 }
 
 impl Region {
+    #[cfg(any(windows, test))]
     pub fn from_drag(start: (i32, i32), end: (i32, i32), width: u32, height: u32) -> Option<Self> {
         let clamp = |point: (i32, i32)| (point.0.max(0) as u32, point.1.max(0) as u32);
         let (sx, sy) = clamp(start);
