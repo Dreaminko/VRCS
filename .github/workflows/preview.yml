@@ -77,3 +77,44 @@ jobs:
           path: preview-artifacts/*
           if-no-files-found: error
           retention-days: 7
+
+  linux:
+    name: linux (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.build
+      VRCS_PACKAGE_CHANNEL: development
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install native desktop dependencies
+        run: bash scripts/install-linux-deps.sh
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: preview-linux-${{ matrix.arch }}-vulkan-${{ hashFiles('**/Cargo.lock') }}
+          save-if: false
+          workspaces: |
+            core -> ../.build
+            apps/desktop/src-tauri -> ../../../.build
+      - run: npm ci
+      - name: Collect native runtime and load ONNX session
+        run: node scripts/build-linux-release.mjs --preview
+      - uses: actions/upload-artifact@v7
+        with:
+          name: VRCS-preview-linux-${{ matrix.arch }}-${{ github.sha }}
+          path: preview-artifacts/*
+          if-no-files-found: error
+          retention-days: 7

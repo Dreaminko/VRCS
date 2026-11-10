@@ -51,6 +51,11 @@ pub(crate) struct FrontendErrorReport {
 }
 
 pub(crate) fn desktop_log_dir() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    {
+        vrcs_core::linux_log_directory()
+    }
+    #[cfg(not(target_os = "linux"))]
     std::env::var("LOCALAPPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir().join("VRCS"))
@@ -101,6 +106,9 @@ fn clean_log_text(value: &str, max_chars: usize) -> String {
     for (variable, replacement) in [
         ("USERPROFILE", "%USERPROFILE%"),
         ("LOCALAPPDATA", "%LOCALAPPDATA%"),
+        ("XDG_DATA_HOME", "$XDG_DATA_HOME"),
+        ("XDG_STATE_HOME", "$XDG_STATE_HOME"),
+        ("HOME", "$HOME"),
     ] {
         if let Ok(prefix) = std::env::var(variable) {
             if !prefix.is_empty() {

@@ -35,6 +35,7 @@ export function SoftwareUpdateSettings({ updater }: { updater: AppUpdaterState }
             version: updater.update?.version,
           })}</p>
         </div>
+        {updater.buildInfo?.os === "linux" && updater.buildInfo.packageChannel !== "appimage" && <p role="status">{t("platform.manual_updates")}</p>}
         <button
           className="secondary-button"
           type="button"
@@ -48,7 +49,7 @@ export function SoftwareUpdateSettings({ updater }: { updater: AppUpdaterState }
       <PreferenceToggle
         title={t("updates.automaticChecks")}
         checked={updater.automaticChecks}
-        disabled={!updater.preferenceReady || updater.preferenceSaving}
+        disabled={!updater.buildInfo?.updaterAvailable || !updater.preferenceReady || updater.preferenceSaving}
         onChange={(enabled) => void updater.setAutomaticChecks(enabled)}
       />
     </section>

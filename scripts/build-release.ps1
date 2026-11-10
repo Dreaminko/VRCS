@@ -170,14 +170,14 @@ try {
     }
 
     $releaseBuilds = @(Invoke-ReleaseBuild -Label "standard" -Features @("vulkan"))
-    $latestPath = & (Join-Path $PSScriptRoot "write-release-metadata.ps1") -Version $Version -ArtifactRoot $artifactRoot
-    Assert-NonEmptyFile $latestPath
+    $manifestPath = & (Join-Path $PSScriptRoot "write-release-metadata.ps1") -Version $Version -ArtifactRoot $artifactRoot
+    Assert-NonEmptyFile $manifestPath
 
     $releaseArtifacts = @($releaseBuilds | ForEach-Object {
         $_.ArtifactPath
         $_.SignaturePath
         $_.ChecksumPath
-    }) + $latestPath
+    }) + $manifestPath
 }
 finally {
     [Environment]::SetEnvironmentVariable("CARGO_TARGET_DIR", $previousReleaseCargoTargetDir, "Process")

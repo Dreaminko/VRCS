@@ -32,40 +32,16 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
+      - name: Install release contract tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools
       - name: Test CI scripts
-        run: node --test scripts/test-ci-changes.mjs scripts/test-release-ci.mjs
+        run: node --test scripts/test-ci-changes.mjs scripts/test-release-ci.mjs scripts/test-release-metadata.mjs
       - name: Detect changed areas
         id: filter
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           FULL_CHECK: ${{ inputs.full-check || false }}
-        run: |
-          base="${BASE_SHA}"
-          rust=false
-          frontend=false
-
-          # Reused workflows and new histories must preserve a full check.
-          if [[ "$FULL_CHECK" == 'true' || -z "$base" || "$base" =~ ^0+$ ]]; then
-            rust=true
-            frontend=true
-          else
-            changed_files="$(git diff --name-only "$base"...HEAD)"
-            while IFS= read -r file; do
-              case "$file" in
-                core/*|crates/*|apps/desktop/src-tauri/*|rust-toolchain.toml|scripts/check-rust.ps1|scripts/test-check-rust.ps1|scripts/test-ci-changes.mjs|scripts/find-release-ci.mjs|scripts/test-release-ci.mjs|scripts/test-release-metadata.ps1|scripts/write-release-metadata.ps1|scripts/prepare-vulkan-runtime.ps1|.github/workflows/ci.yml)
-                  rust=true
-                  ;;
-              esac
-              case "$file" in
-                apps/desktop/*|package.json|package-lock.json|scripts/check-i18n.mjs|scripts/test-ci-changes.mjs|scripts/find-release-ci.mjs|scripts/test-release-ci.mjs|.github/workflows/ci.yml)
-                  frontend=true
-                  ;;
-              esac
-            done <<< "$changed_files"
-          fi
-
-          echo "rust=$rust" >> "$GITHUB_OUTPUT"
-          echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
+        run: node scripts/ci-changes.mjs
 
   frontend:
     needs: changes
@@ -147,11 +123,71 @@ jobs:
         shell: pwsh
         run: ./scripts/check-rust.ps1 -Check test -Vulkan:('${{ matrix.backend }}' -eq 'vulkan') -CiVulkanOnly:('${{ matrix.backend }}' -eq 'vulkan')
 
+  linux:
+    name: linux (${{ matrix.arch }})
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.build
+      VRCS_PACKAGE_CHANNEL: development
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install native desktop dependencies
+        run: bash scripts/install-linux-deps.sh
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-linux-${{ matrix.arch }}-cpu-vulkan-${{ hashFiles('**/Cargo.lock') }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          workspaces: |
+            core -> ../.build
+            apps/desktop/src-tauri -> ../../../.build
+            crates/player-audio-scan -> ../../.build
+      - run: npm ci
+      - run: npm run build:frontend
+      - name: Check native CPU and Vulkan backends and test CPU
+        run: |
+          for manifest in core/Cargo.toml apps/desktop/src-tauri/Cargo.toml crates/player-audio-scan/Cargo.toml; do
+            cargo clippy --locked --manifest-path "$manifest" --all-targets -- -D warnings
+            dbus-run-session -- xvfb-run -a cargo test --locked --manifest-path "$manifest"
+            if [ "$manifest" != crates/player-audio-scan/Cargo.toml ]; then
+              cargo check --locked --manifest-path "$manifest" --all-targets --features vulkan
+            fi
+          done
+      - name: Build and load native ONNX runtime
+        run: node scripts/build-linux-release.mjs --preview
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ci-linux-${{ matrix.arch }}-runtime-${{ github.sha }}
+          path: |
+            preview-artifacts/*.runtime.json
+            preview-artifacts/*.ldd.txt
+          if-no-files-found: error
+
   gate:
-    needs: [changes, frontend, rustfmt, rust]
+    needs: [changes, frontend, rustfmt, rust, linux]
     if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Fail if a required check did not succeed
-        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        if: >-
+          ${{ needs.changes.result != 'success' ||
+              contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') ||
+              (needs.changes.outputs.rust == 'true' &&
+                (needs.rustfmt.result != 'success' || needs.rust.result != 'success' || needs.linux.result != 'success')) ||
+              ((github.event_name == 'push' || needs.changes.outputs.frontend == 'true') && needs.frontend.result != 'success') }}
         run: exit 1

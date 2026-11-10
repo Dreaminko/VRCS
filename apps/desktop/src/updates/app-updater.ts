@@ -3,6 +3,9 @@ import { Channel, invoke, isTauri } from "@tauri-apps/api/core";
 export interface AppBuildInfo {
   version: string;
   variant: "standard";
+  os?: string;
+  arch?: string;
+  packageChannel?: "development" | "installer" | "manual" | "deb" | "appimage";
   updaterAvailable: boolean;
 }
 

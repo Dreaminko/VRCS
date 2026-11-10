@@ -12,7 +12,7 @@ const execute = promisify(execFile);
 const script = fileURLToPath(new URL("./find-release-ci.mjs", import.meta.url));
 const repository = "example/VRCS";
 const sha = "a".repeat(40);
-const requiredJobs = ["changes", "frontend", "rustfmt", "rust (cpu)", "rust (vulkan)", "gate"];
+const requiredJobs = ["changes", "frontend", "rustfmt", "rust (cpu)", "rust (vulkan)", "linux (x86_64)", "linux (aarch64)", "gate"];
 const successfulJobs = requiredJobs.map((name) => ({ name, status: "completed", conclusion: "success" }));
 const successfulRun = {
   id: 123,
@@ -116,6 +116,16 @@ for (const name of requiredJobs) {
     assert.equal((await lookup(t, { pages: [jobs] })).output, "reuse=false\n");
   });
 }
+
+test("rejects historical Windows-only CI even when its gate succeeded", async (t) => {
+  const jobs = successfulJobs.filter((job) => !job.name.startsWith("linux ("));
+  assert.equal((await lookup(t, { pages: [jobs] })).output, "reuse=false\n");
+});
+
+test("rejects a failed native architecture", async (t) => {
+  const jobs = successfulJobs.map((job) => job.name === "linux (aarch64)" ? { ...job, conclusion: "failure" } : job);
+  assert.equal((await lookup(t, { pages: [jobs] })).output, "reuse=false\n");
+});
 
 test("rejects an incomplete job list", async (t) => {
   assert.equal((await lookup(t, { pages: [successfulJobs.slice(1)] })).output, "reuse=false\n");

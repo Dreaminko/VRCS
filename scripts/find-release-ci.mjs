@@ -3,7 +3,7 @@ import { appendFileSync } from "node:fs";
 const repository = process.env.GITHUB_REPOSITORY;
 const sha = process.env.GITHUB_SHA;
 const api = `${process.env.GITHUB_API_URL || "https://api.github.com"}/repos/${repository}`;
-const requiredJobs = ["changes", "frontend", "rustfmt", "rust (cpu)", "rust (vulkan)", "gate"];
+const requiredJobs = ["changes", "frontend", "rustfmt", "rust (cpu)", "rust (vulkan)", "linux (x86_64)", "linux (aarch64)", "gate"];
 
 async function request(path) {
   const response = await fetch(`${api}${path}`, {

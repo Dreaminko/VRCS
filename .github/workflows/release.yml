@@ -7,7 +7,7 @@ on:
     tags:
       - "[0-9]*.[0-9]*.[0-9]*"
     paths:
-      - .github/workflows/release.yml
+      - .github/workflows/**
       - .cargo/**
       - core/**
       - crates/**
@@ -15,10 +15,7 @@ on:
       - package.json
       - package-lock.json
       - rust-toolchain.toml
-      - scripts/build-release.ps1
-      - scripts/run-tauri.ps1
-      - scripts/prepare-vulkan-runtime.ps1
-      - scripts/write-release-metadata.ps1
+      - scripts/**
 
 concurrency:
   group: release-${{ github.ref }}
@@ -59,123 +56,147 @@ jobs:
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
     steps:
       - uses: actions/checkout@v7
-
       - name: Verify release version
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
           $version = (Get-Content -LiteralPath "apps/desktop/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
-          if ($version -ne $env:GITHUB_REF_NAME) {
-            throw "Tag $env:GITHUB_REF_NAME does not match application version $version"
-          }
-
+          if ($version -ne $env:GITHUB_REF_NAME) { throw "Tag does not match application version" }
       - name: Install pinned Rust toolchain
         shell: pwsh
         run: rustup show
-
       - uses: Swatinem/rust-cache@v2
         id: cache
         with:
-          shared-key: release-windows-x64-vulkan
+          shared-key: release-windows-x64-vulkan-${{ hashFiles('**/Cargo.lock') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: |
             core -> ../.build
             apps/desktop/src-tauri -> ../../../.build
-
       - uses: actions/setup-node@v6
         if: startsWith(github.ref, 'refs/tags/') || steps.cache.outputs.cache-hit != 'true'
         with:
           node-version: "24"
           cache: npm
-
       - name: Install frontend dependencies
         if: startsWith(github.ref, 'refs/tags/') || steps.cache.outputs.cache-hit != 'true'
         run: npm ci
-
       - name: Warm release dependency cache
         if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
         run: npm --workspace apps/desktop run tauri -- build --features vulkan --config src-tauri/tauri.release.conf.json --no-sign --no-bundle -- --locked
-
-      - name: Build standard release package
+      - name: Build standard target and manifest
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
-        run: |
-          $version = (Get-Content -LiteralPath "apps/desktop/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
-          .\scripts\build-release.ps1 -Version $version -SkipInstall -SkipTests
-
+        run: ./scripts/build-release.ps1 -SkipInstall -SkipTests
       - uses: actions/upload-artifact@v7
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          name: windows-x64-${{ github.sha }}
+          name: release-windows-x64-${{ github.sha }}
+          path: release-artifacts/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  linux:
+    name: linux (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.build
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install native desktop dependencies
+        run: bash scripts/install-linux-deps.sh
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        id: cache
+        with:
+          shared-key: release-linux-${{ matrix.arch }}-vulkan-${{ hashFiles('**/Cargo.lock') }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          workspaces: |
+            core -> ../.build
+            apps/desktop/src-tauri -> ../../../.build
+      - run: npm ci
+      - name: Warm native dependency cache and load ONNX
+        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        run: node scripts/build-linux-release.mjs --preview
+      - name: Build deb and signed AppImage target manifests
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: node scripts/build-linux-release.mjs --require-signed
+      - uses: actions/upload-artifact@v7
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: release-linux-${{ matrix.arch }}-${{ github.sha }}
           path: release-artifacts/*
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
 
   publish:
-    needs: [ci-status, validate, windows-x64]
+    needs: [ci-status, validate, windows-x64, linux]
     if: >-
       ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') &&
           needs.ci-status.result == 'success' && needs.windows-x64.result == 'success' &&
+          needs.linux.result == 'success' &&
           (needs.ci-status.outputs.reuse == 'true' || needs.validate.result == 'success') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
       - uses: actions/download-artifact@v8
         with:
-          name: windows-x64-${{ github.sha }}
+          pattern: release-*-${{ github.sha }}
+          merge-multiple: true
           path: release-artifacts
-
+      - name: Install package inspection tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools
+      - name: Verify every package, architecture, checksum and updater signature
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: node scripts/release-metadata.mjs aggregate release-artifacts "$GITHUB_REF_NAME"
       - name: Ensure GitHub release exists
-        shell: pwsh
         run: |
-          $tag = $env:GITHUB_REF_NAME
-          $version = $tag
-          $notes = @'
-          Windows 10/11 x64 release for VRCS.
+          cat > "$RUNNER_TEMP/release-notes.txt" <<'NOTES'
+          Windows x64 and native Ubuntu 24.04 x86_64/aarch64 packages.
 
-          - `VRCS-$version-windows-x64.exe` supports cloud recognition and managed local Qwen ASR on CPU or Vulkan. A compatible GPU and graphics driver are required for Vulkan.
-          - Existing local Whisper selections migrate to managed Qwen. Install the Qwen model and runtime in recognition settings before starting local recognition.
-          - Cloud recognition failures use reconnection and no longer fall back to Whisper.
-          - Existing Whisper files remain on disk. You can remove them manually after you confirm that older versions no longer need them. Keep any Qwen packages in the same directory.
-          - Older standard and CUDA clients receive this same standard installer through the updater.
-          - Local recognition models and the Qwen runtime are downloaded through recognition settings. Cloud recognition does not require the Qwen runtime.
-          '@
-          $notes = $notes.Replace('$version', $version)
-          $notesPath = Join-Path $env:RUNNER_TEMP "vrcs-release-notes.md"
-          [System.IO.File]::WriteAllText($notesPath, $notes, [System.Text.UTF8Encoding]::new($false))
-
-          $releaseJson = gh release view $tag --json isDraft 2> $null
-          if ($LASTEXITCODE -eq 0) {
-            $isDraft = ($releaseJson | ConvertFrom-Json).isDraft
-            Write-Host $(if ($isDraft) { "Updating existing draft release $tag" } else { "Updating published release $tag without changing its state" })
-            gh release edit $tag --title "VRCS $tag" --notes-file $notesPath
-          } else {
-            gh release create $tag --draft --title "VRCS $tag" --notes-file $notesPath
-          }
-          if ($LASTEXITCODE -ne 0) {
-            throw "Failed to create or update release $tag"
-          }
-
-      - name: Upload release packages, updater signatures, and checksums
-        shell: pwsh
-        run: |
-          $version = $env:GITHUB_REF_NAME
-          $assets = @(
-            "release-artifacts/VRCS-$version-windows-x64.exe",
-            "release-artifacts/VRCS-$version-windows-x64.exe.sig",
-            "release-artifacts/VRCS-$version-windows-x64.exe.sha256",
-            "release-artifacts/latest.json"
-          )
-          gh release upload $version @assets --clobber
-          if ($LASTEXITCODE -ne 0) {
-            throw "Failed to upload release assets"
-          }
+          Windows standard and legacy CUDA clients receive the same signed installer.
+          Linux deb installations update through the package manager/manual download, not the AppImage updater.
+          AppImage installations use architecture-specific signed in-app updates.
+          Ubuntu 24.04 is the Linux ABI baseline; AppImage does not promise compatibility with older distributions.
+          Install CJK fonts (fonts-noto-cjk) when they are not already available.
+          CI ONNX loading does not replace real desktop/audio/VR and dual-architecture hardware acceptance; consult the compatibility matrix.
+          NOTES
+          if gh release view "$GITHUB_REF_NAME" --json isDraft >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --title "VRCS $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.txt"
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --title "VRCS $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.txt"
+          fi
+      - name: Upload validated release assets
+        run: gh release upload "$GITHUB_REF_NAME" release-artifacts/* --clobber

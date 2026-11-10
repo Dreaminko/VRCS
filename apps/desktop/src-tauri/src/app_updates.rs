@@ -11,6 +11,7 @@ const UPDATE_ENDPOINT: &str =
     "https://github.com/Dreaminko/VRCS/releases/latest/download/latest.json";
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(30);
 const UPDATER_PUBLIC_KEY: Option<&str> = option_env!("TAURI_UPDATER_PUBLIC_KEY");
+const PACKAGE_CHANNEL: Option<&str> = option_env!("VRCS_PACKAGE_CHANNEL");
 
 pub(crate) struct UpdateState {
     pending: Mutex<Option<Update>>,
@@ -39,6 +40,9 @@ impl Drop for BusyGuard<'_> {
 pub(crate) struct BuildInfo {
     version: &'static str,
     variant: &'static str,
+    os: &'static str,
+    arch: &'static str,
+    package_channel: &'static str,
     updater_available: bool,
 }
 
@@ -91,7 +95,28 @@ fn variant() -> &'static str {
 }
 
 fn target() -> String {
-    format!("windows-x86_64-{}", variant())
+    format!(
+        "{}-{}-{}",
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        variant()
+    )
+}
+
+pub(crate) fn updater_available() -> bool {
+    let supported = cfg!(windows)
+        || (cfg!(target_os = "linux") && package_channel() == "appimage");
+    supported && UPDATER_PUBLIC_KEY.is_some_and(|key| !key.trim().is_empty())
+}
+
+fn package_channel() -> &'static str {
+    match PACKAGE_CHANNEL {
+        Some("deb") => "deb",
+        Some("appimage") => "appimage",
+        _ if cfg!(debug_assertions) => "development",
+        _ if cfg!(windows) => "installer",
+        _ => "manual",
+    }
 }
 
 fn acquire_busy(state: &UpdateState) -> Result<BusyGuard<'_>, UpdateError> {
@@ -103,6 +128,9 @@ fn acquire_busy(state: &UpdateState) -> Result<BusyGuard<'_>, UpdateError> {
 }
 
 pub(crate) fn register_plugin(app: &tauri::App) -> tauri::Result<()> {
+    if !updater_available() {
+        return Ok(());
+    }
     let Some(public_key) = UPDATER_PUBLIC_KEY.filter(|key| !key.trim().is_empty()) else {
         tracing::info!("application updater is disabled because no public key was configured");
         return Ok(());
@@ -120,7 +148,10 @@ pub(crate) fn app_build_info() -> BuildInfo {
     BuildInfo {
         version: env!("CARGO_PKG_VERSION"),
         variant: variant(),
-        updater_available: UPDATER_PUBLIC_KEY.is_some_and(|key| !key.trim().is_empty()),
+        os: std::env::consts::OS,
+        arch: std::env::consts::ARCH,
+        package_channel: package_channel(),
+        updater_available: updater_available(),
     }
 }
 
@@ -129,6 +160,9 @@ pub(crate) async fn check_for_update(
     app: AppHandle,
     state: State<'_, UpdateState>,
 ) -> Result<Option<UpdateMetadata>, UpdateError> {
+    if !updater_available() {
+        return Err(UpdateError::Unavailable);
+    }
     let public_key = UPDATER_PUBLIC_KEY
         .filter(|key| !key.trim().is_empty())
         .ok_or(UpdateError::Unavailable)?;
@@ -175,6 +209,9 @@ pub(crate) async fn download_and_install_update(
     state: State<'_, UpdateState>,
     on_event: Channel<DownloadEvent>,
 ) -> Result<(), UpdateError> {
+    if !updater_available() {
+        return Err(UpdateError::Unavailable);
+    }
     let _busy = acquire_busy(&state)?;
     let update = state
         .pending
@@ -205,7 +242,7 @@ pub(crate) async fn download_and_install_update(
 
 #[cfg(test)]
 mod tests {
-    use super::{target, variant, DownloadEvent};
+    use super::DownloadEvent;
     use serde_json::json;
 
     #[test]
@@ -221,11 +258,5 @@ mod tests {
             serde_json::to_value(DownloadEvent::Progress { chunk_length: 128 }).unwrap(),
             json!({ "event": "progress", "data": { "chunkLength": 128 } })
         );
-    }
-
-    #[test]
-    fn updater_target_matches_build_variant() {
-        assert_eq!(variant(), "standard");
-        assert_eq!(target(), "windows-x86_64-standard");
     }
 }
