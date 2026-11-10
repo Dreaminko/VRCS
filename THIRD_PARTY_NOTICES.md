@@ -15,6 +15,12 @@ notices and license terms remain applicable.
 - PLaMo 3 Translate 0.8B GGUF — PLaMo Community License
 - LLVM OpenMP runtime — Apache-2.0 WITH LLVM-exception
 - wasapi-rs — MIT
+- pipewire-rs and libspa-rs — MIT
+- secret-service — MIT OR Apache-2.0
+- ashpd — MIT
+- GTK/WebKitGTK Rust bindings — MIT
+- png — MIT OR Apache-2.0
+- tar and flate2 — MIT OR Apache-2.0
 - Silero VAD — MIT
 - Smart Turn — BSD-2-Clause
 - ONNX Runtime — MIT
@@ -31,7 +37,9 @@ notices and license terms remain applicable.
 The Qwen ASR model and audio projector are downloaded through recognition settings
 and remain subject to their upstream Apache-2.0 license. The llama.cpp runtime
 is downloaded on demand through recognition settings. It includes its MIT
-license and the LLVM OpenMP license.
+license; Windows assets also include the LLVM OpenMP license. Linux CPU/Vulkan assets
+use system glibc, OpenSSL, libstdc++ and libgomp rather than bundling Windows DLLs;
+Vulkan assets additionally use the system Vulkan loader and GPU driver.
 The PLaMo 3 Translate model is downloaded on demand through translation
 settings and remains subject to the upstream PLaMo Community License. Its
 official license copy is retained with the model package.

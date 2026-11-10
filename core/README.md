@@ -4,6 +4,15 @@ VRCS 的本地后端。数据面、音频采集、VAD、本地/云端 ASR 与字
 
 ## 当前状态
 
+Linux 适配位于 `linux` 分支，尚未完成双架构发行验收。
+`GET /api/capabilities` 沿用 Bearer 鉴权，返回 OS、arch 与各功能的
+`supported`／`available`／`reason_code`，不包含凭据。已接入 PipeWire 麦克风／系统输出、
+Secret Service 和固定 llama.cpp b11501 的托管 Qwen CPU/Vulkan；ARM64 原生执行未验证。
+Linux GNU x86_64 支持 PLaMo 本地 CPU 翻译，复用 b11501 运行组件；ARM64 PLaMo 暂未验证，保持禁用。应用独占音频、实验性网络接收仍明确拒绝；OSC 发送独立，用户偏好与模型绑定保留。
+schema 42 增加 `audio.output.device_key`／`audio.microphone.device_key`，保留旧 `device_id`。
+PipeWire key 不存在时要求重选，不回退其他设备；旧 Windows 数值 ID 不在 Linux 猜测映射。
+完整范围与实测限制见 [Linux 开发说明](../CONTRIBUTING.md#linux-development-initial-adaptation)。
+
 | 能力 | 状态 |
 |---|---|
 | 配置读写、schema v1→v29 迁移 | 已实现（`src/config.rs`） |
@@ -28,9 +37,20 @@ Qwen 模型包通过 `/api/asr/local-models/qwen` 管理，下载源固定到已
 
 Core 默认构建和 `--no-default-features` 均支持云端功能和托管 Qwen CPU 识别。`--features vulkan` 允许独立 `llama-server` 运行时使用 Vulkan GPU，无需 Vulkan SDK 或着色器编译器。自动设备模式优先使用可用 GPU；GPU 启动失败且启动时限仍有剩余时尝试 CPU。未启用 Vulkan 时不探测 GPU，自动模式使用 CPU，显式选择 GPU 会报告 Vulkan 后端不可用。语音在本机处理。
 
+Linux GNU x86_64/aarch64 的 Vulkan 构建下载对应的固定 Vulkan 运行包，包含 CPU 后端，无需 Vulkan SDK 或编译着色器；系统需安装 Vulkan loader（Ubuntu 为 `libvulkan1`）及显卡驱动。桌面开发用 `npm run dev:vulkan`，独立 Core 用 `cargo run --manifest-path core/Cargo.toml --features vulkan`。默认开发构建仍仅使用 CPU，Linux 发布/预览包已启用 Vulkan。CPU/Vulkan 运行包按后端分别存放；首次切换到 Vulkan 构建需在模型设置中下载该运行组件，已有 ASR 模型不需重下。
+
 升级配置时，旧本地 Whisper 选择迁移为托管 Qwen；已有 Qwen 设置、目录及校验记录保留。缺少 Qwen 模型或运行时时，需要先安装再开始识别。云端连接失败继续重连，不再回退到 Whisper。远程服务的 Whisper 模型仍可使用。
 
 Windows 构建的本地 PP-OCRv6 small 支持 ONNX Runtime DirectML，无需 CUDA 或 Vulkan SDK。`ocr.device` 默认为 `cpu`，设为 `directml` 时会优先选择高性能兼容 GPU；模型加载或推理失败后回退 CPU。回退后的 CPU 会话保持使用，直到切换推理设备或重新启动服务。`GET /api/ocr/runtime` 返回最近请求的设备、实际加载的设备和回退原因。其他平台会回退 CPU。
+
+Linux GNU x86_64 的 PLaMo 使用固定 `plamo-3-translate-0.8b-Q4_K_M.gguf`
+（revision `dbeb0856cb0b004b484f190bb71dd65876297013`，573,123,200 字节），
+下载后验证 SHA-256 与许可证文件；使用前须确认对应 revision 的 PLaMo Community License。
+在 API 和模型设置中下载共享 llama.cpp 运行组件与 PLaMo 模型，将翻译模型设为 Local PLaMo。
+纯 CPU、无需云端凭据；完整安装后可离线翻译。Linux 启动子进程不继承
+`LD_LIBRARY_PATH`／`LD_PRELOAD`，不需要手工指定系统库路径。
+PLaMo 与 Qwen 使用独立进程、loopback 端口和会话 token，共享已校验的 runtime 文件。
+ARM64 PLaMo 尚未完成原生推理验收，前后端保持禁用，不从 Qwen ARM64 资产外推支持。
 
 ## API Profile 接口
 

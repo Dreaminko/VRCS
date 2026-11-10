@@ -32,6 +32,10 @@
 - 云端识别、翻译和学习分析需要对应服务商的 API 凭据，服务商可能收取费用。
 - OCR 需下载本地 PP-OCRv6 模型。
 
+`linux` 分支已实现 PipeWire 采集、Secret Service、托管 Qwen CPU/Vulkan、Portal 选区与原生打包。GPU 开发使用 `npm run dev:vulkan`，Linux 原生包已启用 Vulkan 支持。
+Linux GNU x86_64 已支持 PLaMo 本地 CPU 翻译；Linux VR 仍不可用，ARM64 实机与签名发布尚未验收。本地产物不等于正式发行版。
+实测结果、逐架构限制与发布门槛见 [Linux 开发说明](CONTRIBUTING.md#linux-development-initial-adaptation)。
+
 ## 首次使用
 
 1. 按设置向导选择语言，以及本地或云端识别。

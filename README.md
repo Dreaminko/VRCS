@@ -32,6 +32,13 @@ Download `VRCS-<version>-windows-x64.exe` from [GitHub Releases](https://github.
 - Cloud recognition, translation, and learning analysis require the selected provider's API credentials. Provider charges may apply.
 - For OCR, download the local PP-OCRv6 models.
 
+Native Linux adaptation is in progress on `linux`: PipeWire capture, Secret Service,
+managed Qwen CPU/Vulkan, Portal image selection and native packaging are implemented.
+Use `npm run dev:vulkan` for GPU recognition; native Linux packages include Vulkan support.
+Linux GNU x86_64 also supports local PLaMo CPU translation. Linux VR remains unavailable;
+ARM64 hardware acceptance and signed publication are not complete. See [Linux development](CONTRIBUTING.md#linux-development-initial-adaptation)
+for measured results and release gates. Local artifacts are not a published release.
+
 ## Getting started
 
 1. Follow the setup wizard to select a language and local or cloud recognition.
