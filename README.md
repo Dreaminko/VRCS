@@ -39,6 +39,15 @@ Linux GNU x86_64 also supports local PLaMo CPU translation. Linux VR remains una
 ARM64 hardware acceptance and signed publication are not complete. See [Linux development](CONTRIBUTING.md#linux-development-initial-adaptation)
 for measured results and release gates. Local artifacts are not a published release.
 
+Linux x86_64 player audio and Chatbox network reception remain experimental;
+real VRChat/Proton reception and sustained operation still require game acceptance.
+The full Ubuntu deb installs the root-owned helper and polkit policy and declares
+`pkexec`, `polkitd` and `libopus0` dependencies. Capture also needs a polkit
+authentication agent running in your graphical session. AppImage installs neither
+the helper nor its policy: use manual installation or the full deb; no standalone
+helper package is currently published. See the Linux development guide above for
+Arch installation, updates and removal. `npm run dev` does not install the helper.
+
 ## Getting started
 
 1. Follow the setup wizard to select a language and local or cloud recognition.

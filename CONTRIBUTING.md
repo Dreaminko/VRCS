@@ -79,9 +79,45 @@ Vulkan loader (`libvulkan1` on Ubuntu) and a compatible GPU driver, not a GPU SD
 
 For the Ubuntu 24.04 native build baseline, install Node.js 24+ and the pinned
 Rust toolchain, then run `bash scripts/install-linux-deps.sh`, `npm ci`, and
-`npm run dev` in a graphical user session. The dependency script includes
-WebKitGTK 4.1/GTK3, PipeWire/SPA, D-Bus, AppIndicator, native build tools, and CJK
-fonts. It is a build prerequisite list, not a portability guarantee.
+`npm run dev` in a graphical user session. Linux network capture additionally
+needs the root-owned `vrcs-network-helper` and its polkit policy, installed by the
+full deb or manually as below. `npm run dev` does not install or update either
+file; a build-tree helper is intentionally not executed through pkexec. The
+dependency script includes WebKitGTK 4.1/GTK3, PipeWire/SPA, D-Bus, AppIndicator,
+native build tools, CJK fonts, `libopus0`, `pkexec` and `polkitd`. A running polkit
+authentication agent in the graphical user session is also required (provided by
+many desktops; start your compositor's configured agent on minimal Wayland
+sessions). It is a build prerequisite list, not a portability guarantee.
+
+For Arch Linux x86_64 development, install the network runtime prerequisites and
+the existing helper/policy from the repository root after setting up Rust:
+
+```sh
+sudo pacman -S --needed polkit opus
+cargo build --locked --manifest-path crates/player-audio-helper/Cargo.toml --target-dir .build
+sudo install -d -o root -g root -m 0755 /usr/lib/vrcs
+sudo install -o root -g root -m 0755 .build/debug/vrcs-network-helper /usr/lib/vrcs/vrcs-network-helper
+sudo install -o root -g root -m 0644 packaging/linux/app.vrcs.network-capture.policy /usr/share/polkit-1/actions/app.vrcs.network-capture.policy
+```
+
+Use the canonical `/usr/lib/vrcs/vrcs-network-helper` path: the policy authorizes
+that exact executable. Keep it and its parent directories root-owned and not
+writable by group/others; do not symlink it to a user-writable checkout or install
+it setuid. Run VRCS as your normal user and authorize the first capture through
+the session's polkit agent. To update, stop capture and repeat the build and
+installation commands from the matching application revision. To uninstall a
+manual installation, stop capture and run:
+
+```sh
+sudo rm -f /usr/lib/vrcs/vrcs-network-helper /usr/share/polkit-1/actions/app.vrcs.network-capture.policy
+```
+
+For a deb-managed installation, upgrade/remove the full deb with your package
+manager instead. AppImage installs neither file; use the manual procedure or the
+full deb on Ubuntu. There is currently no separately published helper package.
+These steps install prerequisites only: network capture remains experimental,
+and real VRChat/Proton reception, authorization and sustained operation still
+require game acceptance.
 
 Implemented boundaries:
 
@@ -91,6 +127,9 @@ Implemented boundaries:
 - Native PipeWire microphone and sink-monitor capture use stable device keys.
   Schema 42 preserves numeric IDs and backs up schema 41. Missing/imported
   devices require reselection; they never silently fall back to another device.
+  Once running, default-device capture rebuilds after device loss, stream
+  disconnection or a PipeWire restart while retaining its PCM channel. Recovery
+  waits remain cancellable; explicit selections and permanent errors still fail.
 - Secret Service stores profile-isolated credentials; environment overrides
   retain precedence. Missing/locked services and cancelled prompts report errors;
   no plaintext credential fallback is introduced.
@@ -104,8 +143,15 @@ Implemented boundaries:
   CPU-only on Linux GNU x86_64, sharing the selected runtime through a separate
   authenticated loopback process; its model and license consent remain independent.
   ARM64 PLaMo remains disabled; ARM64 Qwen CPU/Vulkan execution is not yet verified.
-  Application-only audio, experimental player audio, Chatbox network reception
-  and key acquisition remain excluded; OSC sending is independent.
+  Application-only audio and Linux VR remain excluded; OSC sending is
+  independent. Linux GNU x86_64 now has helper-backed experimental player audio
+  and Chatbox network reception. The deb installs the root-owned
+  `vrcs-network-helper` and its polkit policy in the same package; AppImage needs
+  manual helper/policy installation or the full deb. No standalone helper package
+  is currently published. Capture needs a session polkit agent and system Opus.
+  Real VRChat/Proton traffic, authorization, packaging, anti-cheat behavior and
+  long-running capture are not yet accepted, and ARM64 network capture remains
+  unsupported.
 - ScreenCast Portal capture requests one user-selected source, receives one frame
   through its authorized PipeWire remote, closes capture, then opens an in-app
   frozen-frame picker. Only the crop reaches OCR/vision. Shared memory and packed
@@ -126,13 +172,14 @@ Implemented boundaries:
   Same-commit CI reuse requires both Linux jobs. Workflow configuration is not
   evidence that the remote jobs have run successfully.
 
-Measured evidence (2026-11-10; x86_64 Xeon E3-1245 v6, Arch/niri Wayland unless
+Measured evidence (2026-11-10 unless dated otherwise; x86_64 Xeon E3-1245 v6, Arch/niri Wayland unless
 otherwise stated):
 
 | Boundary | Exercised result | Not established |
 | --- | --- | --- |
 | Native desktop | WebKitGTK onboarding, settings and compact-window interaction; Core startup and configuration migration | GNOME/KDE desktop sessions, Windows regression, ARM64 native runtime |
 | PipeWire 1.6.10 / WirePlumber 0.5.18 | Disposable graph at 48 kHz and 44.1 kHz; microphone and monitor each deliver 24×512 finite, nonzero mono 16 kHz samples; stop 23/28 ms; missing/numeric IDs and destroyed source rejected | Real devices, default switching/hotplug, 30-minute run, Ubuntu PipeWire baseline, ARM64 |
+| PipeWire default recovery (2026-11-11) | Disposable graph: default source removal/recreation resumed microphone PCM; a live PipeWire restart resumed both microphone and sink-monitor PCM; explicit source loss still failed; both captures stopped within 1 s while defaults were absent | Physical device unplug/replug, desktop audio-service integration and ARM64 |
 | Secret Service | Disposable D-Bus/GNOME keyring: two profiles, reconnect reads, update and idempotent deletion; lifecycle test passed | Real user unlock/cancel UI, desktop restart persistence on both architectures |
 | Qwen CPU | Real pinned download/install/launch; 0.6B Q8 model transcribes the fixed JFK sample on both channels; forced-exit recovery and cleanup passed (104.52 s for the whole lifecycle test, not per-request latency) | ARM64 execution and sustained real-time performance |
 | Qwen Vulkan / Linux GNU x86_64 | Pinned Vulkan runtime download, verification, installation and device enumeration passed; Intel HD Graphics P630 / Mesa 26.2.6 transcribed the JFK sample on both channels, then recovered after forced exit; the combined CPU/GPU lifecycle test passed in 45.15 s (not per-request latency) | ARM64 execution, AMD/NVIDIA drivers, sustained real-time performance and GPU-startup fallback hardware acceptance |
