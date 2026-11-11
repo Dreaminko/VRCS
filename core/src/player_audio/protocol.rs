@@ -196,7 +196,7 @@ pub(super) fn voice(message: &[u8]) -> Option<Vec<VoicePacket>> {
     Some(packets)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub(super) fn joined_world(message: &[u8]) -> Option<String> {
     let at = message
         .windows(3)

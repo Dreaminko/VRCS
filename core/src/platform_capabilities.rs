@@ -8,6 +8,7 @@ pub const CREDENTIALS_UNAVAILABLE: &str = "platform.credentials_unavailable";
 pub const QWEN_UNAVAILABLE: &str = "platform.qwen_unavailable";
 pub const LOCAL_TRANSLATION_UNAVAILABLE: &str = "platform.local_translation_unavailable";
 pub const NETWORK_CAPTURE_UNSUPPORTED: &str = "platform.network_capture_unsupported";
+pub const NETWORK_HELPER_MISSING: &str = "platform.network_helper_missing";
 pub const DIRECTML_UNSUPPORTED: &str = "platform.directml_unsupported";
 pub const DEVICE_KEY_UNSUPPORTED: &str = "platform.audio_device_reselection_required";
 
@@ -86,11 +87,39 @@ pub(crate) fn require_local_translation() -> Result<(), &'static str> {
     }
 }
 
-pub(crate) fn require_network_capture() -> Result<(), &'static str> {
+pub(crate) const fn network_capture_supported() -> bool {
+    cfg!(windows)
+        || cfg!(all(
+            target_os = "linux",
+            target_arch = "x86_64",
+            target_env = "gnu"
+        ))
+}
+
+pub(crate) fn network_capture_available() -> bool {
     if cfg!(windows) {
+        true
+    } else if cfg!(target_os = "linux") {
+        crate::player_audio::network_available()
+    } else {
+        false
+    }
+}
+
+pub(crate) fn require_network_capture_supported() -> Result<(), &'static str> {
+    if network_capture_supported() {
         Ok(())
     } else {
         Err(NETWORK_CAPTURE_UNSUPPORTED)
+    }
+}
+
+pub(crate) fn require_network_capture() -> Result<(), &'static str> {
+    require_network_capture_supported()?;
+    if network_capture_available() {
+        Ok(())
+    } else {
+        Err(NETWORK_HELPER_MISSING)
     }
 }
 

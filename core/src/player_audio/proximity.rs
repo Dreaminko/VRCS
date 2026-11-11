@@ -130,18 +130,18 @@ impl Registry {
         Some((delta_x * delta_x + delta_y * delta_y + delta_z * delta_z).sqrt())
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn remove(&mut self, id: &str) {
         self.players.remove(id);
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn clear(&mut self) {
         self.local = None;
         self.players.clear();
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn fresh_players(&self, now: Instant) -> usize {
         self.players
             .values()
@@ -149,12 +149,12 @@ impl Registry {
             .count()
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn local_fresh(&self, now: Instant) -> bool {
         self.local.as_ref().is_some_and(|value| fresh(value, now))
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn player_ids(&self) -> impl Iterator<Item = &str> {
         self.players.keys().map(String::as_str)
     }

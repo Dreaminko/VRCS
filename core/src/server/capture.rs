@@ -346,15 +346,17 @@ pub(crate) async fn validate_capture_config(
 }
 
 pub(crate) fn platform_error(code: &'static str) -> (StatusCode, Json<Value>) {
-    api_error(
-        StatusCode::SERVICE_UNAVAILABLE,
-        code,
-        "The requested backend is not implemented for this platform",
-    )
+    let detail = if code == crate::platform_capabilities::NETWORK_HELPER_MISSING {
+        "Install the matching vrcs-network-helper package before starting network capture"
+    } else {
+        "The requested backend is not implemented for this platform"
+    };
+    api_error(StatusCode::SERVICE_UNAVAILABLE, code, detail)
 }
 
 pub(crate) fn validate_platform_capture(config: &AppConfig) -> ApiResult<()> {
-    if config.audio.output.mode == "vrchat_players" || config.vrchat_chatbox.enabled {
+    let consumers = NetworkConsumers::from_config(config);
+    if consumers.voice || consumers.chatbox {
         crate::platform_capabilities::require_network_capture().map_err(platform_error)?;
     }
     if config.audio.output.mode == "vrchat" && !cfg!(windows) {
@@ -454,12 +456,12 @@ async fn start_speaker_pipeline(
     let process_name = (output.mode == "vrchat").then_some("VRChat.exe");
     let (asr, echo_guard) = effective_asr_config(state, config, "speaker");
     if output.mode == "vrchat_players" {
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             let _ = voice;
             return Err(platform_error(crate::platform_capabilities::NETWORK_CAPTURE_UNSUPPORTED));
         }
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         {
         let events = voice.ok_or_else(|| {
             api_error(
@@ -724,7 +726,7 @@ pub(crate) async fn reconcile_network(
                 detail,
             )
         })?;
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     // Linux rejects network consumers above; only Windows owns their worker.
     if let Some(receiver) = subscriptions.chatbox {
         if let Some(task) = state.capture.chatbox_task.lock().await.take() {
@@ -754,7 +756,8 @@ pub(crate) async fn stop_pipelines(state: &CaptureContext, plan: CaptureReloadPl
                 chatbox: !plan.chatbox && network.chatbox_status().is_some(),
             };
             // Detach before aborting the consumer so in-flight text loses validity.
-            network.detach(consumers).await;
+            // The reconciled replacement consumers decide whether capture stops.
+            network.detach_outputs(consumers);
         }
     }
     if plan.chatbox || plan.network_restart {

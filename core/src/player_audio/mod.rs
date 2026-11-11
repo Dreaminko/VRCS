@@ -1,39 +1,47 @@
-//! Experimental Windows network audio, independent of device capture and routing.
+//! Experimental Windows/Linux network audio, independent of device capture and routing.
 //! Portable parsers and session algorithms remain available to cross-platform tests.
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod buffer;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod cache;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod chatbox;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub(crate) use cache::SessionCache;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod crypto;
 #[cfg(any(windows, test))]
 mod key;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod names;
 #[cfg(any(windows, test))]
 mod ntfs;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod opus;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod protocol;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod proximity;
 #[cfg(test)]
 mod replay_tests;
+#[cfg(any(windows, target_os = "linux", test))]
+mod connection;
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(any(windows, target_os = "linux"))]
+mod platform;
 pub(crate) mod session;
+#[cfg(target_os = "linux")]
+pub(crate) use linux::network_available;
 #[cfg(windows)]
 mod windows;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 mod worker;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod world;
 
 use serde::Serialize;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
@@ -59,7 +67,7 @@ pub(crate) struct ProximityStatus {
     pub tracked_players: usize,
     pub excluded_packets: u64,
     pub unknown_packets: u64,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     #[serde(skip)]
     pub blocked_players: HashSet<String>,
 }
@@ -104,23 +112,23 @@ impl Default for Status {
 pub(crate) type SharedStatus = Arc<Mutex<Status>>;
 
 pub(crate) enum AudioEvent {
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "linux", test))]
     Speaker(crate::models::SpeakerIdentity),
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     Frame {
         speaker: crate::models::SpeakerIdentity,
         samples: Vec<f32>,
         position: u64,
     },
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     Closed(String),
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     /// The player left the configured proximity window during recognition.
     Excluded(String),
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     /// A prior exclusion barrier has drained; new voice frames may start a fresh batch.
     Admitted(String),
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     /// Decoder retired after silence; the player/identity is still in the room.
     Idle(String),
 }
@@ -140,14 +148,14 @@ impl Capture {
         config: crate::config::PlayerAudioConfig,
         status: SharedStatus,
         outputs: session::SharedOutputs,
-        #[cfg(windows)] cache: Arc<SessionCache>,
+        #[cfg(any(windows, target_os = "linux"))] cache: Arc<SessionCache>,
         settings: Arc<std::sync::RwLock<crate::config::AppConfig>>,
     ) -> Result<Self, String> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         {
             worker::start(config, status, outputs, cache, settings)
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             let _ = (config, status, outputs, settings);
             Err("VRChat network capture is available only on Windows".into())

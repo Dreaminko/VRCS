@@ -63,8 +63,11 @@ pub(super) async fn validate_candidate(
             ));
         }
     }
-    if candidate.vrchat_chatbox.enabled && candidate.vrchat_chatbox != current.vrchat_chatbox {
-        crate::platform_capabilities::require_network_capture()
+    if candidate.audio.output.player_audio.enabled
+        && candidate.vrchat_chatbox.enabled
+        && candidate.vrchat_chatbox != current.vrchat_chatbox
+    {
+        crate::platform_capabilities::require_network_capture_supported()
             .map_err(super::super::super::capture::platform_error)?;
     }
     if candidate.audio != current.audio {
@@ -77,12 +80,17 @@ async fn validate_audio_devices(
     current: crate::config::AudioConfig,
     config: crate::config::AudioConfig,
 ) -> ApiResult<()> {
-    if config.output.mode == "vrchat_players" && config.output.mode != current.output.mode {
-        crate::platform_capabilities::require_network_capture()
+    if config.output.player_audio.enabled
+        && config.output.mode == "vrchat_players"
+        && config.output.mode != current.output.mode
+    {
+        crate::platform_capabilities::require_network_capture_supported()
             .map_err(super::super::super::capture::platform_error)?;
     }
-    if config.output.player_audio != current.output.player_audio {
-        crate::platform_capabilities::require_network_capture()
+    if config.output.player_audio.enabled
+        && config.output.player_audio != current.output.player_audio
+    {
+        crate::platform_capabilities::require_network_capture_supported()
             .map_err(super::super::super::capture::platform_error)?;
     }
     if config.output.mode == "vrchat" && config.output.mode != current.output.mode && !cfg!(windows) {

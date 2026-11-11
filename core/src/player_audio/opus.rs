@@ -14,7 +14,7 @@ pub(super) struct Opus {
 }
 
 impl Opus {
-    #[cfg(all(windows, test))]
+    #[cfg(test)]
     pub(super) fn test_tone(&self, frequency: f32, frames: usize) -> Vec<Vec<u8>> {
         type EncoderCreate = unsafe extern "C" fn(c_int, c_int, c_int, *mut c_int) -> *mut c_void;
         type Encode = unsafe extern "C" fn(*mut c_void, *const f32, c_int, *mut u8, c_int) -> c_int;
@@ -56,10 +56,18 @@ impl Opus {
     }
 
     pub(super) fn load(path: &Path) -> Result<Arc<Self>, String> {
+        #[cfg(windows)]
         if !path.is_absolute() || !path.is_file() {
             return Err("Select an existing absolute path to opus.dll".into());
         }
-        // The explicitly selected or current game's absolute path avoids DLL search-path loading.
+        #[cfg(target_os = "linux")]
+        let path = if path.is_file() {
+            path
+        } else {
+            // Imported Windows paths are ignored; the distro provides libopus.
+            Path::new("libopus.so.0")
+        };
+        // The manually selected absolute path avoids DLL search-path loading on Windows.
         unsafe {
             let library =
                 libloading::Library::new(path).map_err(|e| format!("Cannot load Opus: {e}"))?;

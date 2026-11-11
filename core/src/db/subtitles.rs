@@ -83,7 +83,7 @@ pub struct ConversationSubtitleContext {
 }
 
 impl Database {
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(crate) fn update_speaker_identity(
         &self,
         speaker: &crate::models::SpeakerIdentity,

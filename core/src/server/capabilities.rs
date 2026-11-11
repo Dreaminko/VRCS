@@ -85,9 +85,13 @@ pub(crate) async fn snapshot(state: &AppState) -> PlatformCapabilities {
                 "platform.application_audio_unavailable",
             ),
             player_audio: Capability::runtime(
-                cfg!(windows),
-                cfg!(windows),
-                platform::NETWORK_CAPTURE_UNSUPPORTED,
+                platform::network_capture_supported(),
+                platform::network_capture_available(),
+                if platform::network_capture_supported() {
+                    platform::NETWORK_HELPER_MISSING
+                } else {
+                    platform::NETWORK_CAPTURE_UNSUPPORTED
+                },
             ),
         },
         credentials: Capability::runtime(
@@ -130,9 +134,13 @@ pub(crate) async fn snapshot(state: &AppState) -> PlatformCapabilities {
         chatbox: ChatboxCapabilities {
             osc_send: Capability::runtime(true, true, "platform.osc_unavailable"),
             network_receive: Capability::runtime(
-                cfg!(windows),
-                cfg!(windows),
-                platform::NETWORK_CAPTURE_UNSUPPORTED,
+                platform::network_capture_supported(),
+                platform::network_capture_available(),
+                if platform::network_capture_supported() {
+                    platform::NETWORK_HELPER_MISSING
+                } else {
+                    platform::NETWORK_CAPTURE_UNSUPPORTED
+                },
             ),
         },
     }
@@ -195,10 +203,13 @@ mod tests {
         assert_eq!(capabilities["inference"]["local_translation"]["supported"], crate::platform_capabilities::local_translation_supported());
         assert_eq!(capabilities["inference"]["local_translation"]["available"], false);
         assert_eq!(capabilities["chatbox"]["osc_send"]["supported"], true);
-        assert_eq!(capabilities["audio"]["player_audio"]["supported"], false);
+        assert_eq!(
+            capabilities["audio"]["player_audio"]["supported"],
+            crate::platform_capabilities::network_capture_supported()
+        );
         assert_eq!(
             capabilities["chatbox"]["network_receive"]["supported"],
-            false
+            crate::platform_capabilities::network_capture_supported()
         );
         let before: Value = request(reqwest::Method::GET, "/api/settings")
             .send()
@@ -207,30 +218,28 @@ mod tests {
             .json()
             .await
             .unwrap();
-        for (path, body, code) in [
-            (
-                "/api/capture/start",
-                json!({}),
-                "platform.network_capture_unsupported",
-            ),
-            (
-                "/api/audio/microphone-test/start",
-                json!({}),
-                "audio.microphone_test_disabled",
-            ),
-        ] {
-            let response = request(reqwest::Method::POST, path)
-                .json(&body)
+        if !crate::platform_capabilities::network_capture_available() {
+            let response = request(reqwest::Method::POST, "/api/capture/start")
+                .json(&json!({}))
                 .send()
                 .await
                 .unwrap();
-            assert!(!response.status().is_success(), "{path}");
+            assert!(!response.status().is_success());
             assert_eq!(
                 response.json::<Value>().await.unwrap()["code"],
-                code,
-                "{path}"
+                "platform.network_helper_missing"
             );
         }
+        let response = request(reqwest::Method::POST, "/api/audio/microphone-test/start")
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert!(!response.status().is_success());
+        assert_eq!(
+            response.json::<Value>().await.unwrap()["code"],
+            "audio.microphone_test_disabled"
+        );
         let preview: Value = request(reqwest::Method::POST, "/api/translations/preview")
             .json(&json!({"text": "hello", "source_language": "en", "target_language": "ja"}))
             .send().await.unwrap().json().await.unwrap();
@@ -241,7 +250,7 @@ mod tests {
         });
         let mut selection = before.clone();
         selection["audio"]["output"]["player_audio"]["proximity"]["radius_m"] = json!(5.0);
-        let rejected: Value = request(reqwest::Method::PUT, "/api/settings")
+        let saved: Value = request(reqwest::Method::PUT, "/api/settings")
             .json(&selection)
             .send()
             .await
@@ -249,7 +258,10 @@ mod tests {
             .json()
             .await
             .unwrap();
-        assert_eq!(rejected["code"], "platform.network_capture_unsupported");
+        assert_eq!(
+            saved["audio"]["output"]["player_audio"]["proximity"]["radius_m"],
+            json!(5.0)
+        );
         let mut repair = before.clone();
         repair["audio"]["output"]["trigger_threshold_dbfs"] = json!(-50.0);
         assert!(request(reqwest::Method::PUT, "/api/settings")

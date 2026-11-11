@@ -27,7 +27,7 @@ mod migration_tests;
 #[cfg(test)]
 mod validation_tests;
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub use audio::PlayerProximityConfig;
 pub use audio::{AudioConfig, MicrophoneConfig, OutputConfig, PlayerAudioConfig, VadConfig};
 pub use conversation_titles::{ConversationTitleConfig, TITLE_OUTPUT_LANGUAGES};

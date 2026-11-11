@@ -1,0 +1,19 @@
+[package]
+name = "player-audio-helper"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+publish = false
+
+[lib]
+name = "player_audio_helper"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vrcs-network-helper"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+player-audio-scan = { path = "../player-audio-scan" }
+zeroize = "1"

@@ -35,6 +35,7 @@ ring = "0.17"
 zeroize = "1"
 libloading = "0.8"
 player-audio-scan = { path = "../crates/player-audio-scan" }
+player-audio-helper = { path = "../crates/player-audio-helper" }
 serde_ignored = "0.1"
 uuid = { version = "1", features = ["v4"] }
 thiserror = "2"
@@ -44,6 +45,7 @@ flate2 = "=1.1.9"
 tar = { version = "=0.4.46", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 pipewire = { version = "=0.10.1", features = ["v0_3_65"] }
 secret-service = { version = "=5.2.0", default-features = false, features = ["rt-async-io-crypto-rust"] }
 

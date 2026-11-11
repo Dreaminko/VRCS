@@ -11,6 +11,9 @@ const LINE_LIMIT: usize = 4096;
 
 pub(super) struct WorldWatcher {
     directory: PathBuf,
+    #[cfg(target_os = "linux")]
+    pid: Option<u32>,
+    error: Option<String>,
     started: SystemTime,
     path: Option<PathBuf>,
     offset: u64,
@@ -35,9 +38,19 @@ impl WorldWatcher {
         )
     }
 
+    #[cfg(target_os = "linux")]
+    pub fn for_process(owner: super::cache::ProcessIdentity) -> Self {
+        let mut watcher = Self::new(PathBuf::new(), linux_process_start(owner.created));
+        watcher.pid = Some(owner.pid);
+        watcher
+    }
+
     fn new(directory: PathBuf, started: SystemTime) -> Self {
         Self {
             directory,
+            #[cfg(target_os = "linux")]
+            pid: None,
+            error: None,
             started,
             path: None,
             offset: 0,
@@ -50,10 +63,18 @@ impl WorldWatcher {
     }
 
     pub fn poll(&mut self) -> bool {
-        if self.refresh().is_err() {
-            self.ready = false;
-        }
+        self.error = match self.refresh() {
+            Ok(()) => None,
+            Err(error) => {
+                self.ready = false;
+                Some(format!("Cannot read the current VRChat world log: {error}"))
+            }
+        };
         self.ready && self.caught_up
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
     }
     /// Cache identity only while the same process, room and membership remain.
     /// Byte position distinguishes repeated joins with identical timestamp/name.
@@ -72,6 +93,22 @@ impl WorldWatcher {
             .started
             .checked_sub(Duration::from_secs(2))
             .unwrap_or(self.started);
+        #[cfg(target_os = "linux")]
+        if self.path.is_none() {
+            if let Some(pid) = self.pid {
+                let environment = fs::read(format!("/proc/{pid}/environ")).unwrap_or_default();
+                let home = std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .unwrap_or_default();
+                self.directory =
+                    linux_log_directory(&environment, &home, earliest).ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "waiting for an output_log in the target Wine/Proton prefix",
+                        )
+                    })?;
+            }
+        }
         let newest = fs::read_dir(&self.directory)?
             .filter_map(Result::ok)
             .filter_map(|entry| {
@@ -162,6 +199,75 @@ impl WorldWatcher {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn linux_log_directory(
+    environment: &[u8],
+    home: &std::path::Path,
+    earliest: SystemTime,
+) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let variable = |name: &[u8]| {
+        environment
+            .split(|byte| *byte == 0)
+            .find_map(|value| value.strip_prefix(name))
+            .map(|value| PathBuf::from(std::ffi::OsStr::from_bytes(value)))
+            .filter(|path| path.is_absolute())
+    };
+    let prefix = variable(b"WINEPREFIX=")
+        .or_else(|| variable(b"STEAM_COMPAT_DATA_PATH=").map(|path| path.join("pfx")))
+        .or_else(|| {
+            variable(b"STEAM_COMPAT_INSTALL_PATH=")
+                .and_then(|path| Some(path.parent()?.parent()?.join("compatdata/438100/pfx")))
+        });
+    let prefixes = prefix.map(|path| vec![path]).unwrap_or_else(|| vec![
+        home.join(".steam/steam/steamapps/compatdata/438100/pfx"),
+        home.join(".local/share/Steam/steamapps/compatdata/438100/pfx"),
+        home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/compatdata/438100/pfx"),
+    ]);
+    prefixes
+        .iter()
+        .flat_map(|prefix| {
+            fs::read_dir(prefix.join("drive_c/users"))
+                .into_iter()
+                .flatten()
+        })
+        .filter_map(Result::ok)
+        .filter_map(|user| {
+            let directory = user.path().join("AppData/LocalLow/VRChat/VRChat");
+            let latest = fs::read_dir(&directory)
+                .ok()?
+                .filter_map(Result::ok)
+                .filter(|entry| {
+                    let name = entry.file_name();
+                    let name = name.to_string_lossy();
+                    name.starts_with("output_log_") && name.ends_with(".txt")
+                })
+                .filter_map(|entry| entry.metadata().ok())
+                .filter(|metadata| metadata.is_file())
+                .filter_map(|metadata| metadata.created().or_else(|_| metadata.modified()).ok())
+                .filter(|created| *created >= earliest)
+                .max()?;
+            Some((latest, directory))
+        })
+        .max_by_key(|(latest, _)| *latest)
+        .map(|(_, directory)| directory)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_start(created: u64) -> SystemTime {
+    let seconds = fs::read_to_string("/proc/stat").ok().and_then(|stat| {
+        stat.lines()
+            .find_map(|line| line.strip_prefix("btime "))
+            .and_then(|value| value.trim().parse::<u64>().ok())
+    });
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    let hz = u64::try_from(hz).unwrap_or(100).max(1);
+    seconds
+        .map(|seconds| SystemTime::UNIX_EPOCH + Duration::from_secs(seconds + created / hz))
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+}
+
 fn read_range(file: &mut File, offset: u64, length: u64) -> std::io::Result<Vec<u8>> {
     file.seek(SeekFrom::Start(offset))?;
     let mut bytes = Vec::with_capacity(length as usize);
@@ -238,6 +344,37 @@ fn identity_marker(bytes: &[u8], base: u64) -> Option<(u64, u64)> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn waits_for_the_target_prefix_log_instead_of_using_another_prefix() {
+        let home = tempfile::tempdir().unwrap();
+        let unrelated = home.path().join(".local/share/Steam/steamapps/compatdata/438100/pfx/drive_c/users/steamuser/AppData/LocalLow/VRChat/VRChat");
+        fs::create_dir_all(&unrelated).unwrap();
+        fs::write(
+            unrelated.join("output_log_other.txt"),
+            line("Memory Usage: after world loaded"),
+        )
+        .unwrap();
+        let prefix = home.path().join("custom-wine-prefix");
+        let environment = format!("WINEPREFIX={}\0", prefix.display());
+        assert!(
+            linux_log_directory(environment.as_bytes(), home.path(), SystemTime::UNIX_EPOCH)
+                .is_none()
+        );
+        let directory = prefix.join("drive_c/users/player/AppData/LocalLow/VRChat/VRChat");
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(
+            directory.join("output_log_current.txt"),
+            line("Memory Usage: after world loaded"),
+        )
+        .unwrap();
+        let discovered =
+            linux_log_directory(environment.as_bytes(), home.path(), SystemTime::UNIX_EPOCH)
+                .unwrap();
+        assert_eq!(discovered, directory);
+        assert!(WorldWatcher::new(discovered, SystemTime::UNIX_EPOCH).poll());
+    }
     fn line(message: &str) -> String {
         format!("2026.10.25 03:00:00 Debug      -  {message}\n")
     }

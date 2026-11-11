@@ -1,15 +1,18 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+#[cfg(windows)]
+use std::sync::mpsc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::buffer::JitterBuffer;
 use super::cache::{self, Lookup, SessionCache, Verification};
+use super::connection::{Connection, Datagram};
 use super::crypto::SessionKey;
 use super::opus::{Decoder, Opus};
+use super::platform::{self, Network};
 use super::protocol::{self, Parser, VoicePacket};
 use super::session::SharedOutputs;
-use super::windows::{self, Connection, Network};
 use super::{AudioEvent, Capture, SharedStatus};
 use crate::config::{PlayerAudioConfig, PlayerProximityConfig};
 use crate::models::SpeakerIdentity;
@@ -58,8 +61,7 @@ impl EventSender {
     }
 
     fn is_closed(&self) -> bool {
-        let outputs = self.0.lock().expect("network outputs");
-        !outputs.voice_enabled() && !outputs.chatbox_enabled()
+        self.0.lock().expect("network outputs").network_closed()
     }
 }
 
@@ -115,31 +117,30 @@ fn supervise(
     cache: &SessionCache,
     settings: &Arc<std::sync::RwLock<crate::config::AppConfig>>,
 ) -> Result<(), String> {
-    while let Some((pid, path)) = wait_for_game(stop, status, windows::game)? {
+    while let Some((pid, path)) = wait_for_game(stop, status, platform::game)? {
         if tx.is_closed() {
             break;
         }
         // Game installation and sockets are opened only after a process exists;
         // starting transcription itself never requires being in VRChat.
-        let owner = match windows::process_identity(pid) {
+        let owner = match platform::process_identity(pid) {
             Ok(owner) => owner,
             Err(_) => {
                 wait_cancellable(stop, Duration::from_millis(250));
                 continue;
             }
         };
-        let default_opus_path = path
-            .parent()
-            .ok_or("Cannot find the VRChat installation")?
-            .join("VRChat_Data/Plugins/x86_64/opus.dll");
-        let network = Network::open()?;
-        let ports = windows::game_ports(pid)?;
+        let default_opus_path = platform::opus_path(&path);
+        #[cfg(target_os = "linux")]
+        {
+            status.lock().expect("player status").phase = "authorizing";
+        }
+        let network = Network::open(owner, Arc::clone(status), stop)?;
         status.lock().expect("player status").phase = "waiting_world";
         run(
             owner,
             default_opus_path,
             network,
-            ports,
             &config,
             tx.clone(),
             stop,
@@ -154,7 +155,7 @@ fn supervise(
     Ok(())
 }
 
-type Pending = (Connection, bool, Vec<u8>, Instant, Option<u64>);
+type Pending = (Connection, bool, Vec<u8>, Instant);
 
 // Only identity and connection metadata survive a capture restart; no PCM,
 // compressed audio or incomplete Photon fragments are kept here.
@@ -201,8 +202,7 @@ fn acquisition_samples(
 fn run(
     owner: cache::ProcessIdentity,
     opus_path: std::path::PathBuf,
-    network: Network,
-    mut ports: HashSet<u16>,
+    mut network: Network,
     config: &PlayerAudioConfig,
     tx: EventSender,
     stop: &Arc<AtomicBool>,
@@ -212,19 +212,22 @@ fn run(
 ) -> Result<(), String> {
     let pid = owner.pid;
     let mut engine = Engine::new(None, config.max_players, tx, Arc::clone(status));
-    let mut packet_buffer = vec![0u8; 65_535];
     let mut pending: VecDeque<Pending> = VecDeque::new();
     let mut pending_bytes = 0usize;
     let mut startup_packets: VecDeque<Pending> = VecDeque::new();
     let mut startup_bytes = 0usize;
     let mut key = None;
     let mut candidate: Option<zeroize::Zeroizing<[u8; 32]>> = None;
+    #[cfg(windows)]
     let mut scanner: Option<std::thread::JoinHandle<()>> = None;
+    #[cfg(target_os = "linux")]
+    let scanner: Option<std::thread::JoinHandle<()>> = None;
+    #[cfg(windows)]
     let (key_tx, key_rx) = mpsc::sync_channel(1);
     let started = Instant::now();
     let mut refresh = started;
     let mut world_poll = started - Duration::from_secs(1);
-    let mut world = super::world::WorldWatcher::for_process(owner);
+    let mut world = platform::world(owner);
     let mut world_ready = false;
     let mut last_decrypted = started;
     let scan_stop = Arc::new(AtomicBool::new(false));
@@ -256,11 +259,11 @@ fn run(
                     Duration::from_secs(1)
                 }
             {
-                if windows::process_identity(pid).ok() != Some(owner) {
+                if platform::process_identity(pid).ok() != Some(owner) {
                     cache.invalidate();
                     break;
                 }
-                ports = windows::game_ports(pid)?;
+                network.refresh()?;
                 refresh = Instant::now();
             }
             if world_poll.elapsed() >= Duration::from_millis(250) {
@@ -279,70 +282,79 @@ fn run(
                     }
                 }
                 if scanner.is_none() && Instant::now() >= retry_at {
-                    status.lock().expect("player status").phase = if !world_ready {
+                    let mut state = status.lock().expect("player status");
+                    state.phase = if !world_ready {
                         "waiting_world"
                     } else if key.is_some() {
                         "streaming"
                     } else {
                         "waiting_traffic"
                     };
+                    if !world_ready {
+                        state.detail = world.error().map(str::to_owned);
+                    } else if !was_ready {
+                        state.detail = None;
+                    }
                 }
             }
-            network.receive(&mut packet_buffer, |bytes| {
-                let Some((connection, incoming, packet)) = windows::datagram(bytes, &ports) else {
-                    return;
-                };
-                let now = Instant::now();
-                engine.reconcile_text();
-                let text_generation = engine.text_enabled.then_some(engine.text_generation);
-                status.lock().expect("player status").captured_packets += 1;
-                if let Some(plaintext) = key
-                    .as_ref()
-                    .and_then(|key: &SessionKey| key.decrypt(packet))
-                {
-                    last_decrypted = now;
-                    engine.receive_packet(
-                        connection,
-                        incoming,
-                        packet,
-                        &plaintext,
-                        now,
-                        world_ready,
-                        world_ready,
-                    );
-                } else {
-                    pending_bytes += packet.len();
-                    pending.push_back((
-                        connection,
-                        incoming,
-                        packet.to_vec(),
-                        now,
-                        text_generation,
-                    ));
-                    // Keep join/property messages received during acquisition;
-                    // voice older than 300 ms is discarded only after decrypting.
-                    while pending.len() > 4096
-                        || pending_bytes > 16 * 1024 * 1024
-                        || pending
-                            .front()
-                            .is_some_and(|p| world_ready && p.3.elapsed() > Duration::from_secs(10))
+            network.receive(
+                |Datagram {
+                     connection,
+                     incoming,
+                     payload: packet,
+                     at: now,
+                 }| {
+                    engine.reconcile_text();
+                    status.lock().expect("player status").captured_packets += 1;
+                    if let Some(plaintext) = key
+                        .as_ref()
+                        .and_then(|key: &SessionKey| key.decrypt(&packet))
                     {
-                        if let Some(packet) = pending.pop_front() {
-                            pending_bytes -= packet.2.len();
-                            // Retain a bounded prefix of the join handshake even
-                            // when a long world load pushes it out of the recent
-                            // packet queue. Only metadata will be replayed later.
-                            if key.is_none()
-                                && startup_packets.len() < 512
-                                && startup_bytes + packet.2.len() <= 2 * 1024 * 1024
-                            {
-                                startup_bytes += packet.2.len();
-                                startup_packets.push_back(packet);
+                        last_decrypted = now;
+                        let voice_since = engine.voice_enabled_at;
+                        let text_since = engine.text_enabled_at;
+                        engine.receive_packet(
+                            connection,
+                            incoming,
+                            &packet,
+                            &plaintext,
+                            now,
+                            world_ready
+                                && now.elapsed() <= Duration::from_millis(300)
+                                && now >= voice_since,
+                            world_ready
+                                && now.elapsed() < Duration::from_secs(8)
+                                && now >= text_since,
+                        );
+                    } else {
+                        pending_bytes += packet.len();
+                        pending.push_back((connection, incoming, packet, now));
+                        // Keep join/property messages received during acquisition;
+                        // voice older than 300 ms is discarded only after decrypting.
+                        while pending.len() > 4096
+                            || pending_bytes > 16 * 1024 * 1024
+                            || pending.front().is_some_and(|p| {
+                                world_ready && p.3.elapsed() > Duration::from_secs(10)
+                            })
+                        {
+                            if let Some(packet) = pending.pop_front() {
+                                pending_bytes -= packet.2.len();
+                                // Retain a bounded prefix of the join handshake even
+                                // when a long world load pushes it out of the recent
+                                // packet queue. Only metadata will be replayed later.
+                                if key.is_none()
+                                    && startup_packets.len() < 512
+                                    && startup_bytes + packet.2.len() <= 2 * 1024 * 1024
+                                {
+                                    startup_bytes += packet.2.len();
+                                    startup_packets.push_back(packet);
+                                }
                             }
                         }
                     }
-                }
-            })?;
+                },
+            )?;
+            #[cfg(windows)]
             if let Ok(result) = key_rx.try_recv() {
                 if let Some(thread) = scanner.take() {
                     let _ = thread.join();
@@ -403,20 +415,24 @@ fn run(
                             if key.take().is_some() {
                                 engine.clear();
                             }
-                            for (connection, incoming, packet, at, text_generation) in
+                            for (connection, incoming, packet, at) in
                                 startup_packets.drain(..).chain(pending.drain(..))
                             {
                                 if let Some(plaintext) = acquired.decrypt(&packet) {
+                                    let voice_since = engine.voice_enabled_at;
+                                    let text_since = engine.text_enabled_at;
                                     engine.receive_packet(
                                         connection,
                                         incoming,
                                         &packet,
                                         &plaintext,
-                                        Instant::now(),
-                                        world_ready && at.elapsed() <= Duration::from_millis(300),
+                                        at,
+                                        world_ready
+                                            && at.elapsed() <= Duration::from_millis(300)
+                                            && at >= voice_since,
                                         world_ready
                                             && at.elapsed() < Duration::from_secs(8)
-                                            && text_generation == Some(engine.text_generation),
+                                            && at >= text_since,
                                     );
                                 }
                             }
@@ -453,8 +469,9 @@ fn run(
                                 engine.clear();
                             }
                             if world_ready {
-                                let drive = config.pagefile_drive.clone();
+                                #[cfg(windows)]
                                 let stop = Arc::clone(&scan_stop);
+                                #[cfg(windows)]
                                 let key_tx = key_tx.clone();
                                 {
                                     let mut state = status.lock().expect("player status");
@@ -462,16 +479,34 @@ fn run(
                                     state.key_scan = None;
                                     state.detail = None;
                                 }
-                                let scan_status = Arc::clone(status);
-                                scanner = Some(std::thread::spawn(move || {
-                                    let _ = key_tx.send(super::key::acquire(
-                                        pid,
-                                        &drive,
-                                        &samples,
-                                        &stop,
-                                        &scan_status,
-                                    ));
-                                }));
+                                #[cfg(windows)]
+                                {
+                                    let scan_status = Arc::clone(status);
+                                    scanner = Some(std::thread::spawn(move || {
+                                        let _ = key_tx.send(super::key::acquire(
+                                            pid,
+                                            &config.pagefile_drive,
+                                            &samples,
+                                            &stop,
+                                            &scan_status,
+                                        ));
+                                    }));
+                                }
+                                #[cfg(target_os = "linux")]
+                                {
+                                    match network.acquire_key(config, &samples, stop, status) {
+                                        Ok(bytes) => candidate = Some(bytes),
+                                        Err(error) => {
+                                            network.refresh()?;
+                                            retry_at = Instant::now() + retry_delay;
+                                            retry_delay =
+                                                (retry_delay * 2).min(Duration::from_secs(30));
+                                            let mut state = status.lock().expect("player status");
+                                            state.phase = "retrying_key";
+                                            state.detail = Some(error);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -486,6 +521,7 @@ fn run(
         Ok(())
     })();
     scan_stop.store(true, Ordering::Relaxed);
+    #[cfg(windows)]
     if let Some(thread) = scanner {
         let _ = thread.join();
     }
@@ -548,8 +584,10 @@ struct Track {
 struct Engine {
     opus: Option<Arc<Opus>>,
     voice_generation: u64,
+    voice_enabled_at: Instant,
     text_enabled: bool,
     text_generation: u64,
+    text_enabled_at: Instant,
     recent_text: super::chatbox::Deduplicator,
     maximum: usize,
     session: String,
@@ -591,6 +629,7 @@ impl Engine {
         } else if self.opus.is_none() || generation != self.voice_generation {
             self.tracks.clear();
             self.voice_generation = generation;
+            self.voice_enabled_at = Instant::now();
             match Opus::load(&path) {
                 Ok(opus) => self.opus = Some(opus),
                 Err(error) => self
@@ -611,6 +650,7 @@ impl Engine {
         if enabled != self.text_enabled || generation != self.text_generation {
             self.clear_text();
             self.text_enabled = enabled;
+            self.text_enabled_at = Instant::now();
         }
     }
 
@@ -700,8 +740,10 @@ impl Engine {
         Self {
             opus: opus.into(),
             voice_generation: 0,
+            voice_enabled_at: Instant::now(),
             text_enabled: false,
             text_generation: 0,
+            text_enabled_at: Instant::now(),
             recent_text: Default::default(),
             maximum,
             session: format!("vrc:{}", uuid::Uuid::new_v4()),
@@ -1519,6 +1561,7 @@ mod tests {
         engine.set_selection(Some(Vec::new()));
         engine.reconcile_voice(std::path::Path::new("missing-opus.dll"));
         assert!(voice_rx.try_recv().is_err());
+        #[cfg(windows)]
         assert!(voice_rx.is_closed());
         engine.reconcile_text();
         let connection = Connection {
@@ -1855,7 +1898,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Requires VRChat to be closed; starts only the local waiting worker"]
     async fn native_capture_can_start_stop_and_restart_before_vrchat() {
-        let game = windows::game().unwrap();
+        let game = platform::game().unwrap();
         assert!(
             game.is_none(),
             "Close the active VRChat process first: {game:?}"
@@ -1955,8 +1998,8 @@ mod tests {
         };
         let packet = |counter| super::super::crypto::seal(&[3; 32], counter, b"sample packet");
         let mut pending = VecDeque::from([
-            (connection.clone(), true, packet(1), now, None),
-            (connection.clone(), true, packet(2), now, None),
+            (connection.clone(), true, packet(1), now),
+            (connection.clone(), true, packet(2), now),
         ]);
         assert_eq!(acquisition_samples(&pending, now, None).len(), 2);
         assert!(acquisition_samples(&pending, now, Some(now)).is_empty());

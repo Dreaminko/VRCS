@@ -17,7 +17,7 @@ struct Entry {
 #[derive(Default)]
 pub(crate) struct SessionCache {
     key: Mutex<Option<Entry>>,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) room: Mutex<Option<super::worker::RoomMetadata>>,
 }
 pub(super) enum Lookup {
@@ -76,13 +76,13 @@ impl SessionCache {
     pub(super) fn store(&self, owner: ProcessIdentity, key: Zeroizing<[u8; 32]>) {
         *self.key.lock().expect("session key cache") = Some(Entry { owner, key });
     }
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn invalidate(&self) {
         *self.key.lock().expect("session key cache") = None;
         self.clear_room();
     }
     fn clear_room(&self) {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         {
             self.room.lock().expect("room identity cache").take();
         }

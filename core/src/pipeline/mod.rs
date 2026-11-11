@@ -20,7 +20,7 @@ use crate::smart_turn::{SmartTurnRuntime, COMPLETION_THRESHOLD};
 use crate::vad::{SpeechSegmenter, VadRuntimeState, VoiceDetector};
 
 mod dependencies;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 mod players;
 mod recognition_lifecycle;
 

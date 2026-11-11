@@ -27,7 +27,6 @@ impl ElevationState {
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Outcome {
-    #[cfg(windows)]
     Ready,
     #[cfg(windows)]
     Relaunching,
@@ -108,7 +107,13 @@ pub(crate) async fn player_audio_ensure_privileges(
     app: tauri::AppHandle,
     action: Action,
 ) -> Result<Outcome, String> {
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        let _ = (app, action);
+        // Core starts the polkit helper only when capture actually needs it.
+        Ok(Outcome::Ready)
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = (app, action);
         Err("platform.network_capture_unsupported".into())

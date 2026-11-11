@@ -68,6 +68,7 @@ pub(super) struct Outputs {
     pub(super) text_generation: u64,
     pub(super) opus_library_path: String,
     pub(super) max_players: usize,
+    keepalive_until: Option<Instant>,
     voice_error: Option<String>,
     pub(super) chatbox_status: ChatboxStatus,
     scopes: HashMap<String, (TaskValidity, Instant)>,
@@ -77,37 +78,44 @@ pub(super) struct Outputs {
 pub(super) type SharedOutputs = Arc<Mutex<Outputs>>;
 
 impl Outputs {
-    #[cfg(all(windows, test))]
+    #[cfg(test)]
     pub(super) fn with_voice(sender: mpsc::Sender<AudioEvent>) -> Self {
         Self {
             voice: Some(sender),
             ..Self::default()
         }
     }
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn voice_enabled(&self) -> bool {
         self.voice.is_some()
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn chatbox_enabled(&self) -> bool {
         self.chatbox.is_some()
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
+    pub(super) fn network_closed(&self) -> bool {
+        self.voice.is_none()
+            && self.chatbox.is_none()
+            && self.keepalive_until.is_none_or(|until| Instant::now() >= until)
+    }
+
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn voice_failed(&mut self, error: String) {
         self.voice_error = Some(error);
         self.voice.take();
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(super) fn audio(&self, event: AudioEvent) -> bool {
         self.voice
             .as_ref()
             .is_some_and(|tx| tx.try_send(event).is_ok())
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(super) fn speaker(&mut self, speaker: SpeakerIdentity) {
         self.audio(AudioEvent::Speaker(speaker.clone()));
         if let Some(tx) = &self.chatbox {
@@ -120,14 +128,14 @@ impl Outputs {
         }
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(super) fn flush_speakers(&mut self) {
         let Some(tx) = &self.chatbox else { return };
         self.pending_speakers
             .retain(|_, speaker| tx.try_send(ChatboxEvent::Speaker(speaker.clone())).is_err());
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(super) fn invalidate_scope(&mut self, id: &str) {
         if let Some((validity, _)) = self.scopes.remove(id) {
             validity.invalidate();
@@ -142,7 +150,7 @@ impl Outputs {
         self.pending_speakers.clear();
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(super) fn validity(&mut self, id: &str, now: Instant) -> TaskValidity {
         if self.scopes.len() >= 512 && !self.scopes.contains_key(id) {
             if let Some(oldest) = self
@@ -169,7 +177,7 @@ pub(crate) struct VrchatNetworkSession {
     status: SharedStatus,
     outputs: SharedOutputs,
     consumers: NetworkConsumers,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     cache: Arc<super::SessionCache>,
 }
 
@@ -180,7 +188,7 @@ impl VrchatNetworkSession {
             .is_some_and(|capture| !capture.finished())
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub(crate) fn shared_status(&self) -> SharedStatus {
         Arc::clone(&self.status)
     }
@@ -225,14 +233,14 @@ impl VrchatNetworkSession {
                 .clone_from(&options.opus_library_path);
             outputs.max_players = options.max_players;
         }
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         let cache = Arc::clone(&self.cache);
         self.reconcile_with(consumers, |status, outputs| {
             Capture::start(
                 options,
                 status,
                 outputs,
-                #[cfg(windows)]
+                #[cfg(any(windows, target_os = "linux"))]
                 cache,
                 settings,
             )
@@ -287,6 +295,7 @@ impl VrchatNetworkSession {
             outputs.invalidate_text();
             outputs.chatbox.take();
         }
+        outputs.keepalive_until = None;
         self.consumers = consumers;
         subscriptions
     }
@@ -298,21 +307,27 @@ impl VrchatNetworkSession {
         }
     }
 
+    #[cfg(test)]
     pub(crate) async fn detach(&mut self, consumers: NetworkConsumers) {
-        {
-            let mut outputs = self.outputs.lock().expect("network outputs");
-            if !consumers.voice {
-                outputs.voice.take();
-                self.consumers.voice = false;
-            }
-            if !consumers.chatbox {
-                outputs.invalidate_text();
-                outputs.chatbox.take();
-                self.consumers.chatbox = false;
-            }
-        }
+        self.detach_outputs(consumers);
         if !self.consumers.any() {
             self.stop().await;
+        }
+    }
+
+    /// Remove consumer channels without tearing down an authorized capture.
+    /// Pipeline reloads call this before their replacement consumers attach.
+    pub(crate) fn detach_outputs(&mut self, consumers: NetworkConsumers) {
+        let mut outputs = self.outputs.lock().expect("network outputs");
+        outputs.keepalive_until = Some(Instant::now() + std::time::Duration::from_secs(30));
+        if !consumers.voice {
+            outputs.voice.take();
+            self.consumers.voice = false;
+        }
+        if !consumers.chatbox {
+            outputs.invalidate_text();
+            outputs.chatbox.take();
+            self.consumers.chatbox = false;
         }
     }
 }
@@ -464,6 +479,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pipeline_reload_keeps_the_authorized_network_capture() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let starts = AtomicUsize::new(0);
+        let exited = Arc::new(AtomicBool::new(false));
+        let starter = |_: SharedStatus, _: SharedOutputs| {
+            starts.fetch_add(1, Ordering::SeqCst);
+            let stop = Arc::new(AtomicBool::new(false));
+            let worker_stop = Arc::clone(&stop);
+            let exited = Arc::clone(&exited);
+            let thread = std::thread::spawn(move || {
+                while !worker_stop.load(Ordering::Relaxed) {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                exited.store(true, Ordering::SeqCst);
+            });
+            Ok(Capture {
+                stop,
+                thread: Some(thread),
+            })
+        };
+        let mut session = VrchatNetworkSession::default();
+        session
+            .reconcile_with(
+                NetworkConsumers {
+                    voice: true,
+                    chatbox: false,
+                },
+                starter,
+            )
+            .await
+            .unwrap();
+        session.detach_outputs(NetworkConsumers::default());
+        assert!(session.running());
+        assert!(!session.outputs.lock().unwrap().network_closed());
+        session
+            .reconcile_with(
+                NetworkConsumers {
+                    voice: true,
+                    chatbox: false,
+                },
+                starter,
+            )
+            .await
+            .unwrap();
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+        session.stop().await;
+        assert!(exited.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
     async fn detaching_after_worker_failure_does_not_consume_replacement_subscriptions() {
         let mut session = VrchatNetworkSession::default();
         let subscriptions = session.attach(NetworkConsumers {
@@ -525,19 +590,19 @@ mod tests {
         assert!(rx.try_recv().is_ok());
         outputs.flush_speakers();
         let event = rx.try_recv().unwrap();
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         let ChatboxEvent::Speaker(speaker) = event else {
             panic!("metadata")
         };
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux")))]
         let ChatboxEvent::Speaker(speaker) = event;
         assert_eq!(speaker.display_name.as_deref(), Some("After"));
         let event = voice_rx.try_recv().unwrap();
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         let AudioEvent::Speaker(first) = event else {
             panic!("voice metadata")
         };
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux")))]
         let AudioEvent::Speaker(first) = event;
         assert_eq!(first.display_name.as_deref(), Some("Before"));
     }

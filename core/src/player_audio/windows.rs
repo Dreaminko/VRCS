@@ -87,16 +87,33 @@ pub(super) fn game() -> Result<Option<(u32, PathBuf)>, String> {
 
 pub(super) struct Network {
     sockets: Vec<SOCKET>,
+    pid: u32,
+    ports: HashSet<u16>,
+    buffer: Vec<u8>,
 }
 impl Network {
-    pub(super) fn open() -> Result<Self, String> {
+    pub(super) fn open(
+        owner: super::cache::ProcessIdentity,
+        _status: super::SharedStatus,
+        _stop: &std::sync::atomic::AtomicBool,
+    ) -> Result<Self, String> {
         unsafe {
             let mut data = WSADATA::default();
             if WSAStartup(0x0202, &mut data) != 0 {
                 return Err("Winsock startup failed".into());
             }
+            let ports = match game_ports(owner.pid) {
+                Ok(ports) => ports,
+                Err(error) => {
+                    WSACleanup();
+                    return Err(error);
+                }
+            };
             let mut network = Self {
                 sockets: Vec::new(),
+                pid: owner.pid,
+                ports,
+                buffer: vec![0u8; 65_535],
             };
             let addresses = interfaces()?;
             for address in addresses {
@@ -148,15 +165,19 @@ impl Network {
             Ok(network)
         }
     }
+    pub(super) fn refresh(&mut self) -> Result<(), String> {
+        self.ports = game_ports(self.pid)?;
+        Ok(())
+    }
+
     pub(super) fn receive(
-        &self,
-        buffer: &mut [u8],
-        mut callback: impl FnMut(&[u8]),
+        &mut self,
+        mut callback: impl FnMut(super::connection::Datagram),
     ) -> Result<(), String> {
         for socket in &self.sockets {
             // Bound work per interface so an active adapter cannot starve cancellation.
             for _ in 0..64 {
-                let count = unsafe { recv(*socket, buffer, SEND_RECV_FLAGS(0)) };
+                let count = unsafe { recv(*socket, &mut self.buffer, SEND_RECV_FLAGS(0)) };
                 if count == SOCKET_ERROR {
                     let error = unsafe { WSAGetLastError() };
                     if error == WSAEWOULDBLOCK {
@@ -167,12 +188,23 @@ impl Network {
                 if count <= 0 {
                     break;
                 }
-                callback(&buffer[..count as usize]);
+                if let Some((connection, incoming, packet)) =
+                    datagram(&self.buffer[..count as usize], &self.ports)
+                {
+                    callback(super::connection::Datagram {
+                        connection,
+                        incoming,
+                        payload: packet.to_vec(),
+                        at: std::time::Instant::now(),
+                    });
+                }
             }
         }
         Ok(())
     }
+
 }
+
 impl Drop for Network {
     fn drop(&mut self) {
         unsafe {
@@ -278,12 +310,7 @@ pub(super) fn game_ports(pid: u32) -> Result<HashSet<u16>, String> {
     Err("Game UDP endpoints changed repeatedly".into())
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub(super) struct Connection {
-    pub local: SocketAddrV4,
-    pub remote: SocketAddrV4,
-    pub challenge: [u8; 4],
-}
+pub(super) use super::connection::Connection;
 
 pub(super) fn datagram<'a>(
     bytes: &'a [u8],
