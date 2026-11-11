@@ -45,8 +45,10 @@ function packageFixture(root, target) {
     const directory = join(root, `deb-${target.arch}`);
     mkdirSync(join(directory, "DEBIAN"), { recursive: true });
     mkdirSync(join(directory, "usr/bin"), { recursive: true });
+    mkdirSync(join(directory, "usr/lib/vrcs"), { recursive: true });
     writeFileSync(join(directory, "DEBIAN/control"), `Package: vrcs\nVersion: ${version}\nArchitecture: ${target.arch === "x86_64" ? "amd64" : "arm64"}\nMaintainer: Test <test@example.invalid>\nDescription: test release consumer\n`);
     writeFileSync(join(directory, "usr/bin/vrcs-desktop"), elf(target.arch), { mode: 0o755 });
+    writeFileSync(join(directory, "usr/lib/vrcs/vrcs-network-helper"), elf(target.arch), { mode: 0o755 });
     execFileSync("dpkg-deb", ["--build", "--root-owner-group", directory, artifact], { stdio: "pipe" });
   } else if (target.channel === "appimage") writeFileSync(artifact, appimage(root, target.arch));
   else {

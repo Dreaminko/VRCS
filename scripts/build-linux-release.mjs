@@ -92,31 +92,48 @@ try {
     writeFileSync(generated, JSON.stringify(config));
     tauri(["build", "--target", triple, "--features", "vulkan", "--config", "src-tauri/tauri.linux.generated.conf.json", "--no-bundle", "--no-sign", ...(preview ? ["--debug"] : []), "--", "--locked"]);
     const executable = join(binaryRoot, "vrcs-desktop");
+    const helper = join(binaryRoot, "vrcs-network-helper");
+    // The helper must be root-owned and is installed only by the deb. AppImage
+    // deliberately does not execute a helper from its user-controlled mount.
+    const bundles_helper = channel !== "appimage";
+    if (bundles_helper) {
+      run("cargo", ["build", "--manifest-path", "crates/player-audio-helper/Cargo.toml", "--locked", "--target", triple, ...(preview ? [] : ["--release"])]);
+    }
     const stage = join(work, channel);
     const stageBin = join(stage, "usr/bin/vrcs-desktop");
     const stageLib = join(stage, "usr/lib/vrcs");
     mkdirSync(dirname(stageBin), { recursive: true });
     copyFileSync(executable, stageBin);
     const linked = collectRuntime(executable, stageLib);
-    run("patchelf", ["--set-rpath", "$ORIGIN/../lib/vrcs:$ORIGIN/../lib:$ORIGIN/lib", stageBin]);
-    writeFileSync(join(artifactRoot, `linux-${arch}-${channel}.ldd.txt`), linked);
-    // These libraries are also loaded by name (not necessarily visible in ldd).
-    const systemPackages = new Set(["libayatana-appindicator3-1", "libpipewire-0.3-0", "libdbus-1-3", "libwebkit2gtk-4.1-0", "libgtk-3-0t64", "libvulkan1"]);
-    for (const library of dependencies(executable).paths) {
-      if (!library.startsWith("/lib/") && !library.startsWith("/usr/lib/")) continue;
-      let found = false;
-      const resolved = realpathSync(library);
-      for (const candidate of new Set([library, resolved, resolved.replace(/^\/usr\/lib\//, "/lib/"), library.replace(/^\/lib\//, "/usr/lib/")])) {
-        try {
-          const owners = execFileSync("dpkg-query", ["--search", candidate], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-          for (const line of owners.trim().split("\n")) systemPackages.add(line.slice(0, line.indexOf(": ")).replace(/:(amd64|arm64)$/, ""));
-          found = true;
-          break;
-        } catch { /* merged-/usr aliases can differ from the dpkg path */ }
-      }
-      if (!found) throw new Error(`No Ubuntu runtime package owns ${library}`);
+    let helperLinked = "";
+    if (bundles_helper) {
+      mkdirSync(stageLib, { recursive: true });
+      copyFileSync(helper, join(stageLib, "vrcs-network-helper"));
+      run("chmod", ["0755", join(stageLib, "vrcs-network-helper")]);
+      helperLinked = collectRuntime(helper, stageLib);
     }
-    const report = { os: "Ubuntu 24.04", arch, channel, host, systemPackages: [...systemPackages].sort(), bundledLibraries: readdirSync(stageLib).sort(), onnx: "pending-self-test" };
+    run("patchelf", ["--set-rpath", "$ORIGIN/../lib/vrcs:$ORIGIN/../lib:$ORIGIN/lib", stageBin]);
+    writeFileSync(join(artifactRoot, `linux-${arch}-${channel}.ldd.txt`), helperLinked ? `${linked}\n--- network helper ---\n${helperLinked}` : linked);
+    // Include dlopen libraries and external authorization commands explicitly;
+    // ldd cannot discover pkexec or the polkit daemon.
+    const systemPackages = new Set(["libayatana-appindicator3-1", "libpipewire-0.3-0", "libdbus-1-3", "libwebkit2gtk-4.1-0", "libgtk-3-0t64", "libvulkan1", "libopus0", "pkexec", "polkitd"]);
+    for (const binary of bundles_helper ? [executable, helper] : [executable]) {
+      for (const library of dependencies(binary).paths) {
+        if (!library.startsWith("/lib/") && !library.startsWith("/usr/lib/")) continue;
+        let found = false;
+        const resolved = realpathSync(library);
+        for (const candidate of new Set([library, resolved, resolved.replace(/^\/usr\/lib\//, "/lib/"), library.replace(/^\/lib\//, "/usr/lib/")])) {
+          try {
+            const owners = execFileSync("dpkg-query", ["--search", candidate], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+            for (const line of owners.trim().split("\n")) systemPackages.add(line.slice(0, line.indexOf(": ")).replace(/:(amd64|arm64)$/, ""));
+            found = true;
+            break;
+          } catch { /* merged-/usr aliases can differ from the dpkg path */ }
+        }
+        if (!found) throw new Error(`No Ubuntu runtime package owns ${library}`);
+      }
+    }
+    const report = { os: "Ubuntu 24.04", arch, channel, host, systemPackages: [...systemPackages].sort(), bundledLibraries: readdirSync(stageLib).sort(), networkHelper: bundles_helper ? "bundled" : "manual installation or full deb required", onnx: "pending-self-test" };
     selfTest(stageBin, stage);
     report.onnx = "Silero-v6.2.1-session-loaded";
     writeFileSync(join(artifactRoot, `linux-${arch}-${channel}.runtime.json`), `${JSON.stringify(report, null, 2)}\n`);
@@ -129,8 +146,12 @@ try {
     }
     copyFileSync(stageBin, executable);
     const mapped = Object.fromEntries(readdirSync(stageLib).map((name) => [`/usr/lib/vrcs/${name}`, join(stageLib, name)]));
-    config.bundle.linux.deb.files = mapped;
+    config.bundle.linux.deb.files = {
+      ...mapped,
+      "/usr/share/polkit-1/actions/app.vrcs.network-capture.policy": resolve("packaging/linux/app.vrcs.network-capture.policy"),
+    };
     config.bundle.linux.deb.depends = [...systemPackages].sort();
+    config.bundle.linux.deb.postInstallScript = resolve("packaging/linux/postinst");
     config.bundle.linux.appimage.files = Object.fromEntries(readdirSync(stageLib).map((name) => [`usr/lib/vrcs/${name}`, join(stageLib, name)]));
     writeFileSync(generated, JSON.stringify(config));
     const bundleDirectory = join(binaryRoot, "bundle", channel);

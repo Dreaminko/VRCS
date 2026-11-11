@@ -16,6 +16,7 @@ on:
       - package-lock.json
       - rust-toolchain.toml
       - scripts/**
+      - packaging/**
 
 concurrency:
   group: release-${{ github.ref }}
@@ -188,7 +189,9 @@ jobs:
 
           Windows standard and legacy CUDA clients receive the same signed installer.
           Linux deb installations update through the package manager/manual download, not the AppImage updater.
+          The deb also installs the root-owned vrcs-network-helper and polkit policy; AppImage does not install a root helper.
           AppImage installations use architecture-specific signed in-app updates.
+          Linux player audio needs libopus0; the deb declares it, AppImage users install it separately.
           Ubuntu 24.04 is the Linux ABI baseline; AppImage does not promise compatibility with older distributions.
           Install CJK fonts (fonts-noto-cjk) when they are not already available.
           CI ONNX loading does not replace real desktop/audio/VR and dual-architecture hardware acceptance; consult the compatibility matrix.

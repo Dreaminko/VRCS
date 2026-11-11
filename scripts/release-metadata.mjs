@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, verify } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -50,6 +50,8 @@ export function validatePackage(path, target) {
       const extracted = join(directory, "AppDir");
       execFileSync("unsquashfs", ["-no-progress", "-o", String(offset), "-d", extracted, path], { stdio: "pipe" });
       elfArchitecture(readFileSync(join(extracted, "usr", "bin", "vrcs-desktop")), target.arch);
+      const helper = join(extracted, "usr", "lib", "vrcs", "vrcs-network-helper");
+      if (existsSync(helper)) elfArchitecture(readFileSync(helper), target.arch);
       for (const file of walk(extracted).filter((file) => /\.so(?:\.|$)/.test(file))) elfArchitecture(readFileSync(file), target.arch);
     } finally { rmSync(directory, { recursive: true, force: true }); }
   } else if (target.channel === "deb") {
@@ -62,6 +64,9 @@ export function validatePackage(path, target) {
       const executables = walk(join(directory, "usr", "bin")).filter((file) => basename(file) === "vrcs-desktop");
       if (executables.length !== 1) throw new Error("Deb must contain vrcs-desktop");
       elfArchitecture(readFileSync(executables[0]), target.arch);
+      const helper = join(directory, "usr", "lib", "vrcs", "vrcs-network-helper");
+      if (!existsSync(helper)) throw new Error("Deb must contain vrcs-network-helper");
+      elfArchitecture(readFileSync(helper), target.arch);
       for (const file of walk(directory).filter((file) => /\.so(?:\.|$)/.test(file))) {
         elfArchitecture(readFileSync(file), target.arch);
       }

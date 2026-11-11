@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+if [ -f /usr/lib/vrcs/vrcs-network-helper ]; then
+  chmod 0755 /usr/lib/vrcs/vrcs-network-helper
+fi

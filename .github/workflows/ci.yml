@@ -157,14 +157,15 @@ jobs:
             core -> ../.build
             apps/desktop/src-tauri -> ../../../.build
             crates/player-audio-scan -> ../../.build
+            crates/player-audio-helper -> ../../.build
       - run: npm ci
       - run: npm run build:frontend
       - name: Check native CPU and Vulkan backends and test CPU
         run: |
-          for manifest in core/Cargo.toml apps/desktop/src-tauri/Cargo.toml crates/player-audio-scan/Cargo.toml; do
+          for manifest in core/Cargo.toml apps/desktop/src-tauri/Cargo.toml crates/player-audio-scan/Cargo.toml crates/player-audio-helper/Cargo.toml; do
             cargo clippy --locked --manifest-path "$manifest" --all-targets -- -D warnings
             dbus-run-session -- xvfb-run -a cargo test --locked --manifest-path "$manifest"
-            if [ "$manifest" != crates/player-audio-scan/Cargo.toml ]; then
+            if [ "$manifest" = core/Cargo.toml ] || [ "$manifest" = apps/desktop/src-tauri/Cargo.toml ]; then
               cargo check --locked --manifest-path "$manifest" --all-targets --features vulkan
             fi
           done

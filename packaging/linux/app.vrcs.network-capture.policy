@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>VRCS</vendor>
+  <action id="app.vrcs.network-capture">
+    <description>Capture VRChat network audio</description>
+    <message>Authentication is required to let VRCS read VRChat network traffic and session memory. This experimental feature can affect your VRChat account.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/vrcs/vrcs-network-helper</annotate>
+  </action>
+</policyconfig>
