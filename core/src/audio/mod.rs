@@ -58,7 +58,7 @@ impl AudioError {
         }
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(crate) fn retryable_with_code(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
@@ -120,7 +120,7 @@ pub struct AudioCapture {
 }
 
 impl AudioCapture {
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(crate) fn from_stream(
         rx: mpsc::Receiver<Vec<f32>>,
         priming: std::collections::VecDeque<Vec<f32>>,
@@ -581,6 +581,10 @@ mod tests {
         assert_eq!(missing.start(Some(1), None, None).unwrap_err().code(), "audio.device_reselection_required");
         let mut disconnected = AudioCapture::new(16_000, CaptureSource::Microphone);
         disconnected.start(None, Some(source), None).unwrap();
+        let mut default_microphone = AudioCapture::new(16_000, CaptureSource::Microphone);
+        let mut default_output = AudioCapture::new(16_000, CaptureSource::Speaker);
+        default_microphone.start(None, None, None).unwrap();
+        default_output.start(None, None, None).unwrap();
         let dump = std::process::Command::new("pw-dump").output().unwrap();
         assert!(dump.status.success());
         let graph: serde_json::Value = serde_json::from_slice(&dump.stdout).unwrap();
@@ -591,6 +595,56 @@ mod tests {
         }).await.unwrap();
         assert_eq!(failure.code(), "audio.device_unavailable");
         disconnected.shutdown().await;
+        // A missing default must leave PCM open, while the explicit selection
+        // above must fail instead of moving to another device.
+        assert!(tokio::time::timeout(std::time::Duration::from_millis(400), async {
+            loop { default_microphone.read().await.unwrap(); }
+        }).await.is_err());
+        assert!(std::process::Command::new("pw-cli").args(["create-node", "adapter",
+            r#"{ factory.name = audiotestsrc node.name = vrcs-test-source node.group = test-clock media.class = Audio/Source node.driver = false object.linger = true audio.format = F32LE audio.rate = 48000 audio.channels = 2 audio.position = [ FL FR ] node.param.Props = { live = false wave = sine freq = 440 volume = 0.25 } }"#,
+        ]).status().unwrap().success());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        for channel in ["FL", "FR"] {
+            loop {
+                let status = std::process::Command::new("pw-link")
+                    .args([format!("vrcs-test-source:capture_{channel}"), format!("vrcs-test-sink:playback_{channel}")])
+                    .stderr(std::process::Stdio::null()).status().unwrap();
+                if status.success() { break; }
+                assert!(std::time::Instant::now() < deadline, "restored source ports did not appear");
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        }
+        let samples = tokio::time::timeout(std::time::Duration::from_secs(5), default_microphone.read()).await.unwrap().unwrap();
+        assert!(samples.iter().all(|sample| sample.is_finite()));
+        assert!(samples.iter().any(|sample| sample.abs() > 0.01), "restored microphone has no tone");
+        eprintln!("PipeWire default source restored; checking sustained microphone and monitor capture");
+        let mut energy = [0.0f64; 2];
+        for _ in 0..48 {
+            let (microphone, output) = tokio::join!(
+                tokio::time::timeout(std::time::Duration::from_secs(5), default_microphone.read()),
+                tokio::time::timeout(std::time::Duration::from_secs(5), default_output.read()),
+            );
+            for (channel, samples) in [microphone.unwrap().unwrap(), output.unwrap().unwrap()].into_iter().enumerate() {
+                assert_eq!(samples.len(), CHUNK_FRAMES);
+                assert!(samples.iter().all(|sample| sample.is_finite()));
+                energy[channel] += samples.iter().map(|&sample| f64::from(sample).powi(2)).sum::<f64>();
+            }
+        }
+        assert!(energy.iter().all(|energy| *energy > 1.0), "restored microphone/monitor tone missing");
+        // Both directions must also stop promptly while no default exists.
+        let graph: serde_json::Value = serde_json::from_slice(&std::process::Command::new("pw-dump").output().unwrap().stdout).unwrap();
+        for name in ["vrcs-test-source", "vrcs-test-sink"] {
+            let id = graph.as_array().unwrap().iter().find(|node| node["info"]["props"]["node.name"] == name).unwrap()["id"].as_u64().unwrap();
+            assert!(std::process::Command::new("pw-cli").args(["destroy", &id.to_string()]).status().unwrap().success());
+        }
+        for capture in [&mut default_microphone, &mut default_output] {
+            assert!(tokio::time::timeout(std::time::Duration::from_millis(400), async {
+                loop { capture.read().await.unwrap(); }
+            }).await.is_err());
+            let stop = std::time::Instant::now();
+            capture.shutdown().await;
+            assert!(stop.elapsed() < std::time::Duration::from_secs(1));
+        }
     }
 
     #[tokio::test]

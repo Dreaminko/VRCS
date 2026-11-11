@@ -21,6 +21,7 @@ use super::{CaptureTarget, DeviceDirection};
 
 const QUEUED_CHUNKS: usize = 16;
 const WAKE_INTERVAL: Duration = Duration::from_millis(50);
+const RECOVERY_DELAY: Duration = Duration::from_millis(150);
 const START_TIMEOUT: Duration = Duration::from_secs(4);
 const MAX_TIMING_GAP: Duration = Duration::from_millis(250);
 
@@ -156,7 +157,7 @@ fn connect_stream(session: &Session, node: &Node, rate: u32, state: Rc<RefCell<C
             state.streaming = new == pw::stream::StreamState::Streaming;
             match new {
                 pw::stream::StreamState::Error(detail) => {
-                    state.failure = Some(AudioError::with_code("audio.pipewire_failed", format!("PipeWire capture stream: {detail}")));
+                    state.failure = Some(AudioError::retryable_with_code("audio.pipewire_failed", format!("PipeWire capture stream: {detail}")));
                 }
                 pw::stream::StreamState::Unconnected if old != pw::stream::StreamState::Unconnected => {
                     state.failure = Some(AudioError::with_code("audio.device_unavailable", "PipeWire capture stream disconnected"));
@@ -296,15 +297,15 @@ fn publish(state: &mut CaptureData, tx: &mpsc::Sender<Vec<f32>>, tap: Option<&Mi
 }
 
 fn run(
-    target: CaptureTarget, output_rate: u32, stop: &AtomicBool,
+    target: &CaptureTarget, output_rate: u32, stop: &AtomicBool,
     tx: &mpsc::Sender<Vec<f32>>, ready: &std::sync::mpsc::Sender<Result<AudioDevice, AudioError>>,
-    tap: Option<&MicrophoneTap>,
+    tap: Option<&MicrophoneTap>, first_ready: &mut bool,
 ) -> Result<(), AudioError> {
     let (key, direction) = match target {
         CaptureTarget::Process(pid) => return Err(AudioError::with_code(
             "audio.process_capture_unsupported", format!("Application-only capture ({pid}) is not supported on Linux"),
         )),
-        CaptureTarget::Device { backend_id, direction } => (backend_id, direction),
+        CaptureTarget::Device { backend_id, direction } => (backend_id, *direction),
     };
     if output_rate == 0 || output_rate > 384_000 {
         return Err(AudioError::with_code("audio.unsupported_format", "Invalid PipeWire capture sample rate"));
@@ -316,7 +317,6 @@ fn run(
     // Timer wakes even an idle/no-signal graph so stop never waits for audio.
     let timer = session.main_loop.loop_().add_timer(|_| {});
     timer.update_timer(Some(WAKE_INTERVAL), Some(WAKE_INTERVAL)).into_sync_result().map_err(error)?;
-    let mut first_ready = false;
     'select: loop {
         if stop.load(Ordering::Relaxed) { return Ok(()); }
         let selected = session.inventory.borrow().resolve(key.as_deref(), direction)?;
@@ -340,12 +340,12 @@ fn run(
             if !started && state.format_ready && state.streaming {
                 started = true;
                 if let Some(tap) = tap { tap.started(); }
-                if !first_ready {
+                if !*first_ready {
                     let mut device = selected.device(key.is_none());
                     device.sample_rate = output_rate;
                     device.channels = 1;
                     ready.send(Ok(device)).map_err(|_| error("Capture startup receiver was closed"))?;
-                    first_ready = true;
+                    *first_ready = true;
                 }
             }
             if !started && Instant::now() >= deadline {
@@ -368,14 +368,33 @@ pub(crate) fn capture_main(
         }
     }
     let _lifetime = StopTap(microphone_tap.as_ref());
-    if let Err(failure) = run(target, output_rate, &stop, &tx, &ready, microphone_tap.as_ref()) {
-        if !stop.load(Ordering::Relaxed) {
-            tracing::error!(code = failure.code(), detail = %failure, "PipeWire capture stopped");
-            if let Some(tap) = &microphone_tap { tap.failed(&failure.to_string()); }
-            // The common capture session retains this receiver for runtime
-            // errors. Returning also closes PCM, waking its async consumer.
-            let _ = ready.send(Err(failure));
+    let follows_default = matches!(&target, CaptureTarget::Device { backend_id: None, .. });
+    let mut first_ready = false;
+    loop {
+        let failure = match run(&target, output_rate, &stop, &tx, &ready, microphone_tap.as_ref(), &mut first_ready) {
+            Ok(()) => return,
+            Err(failure) => failure,
+        };
+        if stop.load(Ordering::Relaxed) { return; }
+        // Keep the PCM channel open while rebuilding a previously working
+        // default capture. Explicit selections and permanent errors still fail.
+        if follows_default && first_ready && (failure.is_retryable() || matches!(failure.code(),
+            "audio.device_unavailable" | "audio.service_not_running" | "audio.service_disconnected"
+                | "audio.service_timeout" | "audio.start_timeout"))
+        {
+            tracing::debug!(code = failure.code(), detail = %failure, "rebuilding PipeWire default audio capture");
+            if let Some(tap) = &microphone_tap { tap.stopped("PipeWire default audio capture interrupted"); }
+            let retry_at = Instant::now() + RECOVERY_DELAY;
+            while Instant::now() < retry_at {
+                if stop.load(Ordering::Relaxed) { return; }
+                std::thread::sleep(WAKE_INTERVAL.min(retry_at.saturating_duration_since(Instant::now())));
+            }
+            continue;
         }
+        tracing::error!(code = failure.code(), detail = %failure, "PipeWire capture stopped");
+        if let Some(tap) = &microphone_tap { tap.failed(&failure.to_string()); }
+        let _ = ready.send(Err(failure));
+        return;
     }
 }
 

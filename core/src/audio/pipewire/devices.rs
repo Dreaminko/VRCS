@@ -143,9 +143,10 @@ impl Session {
         let nodes = Rc::new(RefCell::new(HashMap::new()));
         let core_inventory = inventory.clone();
         let core_listener = core.add_listener_local().error(move |id, _, result, detail| {
-            if id == pw::core::PW_ID_CORE || result == -13 {
+            let denied = result == -libc::EACCES || result == -libc::EPERM;
+            if id == pw::core::PW_ID_CORE || denied {
                 core_inventory.borrow_mut().failure = Some(AudioError::with_code(
-                    if result == -13 { "audio.permission_denied" } else { "audio.service_disconnected" },
+                    if denied { "audio.permission_denied" } else { "audio.service_disconnected" },
                     format!("PipeWire error {result}: {detail}"),
                 ));
             }
@@ -241,7 +242,7 @@ impl Session {
         // node and metadata proxies bound by the registry callbacks.
         let deadline = Instant::now() + DISCOVERY_TIMEOUT;
         for _ in 0..2 {
-            let sequence = session.core.sync(0).map_err(error)?;
+            let sequence = session.core.sync(0).map_err(|detail| AudioError::retryable_with_code("audio.service_disconnected", detail.to_string()))?;
             let done = Rc::new(Cell::new(false));
             let done_callback = done.clone();
             let _listener = session.core.add_listener_local().done(move |id, seq| {
@@ -263,7 +264,7 @@ impl Session {
     pub fn pump(&self, timeout: pw::loop_::Timeout) -> Result<(), AudioError> {
         // SAFETY: _entered keeps this loop owned by this same thread.
         if unsafe { self.main_loop.loop_().iterate_unguarded(timeout) } < 0 {
-            return Err(error("PipeWire main loop failed"));
+            return Err(AudioError::retryable_with_code("audio.service_disconnected", "PipeWire main loop failed"));
         }
         if let Some(failure) = self.inventory.borrow_mut().failure.take() { return Err(failure); }
         Ok(())
