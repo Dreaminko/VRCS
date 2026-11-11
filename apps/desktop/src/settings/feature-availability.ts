@@ -26,12 +26,13 @@ export function resolveSettingsCategory(requested: SettingsCategory, features: F
 export function captureUnavailableReason(settings: Settings | null, capabilities: CoreCapabilities | null): string | null {
   if (!settings || !capabilities) return "common.checking";
   const output = settings.audio.output.mode;
+  const networkEnabled = settings.audio.output.player_audio?.enabled === true;
   const required = [
     output === "system" ? capabilities.audio.system_output : undefined,
     output === "vrchat" ? capabilities.audio.application_output : undefined,
-    output === "vrchat_players" ? capabilities.audio.player_audio : undefined,
+    networkEnabled && output === "vrchat_players" ? capabilities.audio.player_audio : undefined,
     settings.audio.microphone.mode !== "disabled" ? capabilities.audio.microphone : undefined,
-    settings.vrchat_chatbox.enabled ? capabilities.chatbox.network_receive : undefined,
+    networkEnabled && settings.vrchat_chatbox.enabled ? capabilities.chatbox.network_receive : undefined,
   ];
   const unavailable = required.find((capability) => capability && !capability.available);
   if (unavailable) return unavailable.reason_code ?? "platform.capture_unavailable";

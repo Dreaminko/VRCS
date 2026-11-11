@@ -4,9 +4,10 @@ import type { Capability, PlatformState } from "../../src/core-client/capabiliti
 
 const available: Capability = { supported: true, available: true, reason_code: null };
 
-export function WindowsCapabilities({ children, networkSupported = true, credentials = available }: { children: ReactNode; networkSupported?: boolean; credentials?: Capability }) {
-  const network: Capability = networkSupported ? available : {
-    supported: false, available: false, reason_code: "platform.network_capture_unsupported",
+export function WindowsCapabilities({ children, networkSupported = true, networkAvailable = networkSupported, credentials = available }: { children: ReactNode; networkSupported?: boolean; networkAvailable?: boolean; credentials?: Capability }) {
+  const network: Capability = networkAvailable ? available : {
+    supported: networkSupported, available: false,
+    reason_code: networkSupported ? "platform.network_helper_missing" : "platform.network_capture_unsupported",
   };
   const value: PlatformState = {
     core: {

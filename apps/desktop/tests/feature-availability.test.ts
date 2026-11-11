@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { DEFAULT_FEATURE_SETTINGS, resolveSettingsCategory, visibleSettingsCategories } from "../src/settings/feature-availability.ts";
+import { captureUnavailableReason, DEFAULT_FEATURE_SETTINGS, resolveSettingsCategory, visibleSettingsCategories } from "../src/settings/feature-availability.ts";
+import type { CoreCapabilities } from "../src/core-client/capabilities";
+import type { Settings } from "../src/settings/types";
 
 test("all modules retain the existing settings categories by default", () => {
   assert.deepEqual(visibleSettingsCategories(DEFAULT_FEATURE_SETTINGS), [
@@ -48,4 +50,23 @@ test("desktop OCR settings remain available when VR is disabled", () => {
   const features = { ...DEFAULT_FEATURE_SETTINGS, vr_overlay: false };
   assert.equal(visibleSettingsCategories(features).includes("vision"), true);
   assert.equal(resolveSettingsCategory("vr_overlay", features), "system");
+});
+
+test("a disabled network master leaves ordinary capture available with saved network consumers", () => {
+  const available = { supported: true, available: true, reason_code: null };
+  const network = { supported: true, available: false, reason_code: "platform.network_helper_missing" };
+  const capabilities = {
+    audio: { system_output: available, microphone: available, player_audio: network },
+    chatbox: { network_receive: network },
+  } as CoreCapabilities;
+  for (const mode of ["system", "disabled", "vrchat_players"] as const) {
+    const settings = {
+      audio: { output: { mode, player_audio: { enabled: true } }, microphone: { mode: "default" } },
+      vrchat_chatbox: { enabled: true },
+      asr: { backend: "cloud" },
+    } as Settings;
+    assert.equal(captureUnavailableReason(settings, capabilities), "platform.network_helper_missing");
+    settings.audio.output.player_audio!.enabled = false;
+    assert.equal(captureUnavailableReason(settings, capabilities), null);
+  }
 });

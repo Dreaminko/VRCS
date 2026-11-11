@@ -124,6 +124,9 @@ export function usePlayerAudioStart(options?: { beforeMemoryChange: () => Promis
 
   const checkMemoryBeforeStart = useCallback(async () => {
     if (!isTauri()) return true;
+    // Linux has no Windows pagefile/MMAgent prerequisite; Core requests the
+    // network helper through polkit only after a VRChat process is found.
+    if (navigator.userAgent.includes("Linux")) return true;
     setPreparation({ stage: "memory", detail: null });
     try {
       const status = await refreshMemory();

@@ -251,7 +251,7 @@ export function SystemSettingsSection({
               title={t("settings.system.runAsAdministrator")}
               checked={desktopPreferences.runAsAdministrator}
               disabled={!desktopPreferencesReady || core?.os !== "windows"}
-              description={core?.os !== "windows" ? t("platform.network_capture_unsupported") : undefined}
+              description={core?.os !== "windows" ? t("platform.windows_only") : undefined}
               onChange={(enabled) => void onUpdateDesktop("runAsAdministrator", enabled)}
             />
             <PreferenceToggle

@@ -71,7 +71,7 @@ export function CaptureSettingsSection({
   const [microphoneTestBusy, setMicrophoneTestBusy] = useState(false);
   const [networkRequiredOpen, setNetworkRequiredOpen] = useState(false);
   const networkEnabled = draft.audio.output.player_audio?.enabled === true;
-  const networkSupported = core?.chatbox.network_receive.supported === true;
+  const networkSupported = core?.chatbox.network_receive.available === true;
   const calibration = useMicrophoneCalibration({
     level: microphoneLevel,
     testing: microphoneTestRunning,
@@ -190,7 +190,7 @@ export function CaptureSettingsSection({
                 key: "vrchat_players",
                 name: t("settings.audio.players.title"),
                 description: t("settings.audio.players.nameHint"),
-                disabled: !core?.audio.player_audio.supported,
+                disabled: !core?.audio.player_audio.available,
                 chosen: draft.audio.output.mode === "vrchat_players",
                 onSelect: () => {
                   if (!networkEnabled || !networkSupported) {
@@ -345,7 +345,8 @@ export function CaptureSettingsSection({
               }));
             }}
           />
-          <fieldset disabled={!networkSupported} className="platform-capability-section">
+          <CapabilityNotice capability={core?.chatbox.network_receive} />
+          <fieldset className="platform-capability-section">
           <VrchatChatboxSettings draft={draft} translation={translation} profiles={profiles} status={chatboxStatus}
             supported={networkSupported} saveState={saveState} saveMessage={saveMessage}
             applySettings={applySettings} onOpenTranslation={onOpenTranslation} />

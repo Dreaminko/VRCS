@@ -51,6 +51,12 @@ test("the status bar reports the active VRChat network capture phase", () => {
   assert.deepEqual(vrchatNetworkStatus(health("stopped", 0, false), settings, t), {
     label: "status.networkStopped", tone: "idle",
   });
+  assert.deepEqual(vrchatNetworkStatus(health("authorizing"), settings, t), {
+    label: "status.networkAuthorizing", tone: "waiting",
+  });
+  assert.deepEqual(vrchatNetworkStatus(health("future_phase" as NonNullable<Health["player_audio"]>["phase"]), settings, t), {
+    label: "status.networkStarting", tone: "waiting",
+  });
   assert.equal(vrchatNetworkStatus(health("waiting_game"), settings, t)?.label, "status.networkWaitingGame");
   assert.equal(vrchatNetworkStatus(health("waiting_world"), settings, t)?.label, "status.networkWaitingWorld");
   assert.equal(vrchatNetworkStatus(health("waiting_traffic"), settings, t)?.label, "status.networkWaitingTraffic");
@@ -69,6 +75,16 @@ test("the status bar reports the active VRChat network capture phase", () => {
   } as Health;
   assert.deepEqual(vrchatNetworkStatus(chatboxOnly, settings, t), {
     label: "status.networkReceivingChatbox", tone: "active",
+  });
+  assert.deepEqual(vrchatNetworkStatus({
+    ...chatboxOnly, vrchat_chatbox: { ...chatboxOnly.vrchat_chatbox!, phase: "authorizing" },
+  }, settings, t), {
+    label: "status.networkAuthorizing", tone: "waiting",
+  });
+  assert.deepEqual(vrchatNetworkStatus({
+    ...chatboxOnly, vrchat_chatbox: { ...chatboxOnly.vrchat_chatbox!, phase: "future_phase" as NonNullable<Health["vrchat_chatbox"]>["phase"] },
+  }, settings, t), {
+    label: "status.networkStarting", tone: "waiting",
   });
   assert.deepEqual(vrchatNetworkStatus(health("failed"), settings, t), {
     label: "status.networkFailed", tone: "error",

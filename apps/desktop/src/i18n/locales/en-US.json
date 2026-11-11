@@ -35,6 +35,8 @@
       "qwen_unavailable": "The managed Qwen runtime is not available on this platform or is not running. Cloud recognition remains available.",
       "local_translation_unavailable": "Local PLaMo translation is unavailable on this platform or is not running. Saved model bindings are preserved; choose a cloud profile explicitly if needed.",
       "network_capture_unsupported": "This platform does not support experimental player audio or Chatbox network reception. OSC Chatbox sending is independent and remains available.",
+      "network_helper_missing": "The VRCS network helper is not installed. Install the matching vrcs-network-helper package before enabling player audio or Chatbox network reception.",
+      "windows_only": "This option is only available on Windows.",
       "directml_unsupported": "DirectML is only supported on Windows. Use CPU for local OCR on Linux.",
       "vad_unavailable": "The Silero VAD model is not loaded. The existing energy-based fallback is active.",
       "ocr_unavailable": "The local OCR model is not loaded. Model installation alone does not verify inference support.",
@@ -42,7 +44,9 @@
       "audio_device_reselection_required": "The saved audio device belongs to an unavailable backend. Select a device again; capture will not fall back to another source.",
       "vr_unavailable": "Linux VR subtitles and controller input are not implemented yet. Desktop subtitles remain available.",
       "vr_runtime_unavailable": "Start the VR runtime and connect a headset to use this feature.",
-      "vr": { "runtime_arch_unverified": "This ARM64 build does not include a verified native VR backend." },
+      "vr": {
+        "runtime_arch_unverified": "This ARM64 build does not include a verified native VR backend."
+      },
       "screenshot_unavailable": "Authorized desktop capture is not implemented for this platform yet. OCR and visual-assistant capture are unavailable.",
       "window_stacking_unavailable": "This session cannot guarantee always-on-top windows. Compact subtitles use a normal window.",
       "shortcuts_unavailable": "System-wide shortcuts are unavailable in this session. Use application buttons instead.",
@@ -243,6 +247,7 @@
       "vrchat": "VRChat send",
       "networkChecking": "Checking",
       "networkStarting": "Preparing",
+      "networkAuthorizing": "Waiting for system authorization…",
       "networkStopped": "Network capture stopped",
       "networkWaitingGame": "Waiting for VRChat",
       "networkWaitingWorld": "Waiting for world",
@@ -1785,6 +1790,7 @@
             "streaming": "Receiving per-player independent tracks",
             "failed": "Player audio stopped with an error",
             "waiting_game": "Waiting for VRChat to start",
+            "authorizing": "Waiting for system authorization…",
             "waiting_world": "Waiting for the VRChat world to finish loading",
             "retrying_key": "Key acquisition failed; retrying shortly"
           },
@@ -1988,7 +1994,7 @@
       },
       "capture": {
         "openTranslation": "Open translation settings",
-        "unsupported": "VRChat network capture is supported only in the Windows desktop app.",
+        "unsupported": "VRChat network capture is unavailable in this build. Windows uses the desktop app; Linux x86_64 requires the matching vrcs-network-helper package.",
         "networkTitle": "VRChat network capture",
         "networkEnable": "Enable VRChat network capture",
         "networkRequired": "Enable VRChat network capture below before using Chatbox capture or separate player audio tracks.",
@@ -1997,6 +2003,7 @@
           "enable": "Receive and translate VRChat Chatbox",
           "translationUnavailable": "Automatic translation is off or no usable text translation profile is configured for Other players. Original text is still saved; manual translation remains available.",
           "phase": {
+            "authorizing": "Waiting for system authorization…",
             "waiting_game": "Waiting for VRChat to start",
             "waiting_world": "Waiting for the VRChat world to finish loading",
             "waiting_traffic": "Waiting for VRChat network traffic",

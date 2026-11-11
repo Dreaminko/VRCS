@@ -35,6 +35,8 @@
       "qwen_unavailable": "目前平台的託管 Qwen 執行元件無法使用或尚未執行，可明確選擇雲端辨識。",
       "local_translation_unavailable": "目前平台的 PLaMo 本機翻譯無法使用或尚未執行。已儲存的模型綁定會保留，需要時請明確選擇雲端設定。",
       "network_capture_unsupported": "目前平台不支援實驗性分玩家音軌及 Chatbox 網路接收；OSC Chatbox 傳送可獨立使用。",
+      "network_helper_missing": "尚未安裝 VRCS 網路助手。啟用分玩家音軌或 Chatbox 網路接收前，請先安裝相符的 vrcs-network-helper 套件。",
+      "windows_only": "此選項僅在 Windows 上可用。",
       "directml_unsupported": "DirectML 僅支援 Windows，Linux 本機 OCR 請使用 CPU。",
       "vad_unavailable": "Silero VAD 模型尚未載入，目前使用既有的能量偵測備援。",
       "ocr_unavailable": "本機 OCR 模型尚未載入，安裝模型不代表推論能力已通過驗證。",
@@ -42,7 +44,9 @@
       "audio_device_reselection_required": "已儲存的音訊裝置屬於無法使用的後端，請重新選擇裝置；不會自動改擷取其他音源。",
       "vr_unavailable": "Linux VR 字幕與控制器輸入尚未實作，桌面字幕仍可使用。",
       "vr_runtime_unavailable": "請啟動 VR 執行環境並連接頭戴裝置後使用此功能。",
-      "vr": { "runtime_arch_unverified": "此 ARM64 組建未包含通過驗證的原生 VR 後端。" },
+      "vr": {
+        "runtime_arch_unverified": "此 ARM64 組建未包含通過驗證的原生 VR 後端。"
+      },
       "screenshot_unavailable": "目前平台尚未實作桌面授權截圖，OCR 與視覺問答的截圖入口無法使用。",
       "window_stacking_unavailable": "目前工作階段無法保證視窗全域置頂，精簡字幕使用一般視窗。",
       "shortcuts_unavailable": "目前工作階段不支援系統全域快速鍵，請使用應用程式內的按鈕。",
@@ -243,6 +247,7 @@
       "vrchat": "VRChat 傳送",
       "networkChecking": "檢查中",
       "networkStarting": "準備中",
+      "networkAuthorizing": "等待系統授權…",
       "networkStopped": "網路擷取已停止",
       "networkWaitingGame": "等待 VRChat",
       "networkWaitingWorld": "等待世界載入",
@@ -1785,6 +1790,7 @@
             "streaming": "正在接收分玩家獨立音軌",
             "failed": "分玩家獨立音軌擷取因錯誤停止",
             "waiting_game": "等待 VRChat 啟動",
+            "authorizing": "等待系統授權…",
             "waiting_world": "等待 VRChat 世界載入完成",
             "retrying_key": "尚未取得金鑰，稍後自動重試"
           },
@@ -1988,7 +1994,7 @@
       },
       "capture": {
         "openTranslation": "開啟翻譯設定",
-        "unsupported": "VRChat 網路擷取僅支援 Windows 桌面版。",
+        "unsupported": "目前建置無法使用 VRChat 網路擷取。Windows 需要桌面版；Linux x86_64 需要相符的 vrcs-network-helper 套件。",
         "networkTitle": "VRChat 網路擷取",
         "networkEnable": "啟用 VRChat 網路擷取",
         "networkRequired": "請先開啟下方的「VRChat 網路擷取」，才能使用 Chatbox 擷取或分玩家獨立音軌。",
@@ -1997,6 +2003,7 @@
           "enable": "接收並翻譯 VRChat Chatbox",
           "translationUnavailable": "尚未啟用自動翻譯，或「其他玩家」未設定可用的文字翻譯服務。原文仍會儲存，可手動翻譯。",
           "phase": {
+            "authorizing": "等待系統授權…",
             "waiting_game": "等待 VRChat 啟動",
             "waiting_world": "等待 VRChat 世界載入完成",
             "waiting_traffic": "等待 VRChat 網路資料",

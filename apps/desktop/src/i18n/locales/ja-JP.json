@@ -35,6 +35,8 @@
       "qwen_unavailable": "管理対象の Qwen ランタイムは、このプラットフォームでは利用できないか未起動です。クラウド音声認識は明示的に選択できます。",
       "local_translation_unavailable": "ローカル PLaMo 翻訳は利用できないか未起動です。保存済みのモデル設定は保持されます。必要に応じてクラウド設定を明示的に選択してください。",
       "network_capture_unsupported": "このプラットフォームでは実験的なプレイヤー別音声と Chatbox ネットワーク受信に対応していません。OSC Chatbox 送信は独立して利用できます。",
+      "network_helper_missing": "VRCS ネットワークヘルパーがインストールされていません。プレイヤー別音声または Chatbox ネットワーク受信を有効にする前に、対応する vrcs-network-helper パッケージをインストールしてください。",
+      "windows_only": "このオプションは Windows でのみ使用できます。",
       "directml_unsupported": "DirectML は Windows 専用です。Linux のローカル OCR には CPU を使用してください。",
       "vad_unavailable": "Silero VAD モデルが未ロードです。既存のエネルギー検出へのフォールバックが有効です。",
       "ocr_unavailable": "ローカル OCR モデルが未ロードです。モデルのインストールだけでは推論の動作確認にはなりません。",
@@ -42,7 +44,9 @@
       "audio_device_reselection_required": "保存済みの音声デバイスのバックエンドは利用できません。デバイスを選び直してください。別の音源に自動で切り替わることはありません。",
       "vr_unavailable": "Linux の VR 字幕とコントローラー入力は未実装です。デスクトップ字幕は引き続き利用できます。",
       "vr_runtime_unavailable": "VR ランタイムを起動し、ヘッドセットを接続してください。",
-      "vr": { "runtime_arch_unverified": "この ARM64 ビルドには検証済みのネイティブ VR バックエンドが含まれていません。" },
+      "vr": {
+        "runtime_arch_unverified": "この ARM64 ビルドには検証済みのネイティブ VR バックエンドが含まれていません。"
+      },
       "screenshot_unavailable": "このプラットフォームの許可付き画面キャプチャは未実装です。OCR と画像質問応答のキャプチャは利用できません。",
       "window_stacking_unavailable": "このセッションでは最前面表示を保証できません。コンパクト字幕は通常のウィンドウを使用します。",
       "shortcuts_unavailable": "このセッションではグローバルショートカットを利用できません。アプリ内のボタンを使用してください。",
@@ -243,6 +247,7 @@
       "vrchat": "VRChat 送信",
       "networkChecking": "確認中",
       "networkStarting": "準備中",
+      "networkAuthorizing": "システム認証を待っています…",
       "networkStopped": "ネットワーク取得停止",
       "networkWaitingGame": "VRChat を待機中",
       "networkWaitingWorld": "ワールド読み込みを待機中",
@@ -1785,6 +1790,7 @@
             "streaming": "プレイヤー別独立音声トラックを受信中",
             "failed": "エラーにより取得が停止しました",
             "waiting_game": "VRChat の起動を待機中",
+            "authorizing": "システム認証を待っています…",
             "waiting_world": "VRChat のワールド読み込み完了を待機中",
             "retrying_key": "キーを取得できませんでした。まもなく自動再試行します"
           },
@@ -1988,7 +1994,7 @@
       },
       "capture": {
         "openTranslation": "翻訳設定を開く",
-        "unsupported": "VRChat のネットワークキャプチャは Windows デスクトップ版でのみ利用できます。",
+        "unsupported": "このビルドでは VRChat ネットワークキャプチャを利用できません。Windows はデスクトップ版、Linux x86_64 は対応する vrcs-network-helper パッケージが必要です。",
         "networkTitle": "VRChat ネットワークキャプチャ",
         "networkEnable": "VRChat ネットワークキャプチャを有効にする",
         "networkRequired": "Chatbox キャプチャやプレイヤー別の音声トラックを使用するには、下の「VRChat ネットワークキャプチャ」を有効にしてください。",
@@ -1997,6 +2003,7 @@
           "enable": "VRChat Chatbox を受信して翻訳",
           "translationUnavailable": "自動翻訳が無効か、「他のプレイヤー」に利用可能なテキスト翻訳サービスが設定されていません。原文は保存され、手動で翻訳できます。",
           "phase": {
+            "authorizing": "システム認証を待っています…",
             "waiting_game": "VRChat の起動を待機中",
             "waiting_world": "VRChat のワールド読み込み完了を待機中",
             "waiting_traffic": "VRChat のネットワークデータを待機中",
