@@ -13,23 +13,14 @@ $tauriReleaseConfigTemplatePath = Join-Path $repoRoot "apps\desktop\src-tauri\ta
 $generatedTauriConfigPath = Join-Path $repoRoot "apps\desktop\src-tauri\tauri.release.generated.conf.json"
 $generatedTauriConfigArgument = "src-tauri/tauri.release.generated.conf.json"
 $cargoManifestPath = Join-Path $repoRoot "apps\desktop\src-tauri\Cargo.toml"
-$desktopPackagePath = Join-Path $repoRoot "apps\desktop\package.json"
-$coreManifestPath = Join-Path $repoRoot "core\Cargo.toml"
 $defaultTargetRoot = Join-Path $repoRoot ".build"
 $artifactRoot = Join-Path $repoRoot "release-artifacts"
 $tauriConfig = Get-Content -LiteralPath $tauriConfigPath -Raw | ConvertFrom-Json
 if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) { throw "TAURI_SIGNING_PRIVATE_KEY is required for release builds" }
 if ([string]::IsNullOrWhiteSpace($env:TAURI_UPDATER_PUBLIC_KEY)) { throw "TAURI_UPDATER_PUBLIC_KEY is required for release builds" }
 if (-not $Version) { $Version = $tauriConfig.version }
-$cargoVersion = (Select-String -LiteralPath $cargoManifestPath -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
-$desktopPackageVersion = (Get-Content -LiteralPath $desktopPackagePath -Raw | ConvertFrom-Json).version
-$coreVersion = (Select-String -LiteralPath $coreManifestPath -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
-
-foreach ($actual in @($tauriConfig.version, $cargoVersion, $desktopPackageVersion, $coreVersion)) {
-    if ($actual -ne $Version) {
-        throw "Release version mismatch: requested $Version but a project manifest contains $actual"
-    }
-}
+& node (Join-Path $PSScriptRoot "release-metadata.mjs") check-version $Version $repoRoot
+if ($LASTEXITCODE -ne 0) { throw "Release version check failed" }
 
 function Assert-NonEmptyFile {
     param([Parameter(Mandatory)][string]$Path)
@@ -129,10 +120,8 @@ function Invoke-ReleaseBuild {
     Assert-NonEmptyFile $artifactPath
     Assert-NonEmptyFile $signaturePath
 
-    $hash = Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256
+    # release-metadata.mjs validates the package and writes the checksum.
     $checksumPath = "$artifactPath.sha256"
-    "$($hash.Hash.ToLowerInvariant())  $artifactName" | Set-Content -LiteralPath $checksumPath -Encoding ascii
-    Assert-NonEmptyFile $checksumPath
 
     return [PSCustomObject]@{
         ArtifactName = $artifactName

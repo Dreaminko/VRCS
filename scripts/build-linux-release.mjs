@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { writeTargetManifest } from "./release-metadata.mjs";
+import { checkProjectVersion, writeTargetManifest } from "./release-metadata.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 process.chdir(root);
@@ -19,10 +19,7 @@ if ((requireSigned || signed) && !process.env.TAURI_UPDATER_PUBLIC_KEY?.trim()) 
 if (requireSigned && !signed) throw new Error("Updater private key required for a publishable release");
 const version = JSON.parse(readFileSync("apps/desktop/src-tauri/tauri.conf.json", "utf8")).version;
 if (process.env.GITHUB_REF?.startsWith("refs/tags/") && process.env.GITHUB_REF_NAME !== version) throw new Error("Release tag does not match application version");
-for (const path of ["core/Cargo.toml", "apps/desktop/src-tauri/Cargo.toml"]) {
-  if (readFileSync(path, "utf8").match(/^version = "([^"]+)"/m)?.[1] !== version) throw new Error(`Release version mismatch: ${path}`);
-}
-if (JSON.parse(readFileSync("apps/desktop/package.json", "utf8")).version !== version) throw new Error("Desktop package version mismatch");
+checkProjectVersion(version);
 const targetRoot = resolve(process.env.CARGO_TARGET_DIR || ".build");
 const profile = preview ? "debug" : "release";
 const binaryRoot = join(targetRoot, triple, profile);

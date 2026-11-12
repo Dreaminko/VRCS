@@ -17,6 +17,24 @@ const digest = (data) => createHash("sha256").update(data).digest("hex");
 function requireVersion(version) {
   if (!versionPattern.test(version)) throw new Error("Invalid release version");
 }
+const tomlVersion = (data) => data.match(/^version = "([^"]+)"/m)?.[1];
+
+/// Every release manifest must carry the same version before anything is built.
+export function checkProjectVersion(version, root = ".") {
+  requireVersion(version);
+  const manifests = [
+    ["apps/desktop/src-tauri/tauri.conf.json", (data) => JSON.parse(data).version],
+    ["core/Cargo.toml", tomlVersion],
+    ["apps/desktop/src-tauri/Cargo.toml", tomlVersion],
+    ["apps/desktop/package.json", (data) => JSON.parse(data).version],
+  ];
+  for (const [path, read] of manifests) {
+    if (read(readFileSync(join(root, path), "utf8")) !== version) {
+      throw new Error(`Release version mismatch: ${path}`);
+    }
+  }
+}
+
 function targetFor(os, arch, channel) {
   const target = releaseTargets.find((item) => item.os === os && item.arch === arch && item.channel === channel);
   if (!target) throw new Error(`Unsupported release target: ${os}/${arch}/${channel}`);
@@ -141,8 +159,9 @@ export function aggregateRelease({ root, version, publicKey, repository = "Dream
   return path;
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [command, root, version, os, arch, channel] = process.argv.slice(2);
-  if (command === "target") console.log(writeTargetManifest({ root, version, os, arch, channel }));
-  else if (command === "aggregate") console.log(aggregateRelease({ root, version, publicKey: process.env.TAURI_UPDATER_PUBLIC_KEY, repository: process.env.GITHUB_REPOSITORY || "Dreaminko/VRCS" }));
-  else throw new Error("Usage: release-metadata.mjs target ROOT VERSION OS ARCH CHANNEL | aggregate ROOT VERSION");
+  const [command, ...args] = process.argv.slice(2);
+  if (command === "target") console.log(writeTargetManifest({ root: args[0], version: args[1], os: args[2], arch: args[3], channel: args[4] }));
+  else if (command === "aggregate") console.log(aggregateRelease({ root: args[0], version: args[1], publicKey: process.env.TAURI_UPDATER_PUBLIC_KEY, repository: process.env.GITHUB_REPOSITORY || "Dreaminko/VRCS" }));
+  else if (command === "check-version") checkProjectVersion(args[0], args[1] || ".");
+  else throw new Error("Usage: release-metadata.mjs target ROOT VERSION OS ARCH CHANNEL | aggregate ROOT VERSION | check-version VERSION [ROOT]");
 }

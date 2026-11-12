@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { aggregateRelease, releaseTargets, validatePackage, verifyUpdaterSignature, writeTargetManifest } from "./release-metadata.mjs";
+import { aggregateRelease, checkProjectVersion, releaseTargets, validatePackage, verifyUpdaterSignature, writeTargetManifest } from "./release-metadata.mjs";
 
 const version = "1.2.3";
 const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -68,6 +68,20 @@ function complete(t) {
   for (const target of releaseTargets) packageFixture(root, target);
   return root;
 }
+test("every release manifest must agree on the version", (t) => {
+  const root = fixture(t);
+  const tauri = join(root, "apps/desktop/src-tauri");
+  mkdirSync(tauri, { recursive: true });
+  mkdirSync(join(root, "core"), { recursive: true });
+  writeFileSync(join(tauri, "tauri.conf.json"), JSON.stringify({ version }));
+  writeFileSync(join(tauri, "Cargo.toml"), `[package]\nversion = "${version}"\n`);
+  writeFileSync(join(root, "core/Cargo.toml"), `[package]\nversion = "${version}"\n`);
+  writeFileSync(join(root, "apps/desktop/package.json"), JSON.stringify({ version }));
+  assert.doesNotThrow(() => checkProjectVersion(version, root));
+  writeFileSync(join(root, "apps/desktop/package.json"), JSON.stringify({ version: "9.9.9" }));
+  assert.throws(() => checkProjectVersion(version, root), /version mismatch/);
+});
+
 const linux = process.platform === "linux";
 test("all published architectures aggregate without dropping Windows or its CUDA alias", { skip: !linux }, (t) => {
   const root = complete(t);
