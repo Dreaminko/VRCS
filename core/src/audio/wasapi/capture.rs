@@ -10,6 +10,7 @@ use tokio::sync::mpsc;
 
 use crate::models::AudioDevice;
 
+use super::super::tap::{TapResampler, TAP_RATE};
 use super::super::{AudioError, CHUNK_FRAMES};
 use super::devices::{
     default_device_id, endpoint_info, err, init_com, is_endpoint_invalidation, resolve_device,
@@ -413,6 +414,7 @@ fn run_stream(
     let mut packet = VecDeque::<u8>::new();
     let mut timeline_origin = None;
     let mut timeline_frames = 0u64;
+    let mut tap_resampler = TapResampler::new(stream.native.sample_rate);
     let mut next_default_check = std::time::Instant::now() + DEFAULT_DEVICE_CHECK_INTERVAL;
     while !stop.load(Ordering::Relaxed) {
         match &stream.wait {
@@ -482,6 +484,7 @@ fn run_stream(
                         > std::time::Duration::from_millis(250)
                 {
                     tap.discontinuity("Microphone capture timing discontinuity");
+                    tap_resampler.reset();
                     origin = read_at - native_duration(pending.len() as u64);
                     timeline_origin = Some(origin);
                     timeline_frames = 0;
@@ -500,6 +503,7 @@ fn run_stream(
                     chunk_end,
                     tx,
                     microphone_tap,
+                    &mut tap_resampler,
                 );
             }
         }
@@ -515,15 +519,18 @@ fn publish_chunk(
     end: std::time::Instant,
     tx: &mpsc::Sender<Vec<f32>>,
     microphone_tap: Option<&crate::vision::MicrophoneTap>,
+    tap_resampler: &mut TapResampler,
 ) {
     let chunk = resample_linear(frame, output_rate, native_rate);
     if let Some(tap) = microphone_tap {
-        if output_rate == 16_000 {
-            tap.push(&chunk, start, end);
+        let resampled;
+        let samples: &[f32] = if output_rate == TAP_RATE {
+            frame
         } else {
-            let tap_chunk = resample_linear(frame, 16_000, native_rate);
-            tap.push(&tap_chunk, start, end);
-        }
+            resampled = tap_resampler.resample(frame);
+            &resampled
+        };
+        tap.push(samples, start, end);
     }
     if !chunk.is_empty() {
         if let Ok(permit) = tx.try_reserve() {
@@ -680,6 +687,7 @@ mod tests {
                 }
                 let tap = crate::vision::MicrophoneTap::default();
                 tap.started();
+                let mut tap_resampler = super::TapResampler::new(48_000);
                 let start = std::time::Instant::now();
                 let mut window = tap.begin(1).unwrap();
                 tokio::time::sleep(std::time::Duration::from_millis(2)).await;
@@ -692,6 +700,7 @@ mod tests {
                     middle,
                     &tx,
                     Some(&tap),
+                    &mut tap_resampler,
                 );
                 window.reader().check().unwrap();
                 tokio::time::sleep(std::time::Duration::from_millis(2)).await;
@@ -704,6 +713,7 @@ mod tests {
                     std::time::Instant::now(),
                     &tx,
                     Some(&tap),
+                    &mut tap_resampler,
                 );
                 let samples = window.finish().await.unwrap();
                 assert!(samples.contains(&0.1));

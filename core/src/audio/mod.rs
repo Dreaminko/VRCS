@@ -19,8 +19,20 @@ use wasapi as platform;
 mod pipewire;
 #[cfg(target_os = "linux")]
 use pipewire as platform;
+#[cfg(any(windows, target_os = "linux"))]
+mod tap;
 
 pub const CHUNK_FRAMES: usize = 512;
+
+/// Stable 53-bit identifier for a backend device key.
+pub(crate) fn device_id(key: &str) -> i64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in key.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    (hash & ((1u64 << 53) - 1)) as i64
+}
 const CHANNEL_CAPACITY: usize = 128;
 const START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 const START_ATTEMPTS: usize = 3;

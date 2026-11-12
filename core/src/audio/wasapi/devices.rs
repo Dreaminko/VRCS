@@ -72,15 +72,6 @@ pub(super) fn init_com() -> Result<ComApartment, AudioError> {
     }
 }
 
-fn device_key(wasapi_id: &str) -> i64 {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in wasapi_id.bytes() {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    (hash & ((1u64 << 53) - 1)) as i64
-}
-
 pub(super) fn endpoint_info(
     device: &Device,
     is_default: bool,
@@ -89,7 +80,7 @@ pub(super) fn endpoint_info(
     let wasapi_id = device.get_id().map_err(err)?;
     let format = device.get_device_format().map_err(err)?;
     Ok(AudioDevice {
-        id: device_key(&wasapi_id),
+        id: crate::audio::device_id(&wasapi_id),
         device_key: None,
         name: device.get_friendlyname().map_err(err)?,
         is_default,
@@ -436,7 +427,7 @@ mod tests {
 
     #[test]
     fn device_keys_are_javascript_safe() {
-        let key = device_key("render-device-that-produces-a-large-fnv-hash");
+        let key = crate::audio::device_id("render-device-that-produces-a-large-fnv-hash");
         assert!((0..=9_007_199_254_740_991).contains(&key));
     }
 

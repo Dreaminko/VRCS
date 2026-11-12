@@ -39,11 +39,8 @@ impl Node {
         let key = self.key();
         // Retained for the common response schema, not accepted as a selection
         // identifier on Linux. Only device_key is persistent backend identity.
-        let hash = key.bytes().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
-        });
         AudioDevice {
-            id: (hash & ((1u64 << 53) - 1)) as i64,
+            id: crate::audio::device_id(&key),
             device_key: Some(key),
             name: self.label.clone(),
             is_default,

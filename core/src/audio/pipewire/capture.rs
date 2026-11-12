@@ -15,6 +15,7 @@ use tokio::sync::mpsc;
 
 use crate::models::AudioDevice;
 use crate::vision::MicrophoneTap;
+use super::super::tap::{TapResampler, TAP_RATE};
 use super::super::{AudioError, CHUNK_FRAMES};
 use super::devices::{error, Node, Session};
 use super::{CaptureTarget, DeviceDirection};
@@ -43,9 +44,7 @@ struct CaptureData {
     frames: u64,
     dropped: u64,
     discontinuity: bool,
-    tap_source_frames: u64,
-    tap_output_frames: u64,
-    tap_previous: f32,
+    tap: TapResampler,
 }
 
 impl CaptureData {
@@ -62,9 +61,7 @@ impl CaptureData {
             frames: 0,
             dropped: 0,
             discontinuity: false,
-            tap_source_frames: 0,
-            tap_output_frames: 0,
-            tap_previous: 0.0,
+            tap: TapResampler::new(rate),
         }
     }
 
@@ -250,27 +247,9 @@ fn connect_stream(session: &Session, node: &Node, rate: u32, state: Rc<RefCell<C
     Ok((stream, listener))
 }
 
-fn tap_chunk(state: &mut CaptureData, samples: &[f32]) -> Vec<f32> {
-    let mut output = Vec::with_capacity((samples.len() as u64 * 16_000 / u64::from(state.rate) + 1) as usize);
-    for &sample in samples {
-        let frame = state.tap_source_frames;
-        while state.tap_output_frames.saturating_mul(u64::from(state.rate)) <= frame.saturating_mul(16_000) {
-            let position = state.tap_output_frames as f64 * f64::from(state.rate) / 16_000.0;
-            let fraction = (position - frame.saturating_sub(1) as f64).clamp(0.0, 1.0) as f32;
-            output.push(if frame == 0 { sample } else { state.tap_previous + (sample - state.tap_previous) * fraction });
-            state.tap_output_frames += 1;
-        }
-        state.tap_source_frames += 1;
-        state.tap_previous = sample;
-    }
-    output
-}
-
 fn publish(state: &mut CaptureData, tx: &mpsc::Sender<Vec<f32>>, tap: Option<&MicrophoneTap>) {
     if std::mem::take(&mut state.discontinuity) {
-        state.tap_source_frames = 0;
-        state.tap_output_frames = 0;
-        state.tap_previous = 0.0;
+        state.tap.reset();
         if let Some(tap) = tap { tap.discontinuity("PipeWire audio was interrupted or dropped"); }
     }
     let dropped = std::mem::take(&mut state.dropped);
@@ -278,10 +257,10 @@ fn publish(state: &mut CaptureData, tx: &mpsc::Sender<Vec<f32>>, tap: Option<&Mi
     let mut channel_dropped = 0u64;
     while let Some(packet) = state.queue.pop_front() {
         if let Some(tap) = tap {
-            if state.rate == 16_000 {
+            if state.rate == TAP_RATE {
                 tap.push(&packet.samples, packet.start, packet.end);
             } else {
-                tap.push(&tap_chunk(state, &packet.samples), packet.start, packet.end);
+                tap.push(&state.tap.resample(&packet.samples), packet.start, packet.end);
             }
         }
         match tx.try_reserve() {
@@ -439,11 +418,13 @@ mod tests {
             let mut count = 0;
             let samples = [0.25; CHUNK_FRAMES];
             for _ in 0..100 {
-                let chunk = tap_chunk(&mut state, &samples);
+                let chunk = state.tap.resample(&samples);
                 assert!(chunk.iter().all(|sample| *sample == 0.25));
                 count += chunk.len();
             }
-            let expected = ((100 * CHUNK_FRAMES - 1) as u64 * 16_000 / u64::from(rate) + 1) as usize;
+            let expected =
+                ((100 * CHUNK_FRAMES - 1) as u64 * u64::from(TAP_RATE) / u64::from(rate) + 1)
+                    as usize;
             assert_eq!(count, expected);
         }
     }
