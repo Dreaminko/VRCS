@@ -63,7 +63,7 @@ impl State {
             .service
             .clone()
             .ok_or("desktop_vision.core_unavailable")?;
-        if !cfg!(windows) {
+        if !cfg!(any(windows, target_os = "linux")) {
             return Err("desktop_vision.unavailable".into());
         }
         if !service.configuration_for(VisionMode::Desktop).enabled {
@@ -121,7 +121,12 @@ impl Manager {
 
     #[cfg(target_os = "linux")]
     pub fn shortcut_binding(&self) -> Option<String> {
-        self.state.lock().unwrap().binding.as_ref().and_then(|binding| binding.0.clone())
+        self.state
+            .lock()
+            .unwrap()
+            .binding
+            .as_ref()
+            .and_then(|binding| binding.0.clone())
     }
 
     pub fn start(
@@ -172,7 +177,8 @@ impl Manager {
     }
 
     fn configure(&self, lifecycle: u64, config: &VisionConfig, ocr: &VrOcrConfig) {
-        let available = cfg!(any(windows, target_os = "linux")) && config.enabled && config.desktop_enabled;
+        let available =
+            cfg!(any(windows, target_os = "linux")) && config.enabled && config.desktop_enabled;
         let conflict = available
             && ocr.desktop_enabled
             && shortcuts_match(&config.desktop_shortcut, &ocr.shortcut);
@@ -473,56 +479,65 @@ impl Manager {
             let result = async {
                 #[cfg(target_os = "linux")]
                 {
-                    let selected = crate::desktop_capture::picker::capture_region(app.clone(), cancelled.clone(), || {
-                        app.state::<Self>().update(id, |state| state.status.state = "selecting");
-                    }).await?;
-                    let Some(image) = selected else { return Ok(None); };
+                    let selected = crate::desktop_capture::picker::capture_region(
+                        app.clone(),
+                        cancelled.clone(),
+                        || {
+                            app.state::<Self>()
+                                .update(id, |state| state.status.state = "selecting");
+                        },
+                    )
+                    .await?;
+                    let Some(image) = selected else {
+                        return Ok(None);
+                    };
                     crate::vision_image::prepare_image(image, &config).map(Some)
                 }
                 #[cfg(windows)]
                 {
-                let capture = tauri::async_runtime::spawn_blocking(move || {
-                    vrcs_core::ocr::desktop_capture::capture_desktop(&result_windows)
-                })
-                .await
-                .map_err(|_| "desktop_vision.capture_failed".to_string())?
-                .map_err(capture_error)?;
-                if !app
-                    .state::<Self>()
-                    .update(id, |state| state.status.state = "selecting")
-                {
-                    return Ok(None);
-                }
-                tauri::async_runtime::spawn_blocking(move || {
-                    if cancelled.load(Ordering::Acquire) {
-                        return Ok(None);
-                    }
-                    let region = crate::desktop_capture::selection_window::select_region_reserved(
-                        &capture, &cancelled, &hint, &picker,
-                    )
+                    let capture = tauri::async_runtime::spawn_blocking(move || {
+                        vrcs_core::ocr::desktop_capture::capture_desktop(&result_windows)
+                    })
+                    .await
+                    .map_err(|_| "desktop_vision.capture_failed".to_string())?
                     .map_err(capture_error)?;
-                    let Some(region) = region else {
-                        return Ok(None);
-                    };
-                    if cancelled.load(Ordering::Acquire) {
+                    if !app
+                        .state::<Self>()
+                        .update(id, |state| state.status.state = "selecting")
+                    {
                         return Ok(None);
                     }
-                    let pixels = region
-                        .crop(capture.width, capture.height, &capture.pixels)
-                        .map_err(capture_error)?;
+                    tauri::async_runtime::spawn_blocking(move || {
+                        if cancelled.load(Ordering::Acquire) {
+                            return Ok(None);
+                        }
+                        let region =
+                            crate::desktop_capture::selection_window::select_region_reserved(
+                                &capture, &cancelled, &hint, &picker,
+                            )
+                            .map_err(capture_error)?;
+                        let Some(region) = region else {
+                            return Ok(None);
+                        };
+                        if cancelled.load(Ordering::Acquire) {
+                            return Ok(None);
+                        }
+                        let pixels = region
+                            .crop(capture.width, capture.height, &capture.pixels)
+                            .map_err(capture_error)?;
 
-                    drop(capture);
-                    let image = crate::desktop_capture::image::Image {
-                        width: region.width,
-                        height: region.height,
-                        pixels,
-                    };
-                    let bytes = crate::vision_image::prepare_image(image, &config)
-                        .map_err(|_| "desktop_vision.capture_failed".to_string())?;
-                    Ok::<_, String>(Some(bytes))
-                })
-                .await
-                .map_err(|_| "desktop_vision.capture_failed".to_string())?
+                        drop(capture);
+                        let image = crate::desktop_capture::image::Image {
+                            width: region.width,
+                            height: region.height,
+                            pixels,
+                        };
+                        let bytes = crate::vision_image::prepare_image(image, &config)
+                            .map_err(|_| "desktop_vision.capture_failed".to_string())?;
+                        Ok::<_, String>(Some(bytes))
+                    })
+                    .await
+                    .map_err(|_| "desktop_vision.capture_failed".to_string())?
                 }
             }
             .await;
@@ -691,8 +706,8 @@ impl Manager {
 }
 
 fn shortcuts_match(left: &str, right: &str) -> bool {
-    crate::desktop_capture::shortcut::parse_shortcut(left)
-        .is_ok_and(|left| crate::desktop_capture::shortcut::parse_shortcut(right) == Ok(left))
+    use crate::desktop_capture::shortcut::Shortcut;
+    Shortcut::parse(left).is_ok_and(|left| Shortcut::parse(right) == Ok(left))
 }
 
 #[cfg(windows)]

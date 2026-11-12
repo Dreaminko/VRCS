@@ -727,7 +727,7 @@ pub(crate) async fn reconcile_network(
             )
         })?;
     #[cfg(any(windows, target_os = "linux"))]
-    // Linux rejects network consumers above; only Windows owns their worker.
+    // Capture is authorized above; each supported platform owns its consumer worker.
     if let Some(receiver) = subscriptions.chatbox {
         if let Some(task) = state.capture.chatbox_task.lock().await.take() {
             task.abort();
