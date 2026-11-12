@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -6,8 +6,12 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 use tokio::sync::{Mutex, OnceCell};
+
+use crate::llm::llama_server::{
+    probe_ready, runtime_command, stop_child as stop_managed, with_diagnostics,
+};
 
 #[cfg(test)]
 #[path = "qwen_runtime_tests.rs"]
@@ -332,7 +336,15 @@ impl QwenRuntime {
                     ));
                 }
             }
-            match probe_ready(&self.http, &origin, &token, &selection.alias).await {
+            match probe_ready(
+                &self.http,
+                &origin,
+                &token,
+                &selection.alias,
+                "Qwen ASR",
+            )
+            .await
+            {
                 Ok(true) => {
                     let mut state = self.state.lock().await;
                     if state.session != session {
@@ -436,34 +448,6 @@ pub(crate) fn executable_path() -> Result<PathBuf, String> {
     }
     Ok(bundled)
 }
-pub(super) fn runtime_command(executable: &Path) -> Command {
-    let mut command = Command::new(executable);
-    if let Some(parent) = executable.parent() {
-        command.current_dir(parent);
-    }
-    // The fixed Linux ELF closure carries $ORIGIN RUNPATH. Do not inherit a
-    // user's shell library overrides into a managed inference subprocess.
-    #[cfg(target_os = "linux")]
-    command.env_remove("LD_LIBRARY_PATH").env_remove("LD_PRELOAD");
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.as_std_mut().creation_flags(0x0800_0000);
-        // The installer keeps its Vulkan loader beside the desktop executable.
-        if let Ok(current) = std::env::current_exe() {
-            if let Some(parent) = current.parent() {
-                let mut paths = vec![parent.to_path_buf()];
-                if let Some(path) = std::env::var_os("PATH") {
-                    paths.extend(std::env::split_paths(&path));
-                }
-                if let Ok(path) = std::env::join_paths(paths) {
-                    command.env("PATH", path);
-                }
-            }
-        }
-    }
-    command
-}
 fn checked_file(path: &Path) -> Result<PathBuf, String> {
     let absolute = std::fs::canonicalize(path).map_err(|error| {
         format!(
@@ -492,19 +476,7 @@ fn check_child(state: &mut RuntimeState) -> Result<(), String> {
 }
 async fn stop_child(state: &mut RuntimeState) -> Result<(), String> {
     state.connection = None;
-    if let Some(mut child) = state.child.take() {
-        if child
-            .try_wait()
-            .map_err(|error| error.to_string())?
-            .is_none()
-        {
-            child
-                .kill()
-                .await
-                .map_err(|error| format!("Could not stop Qwen ASR runtime: {error}"))?;
-        }
-    }
-    Ok(())
+    stop_managed(&mut state.child, "Qwen ASR").await
 }
 async fn stop_session(state: &mut RuntimeState) -> Result<(), String> {
     state.session = state.session.wrapping_add(1);
@@ -513,20 +485,6 @@ async fn stop_session(state: &mut RuntimeState) -> Result<(), String> {
     state.device = None;
     state.fallback = None;
     stop_child(state).await
-}
-fn with_diagnostics(error: String, tail: &StdMutex<VecDeque<String>>) -> String {
-    let lines = tail
-        .lock()
-        .expect("runtime diagnostics lock")
-        .iter()
-        .cloned()
-        .collect::<Vec<_>>()
-        .join("\n");
-    if lines.is_empty() {
-        error
-    } else {
-        format!("{error}\n{lines}")
-    }
 }
 pub(super) fn launch_args(
     model: &Path,
@@ -572,60 +530,4 @@ pub(super) fn launch_args(
     args
 }
 
-#[derive(Deserialize)]
-struct Health {
-    status: String,
-}
 
-#[derive(Deserialize)]
-struct Models {
-    data: Vec<ModelEntry>,
-}
-
-#[derive(Deserialize)]
-struct ModelEntry {
-    id: String,
-}
-
-pub(super) async fn probe_ready(
-    http: &reqwest::Client,
-    origin: &str,
-    token: &str,
-    alias: &str,
-) -> Result<bool, String> {
-    let health = match http.get(format!("{origin}/health")).send().await {
-        Ok(response) => response,
-        Err(error) if error.is_connect() || error.is_timeout() => return Ok(false),
-        Err(error) => return Err(format!("Qwen ASR health check failed: {error}")),
-    };
-    if health.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
-        return Ok(false);
-    }
-    if !health.status().is_success() {
-        return Err(format!(
-            "Qwen ASR health check returned {}",
-            health.status()
-        ));
-    }
-    let health: Health = health
-        .json()
-        .await
-        .map_err(|error| format!("Invalid Qwen ASR health response: {error}"))?;
-    if health.status != "ok" {
-        return Ok(false);
-    }
-    let models = http
-        .get(format!("{origin}/v1/models"))
-        .bearer_auth(token)
-        .send()
-        .await
-        .map_err(|error| format!("Qwen ASR model check failed: {error}"))?;
-    if !models.status().is_success() {
-        return Err(format!("Qwen ASR model check returned {}", models.status()));
-    }
-    let models: Models = models
-        .json()
-        .await
-        .map_err(|error| format!("Invalid Qwen ASR model response: {error}"))?;
-    Ok(models.data.iter().any(|model| model.id == alias))
-}

@@ -217,7 +217,7 @@ async fn real_qwen_runtime_download_installs_and_launches() {
         assert_eq!(std::fs::metadata(&executable).unwrap().permissions().mode() & 0o777, 0o755);
         assert!(std::fs::read_link(executable.parent().unwrap().join("libllama.so")).is_ok());
     }
-    let output = super::qwen_runtime::runtime_command(&executable)
+    let output = crate::llm::llama_server::runtime_command(&executable)
         .arg("--list-devices").output().await.unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     println!("{}", String::from_utf8_lossy(&output.stdout));

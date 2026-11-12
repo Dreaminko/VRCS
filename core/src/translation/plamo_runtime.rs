@@ -6,13 +6,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 
 use super::plamo::{self, CompletionRequest, MODEL_ID};
 use super::{LlmProgress, TranslationError};
+use crate::llm::llama_server::{
+    probe_ready, runtime_command, stop_child as stop_managed, with_diagnostics,
+};
 
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
@@ -345,7 +348,7 @@ impl PlamoRuntime {
                     ));
                 }
             }
-            match probe_ready(&self.http, &origin, &token).await {
+            match probe_ready(&self.http, &origin, &token, MODEL_ID, "local PLaMo").await {
                 Ok(true) => {
                     let mut state = self.state.lock().await;
                     if state.generation != generation {
@@ -457,45 +460,7 @@ fn check_child(state: &mut RuntimeState) -> Result<(), TranslationError> {
 
 async fn stop_child(state: &mut RuntimeState) -> Result<(), String> {
     state.connection = None;
-    if let Some(mut child) = state.child.take() {
-        if child
-            .try_wait()
-            .map_err(|error| error.to_string())?
-            .is_none()
-        {
-            child
-                .kill()
-                .await
-                .map_err(|error| format!("Could not stop the local PLaMo runtime: {error}"))?;
-        }
-    }
-    Ok(())
-}
-
-fn runtime_command(executable: &Path) -> Command {
-    let mut command = Command::new(executable);
-    if let Some(parent) = executable.parent() {
-        command.current_dir(parent);
-    }
-    #[cfg(target_os = "linux")]
-    command.env_remove("LD_LIBRARY_PATH").env_remove("LD_PRELOAD");
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.as_std_mut().creation_flags(0x0800_0000);
-        if let Ok(current) = std::env::current_exe() {
-            if let Some(parent) = current.parent() {
-                let mut paths = vec![parent.to_path_buf()];
-                if let Some(path) = std::env::var_os("PATH") {
-                    paths.extend(std::env::split_paths(&path));
-                }
-                if let Ok(path) = std::env::join_paths(paths) {
-                    command.env("PATH", path);
-                }
-            }
-        }
-    }
-    command
+    stop_managed(&mut state.child, "the local PLaMo").await
 }
 
 fn launch_args(model: &Path, port: u16, token: &str, threads: usize) -> Vec<OsString> {
@@ -529,81 +494,11 @@ fn launch_args(model: &Path, port: u16, token: &str, threads: usize) -> Vec<OsSt
     ]
 }
 
-#[derive(Deserialize)]
-struct Health {
-    status: String,
-}
-
-#[derive(Deserialize)]
-struct Models {
-    data: Vec<ModelEntry>,
-}
-
-#[derive(Deserialize)]
-struct ModelEntry {
-    id: String,
-}
-
-async fn probe_ready(http: &reqwest::Client, origin: &str, token: &str) -> Result<bool, String> {
-    let health = match http.get(format!("{origin}/health")).send().await {
-        Ok(response) => response,
-        Err(error) if error.is_connect() || error.is_timeout() => return Ok(false),
-        Err(error) => return Err(format!("Local PLaMo health check failed: {error}")),
-    };
-    if health.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
-        return Ok(false);
-    }
-    if !health.status().is_success() {
-        return Err(format!(
-            "Local PLaMo health check returned {}",
-            health.status()
-        ));
-    }
-    let health = health
-        .json::<Health>()
-        .await
-        .map_err(|error| format!("Invalid local PLaMo health response: {error}"))?;
-    if health.status != "ok" {
-        return Ok(false);
-    }
-    let models = http
-        .get(format!("{origin}/v1/models"))
-        .bearer_auth(token)
-        .send()
-        .await
-        .map_err(|error| format!("Local PLaMo model check failed: {error}"))?;
-    if !models.status().is_success() {
-        return Err(format!(
-            "Local PLaMo model check returned {}",
-            models.status()
-        ));
-    }
-    let models = models
-        .json::<Models>()
-        .await
-        .map_err(|error| format!("Invalid local PLaMo model response: {error}"))?;
-    Ok(models.data.iter().any(|model| model.id == MODEL_ID))
-}
-
-fn with_diagnostics(error: String, tail: &StdMutex<VecDeque<String>>) -> String {
-    let lines = tail
-        .lock()
-        .expect("PLaMo runtime diagnostics lock")
-        .iter()
-        .cloned()
-        .collect::<Vec<_>>()
-        .join("\n");
-    if lines.is_empty() {
-        error
-    } else {
-        format!("{error}\n{lines}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::translation::TranslationContextEntry;
+    use tokio::process::Command;
 
     #[test]
     fn launch_arguments_isolate_plamo_from_the_asr_runtime() {
@@ -806,8 +701,12 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
-        assert!(probe_ready(&client, &origin, "secret").await.unwrap());
-        assert!(probe_ready(&client, &origin, "wrong").await.is_err());
+        assert!(probe_ready(&client, &origin, "secret", MODEL_ID, "local PLaMo")
+            .await
+            .unwrap());
+        assert!(probe_ready(&client, &origin, "wrong", MODEL_ID, "local PLaMo")
+            .await
+            .is_err());
         server.abort();
     }
 

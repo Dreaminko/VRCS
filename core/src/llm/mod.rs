@@ -11,6 +11,7 @@ use crate::providers::{
 mod alibaba;
 mod gemini;
 mod http;
+pub(crate) mod llama_server;
 pub mod model_catalog;
 pub mod models_dev;
 mod openai;

@@ -283,9 +283,15 @@ async fn managed_qwen_readiness_requires_the_expected_model_alias() {
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
-    let ready = probe_ready(&client, &format!("http://{address}"), "token", "vrcs-qwen")
-        .await
-        .unwrap();
+    let ready = probe_ready(
+        &client,
+        &format!("http://{address}"),
+        "token",
+        "vrcs-qwen",
+        "Qwen ASR",
+    )
+    .await
+    .unwrap();
     assert!(!ready);
     server.abort();
 }
@@ -319,10 +325,10 @@ async fn managed_qwen_readiness_checks_the_session_token() {
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     let origin = format!("http://{address}");
 
-    assert!(probe_ready(&client, &origin, "secret", "vrcs-qwen")
+    assert!(probe_ready(&client, &origin, "secret", "vrcs-qwen", "Qwen ASR")
         .await
         .unwrap());
-    assert!(probe_ready(&client, &origin, "wrong", "vrcs-qwen")
+    assert!(probe_ready(&client, &origin, "wrong", "vrcs-qwen", "Qwen ASR")
         .await
         .is_err());
     server.abort();
