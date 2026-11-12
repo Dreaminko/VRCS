@@ -24,7 +24,9 @@ Core 首次启动时会从 Silero 官方仓库下载固定的 v6.2.1 模型到�
 
 新配置的 ASR 模型包默认存放在配置文件同目录的 `models/asr/`，可通过设置页或 `storage.model_directory` 自定义；相对路径以配置文件目录为基准。旧配置保留原目录，包括 `models/whisper/` 和其中的 Qwen 包。修改保存位置时，Core 只迁移托管 Qwen 包；目标冲突或迁移失败时保留原设置与原目录。旧 Whisper 文件和其他非托管文件留在原目录，不会自动删除。`VRCS_ASR_MODEL_DIR` 可在启动时覆盖该设置。
 
-Qwen 模型包通过 `/api/asr/local-models/qwen` 管理，下载源固定到已知仓库版本，完成后校验大小与 SHA-256。文件未变化时复用校验记录；删除正在下载的包会取消任务，使用中的包受到删除保护。
+Qwen 模型包通过 `/api/asr/local-models/qwen` 管理，支持 0.6B Q8_0 和 1.7B Q8_0；默认包仍为 0.6B，1.7B 的主权重与音频投影器合计约 2.52 GB。下载源固定到已知仓库版本，官方 Hugging Face 和 ModelScope 镜像使用同一组预期大小与 SHA-256；校验通过后才激活模型包。文件未变化时复用校验记录。
+
+同一来源最多尝试 4 次。连接失败、超时、HTTP 408／429／5xx 和响应体中断会在有界等待后重试；已接收前缀在当前下载任务内通过 HTTP Range 续传。`206` 响应的范围起点、终点、总量必须与请求及模型清单一致，错误范围不会写入文件；来源忽略 Range 并返回完整响应时从头下载。取消、任务重启或切换来源不保留未完成文件的续传进度，已校验完成的同包文件可复用。
 
 Core 默认构建和 `--no-default-features` 均支持云端功能和托管 Qwen CPU 识别。`--features vulkan` 允许独立 `llama-server` 运行时使用 Vulkan GPU，无需 Vulkan SDK 或着色器编译器。自动设备模式优先使用可用 GPU；GPU 启动失败且启动时限仍有剩余时尝试 CPU。未启用 Vulkan 时不探测 GPU，自动模式使用 CPU，显式选择 GPU 会报告 Vulkan 后端不可用。语音在本机处理。
 
