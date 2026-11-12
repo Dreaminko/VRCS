@@ -61,6 +61,15 @@ const COMMANDS: &[&str] = &[
 ];
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(linux_vr)");
+    // Linux VR is built explicitly with `--features vr-preview` until it passes
+    // hardware acceptance. Default Linux builds keep the desktop-only path.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux")
+        && std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("x86_64")
+        && std::env::var_os("CARGO_FEATURE_VR_PREVIEW").is_some()
+    {
+        println!("cargo:rustc-cfg=linux_vr");
+    }
     println!("cargo:rerun-if-env-changed=TAURI_UPDATER_PUBLIC_KEY");
     println!("cargo:rerun-if-env-changed=VRCS_PACKAGE_CHANNEL");
     tauri_build::try_build(

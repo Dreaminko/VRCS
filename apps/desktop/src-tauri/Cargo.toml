@@ -64,6 +64,8 @@ cairo-rs = { version = "=0.18.5", features = ["png"] }
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 openvr = "=0.9.0"
 openvr_sys = "=2.1.4"
+openxr = { version = "=0.22.0", default-features = false, features = ["loaded"] }
+ash = "=0.38.0"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "=0.39.1"
