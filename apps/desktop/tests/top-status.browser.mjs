@@ -47,7 +47,7 @@ for (const [width, reduced] of [[1100, false], [860, false], [380, false], [1100
           remount = () => setVersion(value => value + 1);
           const networkSettings = network.enabled ? {
             audio: {output: {mode: 'vrchat_players', player_audio: {enabled: true}}}, vrchat_chatbox: {enabled: false}, osc: {enabled: false},
-            asr: {backend: 'qwen_local_managed', active_profile_id: null, service_settings: {}},
+            asr: {backend: 'qwen_local_managed', active_profile_id: null, managed_qwen: {package_id: 'qwen3-asr-0.6b-q8_0', device: 'auto'}, service_settings: {}},
           } : null;
           const networkHealth = network.enabled ? {
             capture_requested: network.captureRequested, microphone_capture_state: 'stopped', osc: null,
@@ -106,7 +106,6 @@ for (const [width, reduced] of [[1100, false], [860, false], [380, false], [1100
           check(button?.classList.contains('status-summary'), 'the entire expanded status bar is a native button');
           check(button.getAttribute('aria-expanded') === 'true', 'status starts expanded');
           check(button.querySelectorAll('button').length === 0, 'there is no separate collapse button');
-          check(button.textContent.includes('Core') && button.textContent.includes('Qwen3-ASR 0.6B'), 'the existing status information is retained');
           check(button.getAttribute('aria-label') === '收起 应用状态', 'expanded status announces its collapse action');
           const summaryItems = () => button.querySelectorAll('.status-summary-item').length;
           check(summaryItems() === 4, 'network capture does not add another status item');

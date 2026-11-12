@@ -8,7 +8,7 @@ use crate::config::ModelDownloadSource;
 
 // Revisions belong to each hosting service. Keep these mappings pinned to the
 // exact assets verified by the model manifests; never rewrite arbitrary URLs.
-const MIRRORS: [(&str, &str); 5] = [
+const MIRRORS: [(&str, &str); 7] = [
     (
         "https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/928ab958557df9aa2ef1c93e0e83c7ad0933fae2/Qwen3-ASR-0.6B-Q8_0.gguf",
         "https://modelscope.cn/api/v1/models/ggml-org/Qwen3-ASR-0.6B-GGUF/repo?Revision=86222636b790fae434fb24c03c46fc817dfb27b2&FilePath=Qwen3-ASR-0.6B-Q8_0.gguf",
@@ -16,6 +16,14 @@ const MIRRORS: [(&str, &str); 5] = [
     (
         "https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/928ab958557df9aa2ef1c93e0e83c7ad0933fae2/mmproj-Qwen3-ASR-0.6B-Q8_0.gguf",
         "https://modelscope.cn/api/v1/models/ggml-org/Qwen3-ASR-0.6B-GGUF/repo?Revision=86222636b790fae434fb24c03c46fc817dfb27b2&FilePath=mmproj-Qwen3-ASR-0.6B-Q8_0.gguf",
+    ),
+    (
+        "https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/36a678687ba7d07a74ca70ccb0e36902e005fb80/Qwen3-ASR-1.7B-Q8_0.gguf",
+        "https://modelscope.cn/api/v1/models/ggml-org/Qwen3-ASR-1.7B-GGUF/repo?Revision=fd6f16ded582f5b0789ef4aea7401707ce49746b&FilePath=Qwen3-ASR-1.7B-Q8_0.gguf",
+    ),
+    (
+        "https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/36a678687ba7d07a74ca70ccb0e36902e005fb80/mmproj-Qwen3-ASR-1.7B-Q8_0.gguf",
+        "https://modelscope.cn/api/v1/models/ggml-org/Qwen3-ASR-1.7B-GGUF/repo?Revision=fd6f16ded582f5b0789ef4aea7401707ce49746b&FilePath=mmproj-Qwen3-ASR-1.7B-Q8_0.gguf",
     ),
     (
         "https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx/resolve/28fe5895c24fd108c19eb3e8479f4ab385fbfc62/inference.onnx",

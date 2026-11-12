@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { ConfirmDialog } from "../../app/components/ConfirmDialog";
 import type { QwenModelRecord, QwenRuntimeStatus } from "../../providers/types";
+import { managedQwenModelLabel } from "../../providers/recognition-services";
 import { formatBytes } from "../settings-derived";
 import type { SaveState } from "../settings-types";
 import { QwenRuntimePanel } from "./ManagedQwenSettings";
@@ -111,7 +112,7 @@ export function ModelManagerPanel({
             return <article className={`model-row model-status-${model.status}`} key={model.id}>
               <div className="model-row-body">
                 <div className="model-row-title">
-                  <strong>Qwen3-ASR 0.6B Q8_0</strong>
+                  <strong>{managedQwenModelLabel(model.id)}</strong>
                   {selectedModel && <span className="model-active-chip">{t("settings.recognition.inUse")}</span>}
                   <span className="model-size">{formatBytes(model.total_bytes, locale)}</span>
                 </div>
@@ -128,7 +129,7 @@ export function ModelManagerPanel({
               <div className="model-row-action">
                 {busy ? <button className="secondary-button" type="button" onClick={() => void qwen.onCancel(model)}>{t("common.cancel")}</button>
                   : model.status === "installed" || model.status === "corrupt" ? (
-                    <button className="model-delete-button" type="button" disabled={disabled || saveState === "saving"} aria-label={t("settings.recognition.deleteModel", { name: model.id })} onClick={(event) => requestRemoval("Qwen3-ASR 0.6B Q8_0", () => qwen.onRemove(model), event.currentTarget)}><Trash2 size={16} />{t("common.delete")}</button>
+                    <button className="model-delete-button" type="button" disabled={disabled || saveState === "saving"} aria-label={t("settings.recognition.deleteModel", { name: model.id })} onClick={(event) => requestRemoval(managedQwenModelLabel(model.id), () => qwen.onRemove(model), event.currentTarget)}><Trash2 size={16} />{t("common.delete")}</button>
                   )
                     : <button className="model-download-button" type="button" onClick={() => void qwen.onDownload(model)}><Download size={16} />{t(model.status === "error" ? "common.retry" : "common.download")}</button>}
               </div>

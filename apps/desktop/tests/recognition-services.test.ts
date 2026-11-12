@@ -115,7 +115,7 @@ test("managed Qwen is a local source without an API profile", () => {
   assert.equal(selected.backend, "qwen_local_managed");
   assert.equal(selected.active_profile_id, null);
   assert.equal(recognitionSourceValue(selected), "managed_qwen");
-  assert.equal(recognitionEngineLabel(selected, [], []), "Qwen3-ASR 0.6B");
+  assert.equal(recognitionEngineLabel(selected, [], []), "Qwen3-ASR 0.6B Q8_0");
   assert.equal(selected.language, "ja");
   assert.deepEqual(selected.managed_qwen, configured.managed_qwen);
   assert.deepEqual(selected.service_settings, configured.service_settings);

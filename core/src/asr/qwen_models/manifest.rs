@@ -26,12 +26,33 @@ const QWEN_06B_Q8_FILES: [AssetSpec; 2] = [
     },
 ];
 
-pub(crate) const PACKAGES: [PackageSpec; 1] = [PackageSpec {
-    id: "qwen3-asr-0.6b-q8_0",
-    repository: "ggml-org/Qwen3-ASR-0.6B-GGUF",
-    revision: "928ab958557df9aa2ef1c93e0e83c7ad0933fae2",
-    files: &QWEN_06B_Q8_FILES,
-}];
+const QWEN_17B_Q8_FILES: [AssetSpec; 2] = [
+    AssetSpec {
+        name: "Qwen3-ASR-1.7B-Q8_0.gguf",
+        bytes: 2_165_034_944,
+        sha256: "58e22d0532d4eacaf034cfac17a6fed159f37c41390c710186783be439d1fc57",
+    },
+    AssetSpec {
+        name: "mmproj-Qwen3-ASR-1.7B-Q8_0.gguf",
+        bytes: 355_709_344,
+        sha256: "46c1d533af3f354ceb37ce855dbceff7da7fa7cf1e6a523df3b13440bd164c0d",
+    },
+];
+
+pub(crate) const PACKAGES: [PackageSpec; 2] = [
+    PackageSpec {
+        id: "qwen3-asr-0.6b-q8_0",
+        repository: "ggml-org/Qwen3-ASR-0.6B-GGUF",
+        revision: "928ab958557df9aa2ef1c93e0e83c7ad0933fae2",
+        files: &QWEN_06B_Q8_FILES,
+    },
+    PackageSpec {
+        id: "qwen3-asr-1.7b-q8_0",
+        repository: "ggml-org/Qwen3-ASR-1.7B-GGUF",
+        revision: "36a678687ba7d07a74ca70ccb0e36902e005fb80",
+        files: &QWEN_17B_Q8_FILES,
+    },
+];
 
 pub(crate) fn package_spec(id: &str) -> Result<PackageSpec, String> {
     PACKAGES

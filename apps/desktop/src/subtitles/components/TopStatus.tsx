@@ -101,5 +101,5 @@ function engineLabel(
 ): string {
   return settings
     ? recognitionEngineLabel(settings.asr, apiProfiles, providerDefinitions)
-    : "Qwen3-ASR 0.6B";
+    : "Qwen3-ASR";
 }

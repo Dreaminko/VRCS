@@ -8,6 +8,17 @@ import type {
 
 export const MANAGED_QWEN_RECOGNITION_SOURCE = "managed_qwen";
 
+const MANAGED_QWEN_MODEL_LABELS: Record<string, string> = {
+  "qwen3-asr-0.6b-q8_0": "Qwen3-ASR 0.6B Q8_0",
+  "qwen3-asr-1.7b-q8_0": "Qwen3-ASR 1.7B Q8_0",
+};
+
+export function managedQwenModelLabel(packageId: string): string {
+  return Object.hasOwn(MANAGED_QWEN_MODEL_LABELS, packageId)
+    ? MANAGED_QWEN_MODEL_LABELS[packageId]
+    : packageId || "Qwen3-ASR";
+}
+
 export function recognitionSilenceMinimum(backend: string): number {
   return backend === "fun_asr_realtime" ? 0.2 : 0.1;
 }
@@ -111,7 +122,7 @@ export function recognitionEngineLabel(
   profiles: ApiProfileView[],
   definitions: ProviderDefinition[],
 ): string {
-  if (asr.backend === "qwen_local_managed") return "Qwen3-ASR 0.6B";
+  if (asr.backend === "qwen_local_managed") return managedQwenModelLabel(asr.managed_qwen.package_id);
   const profile = currentRecognitionProfile(asr, profiles);
   return currentRecognitionService(asr, profile, definitions)?.display_name || asr.backend;
 }
