@@ -1,65 +1,133 @@
 //! Global shortcuts are opt-in and independent from the capture button.
-use ashpd::desktop::{global_shortcuts::{GlobalShortcuts, NewShortcut}, Session};
+use ashpd::desktop::{
+    global_shortcuts::{GlobalShortcuts, NewShortcut},
+    Session,
+};
 use futures_util::StreamExt;
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use tauri::{AppHandle, Manager as _, WebviewWindow};
 
 #[derive(Default)]
-pub struct Manager { task: Mutex<Option<Registration>> }
-struct Registration { stop: Arc<AtomicBool>, task: tauri::async_runtime::JoinHandle<()> }
+pub struct Manager {
+    task: Mutex<Option<Registration>>,
+}
+struct Registration {
+    stop: Arc<AtomicBool>,
+    task: tauri::async_runtime::JoinHandle<()>,
+}
 impl Drop for Registration {
-    fn drop(&mut self) { self.stop.store(true, Ordering::Release); self.task.abort(); }
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        self.task.abort();
+    }
 }
 struct SessionGuard(Option<Session<'static, GlobalShortcuts<'static>>>);
 impl Drop for SessionGuard {
     fn drop(&mut self) {
-        if let Some(session) = self.0.take() { tauri::async_runtime::spawn(async move { let _ = session.close().await; }); }
+        if let Some(session) = self.0.take() {
+            tauri::async_runtime::spawn(async move {
+                let _ = session.close().await;
+            });
+        }
     }
 }
 
 pub async fn available() -> bool {
-    let Ok(proxy) = GlobalShortcuts::new().await else { return false; };
-    proxy.get_property::<u32>("version").await.is_ok_and(|version| version >= 1)
+    let Ok(proxy) = GlobalShortcuts::new().await else {
+        return false;
+    };
+    proxy
+        .get_property::<u32>("version")
+        .await
+        .is_ok_and(|version| version >= 1)
 }
 
 fn trigger(shortcut: &str) -> Result<String, String> {
-    let (flags, key) = super::shortcut::parse_shortcut(shortcut)?;
-    let mut trigger = String::new();
-    if flags & 2 != 0 { trigger.push_str("CTRL+"); }
-    if flags & 1 != 0 { trigger.push_str("ALT+"); }
-    if flags & 4 != 0 { trigger.push_str("SHIFT+"); }
-    if key >= 112 { trigger.push_str(&format!("F{}", key - 111)); }
-    else { trigger.push(char::from_u32(key).ok_or("Invalid shortcut")?); }
-    Ok(trigger)
+    Ok(super::shortcut::Shortcut::parse(shortcut)?.portal_trigger())
 }
 
 #[derive(serde::Serialize)]
-pub struct Binding { id: String, trigger: String }
+pub struct Binding {
+    id: String,
+    trigger: String,
+}
 
 #[tauri::command]
-pub async fn desktop_capture_register_shortcuts(window: WebviewWindow, app: AppHandle) -> Result<Vec<Binding>, String> {
-    if window.label() != "main" { return Err("Unsupported shortcuts window".into()); }
-    let ocr = app.state::<crate::desktop_ocr::Manager>().shortcut_binding();
-    let vision = app.state::<crate::desktop_vision::Manager>().shortcut_binding();
+pub async fn desktop_capture_register_shortcuts(
+    window: WebviewWindow,
+    app: AppHandle,
+) -> Result<Vec<Binding>, String> {
+    if window.label() != "main" {
+        return Err("Unsupported shortcuts window".into());
+    }
+    let ocr = app
+        .state::<crate::desktop_ocr::Manager>()
+        .shortcut_binding();
+    let vision = app
+        .state::<crate::desktop_vision::Manager>()
+        .shortcut_binding();
     let mut shortcuts = Vec::new();
     if let Some(shortcut) = ocr.as_deref() {
-        shortcuts.push(NewShortcut::new("ocr", "VRCS desktop OCR").preferred_trigger(Some(trigger(shortcut)?.as_str())));
+        shortcuts.push(
+            NewShortcut::new("ocr", "VRCS desktop OCR")
+                .preferred_trigger(Some(trigger(shortcut)?.as_str())),
+        );
     }
     if let Some(shortcut) = vision.as_deref() {
-        if ocr.as_ref().is_some_and(|ocr| super::shortcut::parse_shortcut(ocr) == super::shortcut::parse_shortcut(shortcut)) { return Err("desktop_vision.shortcut_conflict".into()); }
-        shortcuts.push(NewShortcut::new("vision", "VRCS visual question answering").preferred_trigger(Some(trigger(shortcut)?.as_str())));
+        if ocr.as_ref().is_some_and(|ocr| {
+            super::shortcut::Shortcut::parse(ocr) == super::shortcut::Shortcut::parse(shortcut)
+        }) {
+            return Err("desktop_vision.shortcut_conflict".into());
+        }
+        shortcuts.push(
+            NewShortcut::new("vision", "VRCS visual question answering")
+                .preferred_trigger(Some(trigger(shortcut)?.as_str())),
+        );
     }
-    if shortcuts.is_empty() { return Err("capture.shortcuts_disabled".into()); }
-    let proxy = GlobalShortcuts::new().await.map_err(|_| "capture.shortcuts_unavailable")?;
-    if proxy.get_property::<u32>("version").await.map_err(|_| "capture.shortcuts_unavailable")? < 1 { return Err("capture.shortcuts_unavailable".into()); }
-    let session = proxy.create_session().await.map_err(|_| "capture.shortcuts_unavailable")?;
+    if shortcuts.is_empty() {
+        return Err("capture.shortcuts_disabled".into());
+    }
+    let proxy = GlobalShortcuts::new()
+        .await
+        .map_err(|_| "capture.shortcuts_unavailable")?;
+    if proxy
+        .get_property::<u32>("version")
+        .await
+        .map_err(|_| "capture.shortcuts_unavailable")?
+        < 1
+    {
+        return Err("capture.shortcuts_unavailable".into());
+    }
+    let session = proxy
+        .create_session()
+        .await
+        .map_err(|_| "capture.shortcuts_unavailable")?;
     let guard = SessionGuard(Some(session));
     let session = guard.0.as_ref().unwrap();
     let mut activated = proxy.receive_activated().await.map_err(|e| e.to_string())?;
-    let session_path = serde_json::to_value(session).map_err(|e| e.to_string())?.as_str().ok_or("capture.invalid_session")?.to_owned();
+    let session_path = serde_json::to_value(session)
+        .map_err(|e| e.to_string())?
+        .as_str()
+        .ok_or("capture.invalid_session")?
+        .to_owned();
     let mut closed = session.receive_closed().await.map_err(|e| e.to_string())?;
-    let response = proxy.bind_shortcuts(session, &shortcuts, None).await.map_err(|e| e.to_string())?.response().map_err(|e| e.to_string())?;
-    let bindings = response.shortcuts().iter().map(|shortcut| Binding { id: shortcut.id().into(), trigger: shortcut.trigger_description().into() }).collect();
+    let response = proxy
+        .bind_shortcuts(session, &shortcuts, None)
+        .await
+        .map_err(|e| e.to_string())?
+        .response()
+        .map_err(|e| e.to_string())?;
+    let bindings = response
+        .shortcuts()
+        .iter()
+        .map(|shortcut| Binding {
+            id: shortcut.id().into(),
+            trigger: shortcut.trigger_description().into(),
+        })
+        .collect();
     let stop = Arc::new(AtomicBool::new(false));
     let stopping = stop.clone();
     let event_app = app.clone();

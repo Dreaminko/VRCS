@@ -66,11 +66,11 @@ struct Binding {
 }
 
 impl Binding {
-    fn registration(&self) -> Option<Result<Option<(u32, u32)>, String>> {
+    fn registration(&self) -> Option<Result<Option<super::shortcut::Shortcut>, String>> {
         (!self.paused).then(|| {
             self.shortcut
                 .as_deref()
-                .map(super::shortcut::parse_shortcut)
+                .map(super::shortcut::Shortcut::parse)
                 .transpose()
         })
     }
@@ -88,7 +88,8 @@ impl Binding {
         let error = match binding {
             Ok(None) => None,
             Err(_) => Some(action.error("invalid_shortcut")),
-            Ok(Some((modifiers, key))) => {
+            Ok(Some(shortcut)) => {
+                let (modifiers, key) = shortcut.windows_registration();
                 *registered = unsafe {
                     RegisterHotKey(std::ptr::null_mut(), 1, modifiers | MOD_NOREPEAT, key) != 0
                 };

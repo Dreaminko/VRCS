@@ -1,13 +1,13 @@
 #[cfg(windows)]
 pub mod hotkey;
-mod selection;
 pub mod image;
-#[cfg(target_os = "linux")]
-pub mod portal;
 #[cfg(target_os = "linux")]
 pub mod picker;
 #[cfg(target_os = "linux")]
+pub mod portal;
+#[cfg(target_os = "linux")]
 pub mod portal_shortcuts;
+mod selection;
 #[cfg(windows)]
 pub mod selection_window;
 pub mod shortcut;
