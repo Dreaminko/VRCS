@@ -1,6 +1,8 @@
 use std::collections::HashSet;
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
+
+use player_audio_helper::packet;
 use windows::Win32::Foundation::{CloseHandle, ERROR_BUFFER_OVERFLOW, ERROR_INSUFFICIENT_BUFFER};
 use windows::Win32::NetworkManagement::IpHelper::*;
 use windows::Win32::Networking::WinSock::*;
@@ -316,50 +318,28 @@ pub(super) fn datagram<'a>(
     bytes: &'a [u8],
     ports: &HashSet<u16>,
 ) -> Option<(Connection, bool, &'a [u8])> {
-    if bytes.len() < 28 || bytes[0] >> 4 != 4 || bytes[9] != 17 {
-        return None;
-    }
-    let header = usize::from(bytes[0] & 15) * 4;
-    if header < 20 || bytes.len() < header + 8 {
-        return None;
-    }
-    let total = u16::from_be_bytes([bytes[2], bytes[3]]) as usize;
-    let fragments = u16::from_be_bytes([bytes[6], bytes[7]]);
-    if total < header + 8 || total > bytes.len() || fragments & 0x3fff != 0 {
-        return None;
-    }
-    let udp = &bytes[header..total];
-    let size = u16::from_be_bytes([udp[4], udp[5]]) as usize;
-    if size < 8 || size > udp.len() {
-        return None;
-    }
-    let src = SocketAddrV4::new(
-        Ipv4Addr::new(bytes[12], bytes[13], bytes[14], bytes[15]),
-        u16::from_be_bytes([udp[0], udp[1]]),
-    );
-    let dst = SocketAddrV4::new(
-        Ipv4Addr::new(bytes[16], bytes[17], bytes[18], bytes[19]),
-        u16::from_be_bytes([udp[2], udp[3]]),
-    );
-    let (local, remote, incoming) = if src.port() == 27002 && ports.contains(&dst.port()) {
-        (dst, src, true)
-    } else if dst.port() == 27002 && ports.contains(&src.port()) {
-        (src, dst, false)
-    } else {
-        return None;
-    };
-    let packet = &udp[8..size];
-    if !super::crypto::encrypted(packet) {
+    let datagram = packet::ipv4_udp(bytes)?;
+    let (source, destination) = (datagram.source, datagram.destination);
+    let (local, remote, incoming) =
+        if source.port() == packet::PHOTON_PORT && ports.contains(&destination.port()) {
+            (destination, source, true)
+        } else if destination.port() == packet::PHOTON_PORT && ports.contains(&source.port()) {
+            (source, destination, false)
+        } else {
+            return None;
+        };
+    let payload = datagram.payload;
+    if !packet::encrypted(payload) {
         return None;
     }
     Some((
         Connection {
             local,
             remote,
-            challenge: packet[3..7].try_into().ok()?,
+            challenge: payload[3..7].try_into().ok()?,
         },
         incoming,
-        packet,
+        payload,
     ))
 }
 

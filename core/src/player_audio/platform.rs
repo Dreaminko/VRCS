@@ -3,7 +3,7 @@ use std::path::Path;
 #[cfg(target_os = "linux")]
 pub(super) use super::linux::{game, process_identity, Network};
 #[cfg(windows)]
-pub(super) use super::windows::{game, process_identity, Network, NETWORK_CAPTURE_SUPPORTED};
+pub(super) use super::windows::{game, process_identity, Network};
 
 pub(super) fn opus_path(game: &Path) -> std::path::PathBuf {
     #[cfg(windows)]

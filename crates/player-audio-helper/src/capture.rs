@@ -3,11 +3,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::procfs;
+use player_audio_helper::packet::{self, PHOTON_PORT};
+use player_audio_helper::procfs;
 use player_audio_helper::{write_event, Event, Packet};
 
 const SO_LOCK_FILTER: libc::c_int = 36;
-const PHOTON_PORT: u16 = 27002;
 
 pub struct Capture {
     fd: libc::c_int,
@@ -224,27 +224,11 @@ fn receive(fd: libc::c_int, buffer: &mut [u8]) -> Result<Option<(&[u8], bool)>, 
 fn parse(frame: &[u8], outgoing: bool, endpoints: &[procfs::Endpoint]) -> Option<Packet> {
     let (bytes, offset) = frame_layout(frame)?;
     let bytes = bytes.get(offset..)?;
-    if bytes.len() < 28 || bytes[0] >> 4 != 4 || bytes[9] != 17 {
-        return None;
-    }
-    let header = usize::from(bytes[0] & 15) * 4;
-    if header < 20 || bytes.len() < header + 8 {
-        return None;
-    }
-    let total = u16::from_be_bytes([bytes[2], bytes[3]]) as usize;
-    let fragments = u16::from_be_bytes([bytes[6], bytes[7]]);
-    if total < header + 8 || total > bytes.len() || fragments & 0x3fff != 0 {
-        return None;
-    }
-    let udp = &bytes[header..total];
-    let udp_len = u16::from_be_bytes([udp[4], udp[5]]) as usize;
-    if udp_len < 8 || udp_len > udp.len() {
-        return None;
-    }
-    let source_ip: [u8; 4] = bytes[12..16].try_into().ok()?;
-    let target_ip: [u8; 4] = bytes[16..20].try_into().ok()?;
-    let source_port = u16::from_be_bytes([udp[0], udp[1]]);
-    let target_port = u16::from_be_bytes([udp[2], udp[3]]);
+    let datagram = packet::ipv4_udp(bytes)?;
+    let source_ip = datagram.source.ip().octets();
+    let source_port = datagram.source.port();
+    let target_ip = datagram.destination.ip().octets();
+    let target_port = datagram.destination.port();
     let (local_ip, local_port, remote_ip, remote_port, incoming) = if source_port == PHOTON_PORT
         && procfs::owns_flow(endpoints, target_ip, target_port, source_ip, source_port)
     {
@@ -260,8 +244,8 @@ fn parse(frame: &[u8], outgoing: bool, endpoints: &[procfs::Endpoint]) -> Option
         // AF_PACKET metadata and the endpoint owner must agree.
         return None;
     }
-    let payload = &udp[8..udp_len];
-    if payload.len() < 40 || payload.len() > 65_507 || payload[2] != 1 {
+    let payload = datagram.payload;
+    if !packet::encrypted(payload) {
         return None;
     }
     Some(Packet {

@@ -3,6 +3,10 @@
 use std::io::{self, Read, Write};
 use zeroize::Zeroizing;
 
+pub mod packet;
+#[cfg(target_os = "linux")]
+pub mod procfs;
+
 pub const VERSION: u16 = 1;
 const MAX_FRAME: usize = 1024 * 1024;
 

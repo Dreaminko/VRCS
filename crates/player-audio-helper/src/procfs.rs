@@ -33,17 +33,26 @@ pub fn check_identity(pid: u32, expected: u64) -> io::Result<()> {
     Ok(())
 }
 
-pub fn validate_target(pid: u32, expected: u64, uid: u32) -> io::Result<()> {
-    check_identity(pid, expected)?;
+pub fn uids(pid: u32) -> io::Result<[u32; 4]> {
     let status = fs::read_to_string(format!("/proc/{pid}/status"))?;
-    let uids = status
+    let values = status
         .lines()
         .find_map(|line| line.strip_prefix("Uid:"))
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing target UID"))?;
-    let mut uids = uids.split_whitespace();
-    if (0..4).any(|_| uids.next().and_then(|value| value.parse::<u32>().ok()) != Some(uid))
-        || uids.next().is_some()
-    {
+    let mut values = values.split_whitespace();
+    let mut uids = [0; 4];
+    for uid in &mut uids {
+        *uid = values
+            .next()
+            .and_then(|value| value.parse().ok())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Invalid target UID"))?;
+    }
+    Ok(uids)
+}
+
+pub fn validate_target(pid: u32, expected: u64, uid: u32) -> io::Result<()> {
+    check_identity(pid, expected)?;
+    if uids(pid)? != [uid; 4] {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "Target UID does not match pkexec caller",
@@ -182,6 +191,29 @@ pub fn monotonic_us() -> u64 {
     (value.tv_sec as u64)
         .saturating_mul(1_000_000)
         .saturating_add(value.tv_nsec as u64 / 1_000)
+}
+
+pub fn peer_credentials(stream: &std::os::unix::net::UnixStream) -> io::Result<(u32, u32, u32)> {
+    use std::os::fd::AsRawFd;
+    let mut credentials = libc::ucred {
+        pid: 0,
+        uid: 0,
+        gid: 0,
+    };
+    let mut length = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    let result = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&mut credentials as *mut libc::ucred).cast(),
+            &mut length,
+        )
+    };
+    if result != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((credentials.pid as u32, credentials.uid, credentials.gid))
 }
 
 pub fn parent_is_private(path: &Path, expected_uid: Option<u32>) -> Result<(), String> {

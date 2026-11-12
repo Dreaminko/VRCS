@@ -9,7 +9,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use player_audio_helper::{read_event, write_command, Command as HelperCommand, Event, ScanResult};
+use player_audio_helper::{
+    procfs, read_event, write_command, Command as HelperCommand, Event, ScanResult,
+};
 
 use super::cache::ProcessIdentity;
 use super::connection::{Connection, Datagram};
@@ -96,32 +98,12 @@ fn executable(pid: u32) -> PathBuf {
 }
 
 fn same_uid(pid: u32) -> bool {
-    let Ok(status) = fs::read_to_string(format!("/proc/{pid}/status")) else {
-        return false;
-    };
-    let Some(uid) = status
-        .lines()
-        .find_map(|line| line.strip_prefix("Uid:"))
-        .and_then(|line| line.split_whitespace().next())
-        .and_then(|uid| uid.parse::<u32>().ok())
-    else {
-        return false;
-    };
-    uid == unsafe { libc::geteuid() }
+    procfs::uids(pid).is_ok_and(|uids| uids[0] == unsafe { libc::geteuid() })
 }
 
 pub(super) fn process_identity(pid: u32) -> Result<ProcessIdentity, String> {
-    let stat = fs::read_to_string(format!("/proc/{pid}/stat"))
+    let created = procfs::starttime(pid)
         .map_err(|error| format!("Cannot read VRChat process: {error}"))?;
-    let end = stat
-        .rfind(')')
-        .ok_or_else(|| "Invalid VRChat process status".to_string())?;
-    let created = stat[end + 1..]
-        .split_whitespace()
-        .nth(19)
-        .ok_or_else(|| "Invalid VRChat process status".to_string())?
-        .parse::<u64>()
-        .map_err(|_| "Invalid VRChat process start time".to_string())?;
     Ok(ProcessIdentity { pid, created })
 }
 
@@ -499,23 +481,10 @@ fn runtime_path() -> Result<(RuntimeDir, PathBuf), String> {
 }
 
 fn verify_root_peer(stream: &UnixStream) -> Result<(), String> {
-    use std::os::fd::AsRawFd;
-    let mut credentials = libc::ucred {
-        pid: 0,
-        uid: 0,
-        gid: 0,
+    let Ok((_, uid, _)) = procfs::peer_credentials(stream) else {
+        return Err("The network helper credentials could not be verified".into());
     };
-    let mut length = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-    let result = unsafe {
-        libc::getsockopt(
-            stream.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_PEERCRED,
-            (&mut credentials as *mut libc::ucred).cast(),
-            &mut length,
-        )
-    };
-    if result != 0 || credentials.uid != 0 {
+    if uid != 0 {
         return Err("The network helper did not run with root privileges".into());
     }
     Ok(())

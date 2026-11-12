@@ -1,5 +1,4 @@
 mod capture;
-mod procfs;
 mod scan;
 
 use std::io::{self, Read};
@@ -12,7 +11,7 @@ use std::time::{Duration, Instant};
 use zeroize::Zeroize;
 
 use player_audio_helper::{
-    read_command, write_event, Command, Event, ScanProgress, ScanResult, VERSION,
+    procfs, read_command, write_event, Command, Event, ScanProgress, ScanResult, VERSION,
 };
 
 fn main() {
@@ -321,26 +320,9 @@ fn send(writer: &Mutex<UnixStream>, mut event: Event) -> Result<(), String> {
 }
 
 fn verify_peer(stream: &UnixStream, expected_uid: u32) -> Result<(), String> {
-    use std::os::fd::AsRawFd;
-    let mut credentials = libc::ucred {
-        pid: 0,
-        uid: 0,
-        gid: 0,
-    };
-    let mut length = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-    let result = unsafe {
-        libc::getsockopt(
-            stream.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_PEERCRED,
-            (&mut credentials as *mut libc::ucred).cast(),
-            &mut length,
-        )
-    };
-    if result != 0 {
-        return Err("cannot verify the VRCS peer".into());
-    }
-    if credentials.uid != expected_uid {
+    let (_, uid, _) =
+        procfs::peer_credentials(stream).map_err(|_| "cannot verify the VRCS peer")?;
+    if uid != expected_uid {
         return Err("VRCS peer uid does not match pkexec caller".into());
     }
     Ok(())

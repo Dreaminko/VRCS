@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::procfs;
+use player_audio_helper::procfs;
 
 const CHUNK: usize = 4 * 1024 * 1024;
 const OVERLAP: usize = 32 + 8;
