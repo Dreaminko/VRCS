@@ -102,3 +102,56 @@ pub fn dashboard_placeholder(message: &str) -> Result<Texture, String> {
         })
     }
 }
+
+#[cfg(linux_vr)]
+pub fn dashboard_placeholder(message: &str) -> Result<Texture, String> {
+    use super::dashboard::{DASHBOARD_HEIGHT, DASHBOARD_WIDTH};
+    let width = DASHBOARD_WIDTH / 2;
+    let height = DASHBOARD_HEIGHT / 2;
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, width as i32, height as i32)
+        .map_err(|error| error.to_string())?;
+    {
+        let context = cairo::Context::new(&surface).map_err(|error| error.to_string())?;
+        context.set_source_rgba(0.12, 0.10, 0.08, 1.0);
+        context.paint().map_err(|error| error.to_string())?;
+        context.set_source_rgba(0.93, 0.93, 0.93, 1.0);
+        context.select_font_face(
+            "sans-serif",
+            cairo::FontSlant::Normal,
+            cairo::FontWeight::Normal,
+        );
+        context.set_font_size(20.0);
+        for (line, y) in message.lines().take(12).zip((48..).step_by(26)) {
+            context.move_to(24.0, y as f64);
+            context.show_text(line).map_err(|error| error.to_string())?;
+        }
+    }
+    let stride = surface.stride() as usize;
+    let mut pixels = vec![0; width as usize * height as usize * 4];
+    surface
+        .with_data(|data| {
+            for y in 0..height as usize {
+                for x in 0..width as usize {
+                    let offset = y * stride + x * 4;
+                    let word = u32::from_ne_bytes(data[offset..offset + 4].try_into().unwrap());
+                    let alpha = (word >> 24) as u8;
+                    let dest = &mut pixels[(y * width as usize + x) * 4..][..4];
+                    for (channel, shift) in [16, 8, 0].iter().enumerate() {
+                        let value = (word >> shift) & 255;
+                        dest[channel] = if alpha == 0 {
+                            0
+                        } else {
+                            ((value * 255 + u32::from(alpha) / 2) / u32::from(alpha)) as u8
+                        };
+                    }
+                    dest[3] = alpha;
+                }
+            }
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(Texture {
+        pixels,
+        width,
+        height,
+    })
+}

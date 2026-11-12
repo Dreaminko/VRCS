@@ -50,52 +50,12 @@ const MARKER_WIDTH: u32 = 256;
 pub const MARKER_HEIGHT: u32 = 16;
 const MIN_CAPTURE_BUILD: u32 = 18_362;
 
-#[derive(Debug, Clone)]
-pub(super) struct CaptureError {
-    pub kind: super::recovery::Fault,
-    pub stage: String,
-    pub hresult: Option<i32>,
-}
-
-impl CaptureError {
-    pub fn new(kind: super::recovery::Fault, stage: impl Into<String>) -> Self {
-        Self {
-            kind,
-            stage: stage.into(),
-            hresult: None,
-        }
-    }
-}
-impl std::fmt::Display for CaptureError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.stage)?;
-        if let Some(code) = self.hresult {
-            write!(f, ": HRESULT {code:#010x}")?;
-        }
-        Ok(())
-    }
-}
-impl From<&str> for CaptureError {
-    fn from(value: &str) -> Self {
-        Self::new(super::recovery::Fault::InvalidFrame, value)
-    }
-}
-impl From<String> for CaptureError {
-    fn from(value: String) -> Self {
-        Self::new(super::recovery::Fault::InvalidFrame, value)
-    }
-}
-impl From<CaptureError> for String {
-    fn from(value: CaptureError) -> Self {
-        value.to_string()
-    }
-}
+pub(crate) use super::error::CaptureError;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Captured {
     pub shared_handle: usize,
     pub receipt: FrameReceipt,
-
 }
 
 /// Construct, poll, and drop on the same VR worker thread.
@@ -473,7 +433,7 @@ impl Capture {
     }
 
     /// Protect the submitted slot. Idle surfaces must never start a speculative copy.
-    pub(super) fn submitted(&mut self, frame: Captured) -> Result<(), CaptureError> {
+    pub(super) fn submitted(&mut self, frame: &Captured) -> Result<(), CaptureError> {
         let slot = self
             .slots
             .iter()
@@ -736,7 +696,6 @@ fn check_size(size: SizeInt32, width: u32, height: u32) -> Result<(), CaptureErr
     }
     Ok(())
 }
-
 
 fn failure(operation: &str, error: windows::core::Error) -> CaptureError {
     let kind = match error.code().0 as u32 {

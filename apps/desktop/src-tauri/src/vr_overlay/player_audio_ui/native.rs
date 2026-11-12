@@ -3,19 +3,20 @@ use std::time::Instant;
 use tauri::{AppHandle, Manager};
 
 use super::{activate, Action, Prompt};
-use crate::vr_overlay::backend::{OpenVrBackend, OverlayKind};
+use crate::vr_overlay::backend::{Backend, OverlayKind};
 use crate::vr_overlay::control_protocol::ControlHub;
 use crate::vr_overlay::interaction::{Hit, Key, Kind, Router, Sample, Surface};
+use crate::vr_overlay::pose::SpaceId;
 use crate::vr_overlay::surface::{SurfaceHub, SurfaceRenderer};
 use crate::vr_overlay::surface_protocol::{SurfaceId, SurfaceView};
 
 pub struct Runtime {
     renderer: SurfaceRenderer,
     router: Router,
-    identity: Option<(u32, u32, i32)>,
+    identity: Option<(u32, u32, SpaceId)>,
     pose: Option<[[f32; 4]; 3]>,
     notice: Option<Prompt>,
-    pointer: Option<([f32; 3], i32)>,
+    pointer: Option<([f32; 3], SpaceId)>,
     last_input: Instant,
     error: Option<String>,
     snapshot: Arc<(u32, bool, Option<Prompt>)>,
@@ -51,16 +52,20 @@ impl Runtime {
         self.pointer = None;
     }
 
-    pub fn finish_surfaces(&mut self, app: &AppHandle, backend: Option<&mut OpenVrBackend>) {
+    pub fn finish_surfaces(&mut self, app: &AppHandle, backend: Option<&mut Backend>) {
         self.renderer
             .finish_tick(app, backend, OverlayKind::PlayerAudio);
     }
 
-    pub fn stop_surfaces(&mut self, app: &AppHandle, backend: Option<&mut OpenVrBackend>) {
+    pub fn stop_surfaces(&mut self, app: &AppHandle, backend: Option<&mut Backend>) {
         self.renderer.stop(app, backend, OverlayKind::PlayerAudio);
     }
 
-    pub fn update_pointer(&mut self, app: &AppHandle, backend: &mut OpenVrBackend) {
+    pub fn confirm_frames(&mut self, app: &AppHandle, accepted: bool) {
+        self.renderer.confirm_frame(app, accepted);
+    }
+
+    pub fn update_pointer(&mut self, app: &AppHandle, backend: &mut Backend) {
         if backend.system_dashboard_visible() || !backend.visible(OverlayKind::PlayerAudio) {
             self.pointer = None;
         } else {
@@ -78,7 +83,7 @@ impl Runtime {
         }
     }
 
-    fn sample(&mut self, app: &AppHandle, backend: &OpenVrBackend) -> Option<(Vec<Sample>, Key)> {
+    fn sample(&mut self, app: &AppHandle, backend: &Backend) -> Option<(Vec<Sample>, Key)> {
         let (epoch, request, origin) = self.identity?;
         let surfaces = app.state::<SurfaceHub>();
         let layout = surfaces.layout(SurfaceId::PlayerAudio)?;
@@ -89,21 +94,18 @@ impl Runtime {
             generation: (u64::from(epoch) << 32) | u64::from(layout.key.generation),
             revision: (u64::from(request) << 32) | u64::from(layout.key.revision),
         };
-        let inputs = backend.ui_inputs();
+        let inputs = backend.pointer_inputs();
         let pointers: Vec<_> = inputs
             .iter()
             .filter_map(|input| {
-                let ray = backend.controller_pointer_pose(
-                    openvr::TrackedDeviceIndex(input.device),
-                    input.source,
-                )?;
-                if ray.1 != origin {
+                let ray = backend.pointer_pose(input.pointer)?;
+                if ray.space != origin {
                     return None;
                 }
                 let (point, position, distance) =
                     backend.intersect(OverlayKind::PlayerAudio, input.device, ray)?;
                 contour.pointer_contains(point).then_some((
-                    input.device,
+                    input.device.0,
                     point,
                     position,
                     distance,
@@ -129,17 +131,20 @@ impl Runtime {
         let samples = inputs
             .iter()
             .map(|input| Sample {
-                device: input.device,
+                device: input.device.0,
                 trigger: input.trigger,
                 grip: input.grip,
-                hit: pointers.iter().find(|p| p.0 == input.device).and_then(|p| {
-                    layout.hit(p.1).map(|region| Hit {
-                        key,
-                        region,
-                        point: p.1,
-                        distance: p.3,
-                    })
-                }),
+                hit: pointers
+                    .iter()
+                    .find(|p| p.0 == input.device.0)
+                    .and_then(|p| {
+                        layout.hit(p.1).map(|region| Hit {
+                            key,
+                            region,
+                            point: p.1,
+                            distance: p.3,
+                        })
+                    }),
             })
             .collect();
         Some((samples, key))
@@ -148,7 +153,7 @@ impl Runtime {
     pub fn tick(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         controls: &Mutex<ControlHub>,
         business: bool,
     ) -> bool {

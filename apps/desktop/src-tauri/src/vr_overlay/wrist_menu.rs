@@ -149,14 +149,22 @@ impl Ui {
 pub struct Visibility {
     visible: bool,
     since: Option<Instant>,
+    lost_since: Option<Instant>,
 }
 
 impl Visibility {
     pub fn update(&mut self, angle: Option<f32>, held: bool, now: Instant) -> bool {
         let Some(angle) = angle.filter(|v| v.is_finite()) else {
+            if self.visible {
+                let lost = *self.lost_since.get_or_insert(now);
+                if now.duration_since(lost) < Duration::from_millis(500) {
+                    return true;
+                }
+            }
             *self = Self::default();
             return false;
         };
+        self.lost_since = None;
         if held && self.visible {
             self.since = None;
             return true;
@@ -307,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn lift_hysteresis_holds_press_but_tracking_loss_hides_immediately() {
+    fn lift_hysteresis_holds_press_and_angle_drops_hide() {
         let mut v = Visibility::default();
         let now = Instant::now();
         assert!(!v.update(Some(40.), false, now));
@@ -316,5 +324,16 @@ mod tests {
         assert!(v.update(Some(80.), false, now + Duration::from_secs(2)));
         assert!(!v.update(Some(80.), false, now + Duration::from_millis(2400)));
         assert!(!v.update(None, true, now + Duration::from_secs(3)));
+    }
+
+    #[test]
+    fn brief_tracking_loss_keeps_the_menu_visible() {
+        let mut v = Visibility::default();
+        let now = Instant::now();
+        assert!(!v.update(Some(40.), false, now));
+        assert!(v.update(Some(40.), false, now + Duration::from_millis(150)));
+        assert!(v.update(None, false, now + Duration::from_millis(200)));
+        assert!(v.update(None, false, now + Duration::from_millis(600)));
+        assert!(!v.update(None, false, now + Duration::from_millis(800)));
     }
 }

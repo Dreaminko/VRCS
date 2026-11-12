@@ -1,5 +1,5 @@
 use super::{
-    backend::{OpenVrBackend, OverlayKind},
+    backend::{Backend, OverlayKind},
     ocr_input_state::TriggerUpdate,
     ocr_selection::Selection,
     ocr_wrist::Button,
@@ -238,7 +238,7 @@ impl VisionRuntime {
     }
 
     /// Freeze the image on press before opening question audio.
-    pub fn begin(&mut self, backend: &mut OpenVrBackend, selection: &Selection) {
+    pub fn begin(&mut self, backend: &mut Backend, selection: &Selection) {
         self.clear();
         let Some(service) = &self.service else {
             return;
@@ -401,7 +401,7 @@ impl VisionRuntime {
     pub fn render_with_cadence(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         surface: &mut SurfaceRenderer,
         business: bool,
     ) -> Result<bool, String> {

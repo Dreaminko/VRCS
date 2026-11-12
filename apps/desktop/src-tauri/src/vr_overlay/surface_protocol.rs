@@ -1,10 +1,9 @@
 //! Platform-neutral surface identity, layout and bridge validation.
 //! Only OCR-specific view payloads remain gated with their platform implementation.
-use serde::{Deserialize, Serialize};
 use super::dashboard::DashboardCommand;
 #[cfg(windows)]
-use std::sync::Arc;
-#[cfg(windows)]
+use super::ocr_wrist::{Action, Button};
+#[cfg(any(windows, linux_vr))]
 use super::{
     control_protocol::ControlSnapshot,
     dashboard::{DashboardUi, DashboardViewModel},
@@ -12,10 +11,13 @@ use super::{
     placement::Mode,
     presentation::WristMessage,
 };
-#[cfg(windows)]
-use super::{ocr_plane::OcrScene, ocr_wrist::{Action, Button, View}, wrist_labels::WristLabels};
+#[cfg(any(windows, linux_vr))]
+use super::{ocr_plane::OcrScene, ocr_wrist::View, wrist_labels::WristLabels};
+use serde::{Deserialize, Serialize};
+#[cfg(any(windows, linux_vr))]
+use std::sync::Arc;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SurfaceId {
     Menu,
@@ -31,7 +33,7 @@ pub enum SurfaceId {
 }
 
 impl SurfaceId {
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     pub(crate) const ALL: [Self; 10] = [
         Self::Menu,
         Self::Dialogue,
@@ -44,7 +46,7 @@ impl SurfaceId {
         Self::OcrResult,
         Self::PlayerAudio,
     ];
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     pub(crate) fn index(self) -> usize {
         self as usize
     }
@@ -99,7 +101,7 @@ pub struct SurfaceKey {
     pub revision: u32,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 #[derive(Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SurfaceView {
@@ -128,7 +130,7 @@ pub enum SurfaceView {
         font_size: u32,
         opacity: f32,
     },
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     Reader {
         dark: bool,
         labels: WristLabels,
@@ -163,18 +165,18 @@ pub enum SurfaceView {
     OcrSelection {
         dark: bool,
     },
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     OcrResult {
         dark: bool,
         scene: Arc<OcrScene>,
     },
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 impl SurfaceView {
     pub(crate) fn same_scroll_view(&self, other: &Self) -> bool {
         match (self, other) {
-            #[cfg(windows)]
+            #[cfg(any(windows, linux_vr))]
             (Self::Reader { .. }, Self::Reader { .. }) => {
                 reader_identity(self) == reader_identity(other)
             }
@@ -202,7 +204,7 @@ impl SurfaceView {
 
     pub(super) fn same_layout(&self, other: &Self) -> bool {
         match (self, other) {
-            #[cfg(windows)]
+            #[cfg(any(windows, linux_vr))]
             (Self::OcrResult { dark: a, scene: av }, Self::OcrResult { dark: b, scene: bv }) => {
                 a == b && (Arc::ptr_eq(av, bv) || av == bv)
             }
@@ -237,7 +239,7 @@ impl SurfaceView {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 #[derive(Clone, Serialize)]
 pub struct SurfaceState {
     pub key: SurfaceKey,
@@ -250,15 +252,15 @@ pub struct SurfaceState {
     pub restore_scroll: Option<f64>,
 }
 
-#[cfg(windows)]
-#[derive(Clone, Copy, Serialize)]
+#[cfg(any(windows, linux_vr))]
+#[derive(Clone, Copy, PartialEq, Serialize)]
 pub struct SurfaceActivity {
     pub active: bool,
     pub request: u32,
 }
 
 // Matches the fields that reset the reader viewport in VrSurface.tsx.
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 #[derive(Clone, PartialEq)]
 pub(crate) struct ReaderIdentity(
     super::ocr_wrist::ViewMode,
@@ -269,7 +271,7 @@ pub(crate) struct ReaderIdentity(
     usize,
 );
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 pub(crate) fn reader_identity(view: &SurfaceView) -> Option<ReaderIdentity> {
     if let SurfaceView::Reader { reader, .. } = view {
         Some(ReaderIdentity(
@@ -285,15 +287,14 @@ pub(crate) fn reader_identity(view: &SurfaceView) -> Option<ReaderIdentity> {
     }
 }
 
-
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 #[derive(Clone, Serialize)]
 pub(crate) struct SurfacePointer {
     pub key: SurfaceKey,
     pub point: Option<[f32; 2]>,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 #[derive(Clone, Serialize)]
 pub(crate) struct SurfaceScroll {
     pub key: SurfaceKey,
@@ -556,7 +557,7 @@ pub(crate) struct HostId {
     pub host_epoch: u32,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DocumentSession {
     pub host: HostId,
@@ -569,15 +570,15 @@ pub(crate) struct DocumentSession {
 pub(crate) enum BridgeError {
     InvalidRequest,
     TooLarge,
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     InvalidSource,
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     StaleSession,
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     InvalidLayout,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 impl BridgeError {
     pub fn code(self) -> &'static str {
         match self {
@@ -625,7 +626,7 @@ pub(crate) enum FaultStage {
     Unhandled,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 impl FaultStage {
     pub(crate) fn code(&self) -> &'static str {
         match self {
@@ -646,7 +647,7 @@ pub(crate) enum PageRequest {
     },
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 #[derive(Serialize)]
 #[serde(untagged)]
 pub(crate) enum PageReply {
@@ -654,7 +655,7 @@ pub(crate) enum PageReply {
     Accepted(bool),
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 #[derive(Clone, Serialize)]
 #[serde(tag = "event", content = "payload", rename_all = "snake_case")]
 pub(crate) enum SurfaceEvent {
@@ -710,7 +711,7 @@ pub(crate) fn decode_request(json: &str) -> Result<PageRequest, BridgeError> {
     })
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 impl DocumentSession {
     pub fn authorize(&self, source: &str, request: &PageRequest) -> Result<(), BridgeError> {
         if source != self.source {
@@ -766,6 +767,18 @@ impl ResourcePolicy {
         })
     }
 
+    #[cfg(linux_vr)]
+    pub fn with_embedded_origin(mut self, origin: &str) -> Result<Self, String> {
+        let mut origin = tauri::Url::parse(origin)
+            .map_err(|error| format!("Invalid surface origin: {error}"))?;
+        origin.set_path("/");
+        origin.set_query(None);
+        origin.set_fragment(None);
+        self.origin = origin;
+        self.embedded = true;
+        Ok(self)
+    }
+
     pub fn entry_url(&self, host: HostId) -> String {
         format!(
             "{}vr-surface.html?surface={}&host_epoch={}",
@@ -782,10 +795,7 @@ impl ResourcePolicy {
         let Ok(url) = tauri::Url::parse(uri) else {
             return ResourceRoute::Reject(403);
         };
-        if url.origin() != self.origin.origin()
-            || !url.username().is_empty()
-            || url.password().is_some()
-        {
+        if !self.same_origin(&url) || !url.username().is_empty() || url.password().is_some() {
             return ResourceRoute::Reject(403);
         }
         if !self.embedded {
@@ -812,6 +822,17 @@ impl ResourcePolicy {
             ResourceRoute::Asset(path.into())
         } else {
             ResourceRoute::Reject(404)
+        }
+    }
+
+    fn same_origin(&self, url: &tauri::Url) -> bool {
+        if matches!(self.origin.scheme(), "http" | "https") {
+            url.origin() == self.origin.origin()
+        } else {
+            // Custom schemes have opaque origins, so compare their components.
+            url.scheme() == self.origin.scheme()
+                && url.host_str() == self.origin.host_str()
+                && url.port_or_known_default() == self.origin.port_or_known_default()
         }
     }
 }
@@ -1049,8 +1070,11 @@ mod tests {
         let good =
             json!({ "version": 1, "nonce": "test", "request_id": 1, "op": "ready", "payload": {} });
         let decode_call = |request: &serde_json::Value| {
-            let PageRequest::Call { nonce, request_id, operation } =
-                decode_request(&request.to_string()).unwrap()
+            let PageRequest::Call {
+                nonce,
+                request_id,
+                operation,
+            } = decode_request(&request.to_string()).unwrap()
             else {
                 panic!("Expected an authenticated call");
             };
@@ -1060,19 +1084,33 @@ mod tests {
         };
         assert!(matches!(decode_call(&good), Operation::Ready {}));
 
-        let key = SurfaceKey { generation: 7, revision: 11 };
+        let key = SurfaceKey {
+            generation: 7,
+            revision: 11,
+        };
         let mut request = good.clone();
         request["op"] = json!("layout");
         request["payload"] = json!({ "layout": layout(key), "paint_serial": 13 });
-        let Operation::Layout { layout: decoded, paint_serial } = decode_call(&request) else {
+        let Operation::Layout {
+            layout: decoded,
+            paint_serial,
+        } = decode_call(&request)
+        else {
             panic!("Expected a layout call");
         };
-        assert_eq!(serde_json::to_value(decoded).unwrap(), request["payload"]["layout"]);
+        assert_eq!(
+            serde_json::to_value(decoded).unwrap(),
+            request["payload"]["layout"]
+        );
         assert_eq!(paint_serial, 13);
 
         request["op"] = json!("paint");
         request["payload"] = json!({ "key": key, "paint_serial": 17 });
-        let Operation::Paint { key: decoded, paint_serial } = decode_call(&request) else {
+        let Operation::Paint {
+            key: decoded,
+            paint_serial,
+        } = decode_call(&request)
+        else {
             panic!("Expected a paint call");
         };
         assert_eq!(decoded, key);
@@ -1080,7 +1118,12 @@ mod tests {
 
         request["op"] = json!("snapshot");
         request["payload"] = json!({ "key": key, "activity_request": 19, "scroll_top": 12.5 });
-        let Operation::Snapshot { key: decoded, activity_request, scroll_top } = decode_call(&request) else {
+        let Operation::Snapshot {
+            key: decoded,
+            activity_request,
+            scroll_top,
+        } = decode_call(&request)
+        else {
             panic!("Expected a snapshot call");
         };
         assert_eq!(decoded, Some(key));
@@ -1100,18 +1143,36 @@ mod tests {
             assert_eq!(stage, expected);
         }
         for (op, payload) in [
-            ("layout", json!({ "layout": layout(key), "paint_serial": "13" })),
+            (
+                "layout",
+                json!({ "layout": layout(key), "paint_serial": "13" }),
+            ),
             ("layout", json!({ "layout": layout(key) })),
             ("paint", json!({ "key": key, "paint_serial": -1 })),
-            ("paint", json!({ "key": { "generation": 7 }, "paint_serial": 17 })),
-            ("snapshot", json!({ "key": key, "activity_request": "19", "scroll_top": 12.5 })),
-            ("snapshot", json!({ "key": key, "activity_request": 19, "scroll_top": "12.5" })),
+            (
+                "paint",
+                json!({ "key": { "generation": 7 }, "paint_serial": 17 }),
+            ),
+            (
+                "snapshot",
+                json!({ "key": key, "activity_request": "19", "scroll_top": 12.5 }),
+            ),
+            (
+                "snapshot",
+                json!({ "key": key, "activity_request": 19, "scroll_top": "12.5" }),
+            ),
             ("fault", json!({ "stage": "unknown" })),
-            ("fault", json!({ "stage": "render", "command": "read_file" })),
+            (
+                "fault",
+                json!({ "stage": "render", "command": "read_file" }),
+            ),
         ] {
             request["op"] = json!(op);
             request["payload"] = payload;
-            assert!(decode_request(&request.to_string()).is_err(), "accepted {request}");
+            assert!(
+                decode_request(&request.to_string()).is_err(),
+                "accepted {request}"
+            );
         }
         let invalid = [
             ("version", json!(2)),

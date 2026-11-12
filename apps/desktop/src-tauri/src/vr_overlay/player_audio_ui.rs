@@ -29,7 +29,7 @@ pub struct View {
     pub progress: Option<ProgressView>,
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, linux_vr, test))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Decision {
     pub owner_epoch: u32,
@@ -37,7 +37,7 @@ pub struct Decision {
     pub accepted: bool,
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, linux_vr, test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Action {
@@ -47,7 +47,7 @@ pub enum Action {
     Next,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 pub fn activate(
     app: &tauri::AppHandle,
     controls: &std::sync::Mutex<super::control_protocol::ControlHub>,
@@ -90,8 +90,8 @@ pub fn activate(
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 pub use native::Runtime;
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 mod native;

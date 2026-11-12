@@ -22,7 +22,7 @@ impl Default for WristLabels {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 impl WristLabels {
     pub fn text<'a>(&'a self, key: &'a str) -> &'a str {
         self.0

@@ -6,24 +6,24 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::ocr_status::OcrStatus;
 use serde::Serialize;
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 use tauri::Manager as _;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{broadcast, watch};
 use vrcs_core::{PresentationEvent, VrOcrConfig, VrOverlayConfig};
 
-use super::backend::{OpenVrBackend, OverlayKind};
+use super::backend::{Backend, BackendKind, OverlayKind};
 use super::control_protocol::ControlHub;
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 use super::control_protocol::{ControlAction, ControlSource};
-use super::dashboard::{DashboardState, DashboardViewModel};
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 use super::dashboard::DashboardPointerEvent;
+use super::dashboard::{DashboardState, DashboardViewModel};
 use super::placement::{Mode, Placement};
 use super::presentation::{
     HeadsetPresentation, PresentationContent, PresentationFrame, WristPresentation,
 };
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 use super::presentation::{MessageSide, WristMessage};
 use super::process::{steamvr_pid, SteamVrSession};
 
@@ -46,7 +46,7 @@ impl BusinessClock {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 pub(super) fn dispatch_control(
     app: &AppHandle,
     controls: &Mutex<ControlHub>,
@@ -66,7 +66,7 @@ pub(super) fn dispatch_control(
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 pub(super) fn dispatch_player_display(
     app: &AppHandle,
     controls: &Mutex<ControlHub>,
@@ -158,6 +158,8 @@ pub struct DashboardStatus {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct VrOverlayStatus {
     pub state: RuntimeState,
+    pub requested_backend: String,
+    pub backend: Option<BackendKind>,
     pub runtime_installed: bool,
     pub hmd_present: bool,
     pub last_connected_at: Option<String>,
@@ -171,13 +173,15 @@ pub struct VrOverlayStatus {
 
 impl VrOverlayStatus {
     pub fn initial() -> Self {
-        let supported = cfg!(windows);
+        let supported = cfg!(any(windows, linux_vr));
         Self {
             state: if supported {
                 RuntimeState::Initializing
             } else {
                 RuntimeState::Unsupported
             },
+            requested_backend: "auto".into(),
+            backend: None,
             runtime_installed: false,
             hmd_present: false,
             last_connected_at: None,
@@ -439,31 +443,34 @@ impl Manager {
 struct WorkerState {
     caption_status: super::caption_status::CaptionStatus,
     controls: Arc<Mutex<ControlHub>>,
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     ui: super::ui_runtime::UiRuntime,
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     dialogue_policy: u64,
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     player_audio: super::player_audio_ui::Runtime,
     #[cfg(windows)]
     player_progress: Option<super::ocr_progress::ProgressView>,
     config: VrOverlayConfig,
     ocr_config: VrOcrConfig,
+    selected_backend: Option<BackendKind>,
     headset: HeadsetPresentation,
     wrist: WristPresentation,
     headset_sample: bool,
     wrist_sample: bool,
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     headset_surface: super::surface::SurfaceRenderer,
-    backend: Option<OpenVrBackend>,
+    backend: Option<Backend>,
     session: SteamVrSession,
     dashboard_view: Option<Arc<DashboardViewModel>>,
     dashboard: DashboardState,
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     dashboard_surface: super::surface::SurfaceRenderer,
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     dashboard_pressed_key: Option<super::surface_protocol::SurfaceKey>,
     dashboard_retry_at: Option<Instant>,
+    #[cfg(linux_vr)]
+    ocr_manifest: Option<std::path::PathBuf>,
     next_reconnect: Instant,
     next_probe: Instant,
     #[cfg(windows)]
@@ -471,14 +478,15 @@ struct WorkerState {
 }
 
 impl WorkerState {
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     fn reset_ui(&mut self) {
         self.ui.reset();
+        #[cfg(any(windows, linux_vr))]
         self.player_audio.reset();
     }
 
     fn reset_dashboard(&mut self) {
-        #[cfg(windows)]
+        #[cfg(any(windows, linux_vr))]
         {
             self.dashboard_surface.reset();
             self.dashboard_pressed_key = None;
@@ -488,7 +496,7 @@ impl WorkerState {
     }
 
     fn reset_headset(&mut self) {
-        #[cfg(windows)]
+        #[cfg(any(windows, linux_vr))]
         self.headset_surface.reset();
     }
 }
@@ -510,8 +518,10 @@ fn worker_loop(
     ocr_service: Option<vrcs_core::ocr::VrOcrService>,
     vision_service: vrcs_core::vision::VisionService,
 ) {
-    #[cfg(not(windows))]
+    #[cfg(all(not(windows), not(linux_vr)))]
     let _ = (placement, ocr_service, vision_service);
+    #[cfg(linux_vr)]
+    let _ = (ocr_service, vision_service);
     #[cfg(windows)]
     let ocr_directory = app
         .path()
@@ -528,42 +538,48 @@ fn worker_loop(
     let mut state = WorkerState {
         caption_status: Default::default(),
         controls,
-        #[cfg(windows)]
+        #[cfg(any(windows, linux_vr))]
         ui: super::ui_runtime::UiRuntime::new(placement),
-        #[cfg(windows)]
+        #[cfg(any(windows, linux_vr))]
         dialogue_policy: 1,
-        #[cfg(windows)]
+        #[cfg(any(windows, linux_vr))]
         player_audio: Default::default(),
         #[cfg(windows)]
         player_progress: None,
         config,
         ocr_config,
+        selected_backend: None,
         headset: HeadsetPresentation::default(),
         wrist: WristPresentation::default(),
         headset_sample: false,
         wrist_sample: false,
-        #[cfg(windows)]
-        headset_surface: super::surface::SurfaceRenderer::new(super::surface_protocol::SurfaceId::Headset),
+        #[cfg(any(windows, linux_vr))]
+        headset_surface: super::surface::SurfaceRenderer::new(
+            super::surface_protocol::SurfaceId::Headset,
+        ),
         backend: None,
         session: SteamVrSession::default(),
         dashboard_view: None,
         dashboard: DashboardState::default(),
-        #[cfg(windows)]
+        #[cfg(any(windows, linux_vr))]
         dashboard_surface: super::surface::SurfaceRenderer::new(
             super::surface_protocol::SurfaceId::Dashboard,
         ),
-        #[cfg(windows)]
+        #[cfg(any(windows, linux_vr))]
         dashboard_pressed_key: None,
         dashboard_retry_at: None,
+        #[cfg(linux_vr)]
+        ocr_manifest: None,
         next_reconnect: Instant::now(),
         next_probe: Instant::now(),
         #[cfg(windows)]
         ocr,
     };
     let mut status = VrOverlayStatus::initial();
+    status.requested_backend = state.config.backend.clone();
     let mut next_tick = Instant::now();
     let mut business_clock = BusinessClock(next_tick);
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     let mut next_pointer = Instant::now();
 
     loop {
@@ -571,18 +587,22 @@ fn worker_loop(
         if stopping.load(Ordering::Acquire) {
             status.state = RuntimeState::ShuttingDown;
             update_status(&app, &shared_status, &status);
+            #[cfg(any(windows, linux_vr))]
+            state
+                .headset_surface
+                .stop(&app, state.backend.as_mut(), OverlayKind::Headset);
+            #[cfg(any(windows, linux_vr))]
+            state
+                .dashboard_surface
+                .stop(&app, state.backend.as_mut(), OverlayKind::Dashboard);
+            #[cfg(any(windows, linux_vr))]
+            state.ui.stop_surfaces(&app, state.backend.as_mut());
+            #[cfg(any(windows, linux_vr))]
+            state
+                .player_audio
+                .stop_surfaces(&app, state.backend.as_mut());
             #[cfg(windows)]
             {
-                state
-                    .headset_surface
-                    .stop(&app, state.backend.as_mut(), OverlayKind::Headset);
-                state
-                    .dashboard_surface
-                    .stop(&app, state.backend.as_mut(), OverlayKind::Dashboard);
-                state.ui.stop_surfaces(&app, state.backend.as_mut());
-                state
-                    .player_audio
-                    .stop_surfaces(&app, state.backend.as_mut());
                 state.ocr.stop_surfaces(&app, state.backend.as_mut());
             }
             if let Some(mut backend) = state.backend.take() {
@@ -591,11 +611,53 @@ fn worker_loop(
             break;
         }
 
-        if started < next_tick {
-            #[cfg(not(windows))]
+        let xr_driving =
+            state.selected_backend == Some(BackendKind::OpenXr) && state.backend.is_some();
+        if xr_driving {
+            match state
+                .backend
+                .as_mut()
+                .expect("XR backend checked")
+                .begin_frame()
+            {
+                Ok(true) => {}
+                Ok(false) => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    continue;
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "OpenXR frame wait failed");
+                    if let Some(mut backend) = state.backend.take() {
+                        backend.hide_all();
+                    }
+                    status.state = RuntimeState::Reconnecting;
+                    status.reconnect_attempt = status.reconnect_attempt.saturating_add(1);
+                    status.last_error_detail = Some(error);
+                    state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
+                    continue;
+                }
+            }
+        }
+
+        if !xr_driving && started < next_tick {
+            #[cfg(not(any(windows, linux_vr)))]
             let wake = next_tick;
-            #[cfg(windows)]
+            #[cfg(any(windows, linux_vr))]
             let mut wake = next_tick;
+            #[cfg(linux_vr)]
+            if state.ui.fast_tick() || state.player_audio.active() {
+                if let Some(backend) = state.backend.as_mut() {
+                    if started >= next_pointer {
+                        if state.player_audio.active() {
+                            state.player_audio.update_pointer(&app, backend);
+                        } else {
+                            state.ui.update_pointer(&app, backend);
+                        }
+                        next_pointer = Instant::now() + backend.cursor_interval();
+                    }
+                    wake = wake.min(next_pointer);
+                }
+            }
             #[cfg(windows)]
             if state.ui.fast_tick()
                 || state.player_audio.active()
@@ -622,12 +684,12 @@ fn worker_loop(
         let business = business_clock.due(started);
         #[cfg(windows)]
         let mut open_ocr_bindings = false;
-        #[cfg(windows)]
+        #[cfg(any(windows, linux_vr))]
         let mut placement_mode = None;
         if business {
             if let Ok(mut pending) = latest_config.lock() {
                 if let Some((config, ocr_config)) = pending.take() {
-                    #[cfg(windows)]
+                    #[cfg(any(windows, linux_vr))]
                     if state.config.wrist != config.wrist
                         || state.config.translation_display != config.translation_display
                     {
@@ -651,6 +713,9 @@ fn worker_loop(
                         state.wrist_sample = false;
                     }
                     state.config = config;
+                    if state.backend.is_none() {
+                        state.selected_backend = None;
+                    }
                     state.ocr_config = ocr_config;
                     status.last_error_detail = None;
                 }
@@ -658,7 +723,7 @@ fn worker_loop(
             if let Ok(mut pending) = latest_dashboard.lock() {
                 if let Some(view) = pending.take() {
                     if state.dashboard_view.as_ref() != Some(&view) {
-                        #[cfg(windows)]
+                        #[cfg(any(windows, linux_vr))]
                         if state.dashboard_view.as_ref().is_none_or(|previous| {
                             previous.caption_visibility != view.caption_visibility
                                 || previous.max_visible_players != view.max_visible_players
@@ -682,9 +747,12 @@ fn worker_loop(
             }
             if let Ok(mut pending) = pending_control.lock() {
                 let control = std::mem::take(&mut *pending);
-                #[cfg(windows)]
+                #[cfg(any(windows, linux_vr))]
                 {
                     placement_mode = control.placement_mode;
+                }
+                #[cfg(windows)]
+                {
                     open_ocr_bindings = control.ocr_bindings;
                 }
                 if control.retry {
@@ -696,9 +764,11 @@ fn worker_loop(
                         state.ocr.clear();
                         state.reset_ui();
                     }
+                    #[cfg(linux_vr)]
+                    state.reset_ui();
                     state.reset_headset();
                     state.reset_dashboard();
-                    #[cfg(windows)]
+                    #[cfg(any(windows, linux_vr))]
                     app.state::<super::surface::SurfaceHub>().retry(&app);
                     state.next_reconnect = Instant::now();
                     state.next_probe = Instant::now();
@@ -730,7 +800,7 @@ fn worker_loop(
         }
 
         let available = features.borrow().vr_overlay;
-        #[cfg(windows)]
+        #[cfg(any(windows, linux_vr))]
         if let Some(mode) = placement_mode {
             if let Some(backend) = state.backend.as_ref() {
                 state.ui.place(&app, backend, &state.controls, mode);
@@ -743,6 +813,8 @@ fn worker_loop(
         if ticked.is_err() {
             recover_from_panic(&mut state, &mut status);
         }
+        status.requested_backend = state.config.backend.clone();
+        status.backend = state.backend.as_ref().map(Backend::kind);
         #[cfg(windows)]
         if open_ocr_bindings
             && available
@@ -761,20 +833,22 @@ fn worker_loop(
                 state.ocr.status.last_error = Some(error);
             }
         }
+        #[cfg(any(windows, linux_vr))]
+        state
+            .headset_surface
+            .finish_tick(&app, state.backend.as_mut(), OverlayKind::Headset);
+        #[cfg(any(windows, linux_vr))]
+        state.ui.finish_surfaces(&app, state.backend.as_mut());
+        #[cfg(any(windows, linux_vr))]
+        state
+            .dashboard_surface
+            .finish_tick(&app, state.backend.as_mut(), OverlayKind::Dashboard);
+        #[cfg(any(windows, linux_vr))]
+        state
+            .player_audio
+            .finish_surfaces(&app, state.backend.as_mut());
         #[cfg(windows)]
         {
-            state
-                .headset_surface
-                .finish_tick(&app, state.backend.as_mut(), OverlayKind::Headset);
-            state.dashboard_surface.finish_tick(
-                &app,
-                state.backend.as_mut(),
-                OverlayKind::Dashboard,
-            );
-            state.ui.finish_surfaces(&app, state.backend.as_mut());
-            state
-                .player_audio
-                .finish_surfaces(&app, state.backend.as_mut());
             state.ocr.finish_surfaces(&app, state.backend.as_mut());
         }
         if business {
@@ -796,24 +870,29 @@ fn worker_loop(
                 );
             }
         }
-        #[cfg(windows)]
-        let ui_active = state.ui.fast_tick()
-            || state.player_audio.active()
-            || app
-                .state::<super::surface::SurfaceHub>()
-                .progress_animating()
-            || state.ocr.status.wrist_state == super::ocr_status::OcrWristState::Visible;
-        #[cfg(not(windows))]
+        #[cfg(any(windows, linux_vr))]
+        let mut ui_active = state.ui.fast_tick() || state.player_audio.active();
+        #[cfg(not(any(windows, linux_vr)))]
         let ui_active = false;
+        #[cfg(windows)]
+        {
+            ui_active = ui_active
+                || state.player_audio.active()
+                || app
+                    .state::<super::surface::SurfaceHub>()
+                    .progress_animating()
+                || state.ocr.status.wrist_state == super::ocr_status::OcrWristState::Visible;
+        }
         let interval = if status.dashboard.visible || ui_active {
             SURFACE_FRAME_INTERVAL
         } else {
             UPDATE_INTERVAL
         };
         next_tick = (started + interval).min(business_clock.0);
-        #[cfg(windows)]
+        #[cfg(any(windows, linux_vr))]
         if let Some(backend) = state.backend.as_mut() {
             if Instant::now() >= next_pointer || !ui_active {
+                #[cfg(any(windows, linux_vr))]
                 if state.player_audio.active() {
                     state.player_audio.update_pointer(&app, backend);
                 } else {
@@ -821,6 +900,29 @@ fn worker_loop(
                 }
                 next_pointer = Instant::now() + backend.cursor_interval();
             }
+        }
+        if xr_driving {
+            let accepted = match state.backend.as_mut().map(Backend::end_frame) {
+                Some(Ok(())) => true,
+                Some(Err(error)) => {
+                    tracing::warn!(%error, "OpenXR frame submission failed");
+                    let _ = state.backend.take();
+                    status.state = RuntimeState::Reconnecting;
+                    status.reconnect_attempt = status.reconnect_attempt.saturating_add(1);
+                    status.last_error_detail = Some(error);
+                    state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
+                    false
+                }
+                None => false,
+            };
+            #[cfg(any(windows, linux_vr))]
+            {
+                state.headset_surface.confirm_frame(&app, accepted);
+                state.dashboard_surface.confirm_frame(&app, accepted);
+                state.ui.confirm_frames(&app, accepted);
+                state.player_audio.confirm_frames(&app, accepted);
+            }
+            continue;
         }
     }
 }
@@ -832,6 +934,8 @@ fn recover_from_panic(state: &mut WorkerState, status: &mut VrOverlayStatus) {
         state.ocr.clear();
         state.reset_ui();
     }
+    #[cfg(linux_vr)]
+    state.reset_ui();
     state.backend = None;
     state.reset_headset();
     state.reset_dashboard();
@@ -848,11 +952,7 @@ fn tick(
     available: bool,
     business: bool,
 ) {
-    if state
-        .backend
-        .as_mut()
-        .is_some_and(OpenVrBackend::quit_requested)
-    {
+    if state.backend.as_mut().is_some_and(Backend::quit_requested) {
         tracing::info!("SteamVR requested quit; detaching OpenVR and keeping VRCS running");
         state.session.quit();
         state.backend = None;
@@ -861,6 +961,8 @@ fn tick(
             state.ocr.unavailable(state.ocr_config.enabled);
             state.reset_ui();
         }
+        #[cfg(linux_vr)]
+        state.reset_ui();
         state.reset_headset();
         state.reset_dashboard();
         state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
@@ -894,6 +996,8 @@ fn tick(
             state.ocr.unavailable(false);
             state.reset_ui();
         }
+        #[cfg(linux_vr)]
+        state.reset_ui();
         if let Some(mut backend) = state.backend.take() {
             backend.hide_all();
         }
@@ -915,15 +1019,27 @@ fn tick(
         return;
     }
     // These probes read openvrpaths and may load vrclient.dll, so avoid running them per frame.
-    if Instant::now() >= state.next_probe {
-        status.runtime_installed = OpenVrBackend::runtime_installed();
-        status.hmd_present = OpenVrBackend::hmd_present();
+    if state.selected_backend.is_none() {
+        state.selected_backend =
+            Some(Backend::selected_kind(&state.config.backend).unwrap_or(BackendKind::OpenVr));
+    }
+    let openxr = state.selected_backend == Some(BackendKind::OpenXr);
+    if openxr {
+        // Connection failure reports the exact loader/extension reason.
+        if state.backend.is_none() && Instant::now() >= state.next_probe {
+            status.runtime_installed = Backend::openxr_available();
+            state.next_probe = Instant::now() + RECONNECT_INTERVAL;
+        }
+        status.hmd_present = state.backend.is_some();
+    } else if Instant::now() >= state.next_probe {
+        status.runtime_installed = Backend::runtime_installed();
+        status.hmd_present = Backend::hmd_present();
         state.next_probe = Instant::now() + RECONNECT_INTERVAL;
     }
     status.headset.sample_visible = state.headset_sample;
     status.wrist.sample_visible = state.wrist_sample;
 
-    if !cfg!(windows) {
+    if !cfg!(any(windows, linux_vr)) {
         status.state = RuntimeState::Unsupported;
         return;
     }
@@ -934,12 +1050,14 @@ fn tick(
     let vision_enabled = state.ocr.vision.enabled();
     #[cfg(not(windows))]
     let vision_enabled = false;
-    if !status.runtime_installed || !status.hmd_present {
+    if !openxr && (!status.runtime_installed || !status.hmd_present) {
         #[cfg(windows)]
         {
             state.ocr.unavailable(ocr_enabled);
             state.reset_ui();
         }
+        #[cfg(linux_vr)]
+        state.reset_ui();
         if let Some(mut backend) = state.backend.take() {
             backend.hide_all();
         }
@@ -965,8 +1083,8 @@ fn tick(
     if state.backend.is_none() && Instant::now() >= state.next_reconnect {
         #[cfg(windows)]
         state.ocr.unavailable(ocr_enabled);
-        let pid = steamvr_pid();
-        if !state.session.can_connect(pid) {
+        let pid = if openxr { None } else { steamvr_pid() };
+        if !openxr && !state.session.can_connect(pid) {
             status.state = RuntimeState::WaitingRuntime;
             status.reconnect_attempt = 0;
             status.last_error_detail = None;
@@ -978,12 +1096,15 @@ fn tick(
         } else {
             RuntimeState::Reconnecting
         };
-        match OpenVrBackend::connect() {
+        match Backend::connect(&state.config.backend) {
             Ok(backend) => {
-                state
-                    .session
-                    .connected(pid.expect("SteamVR process checked"));
+                if let Some(pid) = pid {
+                    state.session.connected(pid);
+                }
                 state.backend = Some(backend);
+                if openxr {
+                    status.hmd_present = true;
+                }
                 #[cfg(windows)]
                 state.reset_ui();
                 status.state = RuntimeState::Ready;
@@ -1013,10 +1134,39 @@ fn tick(
     let Some(mut backend) = state.backend.take() else {
         #[cfg(windows)]
         state.ocr.unavailable(ocr_enabled);
+        #[cfg(linux_vr)]
+        state.reset_ui();
         return;
     };
     status.state = RuntimeState::Ready;
     status.last_error_detail = None;
+    #[cfg(linux_vr)]
+    if !openxr {
+        if state.ocr_manifest.is_none() {
+            if let Some(directory) = app
+                .path()
+                .app_config_dir()
+                .ok()
+                .map(|path| path.join("steamvr-ocr"))
+            {
+                match super::ocr_input::install_manifest(&directory) {
+                    Ok(path) => state.ocr_manifest = Some(path),
+                    Err(error) => {
+                        tracing::warn!(%error, "VR controller input manifest unavailable")
+                    }
+                }
+            }
+        }
+        if let Some(path) = &state.ocr_manifest {
+            if let Err(error) = backend.update_ocr_input(path) {
+                tracing::warn!(%error, "VR controller input unavailable");
+            }
+        }
+    }
+    #[cfg(any(windows, linux_vr))]
+    let modal = state
+        .player_audio
+        .tick(app, &mut backend, &state.controls, business);
     #[cfg(windows)]
     {
         if let Err(error) = state.ocr.prepare_input(&mut backend) {
@@ -1026,9 +1176,6 @@ fn tick(
             }
             state.ocr.status.last_error = Some(error);
         }
-        let modal = state
-            .player_audio
-            .tick(app, &mut backend, &state.controls, business);
         let tick = super::ui_runtime::UiTick {
             reader_revision: state.ocr.input_revision(),
             content_owns_input: state.ocr.owns_input() || modal,
@@ -1062,6 +1209,25 @@ fn tick(
             state.player_progress.as_ref(),
             business,
         );
+    }
+    #[cfg(linux_vr)]
+    {
+        let tick = super::ui_runtime::UiTick {
+            reader_revision: 0,
+            content_owns_input: modal,
+            business,
+            dialogue_sample: state.wrist_sample,
+            dialogue_content_active: state.wrist_sample
+                || state.wrist.has_candidates()
+                    && !state
+                        .wrist
+                        .idle_expired(Instant::now(), &state.config.wrist)
+                || state.caption_status.text(Instant::now()).is_some(),
+            dialogue_retention: dialogue_retention(state),
+        };
+        let _ = state
+            .ui
+            .tick_with_cadence(app, &mut backend, &state.config, &state.controls, tick);
     }
     if business {
         update_headset(app, state, status, &mut backend);
@@ -1106,12 +1272,14 @@ fn tick(
             }
             refresh_wrist(app, state, status, &mut backend);
         }
+        #[cfg(linux_vr)]
+        refresh_wrist(app, state, status, &mut backend);
     }
     update_dashboard(app, state, status, &mut backend, business);
     let headset_failed =
         state.config.headset.enabled && status.headset.state == ResourceState::Error;
     let wrist_failed = state.config.wrist.enabled && status.wrist.state == ResourceState::Error;
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     let (headset_failed, wrist_failed) = {
         let hub = app.state::<super::surface::SurfaceHub>();
         // Wrist captions render through Dialogue; the wrist menu is a separate surface.
@@ -1146,12 +1314,12 @@ fn tick(
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 fn update_dashboard(
     app: &AppHandle,
     state: &mut WorkerState,
     status: &mut VrOverlayStatus,
-    backend: &mut OpenVrBackend,
+    backend: &mut Backend,
     business: bool,
 ) {
     use super::dashboard::{DASHBOARD_HEIGHT, DASHBOARD_WIDTH};
@@ -1325,11 +1493,11 @@ fn update_dashboard(
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 fn dispatch_dashboard_action(
     app: &AppHandle,
     state: &mut WorkerState,
-    backend: &OpenVrBackend,
+    backend: &Backend,
     action: super::dashboard::DashboardAction,
 ) {
     use super::dashboard::DashboardAction;
@@ -1370,12 +1538,12 @@ fn dispatch_dashboard_action(
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(linux_vr)))]
 fn update_dashboard(
     _app: &AppHandle,
     _state: &mut WorkerState,
     status: &mut VrOverlayStatus,
-    _backend: &mut OpenVrBackend,
+    _backend: &mut Backend,
     _business: bool,
 ) {
     status.dashboard.state = ResourceState::Disabled;
@@ -1397,9 +1565,9 @@ fn update_headset(
     app: &AppHandle,
     state: &mut WorkerState,
     status: &mut VrOverlayStatus,
-    backend: &mut OpenVrBackend,
+    backend: &mut Backend,
 ) {
-    #[cfg(not(windows))]
+    #[cfg(all(not(windows), not(linux_vr)))]
     let _ = app;
     #[cfg(windows)]
     let question_draft = state.ocr.vision.draft();
@@ -1455,11 +1623,19 @@ fn update_headset(
         return;
     };
 
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     let presented = (|| {
         use super::surface_protocol::SurfaceView;
-        let PresentationContent::Headset(messages) = frame.content else {
-            return Err("Invalid headset content".into());
+        #[cfg(windows)]
+        let messages = match frame.content {
+            PresentationContent::Headset(messages) => messages,
+            _ => return Err("Invalid headset content".into()),
+        };
+        #[cfg(linux_vr)]
+        #[allow(unreachable_patterns)]
+        let messages = match frame.content {
+            PresentationContent::Headset(messages) => messages,
+            _ => return Err("Invalid headset content".into()),
         };
         let dark = state.controls.lock().map(|hub| hub.dark()).unwrap_or(false);
         let visible = state.headset_surface.present(
@@ -1511,7 +1687,7 @@ fn update_headset(
         shown?;
         Ok(visible)
     })();
-    #[cfg(not(windows))]
+    #[cfg(all(not(windows), not(linux_vr)))]
     let presented: Result<bool, String> = Err("VR Overlay is only supported on Windows".into());
     match presented {
         Ok(visible) => {
@@ -1536,7 +1712,7 @@ fn update_headset(
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 fn dialogue_retention(state: &WorkerState) -> super::ui_runtime::DialogueRetentionKey {
     super::ui_runtime::DialogueRetentionKey {
         content: state.wrist.retention_revision(),
@@ -1544,32 +1720,32 @@ fn dialogue_retention(state: &WorkerState) -> super::ui_runtime::DialogueRetenti
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 fn refresh_wrist(
     app: &AppHandle,
     state: &mut WorkerState,
     status: &mut VrOverlayStatus,
-    backend: &mut OpenVrBackend,
+    backend: &mut Backend,
 ) {
     render_wrist(app, state, status, backend, false);
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 fn update_wrist(
     app: &AppHandle,
     state: &mut WorkerState,
     status: &mut VrOverlayStatus,
-    backend: &mut OpenVrBackend,
+    backend: &mut Backend,
 ) {
     render_wrist(app, state, status, backend, true);
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 fn render_wrist(
     app: &AppHandle,
     state: &mut WorkerState,
     status: &mut VrOverlayStatus,
-    backend: &mut OpenVrBackend,
+    backend: &mut Backend,
     business: bool,
 ) {
     use super::surface_protocol::SurfaceView;
@@ -1797,12 +1973,12 @@ fn render_wrist(
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(linux_vr)))]
 fn update_wrist(
     _app: &AppHandle,
     _state: &mut WorkerState,
     status: &mut VrOverlayStatus,
-    _backend: &mut OpenVrBackend,
+    _backend: &mut Backend,
 ) {
     status.wrist.state = ResourceState::Disabled;
 }
@@ -1818,7 +1994,7 @@ fn resource_error(
     *global_detail = Some(detail);
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 fn wrist_error(status: &mut VrOverlayStatus, code: &str, detail: String) {
     status.wrist.state = ResourceState::Error;
     status.wrist.last_error_code = Some(code.into());

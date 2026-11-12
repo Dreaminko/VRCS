@@ -78,7 +78,29 @@ fn find_process(pid: Option<u32>, name: &str) -> Option<u32> {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(linux_vr)]
+pub fn steamvr_pid() -> Option<u32> {
+    use std::os::unix::fs::MetadataExt;
+    let uid = unsafe { libc::geteuid() };
+    for entry in std::fs::read_dir("/proc").ok()?.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if std::fs::read_to_string(format!("/proc/{pid}/comm"))
+            .is_ok_and(|comm| comm.trim() == "vrserver")
+            && entry.metadata().ok().is_some_and(|meta| meta.uid() == uid)
+        {
+            return Some(pid);
+        }
+    }
+    None
+}
+
+#[cfg(all(not(windows), not(linux_vr)))]
 pub fn steamvr_pid() -> Option<u32> {
     None
 }

@@ -229,7 +229,7 @@ fn correlation(a: &[f32], b: &[f32]) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{ocr_capture::EyeCapture, renderer::Texture, transform};
+    use super::super::{ocr_capture::EyeCapture, pose::SpaceId, renderer::Texture, transform};
     use super::*;
 
     fn pattern(x: f32, y: f32) -> u8 {
@@ -263,7 +263,7 @@ mod tests {
             pose: transform::matrix(0., yaw, 0., [0.; 3]),
             scene_pid: 123,
             captured_at: std::time::Instant::now(),
-            origin: 1,
+            origin: SpaceId(1),
         }
     }
     fn regions() -> TextRegions {

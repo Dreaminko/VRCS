@@ -20,7 +20,7 @@ pub struct CursorOverlay {
     visible: bool,
 }
 
-fn check(error: i32) -> Result<(), String> {
+fn check(error: openvr_sys::EVROverlayError) -> Result<(), String> {
     if error == openvr_sys::EVROverlayError_VROverlayError_None {
         Ok(())
     } else {
@@ -93,7 +93,7 @@ impl CursorOverlay {
                 .GetTransformForOverlayCoordinates
                 .ok_or("Cursor coordinates unavailable")?(
                 target,
-                origin,
+                origin as _,
                 HmdVector2_t { v: [0.5, 0.5] },
                 &mut pose,
             ))?;
@@ -117,7 +117,9 @@ impl CursorOverlay {
             check(api
                 .SetOverlayTransformAbsolute
                 .ok_or("Cursor transform unavailable")?(
-                handle, origin, &mut pose,
+                handle,
+                origin as _,
+                &mut pose,
             ))?;
             if !self.visible {
                 check(api.ShowOverlay.ok_or("Cursor visibility unavailable")?(
@@ -189,7 +191,7 @@ fn texture() -> Vec<u8> {
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
     use std::cell::{Cell, RefCell};

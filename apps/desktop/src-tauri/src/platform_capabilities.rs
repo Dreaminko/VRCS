@@ -44,16 +44,20 @@ pub(crate) async fn platform_capabilities(
     let windows = cfg!(windows);
     let session_type = session_type();
     let vr_status = vr.status()?;
+    let vr_supported = windows || cfg!(linux_vr);
     let vr_reason = if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
         "vr.runtime_arch_unverified"
-    } else if windows {
+    } else if vr_supported {
         "platform.vr_runtime_unavailable"
     } else {
         "platform.vr_unavailable"
     };
-    let vr_available = windows && vr_status.runtime_installed && vr_status.hmd_present;
+    let vr_available = vr_supported && vr_status.runtime_installed && vr_status.hmd_present;
     #[cfg(target_os = "linux")]
-    let (screenshot, shortcuts) = tokio::join!(crate::desktop_capture::portal::available(), crate::desktop_capture::portal_shortcuts::available());
+    let (screenshot, shortcuts) = tokio::join!(
+        crate::desktop_capture::portal::available(),
+        crate::desktop_capture::portal_shortcuts::available()
+    );
     #[cfg(not(target_os = "linux"))]
     let (screenshot, shortcuts) = (windows, windows);
     // Without a native Wayland toplevel protocol we cannot promise global stacking.
@@ -62,17 +66,33 @@ pub(crate) async fn platform_capabilities(
         os: std::env::consts::OS,
         arch: std::env::consts::ARCH,
         session_type,
-        screenshot: Capability::runtime(cfg!(any(windows, target_os = "linux")), screenshot, "platform.screenshot_unavailable"),
+        screenshot: Capability::runtime(
+            cfg!(any(windows, target_os = "linux")),
+            screenshot,
+            "platform.screenshot_unavailable",
+        ),
         always_on_top: Capability::runtime(
             topmost,
             topmost,
             "platform.window_stacking_unavailable",
         ),
-        global_shortcuts: Capability::runtime(cfg!(any(windows, target_os = "linux")), shortcuts, "platform.shortcuts_unavailable"),
+        global_shortcuts: Capability::runtime(
+            cfg!(any(windows, target_os = "linux")),
+            shortcuts,
+            "platform.shortcuts_unavailable",
+        ),
         vr: VrCapabilities {
-            subtitles: Capability::runtime(windows, vr_available, vr_reason),
-            controller_input: Capability::runtime(windows, vr_available, vr_reason),
-            scene_capture: Capability::runtime(windows, vr_available, vr_reason),
+            subtitles: Capability::runtime(vr_supported, vr_available, vr_reason),
+            controller_input: Capability::runtime(vr_supported, vr_available, vr_reason),
+            scene_capture: Capability::runtime(
+                windows,
+                vr_available,
+                if windows {
+                    vr_reason
+                } else {
+                    "vr.scene_capture_unavailable"
+                },
+            ),
         },
         update_method: if crate::app_updates::updater_available() {
             "in_app"

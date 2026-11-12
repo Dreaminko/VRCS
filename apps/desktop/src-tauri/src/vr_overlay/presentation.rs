@@ -16,7 +16,7 @@ pub struct PresentationFrame {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PresentationContent {
     Headset(Vec<WristMessage>),
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, linux_vr, test))]
     Wrist(Vec<WristMessage>),
 }
 
@@ -61,7 +61,7 @@ impl PresentationFrame {
         }
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, linux_vr, test))]
     pub fn wrist(messages: Vec<WristMessage>) -> Self {
         Self {
             content: PresentationContent::Wrist(messages),
@@ -435,7 +435,7 @@ pub struct WristPresentation {
     partials: VecDeque<PresentationItem>,
     player_limit: Option<usize>,
     terminated: TerminatedUtterances,
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, linux_vr, test))]
     last_activity: Option<Instant>,
     retention_revision: u64,
 }
@@ -448,17 +448,17 @@ impl WristPresentation {
         self.player_limit = limit;
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, linux_vr, test))]
     pub fn retention_revision(&self) -> u64 {
         self.retention_revision
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     pub fn has_candidates(&self) -> bool {
         !self.entries.is_empty() || !self.partials.is_empty()
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, linux_vr, test))]
     pub fn idle_expired(&self, now: Instant, config: &VrOverlayWristConfig) -> bool {
         config.idle_hide_seconds > 0
             && self.last_activity.is_some_and(|last| {
@@ -671,7 +671,7 @@ impl WristPresentation {
         self.frame_with_translation_display(now, config, "all_languages")
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, linux_vr, test))]
     pub fn frame_with_translation_display(
         &self,
         now: Instant,
@@ -953,7 +953,7 @@ fn update_translation(
     true
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, linux_vr, test))]
 fn wrist_message(item: &PresentationItem, mode: &str, translation_display: &str) -> WristMessage {
     WristMessage {
         original: Some(caption_original(item, false, None)),

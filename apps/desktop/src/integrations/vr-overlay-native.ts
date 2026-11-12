@@ -109,6 +109,8 @@ export interface VrDashboardViewModel {
 
 export const UNSUPPORTED_VR_OVERLAY_STATUS: VrOverlayStatus = {
   state: "unsupported",
+  requested_backend: "auto",
+  backend: null,
   runtime_installed: false,
   hmd_present: false,
   last_connected_at: null,

@@ -17,15 +17,15 @@ pub(super) enum Phase {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Fault {
+pub(crate) enum Fault {
     Unsupported,
     Host,
     SourceClosed,
     Session,
     DeviceLost,
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     InvalidFrame,
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     Submission,
 }
 
@@ -118,7 +118,7 @@ impl Recovery {
             self.since = Some(now);
         }
     }
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     pub fn awaiting_frame(&mut self, now: Instant) {
         if !matches!(self.phase, Phase::Failed | Phase::Closing) {
             self.phase = Phase::AwaitingFrame;
@@ -180,7 +180,7 @@ impl Recovery {
         self.fault_since.get_or_insert(now);
         self.fault = Some(fault);
         let terminal = fault == Fault::Unsupported;
-        #[cfg(windows)]
+        #[cfg(any(windows, linux_vr))]
         let terminal = terminal || fault == Fault::Submission;
         if terminal {
             self.phase = Phase::Failed;
@@ -213,7 +213,7 @@ impl Recovery {
     }
     pub fn retains_frame(&self, same_identity: bool, allowed_surface: bool, now: Instant) -> bool {
         let retained_fault = self.fault == Some(Fault::Session);
-        #[cfg(windows)]
+        #[cfg(any(windows, linux_vr))]
         let retained_fault = retained_fault || self.fault == Some(Fault::InvalidFrame);
         same_identity
             && allowed_surface
@@ -224,7 +224,7 @@ impl Recovery {
             })
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     pub fn input_allowed(&self) -> bool {
         self.phase == Phase::Live && self.fault.is_none()
     }
@@ -250,7 +250,7 @@ impl PendingPaints {
     pub fn oldest(&self) -> Option<Instant> {
         self.0.front().map(|(_, at)| *at)
     }
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     pub fn first_serial(&self) -> Option<u32> {
         self.0.front().map(|(serial, _)| *serial)
     }

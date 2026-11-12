@@ -232,6 +232,7 @@ export function VrOverlaySettingsSection({
           <div className="vr-overlay-runtime-facts">
             <span>{t("settings.vrOverlay.runtimeInstalled")}: <strong>{t(status?.runtime_installed ? "common.available" : "common.unavailable")}</strong></span>
             <span>{t("settings.vrOverlay.hmdPresent")}: <strong>{t(status?.hmd_present ? "common.available" : "common.unavailable")}</strong></span>
+            <span>{t("settings.vrOverlay.backend")}: <strong>{status?.backend ?? status?.requested_backend ?? "auto"}</strong></span>
             {(status?.reconnect_attempt ?? 0) > 0 && <span>{t("settings.vrOverlay.reconnectAttempt", { count: status?.reconnect_attempt })}</span>}
           </div>
         </SettingsDisclosure>

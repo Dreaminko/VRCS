@@ -1,40 +1,71 @@
 //! React owns pixels and layout; the VR worker owns input and texture submission.
 mod bridge;
+#[cfg(windows)]
 mod native_host;
+#[cfg(windows)]
 pub(crate) use native_host::NativeHostManager;
+#[cfg(linux_vr)]
+pub(crate) mod linux_host;
+#[cfg(linux_vr)]
+pub(crate) mod linux_webkit;
+#[cfg(linux_vr)]
+pub(crate) use linux_host::NativeHostManager;
+mod endpoint;
+mod error;
 mod metrics;
 use super::surface_recovery as recovery;
+#[cfg(windows)]
 pub mod windows_wgc;
 
-use crate::vr_overlay::surface_protocol::{
-    reader_identity, DocumentSession, HostId, ReaderIdentity,
-    SurfaceActivity, SurfaceEvent, SurfaceId, SurfaceKey,
-    SurfaceLayout, SurfacePointer, SurfaceScroll, SurfaceState, SurfaceView,
-};
+#[cfg(linux_vr)]
+pub(crate) use linux_webkit as frame;
+#[cfg(windows)]
+pub(crate) use windows_wgc as frame;
+
 use crate::vr_overlay::frame_receipt::serial_at_least;
+use crate::vr_overlay::surface_protocol::{
+    reader_identity, DocumentSession, HostId, ReaderIdentity, SurfaceActivity, SurfaceEvent,
+    SurfaceId, SurfaceKey, SurfaceLayout, SurfacePointer, SurfaceScroll, SurfaceState, SurfaceView,
+};
+#[cfg(windows)]
+use std::sync::Arc;
 use std::{
     cell::RefCell,
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::Mutex,
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager};
 
-use super::backend::{OpenVrBackend, OverlayKind};
-#[cfg(test)]
+use super::backend::{Backend, OverlayKind};
+#[cfg(all(test, windows))]
 use super::control_protocol::ControlSnapshot;
-#[cfg(test)]
+#[cfg(all(test, windows))]
 use super::ocr_plane::OcrScene;
+#[cfg(windows)]
 use super::ocr_progress::Stage;
-#[cfg(test)]
+#[cfg(all(test, windows))]
 use super::placement::Mode;
-#[cfg(test)]
+#[cfg(all(test, windows))]
 use super::presentation::WristMessage;
-#[cfg(test)]
+#[cfg(all(test, windows))]
 use super::wrist_labels::WristLabels;
-#[cfg(test)]
+#[cfg(all(test, windows))]
 use crate::vr_overlay::surface_protocol::Region;
 
+#[cfg(windows)]
+fn menu_progress_changed(a: &SurfaceView, b: &SurfaceView) -> bool {
+    matches!(
+        (a, b),
+        (SurfaceView::Menu { hold_progress: a, .. }, SurfaceView::Menu { hold_progress: b, .. })
+            if a != b
+    )
+}
+
+#[cfg(linux_vr)]
+fn menu_progress_changed(_: &SurfaceView, _: &SurfaceView) -> bool {
+    false
+}
 
 struct Entry {
     generation: u32,
@@ -46,7 +77,7 @@ struct Entry {
     displayed_layout: Option<SurfaceLayout>,
     displayed_scroll_key: Option<SurfaceKey>,
     submitted: Option<SurfaceKey>,
-    endpoint: Option<native_host::CaptureEndpoint>,
+    endpoint: Option<endpoint::CaptureEndpoint>,
     creating: bool,
     ready: bool,
     error: Option<String>,
@@ -175,11 +206,12 @@ impl Entry {
             .state
             .as_ref()
             .is_none_or(|state| !state.view.same_layout(&view));
-        let feedback = changed || self.state.as_ref().is_some_and(|state| {
-            state.hovered != hovered || state.pressed != pressed
-                || matches!((&state.view, &view),
-                    (SurfaceView::Menu { hold_progress: a, .. }, SurfaceView::Menu { hold_progress: b, .. }) if a != b)
-        });
+        let feedback = changed
+            || self.state.as_ref().is_some_and(|state| {
+                state.hovered != hovered
+                    || state.pressed != pressed
+                    || menu_progress_changed(&state.view, &view)
+            });
         if changed {
             self.pending_since = self.recovery_observation(None).pending_since;
             let revision = self
@@ -325,6 +357,7 @@ impl Entry {
         {
             return Ok(false);
         }
+        #[cfg(windows)]
         if let Some(SurfaceState {
             view: SurfaceView::OcrResult { scene, .. },
             ..
@@ -614,10 +647,34 @@ impl Entry {
     }
 }
 
+pub(super) enum SubmitOutcome {
+    Committed(Option<u32>),
+    Pending(PendingFrame),
+}
+
+#[cfg(test)]
+impl SubmitOutcome {
+    fn is_some(&self) -> bool {
+        matches!(self, Self::Committed(Some(_)))
+    }
+
+    fn is_none(&self) -> bool {
+        matches!(self, Self::Committed(None))
+    }
+}
+
+pub(super) struct PendingFrame {
+    identity: (u32, u32),
+    key: SurfaceKey,
+    paint_serial: u32,
+    bounds: [u32; 4],
+}
+
 #[derive(Default)]
 pub struct SurfaceHub(Mutex<[Entry; 10]>);
 
 impl SurfaceHub {
+    #[cfg(windows)]
     pub(super) fn progress_animating(&self) -> bool {
         let entries = self.0.lock().unwrap_or_else(|error| error.into_inner());
         let entry = &entries[SurfaceId::OcrProgress.index()];
@@ -631,8 +688,9 @@ impl SurfaceHub {
         &self,
         surface: SurfaceId,
         frame: crate::vr_overlay::frame_receipt::FrameReceipt,
+        defer: bool,
         upload: impl FnOnce() -> Result<(), String>,
-    ) -> Result<Option<u32>, windows_wgc::CaptureError> {
+    ) -> Result<SubmitOutcome, frame::CaptureError> {
         let key = SurfaceKey {
             generation: frame.generation,
             revision: frame.revision,
@@ -650,12 +708,36 @@ impl SurfaceHub {
                 .or_else(|| (bounds != frame.bounds).then_some("capture_bounds_changed"));
             if let Some(reason) = rejection {
                 entry.reject_frame(surface, frame, reason);
-                return Ok(None);
+                return Ok(SubmitOutcome::Committed(None));
             }
             (entry.host_epoch, entry.activity_request)
         };
-        upload()
-            .map_err(|error| windows_wgc::CaptureError::new(recovery::Fault::Submission, error))?;
+        upload().map_err(|error| frame::CaptureError::new(recovery::Fault::Submission, error))?;
+        if defer {
+            return Ok(SubmitOutcome::Pending(PendingFrame {
+                identity,
+                key,
+                paint_serial: frame.paint_serial,
+                bounds: frame.bounds,
+            }));
+        }
+        Ok(SubmitOutcome::Committed(self.commit_frame(
+            surface,
+            identity,
+            key,
+            frame.paint_serial,
+            frame.bounds,
+        )?))
+    }
+
+    fn commit_frame(
+        &self,
+        surface: SurfaceId,
+        identity: (u32, u32),
+        key: SurfaceKey,
+        paint_serial: u32,
+        bounds: [u32; 4],
+    ) -> Result<Option<u32>, frame::CaptureError> {
         let mut entries = self.0.lock().map_err(|e| e.to_string())?;
         let entry = &mut entries[surface.index()];
         let committed = (entry.host_epoch, entry.activity_request) == identity
@@ -663,13 +745,30 @@ impl SurfaceHub {
                 layout
                     .capture_bounds
                     .unwrap_or([0, 0, surface.size().0, surface.size().1])
-                    == frame.bounds
+                    == bounds
             })
-            && entry.commit_paint(key, frame.paint_serial);
-        if !committed {
-            entry.reject_frame(surface, frame, "state_changed_during_upload");
-        }
+            && entry.commit_paint(key, paint_serial);
         Ok(committed.then_some(entry.activity_request))
+    }
+
+    fn commit_pending(
+        &self,
+        surface: SurfaceId,
+        pending: PendingFrame,
+        frame: crate::vr_overlay::frame_receipt::FrameReceipt,
+    ) -> Result<Option<u32>, frame::CaptureError> {
+        let activity = self.commit_frame(
+            surface,
+            pending.identity,
+            pending.key,
+            pending.paint_serial,
+            pending.bounds,
+        )?;
+        if activity.is_none() {
+            let mut entries = self.0.lock().map_err(|e| e.to_string())?;
+            entries[surface.index()].reject_frame(surface, frame, "state_changed_during_upload");
+        }
+        Ok(activity)
     }
 
     fn set_active(&self, app: &AppHandle, surface: SurfaceId, active: bool) -> Result<(), String> {
@@ -860,26 +959,36 @@ impl SurfaceHub {
     }
 }
 
-#[cfg(all(debug_assertions, feature = "vr-preview"))]
+#[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
 mod smoke;
-#[cfg(all(debug_assertions, feature = "vr-preview"))]
+#[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
 pub use smoke::smoke;
 
 /// The worker keeps the GPU resources alive for as long as OpenVR uses them.
 pub struct SurfaceRenderer {
     surface: SurfaceId,
-    capture: Option<Rc<RefCell<windows_wgc::Capture>>>,
+    capture: Option<Rc<RefCell<frame::Capture>>>,
     identity: Option<(u32, u32, u32)>,
     visible_frame: bool,
     retained_key: Option<SurfaceKey>,
     published_key: Option<SurfaceKey>,
     retained_activity: u32,
-    capture_fault: Option<windows_wgc::CaptureError>,
+    capture_fault: Option<frame::CaptureError>,
     pending_action: Option<(recovery::Action, Instant)>,
     requested: bool,
     next_copy: Option<Instant>,
     idle_since: Option<Instant>,
     output_bounds: Option<[u32; 4]>,
+    pending_frame: Option<PendingSubmission>,
+    last_repaint: Option<Instant>,
+}
+
+struct PendingSubmission {
+    token: PendingFrame,
+    capture: Rc<RefCell<frame::Capture>>,
+    frame: frame::Captured,
+    key: SurfaceKey,
+    receipt: crate::vr_overlay::frame_receipt::FrameReceipt,
 }
 
 impl SurfaceRenderer {
@@ -898,6 +1007,8 @@ impl SurfaceRenderer {
             next_copy: None,
             idle_since: None,
             output_bounds: None,
+            pending_frame: None,
+            last_repaint: None,
         }
     }
     pub fn reset(&mut self) {
@@ -915,13 +1026,15 @@ impl SurfaceRenderer {
         self.next_copy = None;
         self.idle_since = None;
         self.output_bounds = None;
+        self.pending_frame = None;
+        self.last_repaint = None;
     }
 
     /// Every worker tick ends here, including early returns and disconnected states.
     pub fn finish_tick(
         &mut self,
         app: &AppHandle,
-        mut backend: Option<&mut OpenVrBackend>,
+        mut backend: Option<&mut Backend>,
         kind: OverlayKind,
     ) {
         let requested = std::mem::take(&mut self.requested) && backend.is_some();
@@ -996,12 +1109,7 @@ impl SurfaceRenderer {
         );
     }
 
-    pub fn stop(
-        &mut self,
-        app: &AppHandle,
-        backend: Option<&mut OpenVrBackend>,
-        kind: OverlayKind,
-    ) {
+    pub fn stop(&mut self, app: &AppHandle, backend: Option<&mut Backend>, kind: OverlayKind) {
         self.requested = false;
         self.finish_tick(app, backend, kind);
     }
@@ -1015,7 +1123,7 @@ impl SurfaceRenderer {
     pub fn present(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         kind: OverlayKind,
         view: SurfaceView,
         hovered: Option<u8>,
@@ -1023,13 +1131,13 @@ impl SurfaceRenderer {
     ) -> Result<bool, String> {
         self.request(app)?;
         let hub = app.state::<SurfaceHub>();
-        let fault = windows_wgc::ensure_capture_supported().err().or_else(|| {
+        let fault = frame::ensure_capture_supported().err().or_else(|| {
             match hub.publish(app, self.surface, view, hovered, pressed) {
                 Ok(key) => {
                     self.published_key = key;
                     None
                 }
-                Err(error) => Some(windows_wgc::CaptureError::new(recovery::Fault::Host, error)),
+                Err(error) => Some(frame::CaptureError::new(recovery::Fault::Host, error)),
             }
         });
         if let Some(error) = fault {
@@ -1042,7 +1150,7 @@ impl SurfaceRenderer {
     pub fn refresh(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         kind: OverlayKind,
         feedback: Option<(Option<u8>, Option<u8>, Option<f32>)>,
     ) -> Result<bool, String> {
@@ -1056,13 +1164,17 @@ impl SurfaceRenderer {
             self.requested = true;
             feedback.and_then(|(hovered, pressed, progress)| {
                 let state = entry.state.as_mut()?;
+                #[cfg_attr(linux_vr, allow(unused_mut))]
                 let mut changed = state.hovered != hovered || state.pressed != pressed;
                 state.hovered = hovered;
                 state.pressed = pressed;
+                #[cfg(windows)]
                 if let SurfaceView::Menu { hold_progress, .. } = &mut state.view {
                     changed |= *hold_progress != progress;
                     *hold_progress = progress;
                 }
+                #[cfg(linux_vr)]
+                let _ = progress;
                 changed.then(|| state.clone())
             })
         };
@@ -1091,12 +1203,7 @@ impl SurfaceRenderer {
             && self.fade_frame_ready(&entries[self.surface.index()])
     }
 
-    pub fn hold_for_fade(
-        &mut self,
-        app: &AppHandle,
-        backend: &OpenVrBackend,
-        kind: OverlayKind,
-    ) -> bool {
+    pub fn hold_for_fade(&mut self, app: &AppHandle, backend: &Backend, kind: OverlayKind) -> bool {
         let ready = {
             let hub = app.state::<SurfaceHub>();
             let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -1115,7 +1222,7 @@ impl SurfaceRenderer {
     fn service(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         kind: OverlayKind,
     ) -> Result<bool, String> {
         let hub = app.state::<SurfaceHub>();
@@ -1172,6 +1279,29 @@ impl SurfaceRenderer {
             return Err(error);
         }
         if self.pending_action.is_none() && self.capture_fault.is_none() {
+            let repaint = {
+                let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                let entry = &entries[self.surface.index()];
+                !self.visible_frame
+                    && entry.active
+                    && entry.ready
+                    && entry.state.is_some()
+                    && matches!(
+                        entry.recovery.phase,
+                        recovery::Phase::AwaitingFrame
+                            | recovery::Phase::RecoveringCapture
+                            | recovery::Phase::RecoveringHost
+                    )
+            };
+            if repaint
+                && self
+                    .last_repaint
+                    .is_none_or(|at| now.duration_since(at) >= Duration::from_millis(500))
+            {
+                if hub.send(app, self.surface, SurfaceEvent::Repaint).is_ok() {
+                    self.last_repaint = Some(now);
+                }
+            }
             if let Err(error) = self.present_frame(app, backend, kind) {
                 self.capture_fault = Some(error);
                 self.advance_recovery(&hub, Instant::now());
@@ -1179,8 +1309,9 @@ impl SurfaceRenderer {
         }
         let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
         let entry = &entries[self.surface.index()];
-        let visible = self.frame_visible(entry, Instant::now())
-            && (self.surface != SurfaceId::Dashboard || backend.has_surface_texture(kind));
+        let visible = self.pending_frame.is_some()
+            || self.frame_visible(entry, Instant::now())
+                && (self.surface != SurfaceId::Dashboard || backend.has_surface_texture(kind));
         if !visible {
             backend.hide(kind);
         }
@@ -1270,7 +1401,7 @@ impl SurfaceRenderer {
         app: &AppHandle,
         mut detach: impl FnMut() -> Result<(), String>,
         now: Instant,
-    ) -> Result<(), windows_wgc::CaptureError> {
+    ) -> Result<(), frame::CaptureError> {
         use recovery::{Action, Fault};
         let Some((action, started)) = self.pending_action else {
             return Ok(());
@@ -1287,7 +1418,7 @@ impl SurfaceRenderer {
                     return Ok(());
                 }
                 self.pending_action = None;
-                return Err(windows_wgc::CaptureError::new(Fault::Submission, error));
+                return Err(frame::CaptureError::new(Fault::Submission, error));
             }
             self.reset();
         }
@@ -1307,7 +1438,7 @@ impl SurfaceRenderer {
                 };
                 app.state::<NativeHostManager>()
                     .close(id)
-                    .map_err(|error| windows_wgc::CaptureError::new(Fault::Host, error))?;
+                    .map_err(|error| frame::CaptureError::new(Fault::Host, error))?;
             }
             Action::RestartCapture => {
                 let endpoint = hub.0.lock().unwrap_or_else(|e| e.into_inner())
@@ -1315,15 +1446,15 @@ impl SurfaceRenderer {
                 .endpoint
                 .clone();
                 if let (Some(capture), Some(endpoint)) = (&self.capture, endpoint) {
-                    capture.borrow_mut().restart_source(&endpoint.item)?;
+                    capture.borrow_mut().restart_source(&endpoint.source)?;
                 }
                 hub.send(app, self.surface, SurfaceEvent::Repaint)
-                    .map_err(|error| windows_wgc::CaptureError::new(Fault::Host, error))?;
+                    .map_err(|error| frame::CaptureError::new(Fault::Host, error))?;
             }
             Action::RecreateDevice => {
                 hub.0.lock().unwrap_or_else(|e| e.into_inner())[self.surface.index()].clear_frame();
                 hub.send(app, self.surface, SurfaceEvent::Repaint)
-                    .map_err(|error| windows_wgc::CaptureError::new(Fault::Host, error))?;
+                    .map_err(|error| frame::CaptureError::new(Fault::Host, error))?;
             }
             Action::None | Action::Fail => {}
         }
@@ -1333,9 +1464,9 @@ impl SurfaceRenderer {
     fn present_frame(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         kind: OverlayKind,
-    ) -> Result<bool, windows_wgc::CaptureError> {
+    ) -> Result<bool, frame::CaptureError> {
         let hub = app.state::<SurfaceHub>();
         let (endpoint, generation) = {
             let entries = hub.0.lock().map_err(|e| e.to_string())?;
@@ -1350,7 +1481,7 @@ impl SurfaceRenderer {
         };
         let adapter = backend
             .surface_adapter_index()
-            .map_err(|error| windows_wgc::CaptureError::new(recovery::Fault::Submission, error))?;
+            .map_err(|error| frame::CaptureError::new(recovery::Fault::Submission, error))?;
         let identity = (endpoint.host.host_epoch, adapter, generation);
         if self.identity != Some(identity) {
             if self.capture.is_some() || backend.has_surface_texture(kind) {
@@ -1367,8 +1498,8 @@ impl SurfaceRenderer {
                 .metrics
                 .capture
                 .clone();
-            self.capture = Some(Rc::new(RefCell::new(windows_wgc::Capture::with_counters(
-                &endpoint.item,
+            self.capture = Some(Rc::new(RefCell::new(frame::Capture::with_counters(
+                &endpoint.source,
                 adapter,
                 width,
                 height,
@@ -1378,41 +1509,59 @@ impl SurfaceRenderer {
         }
         let capture = self.capture.as_ref().expect("capture exists").clone();
         let previous_bounds = self.output_bounds;
-        self.capture_frame(&hub, |frame| {
+        self.capture_frame(&hub, backend.defers_submission(), |frame| {
             if kind == OverlayKind::OcrResult && previous_bounds != Some(frame.receipt.bounds) {
                 backend.hide(kind);
             }
-            backend.upload_surface(kind, frame.shared_handle, capture)
+            backend.upload_surface(kind, &frame, capture)
         })
     }
 
     fn capture_frame(
         &mut self,
         hub: &SurfaceHub,
-        upload: impl FnOnce(windows_wgc::Captured) -> Result<(), String>,
-    ) -> Result<bool, windows_wgc::CaptureError> {
+        defer: bool,
+        upload: impl FnOnce(&frame::Captured) -> Result<(), String>,
+    ) -> Result<bool, frame::CaptureError> {
+        if self.pending_frame.is_some() {
+            return Ok(true);
+        }
         let capture = self.capture.as_ref().expect("capture exists").clone();
-        let mut capture = capture.borrow_mut();
-        if let Some(frame) = capture.poll()? {
+        let mut capture_guard = capture.borrow_mut();
+        if let Some(frame) = capture_guard.poll()? {
+            let receipt = frame.receipt;
             let key = SurfaceKey {
-                generation: frame.receipt.generation,
-                revision: frame.receipt.revision,
+                generation: receipt.generation,
+                revision: receipt.revision,
             };
-            let mut uploaded = false;
-            let activity = hub.submit_frame(self.surface, frame.receipt, || {
-                upload(frame)?;
-                // Protect the slot even if the document changes during the external call.
-                capture.submitted(frame).map_err(String::from)?;
-                uploaded = true;
+            let outcome = hub.submit_frame(self.surface, receipt, defer, || {
+                upload(&frame)?;
                 Ok(())
             })?;
-            if let Some(activity) = activity {
-                self.visible_frame = true;
-                self.retained_key = Some(key);
-                self.retained_activity = activity;
-                self.output_bounds = Some(frame.receipt.bounds);
-            } else if uploaded {
-                self.visible_frame = false;
+            match outcome {
+                SubmitOutcome::Committed(activity) => {
+                    // Protect the slot even if the document changes during the external call.
+                    capture_guard.submitted(&frame).map_err(String::from)?;
+                    if let Some(activity) = activity {
+                        self.visible_frame = true;
+                        self.retained_key = Some(key);
+                        self.retained_activity = activity;
+                        self.output_bounds = Some(receipt.bounds);
+                    } else {
+                        self.visible_frame = false;
+                    }
+                }
+                SubmitOutcome::Pending(token) => {
+                    drop(capture_guard);
+                    self.pending_frame = Some(PendingSubmission {
+                        token,
+                        capture,
+                        frame,
+                        key,
+                        receipt,
+                    });
+                    return Ok(true);
+                }
             }
         }
         let now = Instant::now();
@@ -1431,14 +1580,42 @@ impl SurfaceRenderer {
             (self.capture_needed(entry, now), requested, bounds)
         };
         if needed {
-            capture.resume()?;
-            if capture.start_cropped(requested, bounds)? {
+            capture_guard.resume()?;
+            if capture_guard.start_cropped(requested, bounds)? {
                 self.copied(now);
             }
         } else {
-            capture.suspend();
+            capture_guard.suspend();
         }
         Ok(self.visible_frame)
+    }
+
+    /// Confirm or reject a frame that was uploaded before the backend presented
+    /// it. OpenXR calls this after `xrEndFrame`; OpenVR has no pending frame.
+    pub fn confirm_frame(&mut self, app: &AppHandle, accepted: bool) {
+        let Some(pending) = self.pending_frame.take() else {
+            return;
+        };
+        let hub = app.state::<SurfaceHub>();
+        if accepted {
+            if let Ok(Some(activity)) =
+                hub.commit_pending(self.surface, pending.token, pending.receipt)
+            {
+                if pending
+                    .capture
+                    .borrow_mut()
+                    .submitted(&pending.frame)
+                    .is_ok()
+                {
+                    self.visible_frame = true;
+                    self.retained_key = Some(pending.key);
+                    self.retained_activity = activity;
+                    self.output_bounds = Some(pending.receipt.bounds);
+                    return;
+                }
+            }
+        }
+        self.visible_frame = false;
     }
 
     fn capture_needed(&mut self, entry: &Entry, now: Instant) -> bool {
@@ -1477,10 +1654,9 @@ impl SurfaceRenderer {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
-
 
     #[test]
     fn copy_budget_does_not_halve_the_worker_tick_rate() {
@@ -1835,7 +2011,7 @@ mod tests {
             entry.accept_layout_paint(surface, layout(key), 1).unwrap();
             key
         };
-        let mut frame = windows_wgc::Captured {
+        let mut frame = frame::Captured {
             shared_handle: 1,
             receipt: crate::vr_overlay::frame_receipt::FrameReceipt {
                 generation: key.generation,
@@ -1846,7 +2022,7 @@ mod tests {
             },
         };
         assert!(hub
-            .submit_frame(surface, frame.receipt, || {
+            .submit_frame(surface, frame.receipt, false, || {
                 assert!(
                     hub.0.try_lock().is_ok(),
                     "OpenVR must not hold the shared hub lock"
@@ -1858,7 +2034,7 @@ mod tests {
         frame.receipt.paint_serial = 2;
         hub.0.lock().unwrap()[surface.index()].accept_paint(key, 2);
         assert!(hub
-            .submit_frame(surface, frame.receipt, || {
+            .submit_frame(surface, frame.receipt, false, || {
                 hub.0.try_lock().unwrap()[surface.index()].publish(
                     SurfaceView::OcrSelection { dark: false },
                     None,
@@ -2010,7 +2186,7 @@ mod tests {
             let mut entries = hub.0.lock().unwrap();
             let entry = &mut entries[SurfaceId::Menu.index()];
             entry.set_active(true, Instant::now());
-            renderer.capture_fault = Some(windows_wgc::CaptureError::new(
+            renderer.capture_fault = Some(frame::CaptureError::new(
                 recovery::Fault::Unsupported,
                 "unsupported",
             ));
@@ -2306,8 +2482,6 @@ mod tests {
             capture_bounds: None,
         }
     }
-
-
 
     #[test]
     fn pointer_updates_keep_the_submitted_layout_and_reject_inactive_or_invalid_hits() {
@@ -2610,7 +2784,7 @@ mod tests {
             assert!(entry.accept_layout_paint(surface, value, 1).unwrap());
             key
         };
-        let frame = windows_wgc::Captured {
+        let frame = frame::Captured {
             shared_handle: 1,
             receipt: crate::vr_overlay::frame_receipt::FrameReceipt {
                 generation: key.generation,
@@ -2621,15 +2795,20 @@ mod tests {
             },
         };
         assert!(hub
-            .submit_frame(surface, frame.receipt, || panic!("stale crop uploaded"))
+            .submit_frame(surface, frame.receipt, false, || panic!(
+                "stale crop uploaded"
+            ))
             .unwrap()
             .is_none());
-        let frame = windows_wgc::Captured {
-            receipt: crate::vr_overlay::frame_receipt::FrameReceipt { bounds: [100, 200, 500, 600], ..frame.receipt },
+        let frame = frame::Captured {
+            receipt: crate::vr_overlay::frame_receipt::FrameReceipt {
+                bounds: [100, 200, 500, 600],
+                ..frame.receipt
+            },
             ..frame
         };
         assert!(hub
-            .submit_frame(surface, frame.receipt, || Ok(()))
+            .submit_frame(surface, frame.receipt, false, || Ok(()))
             .unwrap()
             .is_some());
         let mut value = hub.0.lock().unwrap()[surface.index()]
@@ -2638,7 +2817,7 @@ mod tests {
             .unwrap();
         value.capture_bounds = Some([200, 200, 600, 600]);
         assert!(hub
-            .submit_frame(surface, frame.receipt, || {
+            .submit_frame(surface, frame.receipt, false, || {
                 assert!(hub.0.lock().unwrap()[surface.index()]
                     .accept_layout_paint(surface, value, 2)
                     .unwrap());
@@ -2652,7 +2831,11 @@ mod tests {
         assert!(hub
             .submit_frame(
                 surface,
-                crate::vr_overlay::frame_receipt::FrameReceipt { paint_serial: 2, ..frame.receipt },
+                crate::vr_overlay::frame_receipt::FrameReceipt {
+                    paint_serial: 2,
+                    ..frame.receipt
+                },
+                false,
                 || panic!("old crop accepted under the new layout")
             )
             .unwrap()

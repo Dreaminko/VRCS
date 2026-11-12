@@ -1,6 +1,7 @@
 use super::ocr_gesture::{camera_frame, gesture_frame, point_in_head, FrameCorners, HandSample};
 use super::ocr_input_state::{FrameSession, FrameTracking, HoldAction, TriggerEdge, TriggerUpdate};
 use super::ocr_wrist::Action;
+use super::pose::SpaceId;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::{ffi::CString, mem::size_of, path::Path, time::Instant};
 
@@ -28,7 +29,7 @@ pub struct Frame {
     /// Hand anchors in the tracking space, sampled using head_pose.
     pub corners: [[f32; 3]; 2],
     pub head_pose: [[f32; 4]; 3],
-    pub origin: i32,
+    pub origin: SpaceId,
 }
 
 impl Frame {
@@ -40,7 +41,7 @@ impl Frame {
                 })
             }),
             head_pose,
-            origin,
+            origin: SpaceId(origin as u32),
         }
     }
 }
@@ -555,7 +556,10 @@ impl OcrInput {
     }
 }
 
-fn binding_count(api: &openvr_sys::VR_IVRInput_FnTable, action: u64) -> Option<Result<u32, i32>> {
+fn binding_count(
+    api: &openvr_sys::VR_IVRInput_FnTable,
+    action: u64,
+) -> Option<Result<u32, openvr_sys::EVRInputError>> {
     let query = api.GetActionBindingInfo?;
     let mut bindings: [openvr_sys::InputBindingInfo_t; 8] = unsafe { std::mem::zeroed() };
     let mut count = 0;
@@ -601,7 +605,7 @@ fn read_controller_pose(
         api.GetPoseActionDataRelativeToNow
             .ok_or("Controller pose unavailable")?(
             action,
-            origin,
+            origin as _,
             0.,
             &mut data,
             size_of::<openvr_sys::InputPoseActionData_t>() as u32,
@@ -662,7 +666,7 @@ fn read_hand(
             .GetPoseActionDataRelativeToNow
             .ok_or("Hand pose unavailable")?(
             action,
-            origin,
+            origin as _,
             0.,
             &mut pose,
             size_of::<openvr_sys::InputPoseActionData_t>() as u32,
@@ -722,7 +726,7 @@ fn read_hand(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 
@@ -1522,7 +1526,7 @@ mod tests {
             1,
         );
         assert_eq!(frame.head_pose, head);
-        assert_eq!(frame.origin, 1);
+        assert_eq!(frame.origin, SpaceId(1));
         for (actual, expected) in frame
             .corners
             .into_iter()
@@ -1545,7 +1549,7 @@ mod tests {
             head,
             1,
         );
-        let initial = Selection::from_corners(frame.corners, head, 7, 1).unwrap();
+        let initial = Selection::from_corners(frame.corners, head, 7, SpaceId(1)).unwrap();
         let expected = initial.preview();
         let identity = transform::matrix(0., 0., 0., [0.; 3]);
         let mut selection = initial;

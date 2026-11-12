@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 pub const DASHBOARD_WIDTH: u32 = 1440;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, linux_vr, test))]
 pub const DASHBOARD_HEIGHT: u32 = 900;
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, linux_vr, test))]
 pub fn pointer_from_openvr(x: f32, y: f32, height: u32) -> (f32, f32) {
     (x, height as f32 - y)
 }
@@ -157,7 +157,7 @@ pub enum TargetGroup {
     Microphone,
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, linux_vr, test))]
 impl DashboardLanguage {
     fn targets(&self, group: TargetGroup) -> &[DashboardChoice] {
         match group {
@@ -317,7 +317,7 @@ pub enum DashboardAction {
     AttachDialogue,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DashboardPointerEvent {
     Move { x: f32, y: f32 },
@@ -327,7 +327,7 @@ pub enum DashboardPointerEvent {
     Hidden,
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, linux_vr, test))]
 /// Commands come from the hit map of the currently submitted React frame.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
@@ -366,10 +366,10 @@ pub enum DashboardPicker {
     DeletePreset,
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, linux_vr, test))]
 pub const PICKER_PAGE_SIZE: usize = 32;
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, linux_vr, test))]
 impl DashboardPicker {
     fn choice(self, view: &DashboardViewModel) -> Option<&DashboardChoice> {
         Some(match self {
@@ -401,7 +401,7 @@ pub struct DashboardState {
     pub ui: DashboardUi,
     pub hovered: Option<u8>,
     pub pressed: Option<u8>,
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, linux_vr, test))]
     interactive: bool,
     language: Option<DashboardLanguage>,
 }
@@ -412,7 +412,7 @@ impl DashboardState {
             ui: DashboardUi::default(),
             hovered: None,
             pressed: None,
-            #[cfg(any(windows, test))]
+            #[cfg(any(windows, linux_vr, test))]
             interactive: true,
             language: None,
         }
@@ -446,7 +446,7 @@ impl DashboardState {
         }
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, linux_vr, test))]
     pub fn activate(
         &mut self,
         command: DashboardCommand,
@@ -557,7 +557,7 @@ impl DashboardState {
         }
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, linux_vr, test))]
     fn emit_or_confirm(
         &mut self,
         action: DashboardAction,
@@ -578,7 +578,7 @@ impl DashboardState {
         }
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, linux_vr, test))]
     fn action_allowed(&self, action: &DashboardAction, view: &DashboardViewModel) -> bool {
         use DashboardAction::*;
         let page = match action {

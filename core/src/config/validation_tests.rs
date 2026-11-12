@@ -382,6 +382,9 @@ fn validates_vr_overlay_boundaries_and_cross_fields() {
 #[test]
 fn rejects_invalid_vr_overlay_enums_and_non_finite_values() {
     let mut config = AppConfig::default();
+    config.vr_overlay.backend = "steamvr".into();
+    assert!(config.validate_settings().is_err());
+    config.vr_overlay.backend = "auto".into();
     config.vr_overlay.translation_display = "unknown".into();
     assert!(config.validate_settings().is_err());
     config.vr_overlay.translation_display = "all_languages".into();

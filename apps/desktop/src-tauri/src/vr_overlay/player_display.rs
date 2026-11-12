@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::control_protocol::ControlSource;
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 pub const REQUEST_EVENT: &str = "vr-overlay-player-display-request";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -39,7 +39,7 @@ pub enum Action {
     },
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, linux_vr, test))]
 impl Action {
     pub(super) fn allowed(&self, view: &View) -> bool {
         let processing = view.processing_available && view.player_mode;

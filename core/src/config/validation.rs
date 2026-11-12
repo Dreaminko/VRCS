@@ -518,6 +518,12 @@ fn validate_recognition_models(asr: &AsrConfig, vad: &VadConfig) -> Result<(), S
 }
 
 fn validate_vr_overlay(config: &VrOverlayConfig) -> Result<(), String> {
+    if !["auto", "openvr", "openxr"].contains(&config.backend.as_str()) {
+        return Err(format!(
+            "Unsupported VR Overlay backend: {}",
+            config.backend
+        ));
+    }
     if !["left", "right"].contains(&config.wrist_menu.hand.as_str()) {
         return Err("VR Overlay wrist menu hand must be left or right".into());
     }

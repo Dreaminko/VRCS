@@ -45,7 +45,8 @@
       "vr_unavailable": "Linux VR subtitles and controller input are not implemented yet. Desktop subtitles remain available.",
       "vr_runtime_unavailable": "Start the VR runtime and connect a headset to use this feature.",
       "vr": {
-        "runtime_arch_unverified": "This ARM64 build does not include a verified native VR backend."
+        "runtime_arch_unverified": "This ARM64 build does not include a verified native VR backend.",
+        "scene_capture_unavailable": "VR scene capture for OCR and visual questions is not available on Linux yet. Subtitles, wrist overlays, Dashboard and controller input remain available."
       },
       "screenshot_unavailable": "Authorized desktop capture is not implemented for this platform yet. OCR and visual-assistant capture are unavailable.",
       "window_stacking_unavailable": "This session cannot guarantee always-on-top windows. Compact subtitles use a normal window.",
@@ -1094,6 +1095,7 @@
         "enableHeadset": "Enable headset subtitles",
         "enableWrist": "Enable wrist conversation",
         "runtimeInstalled": "SteamVR installed",
+        "backend": "Backend",
         "hmdPresent": "Headset detected",
         "reconnectAttempt": "Reconnect attempt {{count}}",
         "runtimeStates": {

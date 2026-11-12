@@ -45,7 +45,8 @@
       "vr_unavailable": "Linux の VR 字幕とコントローラー入力は未実装です。デスクトップ字幕は引き続き利用できます。",
       "vr_runtime_unavailable": "VR ランタイムを起動し、ヘッドセットを接続してください。",
       "vr": {
-        "runtime_arch_unverified": "この ARM64 ビルドには検証済みのネイティブ VR バックエンドが含まれていません。"
+        "runtime_arch_unverified": "この ARM64 ビルドには検証済みのネイティブ VR バックエンドが含まれていません。",
+        "scene_capture_unavailable": "Linux では OCR と視覚質問向けの VR シーンキャプチャはまだ利用できません。字幕、リスト表示、Dashboard、コントローラー入力は利用できます。"
       },
       "screenshot_unavailable": "このプラットフォームの許可付き画面キャプチャは未実装です。OCR と画像質問応答のキャプチャは利用できません。",
       "window_stacking_unavailable": "このセッションでは最前面表示を保証できません。コンパクト字幕は通常のウィンドウを使用します。",
@@ -1094,6 +1095,7 @@
         "enableHeadset": "ヘッドセット字幕を有効にする",
         "enableWrist": "手首の会話表示を有効にする",
         "runtimeInstalled": "SteamVR のインストール",
+        "backend": "バックエンド",
         "hmdPresent": "ヘッドセットの検出",
         "reconnectAttempt": "再接続 {{count}} 回目",
         "runtimeStates": {

@@ -36,23 +36,19 @@ use windows::{
     UI::Composition::{Compositor, ContainerVisual},
 };
 
+use super::SurfaceHub;
+use crate::vr_overlay::surface_protocol::SurfaceActivity;
 use crate::vr_overlay::surface_protocol::{
     DocumentSession, HostId, Operation, PageRequest, ResourcePolicy, ResourceRoute, SurfaceEvent,
 };
-use super::SurfaceHub;
-use crate::vr_overlay::surface_protocol::SurfaceActivity;
 
 const WAKE: u32 = WM_APP + 41;
 const BROWSER_ARGS: &str = "--disable-features=CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows --disable-renderer-backgrounding";
 const SURFACE_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
-#[derive(Clone)]
-pub(super) struct CaptureEndpoint {
-    pub host: HostId,
-    pub item: GraphicsCaptureItem,
-    #[cfg(all(debug_assertions, feature = "vr-preview"))]
-    pub parent: isize,
-}
+pub(super) use super::endpoint::CaptureEndpoint;
+
+/// Construct, poll, and drop on the same VR worker thread.
 
 struct QueuedEvent {
     session: DocumentSession,
@@ -911,7 +907,7 @@ fn start_host(state: &Rc<RefCell<Sta>>, id: HostId) {
                                 {
                                     entry.endpoint = Some(CaptureEndpoint {
                                         host: id,
-                                        item: host._item.clone(),
+                                        source: host._item.clone(),
                                         #[cfg(all(debug_assertions, feature = "vr-preview"))]
                                         parent: host._parent.0 .0 as isize,
                                     });
@@ -1323,7 +1319,9 @@ impl ControlMailbox {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vr_overlay::surface_protocol::{SurfaceId, SurfaceKey, SurfacePointer, SurfaceScroll};
+    use crate::vr_overlay::surface_protocol::{
+        SurfaceId, SurfaceKey, SurfacePointer, SurfaceScroll,
+    };
 
     fn session(surface: SurfaceId) -> DocumentSession {
         DocumentSession {

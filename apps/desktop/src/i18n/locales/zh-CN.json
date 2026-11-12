@@ -45,7 +45,8 @@
       "vr_unavailable": "Linux VR 字幕与控制器输入尚未实现，桌面字幕仍可使用。",
       "vr_runtime_unavailable": "请启动 VR 运行时并连接头显后使用此功能。",
       "vr": {
-        "runtime_arch_unverified": "此 ARM64 构建未包含通过验证的原生 VR 后端。"
+        "runtime_arch_unverified": "此 ARM64 构建未包含通过验证的原生 VR 后端。",
+        "scene_capture_unavailable": "Linux 暂不支持供 OCR 与视觉问答使用的 VR 场景捕获。字幕、腕部面板、Dashboard 与控制器输入仍可用。"
       },
       "screenshot_unavailable": "当前平台尚未实现桌面授权截图，OCR 与视觉问答的截图入口不可用。",
       "window_stacking_unavailable": "当前会话无法保证窗口全局置顶，紧凑字幕使用普通窗口。",
@@ -1094,6 +1095,7 @@
         "enableHeadset": "启用头显字幕",
         "enableWrist": "启用手腕对话",
         "runtimeInstalled": "已安装 SteamVR",
+        "backend": "后端",
         "hmdPresent": "已检测到头显",
         "reconnectAttempt": "第 {{count}} 次重新连接",
         "runtimeStates": {

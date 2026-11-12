@@ -1,69 +1,75 @@
 mod backend;
 mod caption_status;
 mod control_protocol;
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 mod cursor;
 #[cfg(windows)]
 mod d3d11_texture;
 mod dashboard;
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 mod dialogue;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, linux_vr, test))]
 mod interaction;
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 pub(crate) mod ocr_capture;
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 mod ocr_geometry;
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 mod ocr_gesture;
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 mod ocr_input;
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 mod ocr_input_state;
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 mod ocr_plane;
 mod ocr_progress;
 #[cfg(windows)]
 mod ocr_runtime;
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 mod ocr_selection;
 mod ocr_status;
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 mod ocr_wrist;
+#[cfg(all(linux_vr, target_arch = "x86_64"))]
+mod openxr;
 mod placement;
 mod player_audio_ui;
 mod player_display;
+#[cfg(any(windows, linux_vr))]
+mod pose;
 #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
 pub(crate) mod preview;
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 pub(crate) mod surface;
-// Production surface submission is Windows-only; keep its pure protocols covered everywhere.
-#[cfg(any(windows, test))]
-pub(crate) mod surface_protocol;
-#[cfg(any(windows, test))]
+// The surface protocol and recovery rules are shared by both VR implementations.
+#[cfg(any(windows, linux_vr, test))]
 pub(crate) mod frame_receipt;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, linux_vr, test))]
+pub(crate) mod surface_protocol;
+#[cfg(any(windows, linux_vr, test))]
 #[path = "surface/recovery.rs"]
 pub(crate) mod surface_recovery;
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 mod ui_runtime;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, linux_vr, test))]
 mod visibility;
 #[cfg(windows)]
 mod vision_runtime;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, linux_vr, test))]
 mod wrist_menu;
 // Keep the image verifier covered without enabling scan cancellation.
 #[cfg(all(windows, test))]
 mod ocr_tracking;
 mod presentation;
 mod process;
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 pub(crate) mod renderer;
 mod runtime;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, linux_vr, test))]
 mod transform;
 mod wrist_labels;
+#[cfg(all(linux_vr, target_arch = "x86_64"))]
+pub(crate) mod xr;
 
 use tauri::State;
 

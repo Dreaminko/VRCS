@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 pub struct VrOverlayConfig {
     #[serde(default)]
     pub enabled: bool,
+    /// `auto`, `openvr` or `openxr`; one backend is active per process.
+    #[serde(default = "default_vr_backend")]
+    pub backend: String,
     #[serde(default = "default_translation_display")]
     pub translation_display: String,
     #[serde(default)]
@@ -139,6 +142,10 @@ fn default_translation_display() -> String {
     "all_languages".into()
 }
 
+fn default_vr_backend() -> String {
+    "auto".into()
+}
+
 fn default_headset_offset_y_m() -> f32 {
     -0.28
 }
@@ -231,6 +238,7 @@ impl Default for VrOverlayConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            backend: default_vr_backend(),
             translation_display: default_translation_display(),
             headset: VrOverlayHeadsetConfig::default(),
             wrist: VrOverlayWristConfig::default(),
@@ -314,6 +322,19 @@ mod tests {
             config,
             serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap()
         );
+    }
+
+    #[test]
+    fn backend_defaults_to_auto_and_round_trips() {
+        let default: VrOverlayConfig = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(default.backend, "auto");
+        for backend in ["auto", "openvr", "openxr"] {
+            let value = serde_json::json!({ "backend": backend });
+            let config: VrOverlayConfig = serde_json::from_value(value).unwrap();
+            assert_eq!(config.backend, backend);
+            let saved = serde_json::to_value(&config).unwrap();
+            assert_eq!(saved["backend"], backend);
+        }
     }
 
     #[test]

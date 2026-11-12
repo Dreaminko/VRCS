@@ -1,11 +1,12 @@
 use super::ocr_capture::{region_crop, CaptureCrop, EyeCapture};
+use super::pose::SpaceId;
 
 #[derive(Clone)]
 pub struct Selection {
     basis: [[f32; 4]; 3],
     world: [[f32; 3]; 4],
     pub scene_pid: u32,
-    pub origin: i32,
+    pub origin: SpaceId,
 }
 
 impl Selection {
@@ -13,7 +14,7 @@ impl Selection {
         corners: [[f32; 3]; 2],
         basis: [[f32; 4]; 3],
         scene_pid: u32,
-        origin: i32,
+        origin: SpaceId,
     ) -> Option<Self> {
         if corners
             .iter()
@@ -219,7 +220,7 @@ mod tests {
     fn world_anchors_are_not_transformed_twice_when_the_head_is_rotated_and_translated() {
         let head = transform::matrix(15., -25., 30., [1., 1.6, 0.]);
         let anchors = world_corners([[-0.2, 0.1, -0.4], [0.2, -0.1, -0.7]], head);
-        let selection = Selection::from_corners(anchors, head, 7, 1).unwrap();
+        let selection = Selection::from_corners(anchors, head, 7, SpaceId(1)).unwrap();
         for (actual, expected) in [selection.world[0], selection.world[2]]
             .into_iter()
             .zip(anchors)
@@ -234,7 +235,7 @@ mod tests {
     fn dragging_world_anchors_resizes_the_frame_and_preserves_unequal_depths() {
         let basis = transform::matrix(15., -25., 30., [1., 1.6, -2.]);
         let initial = world_corners([[-0.2, 0.1, -0.4], [0.2, -0.1, -0.7]], basis);
-        let selection = Selection::from_corners(initial, basis, 7, 1).unwrap();
+        let selection = Selection::from_corners(initial, basis, 7, SpaceId(1)).unwrap();
         assert!(selection.with_corners([initial[0]; 2]).is_none());
         let anchors = world_corners([[-0.3, 0.2, -0.3], [0.4, -0.2, -0.8]], basis);
         let resized = selection.with_corners([anchors[1], anchors[0]]).unwrap();
@@ -249,14 +250,15 @@ mod tests {
         let plane = resized.preview();
         assert!((plane.width_m - 0.7_f32.hypot(0.5)).abs() < 0.0001);
         assert!((plane.width_m / plane.texel_aspect - 0.4).abs() < 0.0001);
-        assert_eq!((resized.scene_pid, resized.origin), (7, 1));
+        assert_eq!((resized.scene_pid, resized.origin), (7, SpaceId(1)));
     }
 
     #[test]
     fn head_rotation_keeps_pixels_outside_the_confirmed_frame_out_of_ocr() {
         let head = transform::matrix(0., 0., 0., [0.; 3]);
         let selection =
-            Selection::from_corners([[-0.2, 0.1, -0.5], [0.2, -0.1, -0.5]], head, 7, 1).unwrap();
+            Selection::from_corners([[-0.2, 0.1, -0.5], [0.2, -0.1, -0.5]], head, 7, SpaceId(1))
+                .unwrap();
         let mut view = eye(0., transform::matrix(0., 0., 30., [0.; 3]));
         view.image.pixels = [200, 200, 200, 255].repeat(200 * 100);
         let crop = selection.crop(&view).unwrap();
@@ -285,7 +287,8 @@ mod tests {
     fn dragged_frame_projects_to_each_eye_and_stays_fixed_after_head_motion() {
         let head = transform::matrix(0., 0., 0., [0.; 3]);
         let selection =
-            Selection::from_corners([[-0.2, 0.1, -0.5], [0.4, -0.2, -0.5]], head, 7, 1).unwrap();
+            Selection::from_corners([[-0.2, 0.1, -0.5], [0.4, -0.2, -0.5]], head, 7, SpaceId(1))
+                .unwrap();
         assert_quad(
             selection.project(&eye(-0.03, head)).unwrap(),
             [[66., 30.], [186., 30.], [186., 90.], [66., 90.]],
@@ -305,7 +308,8 @@ mod tests {
     fn asymmetric_openvr_projection_keeps_the_crop_on_the_hand_frame() {
         let head = transform::matrix(0., 0., 0., [0.; 3]);
         let selection =
-            Selection::from_corners([[-0.2, 0.1, -0.5], [0.4, -0.2, -0.5]], head, 7, 1).unwrap();
+            Selection::from_corners([[-0.2, 0.1, -0.5], [0.4, -0.2, -0.5]], head, 7, SpaceId(1))
+                .unwrap();
         for (x, left, right) in [(-0.03, 66., 186.), (0.03, 54., 174.)] {
             let mut view = eye(x, head);
             view.projection =
@@ -320,8 +324,13 @@ mod tests {
     #[test]
     fn frame_corners_stay_on_the_controllers_at_different_depths() {
         let head = transform::matrix(0., 0., 0., [0.; 3]);
-        let selection =
-            Selection::from_corners([[-0.2, 0.1, -0.25], [0.2, -0.1, -0.75]], head, 7, 1).unwrap();
+        let selection = Selection::from_corners(
+            [[-0.2, 0.1, -0.25], [0.2, -0.1, -0.75]],
+            head,
+            7,
+            SpaceId(1),
+        )
+        .unwrap();
         for x in [-0.03, 0.03] {
             let quad = selection.project(&eye(x, head)).unwrap();
             let expected = if x < 0. {
@@ -348,7 +357,8 @@ mod tests {
                 [[0.2, 0.1, -0.75], [-0.2, -0.1, -0.25]],
             ] {
                 let selection =
-                    Selection::from_corners(world_corners(corners, head), head, 7, 1).unwrap();
+                    Selection::from_corners(world_corners(corners, head), head, 7, SpaceId(1))
+                        .unwrap();
                 let plane = selection.preview();
                 let height_m = plane.width_m / plane.texel_aspect;
                 for ([u, v], expected) in [[-0.5, 0.5], [0.5, 0.5], [0.5, -0.5], [-0.5, -0.5]]
@@ -368,7 +378,8 @@ mod tests {
     fn reversed_corners_work_and_invalid_frames_are_rejected() {
         let head = transform::matrix(0., 0., 0., [0.; 3]);
         let selection =
-            Selection::from_corners([[0.4, -0.2, -0.5], [-0.2, 0.1, -0.5]], head, 7, 1).unwrap();
+            Selection::from_corners([[0.4, -0.2, -0.5], [-0.2, 0.1, -0.5]], head, 7, SpaceId(1))
+                .unwrap();
         assert_quad(
             selection.project(&eye(0., head)).unwrap(),
             [[60., 30.], [180., 30.], [180., 90.], [60., 90.]],
@@ -378,7 +389,7 @@ mod tests {
             [[f32::NAN, 0., -0.5], [0.4, 0.2, -0.5]],
             [[0., 0., 0.5], [0.4, 0.2, -0.5]],
         ] {
-            assert!(Selection::from_corners(corners, head, 7, 1).is_none());
+            assert!(Selection::from_corners(corners, head, 7, SpaceId(1)).is_none());
         }
     }
 }

@@ -1,10 +1,9 @@
 use super::SurfaceHub;
+#[cfg(test)]
+use crate::vr_overlay::surface_protocol::{decode_request, SurfaceId};
 use crate::vr_overlay::surface_protocol::{
     BridgeError, DocumentSession, HostId, Operation, PageReply, PageRequest,
 };
-#[cfg(test)]
-use crate::vr_overlay::surface_protocol::{decode_request, SurfaceId};
-
 
 impl SurfaceHub {
     pub(super) fn navigation_started(&self, host: HostId, navigation_id: u64) -> bool {
@@ -98,8 +97,7 @@ impl SurfaceHub {
     }
 }
 
-
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
     use crate::vr_overlay::surface_protocol::SurfaceView;
@@ -234,5 +232,4 @@ mod tests {
         ));
         assert!(!hub.0.lock().unwrap()[host.surface.index()].ready);
     }
-
 }

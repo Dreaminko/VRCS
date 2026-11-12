@@ -424,14 +424,14 @@ fn minimize_to_tray_enabled(app: &tauri::AppHandle) -> bool {
 }
 
 pub(crate) fn prepare_for_exit(app: &tauri::AppHandle) {
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     if let Some(hosts) = app.try_state::<vr_overlay::surface::NativeHostManager>() {
         hosts.begin_shutdown();
     }
     app.state::<desktop_ocr::Manager>().stop();
     app.state::<desktop_vision::Manager>().stop();
     app.state::<vr_overlay::Manager>().stop();
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     if let Some(hosts) = app.try_state::<vr_overlay::surface::NativeHostManager>() {
         if let Err(error) = hosts.finish_shutdown(std::time::Duration::from_secs(5)) {
             tracing::warn!("{error}");
@@ -669,9 +669,9 @@ pub fn run() {
                 app.manage(desktop_capture::portal_shortcuts::Manager::default());
             }
             app.manage(vr_overlay::Manager::new(app.handle().clone()));
-            #[cfg(windows)]
+            #[cfg(any(windows, linux_vr))]
             app.manage(vr_overlay::surface::SurfaceHub::default());
-            #[cfg(windows)]
+            #[cfg(any(windows, linux_vr))]
             app.manage(vr_overlay::surface::NativeHostManager::start(app.handle().clone()).map_err(std::io::Error::other)?);
             app.manage(desktop_ocr::Manager::new(app.handle().clone()));
             app.manage(desktop_vision::Manager::new(app.handle().clone()));

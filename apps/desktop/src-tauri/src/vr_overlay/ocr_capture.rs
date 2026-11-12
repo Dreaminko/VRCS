@@ -1,6 +1,6 @@
+use super::pose::SpaceId;
 use super::renderer::Texture;
 use std::time::Instant;
-
 
 #[derive(Clone)]
 pub struct EyeCapture {
@@ -79,7 +79,7 @@ pub struct StereoCapture {
     pub pose: [[f32; 4]; 3],
     pub scene_pid: u32,
     pub captured_at: Instant,
-    pub origin: i32,
+    pub origin: SpaceId,
 }
 
 impl StereoCapture {
@@ -481,8 +481,15 @@ mod tests {
     #[test]
     fn ocr_png_preserves_capture_dimensions_and_rgba_channels() {
         let pixels = [10, 20, 30, 255].repeat(6);
-        let encoded = encode_png(Texture { width: 3, height: 2, pixels: pixels.clone() }).unwrap();
-        let mut decoder = png::Decoder::new(std::io::Cursor::new(encoded)).read_info().unwrap();
+        let encoded = encode_png(Texture {
+            width: 3,
+            height: 2,
+            pixels: pixels.clone(),
+        })
+        .unwrap();
+        let mut decoder = png::Decoder::new(std::io::Cursor::new(encoded))
+            .read_info()
+            .unwrap();
         let mut decoded = vec![0; decoder.output_buffer_size()];
         let output = decoder.next_frame(&mut decoded).unwrap();
         assert_eq!((output.width, output.height), (3, 2));
