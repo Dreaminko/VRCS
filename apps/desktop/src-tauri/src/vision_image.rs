@@ -5,19 +5,31 @@ pub(crate) trait ImageSource {
     fn pixels(&self) -> &[u8];
 }
 impl ImageSource for Image {
-    fn dimensions(&self) -> (u32, u32) { (self.width, self.height) }
-    fn pixels(&self) -> &[u8] { &self.pixels }
+    fn dimensions(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+    fn pixels(&self) -> &[u8] {
+        &self.pixels
+    }
 }
 #[cfg(windows)]
 impl ImageSource for crate::vr_overlay::renderer::Texture {
-    fn dimensions(&self) -> (u32, u32) { (self.width, self.height) }
-    fn pixels(&self) -> &[u8] { &self.pixels }
+    fn dimensions(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+    fn pixels(&self) -> &[u8] {
+        &self.pixels
+    }
 }
 use vrcs_core::VisionConfig;
 
 pub(crate) fn resize(source: &impl ImageSource, max_edge: u32) -> Image {
     let (width, height) = source.dimensions();
-    let image = Image { width, height, pixels: Vec::new() };
+    let image = Image {
+        width,
+        height,
+        pixels: Vec::new(),
+    };
     let scale = (max_edge.max(1) as f64 / image.width.max(image.height) as f64).min(1.0);
     let width = (image.width as f64 * scale).floor().max(1.0) as u32;
     let height = (image.height as f64 * scale).floor().max(1.0) as u32;
@@ -28,7 +40,8 @@ pub(crate) fn resize(source: &impl ImageSource, max_edge: u32) -> Image {
             let source_y = u64::from(y) * u64::from(image.height) / u64::from(height);
             let source_offset = (source_y as usize * image.width as usize + source_x as usize) * 4;
             let target = (y as usize * width as usize + x as usize) * 4;
-            pixels[target..target + 4].copy_from_slice(&source.pixels()[source_offset..source_offset + 4]);
+            pixels[target..target + 4]
+                .copy_from_slice(&source.pixels()[source_offset..source_offset + 4]);
         }
     }
     Image {
@@ -38,9 +51,14 @@ pub(crate) fn resize(source: &impl ImageSource, max_edge: u32) -> Image {
     }
 }
 
-pub(crate) fn prepare_image(image: impl ImageSource, config: &VisionConfig) -> Result<Vec<u8>, String> {
+pub(crate) fn prepare_image(
+    image: impl ImageSource,
+    config: &VisionConfig,
+) -> Result<Vec<u8>, String> {
     let (width, height) = image.dimensions();
-    let expected = (width as usize).checked_mul(height as usize).and_then(|size| size.checked_mul(4));
+    let expected = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|size| size.checked_mul(4));
     if width == 0 || height == 0 || expected != Some(image.pixels().len()) {
         return Err("Invalid visual image".into());
     }

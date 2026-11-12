@@ -1,10 +1,22 @@
 //! Real GTK3/WebKitGTK 4.1 offscreen experiment, not a production VR capability.
-use std::{cell::{Cell, RefCell}, path::{Path, PathBuf}, rc::Rc, time::{Duration, Instant}};
+use super::{
+    openvr::{Input, Overlay},
+    protocol::{self, Session},
+    visibility::Fade,
+};
 use gtk::prelude::*;
-use webkit2gtk::{NavigationPolicyDecisionExt, PermissionRequestExt, PolicyDecisionExt, SecurityManagerExt,
-    SettingsExt, URIRequestExt, URISchemeRequestExt, URISchemeResponseExt, UserContentManagerExt, WebContextExt, WebResourceExt, WebViewExt};
 use serde_json::{json, Value};
-use super::{openvr::{Input, Overlay}, protocol::{self, Session}, visibility::Fade};
+use std::{
+    cell::{Cell, RefCell},
+    path::{Path, PathBuf},
+    rc::Rc,
+    time::{Duration, Instant},
+};
+use webkit2gtk::{
+    NavigationPolicyDecisionExt, PermissionRequestExt, PolicyDecisionExt, SecurityManagerExt,
+    SettingsExt, URIRequestExt, URISchemeRequestExt, URISchemeResponseExt, UserContentManagerExt,
+    WebContextExt, WebResourceExt, WebViewExt,
+};
 
 const WIDTH: i32 = 1024;
 const HEIGHT: i32 = 1024;
@@ -47,9 +59,16 @@ struct State {
 }
 
 fn view(state: &State) -> Value {
-    let text = format!("动态中文字幕 · 日本語の字幕 · 한국어 자막\nRevision {} · {}\n{}", state.session.key.revision,
-        if state.pinned { "Pinned / 已固定" } else { "Unpinned / 未固定" },
-        "透明度、换行与滚动 / 透明な背景と折り返し / 투명 배경과 줄바꿈\n".repeat(18));
+    let text = format!(
+        "动态中文字幕 · 日本語の字幕 · 한국어 자막\nRevision {} · {}\n{}",
+        state.session.key.revision,
+        if state.pinned {
+            "Pinned / 已固定"
+        } else {
+            "Unpinned / 未固定"
+        },
+        "透明度、换行与滚动 / 透明な背景と折り返し / 투명 배경과 줄바꿈\n".repeat(18)
+    );
     json!({
         "key": state.session.key, "hovered": null, "pressed": null, "pointer": state.pointer,
         "activity": {"active": state.active, "request": state.activity_request},
@@ -65,12 +84,23 @@ fn view(state: &State) -> Value {
 }
 
 fn post(web: &webkit2gtk::WebView, message: Value) {
-    web.evaluate_javascript(&format!("window.__vrcsSurfaceReceive({message})"), None, None, gio::Cancellable::NONE, |result| {
-        if let Err(error) = result { eprintln!("surface message delivery failed: {error}"); }
-    });
+    web.evaluate_javascript(
+        &format!("window.__vrcsSurfaceReceive({message})"),
+        None,
+        None,
+        gio::Cancellable::NONE,
+        |result| {
+            if let Err(error) = result {
+                eprintln!("surface message delivery failed: {error}");
+            }
+        },
+    );
 }
 fn event(web: &webkit2gtk::WebView, state: &State, name: &str, payload: Value) {
-    post(web, json!({"version":1,"nonce":state.session.nonce,"op":"event","event":name,"payload":payload}));
+    post(
+        web,
+        json!({"version":1,"nonce":state.session.nonce,"op":"event","event":name,"payload":payload}),
+    );
 }
 fn publish(web: &webkit2gtk::WebView, state: &mut State) {
     state.session.advance();
@@ -79,74 +109,139 @@ fn publish(web: &webkit2gtk::WebView, state: &mut State) {
 }
 
 fn resource(root: &Path, uri: &str) -> Result<(Vec<u8>, &'static str), String> {
-    let path = uri.strip_prefix("vrcs-surface://localhost/").ok_or("invalid surface resource origin")?;
+    let path = uri
+        .strip_prefix("vrcs-surface://localhost/")
+        .ok_or("invalid surface resource origin")?;
     let path = path.split('?').next().unwrap_or_default();
     if path != "vr-surface.html" && !path.starts_with("assets/") && !path.starts_with("logos/") {
         return Err("resource outside surface asset allowlist".into());
     }
-    if path.split('/').any(|part| part.is_empty() || part == "." || part == "..")
-        || path.contains(['%', '\\', '#']) { return Err("invalid surface resource path".into()); }
+    if path
+        .split('/')
+        .any(|part| part.is_empty() || part == "." || part == "..")
+        || path.contains(['%', '\\', '#'])
+    {
+        return Err("invalid surface resource path".into());
+    }
     let file = root.join(path).canonicalize().map_err(|e| e.to_string())?;
-    if !file.starts_with(root) || std::fs::metadata(&file).map_err(|e| e.to_string())?.len() > 16 * 1024 * 1024 {
+    if !file.starts_with(root)
+        || std::fs::metadata(&file).map_err(|e| e.to_string())?.len() > 16 * 1024 * 1024
+    {
         return Err("resource outside root or too large".into());
     }
     let bytes = std::fs::read(file).map_err(|e| e.to_string())?;
     let mime = match Path::new(path).extension().and_then(|s| s.to_str()) {
-        Some("html") => "text/html", Some("js") => "text/javascript", Some("css") => "text/css",
-        Some("svg") => "image/svg+xml", Some("png") => "image/png", Some("woff2") => "font/woff2",
-        Some("woff") => "font/woff", Some("ttf") => "font/ttf", _ => return Err("unsupported resource type".into()),
+        Some("html") => "text/html",
+        Some("js") => "text/javascript",
+        Some("css") => "text/css",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("woff2") => "font/woff2",
+        Some("woff") => "font/woff",
+        Some("ttf") => "font/ttf",
+        _ => return Err("unsupported resource type".into()),
     };
     if path == "vr-surface.html" {
         let html = String::from_utf8(bytes).map_err(|e| e.to_string())?;
         if !html.contains("<head>") || html.contains("/src/vr-surface/main.tsx") {
             return Err("--assets requires built frontend dist, not Vite source".into());
         }
-        return Ok((html.replacen("<head>", &format!("<head><meta http-equiv=\"Content-Security-Policy\" content=\"{CSP}\">"), 1).into_bytes(), mime));
+        return Ok((
+            html.replacen(
+                "<head>",
+                &format!("<head><meta http-equiv=\"Content-Security-Policy\" content=\"{CSP}\">"),
+                1,
+            )
+            .into_bytes(),
+            mime,
+        ));
     }
     Ok((bytes, mime))
 }
 
 pub fn rgba(image: &cairo::ImageSurface) -> Result<Vec<u8>, String> {
-    if ![cairo::Format::ARgb32, cairo::Format::Rgb24].contains(&image.format()) { return Err("unsupported snapshot format".into()); }
+    if ![cairo::Format::ARgb32, cairo::Format::Rgb24].contains(&image.format()) {
+        return Err("unsupported snapshot format".into());
+    }
     let width = image.width() as usize;
     let height = image.height() as usize;
     let stride = image.stride() as usize;
     let mut pixels = vec![0; width * height * 4];
-    image.with_data(|data| {
-        for y in 0..height {
-            for x in 0..width {
-                let offset = y * stride + x * 4;
-                let word = u32::from_ne_bytes(data[offset..offset + 4].try_into().unwrap());
-                let alpha = if image.format() == cairo::Format::Rgb24 { 255 } else { (word >> 24) as u8 };
-                let dest = &mut pixels[(y * width + x) * 4..][..4];
-                for (channel, shift) in [16, 8, 0].iter().enumerate() {
-                    let premultiplied = (word >> shift) & 255;
-                    dest[channel] = if alpha == 0 { 0 } else { ((premultiplied * 255 + u32::from(alpha) / 2) / u32::from(alpha)).min(255) as u8 };
+    image
+        .with_data(|data| {
+            for y in 0..height {
+                for x in 0..width {
+                    let offset = y * stride + x * 4;
+                    let word = u32::from_ne_bytes(data[offset..offset + 4].try_into().unwrap());
+                    let alpha = if image.format() == cairo::Format::Rgb24 {
+                        255
+                    } else {
+                        (word >> 24) as u8
+                    };
+                    let dest = &mut pixels[(y * width + x) * 4..][..4];
+                    for (channel, shift) in [16, 8, 0].iter().enumerate() {
+                        let premultiplied = (word >> shift) & 255;
+                        dest[channel] = if alpha == 0 {
+                            0
+                        } else {
+                            ((premultiplied * 255 + u32::from(alpha) / 2) / u32::from(alpha))
+                                .min(255) as u8
+                        };
+                    }
+                    dest[3] = alpha;
                 }
-                dest[3] = alpha;
             }
-        }
-    }).map_err(|e| e.to_string())?;
+        })
+        .map_err(|e| e.to_string())?;
     Ok(pixels)
 }
 
 fn input(web: &webkit2gtk::WebView, state: &mut State, input: Input) {
-    let allowed = state.session.current_frame() && state.fade.input_allowed(state.target) && state.active;
+    let allowed =
+        state.session.current_frame() && state.fade.input_allowed(state.target) && state.active;
     match input {
-        Input::Quit => { state.runtime = None; state.session.submitted = None; state.fade.reset(); state.pressed = None; }
-        Input::Move(point) if allowed && point.iter().all(|p| p.is_finite() && (0.0..=1.0).contains(p)) => {
+        Input::Quit => {
+            state.runtime = None;
+            state.session.submitted = None;
+            state.fade.reset();
+            state.pressed = None;
+        }
+        Input::Move(point)
+            if allowed
+                && point
+                    .iter()
+                    .all(|p| p.is_finite() && (0.0..=1.0).contains(p)) =>
+        {
             state.pointer = Some(point);
-            event(web, state, "pointer", json!({"key":state.session.key,"point":point}));
+            event(
+                web,
+                state,
+                "pointer",
+                json!({"key":state.session.key,"point":point}),
+            );
         }
         Input::Down(point) if allowed => {
-            state.pressed = state.session.layout.as_ref().and_then(|(layout, _)| layout.hit(point)).map(|id| (state.session.key, state.session.paint, id));
+            state.pressed = state
+                .session
+                .layout
+                .as_ref()
+                .and_then(|(layout, _)| layout.hit(point))
+                .map(|id| (state.session.key, state.session.paint, id));
         }
         Input::Up(point) if allowed => {
-            let hit = state.session.layout.as_ref().and_then(|(layout, _)| layout.hit(point));
+            let hit = state
+                .session
+                .layout
+                .as_ref()
+                .and_then(|(layout, _)| layout.hit(point));
             if let Some((key, paint, id)) = state.pressed.take() {
                 if key == state.session.key && paint == state.session.paint && Some(id) == hit {
                     state.clicks += 1;
-                    match id { 6 => state.pinned = !state.pinned, 7 => state.target = false, _ => {} }
+                    match id {
+                        6 => state.pinned = !state.pinned,
+                        7 => state.target = false,
+                        _ => {}
+                    }
                     publish(web, state);
                     println!("{}", json!({"event":"click_accepted","id":id,"key":key}));
                 }
@@ -201,10 +296,20 @@ pub fn run(options: Options) -> Result<(), String> {
         security.register_uri_scheme_as_cors_enabled("vrcs-surface");
     }
     let manager = webkit2gtk::UserContentManager::new();
-    manager.add_script(&webkit2gtk::UserScript::new(include_str!("port.js"), webkit2gtk::UserContentInjectedFrames::TopFrame,
-        webkit2gtk::UserScriptInjectionTime::Start, &[], &[]));
-    if !manager.register_script_message_handler("vrcsSurface") { return Err("script message registration failed".into()); }
-    let web = webkit2gtk::WebView::builder().web_context(&context).user_content_manager(&manager).build();
+    manager.add_script(&webkit2gtk::UserScript::new(
+        include_str!("port.js"),
+        webkit2gtk::UserContentInjectedFrames::TopFrame,
+        webkit2gtk::UserScriptInjectionTime::Start,
+        &[],
+        &[],
+    ));
+    if !manager.register_script_message_handler("vrcsSurface") {
+        return Err("script message registration failed".into());
+    }
+    let web = webkit2gtk::WebView::builder()
+        .web_context(&context)
+        .user_content_manager(&manager)
+        .build();
     web.set_background_color(&gtk::gdk::RGBA::new(0., 0., 0., 0.));
     web.set_size_request(WIDTH, HEIGHT + 16);
     if let Some(settings) = WebViewExt::settings(&web) {
@@ -219,7 +324,10 @@ pub fn run(options: Options) -> Result<(), String> {
         settings.set_allow_universal_access_from_file_urls(false);
         settings.set_enable_write_console_messages_to_stdout(true);
     }
-    web.connect_permission_request(|_, request| { request.deny(); true });
+    web.connect_permission_request(|_, request| {
+        request.deny();
+        true
+    });
     web.connect_load_failed(|_, stage, uri, error| {
         eprintln!("{}", json!({"event":"load_failed","stage":format!("{stage:?}"),"uri":uri,"error":error.to_string()}));
         false
@@ -233,10 +341,21 @@ pub fn run(options: Options) -> Result<(), String> {
     web.connect_create(|_, _| None);
     web.connect_context_menu(|_, _, _, _| true);
     web.connect_decide_policy(|_, decision, kind| {
-        if matches!(kind, webkit2gtk::PolicyDecisionType::NavigationAction | webkit2gtk::PolicyDecisionType::NewWindowAction) {
-            let allowed = decision.downcast_ref::<webkit2gtk::NavigationPolicyDecision>()
-                .and_then(|nav| nav.navigation_action()).and_then(|action| action.request()).and_then(|req| req.uri()).is_some_and(|uri| uri == SOURCE);
-            if !allowed { decision.ignore(); return true; }
+        if matches!(
+            kind,
+            webkit2gtk::PolicyDecisionType::NavigationAction
+                | webkit2gtk::PolicyDecisionType::NewWindowAction
+        ) {
+            let allowed = decision
+                .downcast_ref::<webkit2gtk::NavigationPolicyDecision>()
+                .and_then(|nav| nav.navigation_action())
+                .and_then(|action| action.request())
+                .and_then(|req| req.uri())
+                .is_some_and(|uri| uri == SOURCE);
+            if !allowed {
+                decision.ignore();
+                return true;
+            }
         }
         false
     });
@@ -250,11 +369,31 @@ pub fn run(options: Options) -> Result<(), String> {
     window.show_all();
     let started = Instant::now();
     let state = Rc::new(RefCell::new(State {
-        session: Session::new(1), fade: Fade::default(), target: true, active: true, activity_request: 1,
-        pinned: false, pointer: None, pressed: None, runtime: None, runtime_retry: started,
-        started, next_view: started + Duration::from_secs(1), snapshots: 0, accepted: 0, rejected: 0,
-        hidden_frames: 0, runtime_submissions: 0, snapshot_us: 0, max_snapshot_us: 0,
-        last_pixels: None, hidden_pixels: None, hidden_updates: 0, clicks: 0, stage: 0, error: None,
+        session: Session::new(1),
+        fade: Fade::default(),
+        target: true,
+        active: true,
+        activity_request: 1,
+        pinned: false,
+        pointer: None,
+        pressed: None,
+        runtime: None,
+        runtime_retry: started,
+        started,
+        next_view: started + Duration::from_secs(1),
+        snapshots: 0,
+        accepted: 0,
+        rejected: 0,
+        hidden_frames: 0,
+        runtime_submissions: 0,
+        snapshot_us: 0,
+        max_snapshot_us: 0,
+        last_pixels: None,
+        hidden_pixels: None,
+        hidden_updates: 0,
+        clicks: 0,
+        stage: 0,
+        error: None,
     }));
     let weak = web.downgrade();
     let messages = state.clone();
@@ -306,13 +445,18 @@ pub fn run(options: Options) -> Result<(), String> {
     let terminated = state.clone();
     web.connect_web_process_terminated(move |_, reason| {
         let mut state = terminated.borrow_mut();
-        state.session.submitted = None; state.fade.reset(); state.pressed = None;
+        state.session.submitted = None;
+        state.fade.reset();
+        state.pressed = None;
         state.error = Some(format!("WebKit process terminated: {reason:?}"));
     });
     let main_loop = glib::MainLoop::new(None, false);
     for signal in [2, 15] {
         let shutdown = main_loop.clone();
-        glib::unix_signal_add_local(signal, move || { shutdown.quit(); glib::ControlFlow::Break });
+        glib::unix_signal_add_local(signal, move || {
+            shutdown.quit();
+            glib::ControlFlow::Break
+        });
     }
     let busy = Rc::new(Cell::new(false));
     let cancellation = gio::Cancellable::new();
@@ -323,71 +467,141 @@ pub fn run(options: Options) -> Result<(), String> {
     let timer = glib::timeout_add_local(Duration::from_millis(33), move || {
         let mut state = tick_state.borrow_mut();
         let now = Instant::now();
-        if state.started.elapsed() >= Duration::from_secs(options.seconds) || state.error.is_some() {
-            tick_loop.quit(); return glib::ControlFlow::Continue;
+        if state.started.elapsed() >= Duration::from_secs(options.seconds) || state.error.is_some()
+        {
+            tick_loop.quit();
+            return glib::ControlFlow::Continue;
         }
         if options.submit_vr && state.runtime.is_none() && now >= state.runtime_retry {
             match Overlay::connect() {
-                Ok(runtime) => { state.runtime = Some(runtime); state.session.submitted = None; state.fade.reset(); }
+                Ok(runtime) => {
+                    state.runtime = Some(runtime);
+                    state.session.submitted = None;
+                    state.fade.reset();
+                }
                 Err(error) => eprintln!("{error}"),
             }
             state.runtime_retry = now + Duration::from_secs(2);
         }
         if let Some(runtime) = state.runtime.as_ref() {
             match runtime.events() {
-                Ok(events) => for next in events { input(&tick_web, &mut state, next); },
-                Err(error) => { eprintln!("{error}"); state.runtime = None; state.session.submitted = None; state.fade.reset(); }
+                Ok(events) => {
+                    for next in events {
+                        input(&tick_web, &mut state, next);
+                    }
+                }
+                Err(error) => {
+                    eprintln!("{error}");
+                    state.runtime = None;
+                    state.session.submitted = None;
+                    state.fade.reset();
+                }
             }
         }
-        let frame_ready = if state.fade.active() { state.session.submitted.is_some() } else { state.session.current_frame() };
+        let frame_ready = if state.fade.active() {
+            state.session.submitted.is_some()
+        } else {
+            state.session.current_frame()
+        };
         let target = state.target;
         let fade = state.fade.advance(target, frame_ready, now);
         if let Some(runtime) = state.runtime.as_ref() {
             if let Err(error) = runtime.visibility(fade.factor) {
-                eprintln!("{error}"); state.runtime = None; state.session.submitted = None; state.fade.reset();
+                eprintln!("{error}");
+                state.runtime = None;
+                state.session.submitted = None;
+                state.fade.reset();
             }
         }
         let seconds = state.started.elapsed().as_secs();
         // Leave the offscreen webview mapped throughout. The hidden interval is
         // overlay-hidden, not a visible helper window moved outside the screen.
-        if seconds >= 4 && state.stage == 0 { state.target = false; state.stage = 1; }
+        if seconds >= 4 && state.stage == 0 {
+            state.target = false;
+            state.stage = 1;
+        }
         if seconds >= 5 && state.stage == 1 {
-            state.hidden_pixels = state.last_pixels.clone(); state.stage = 2;
+            state.hidden_pixels = state.last_pixels.clone();
+            state.stage = 2;
             publish(&tick_web, &mut state);
         }
         if seconds >= 7 && state.stage == 2 {
-            state.active = false; state.activity_request += 1;
-            event(&tick_web, &state, "activity", json!({"active":false,"request":state.activity_request}));
+            state.active = false;
+            state.activity_request += 1;
+            event(
+                &tick_web,
+                &state,
+                "activity",
+                json!({"active":false,"request":state.activity_request}),
+            );
             state.stage = 3;
         }
         if seconds >= 9 && state.stage == 3 {
-            state.active = true; state.activity_request += 1; state.target = true;
-            event(&tick_web, &state, "activity", json!({"active":true,"request":state.activity_request}));
-            publish(&tick_web, &mut state); state.stage = 4;
+            state.active = true;
+            state.activity_request += 1;
+            state.target = true;
+            event(
+                &tick_web,
+                &state,
+                "activity",
+                json!({"active":true,"request":state.activity_request}),
+            );
+            publish(&tick_web, &mut state);
+            state.stage = 4;
         }
         if seconds >= 12 && state.stage == 4 {
-            state.session.submitted = None; state.fade.reset(); state.pressed = None;
+            state.session.submitted = None;
+            state.fade.reset();
+            state.pressed = None;
             state.stage = 5;
             drop(state);
             tick_web.reload();
             return glib::ControlFlow::Continue;
         }
-        if state.session.ready && state.active && (state.target || state.stage == 2) && now >= state.next_view {
-            publish(&tick_web, &mut state); state.next_view = now + Duration::from_secs(1);
+        if state.session.ready
+            && state.active
+            && (state.target || state.stage == 2)
+            && now >= state.next_view
+        {
+            publish(&tick_web, &mut state);
+            state.next_view = now + Duration::from_secs(1);
         }
         // Exercise real normalized hit-map input on the reader's pin button.
-        if state.clicks == 0 && state.session.current_frame() && state.fade.input_allowed(state.target) {
-            let point = state.session.layout.as_ref().and_then(|(layout, _)| layout.regions.iter().find(|region| region.id == 6))
-                .map(|region| [(region.bounds[0] + region.bounds[2]) / 2., (region.bounds[1] + region.bounds[3]) / 2.]);
+        if state.clicks == 0
+            && state.session.current_frame()
+            && state.fade.input_allowed(state.target)
+        {
+            let point = state
+                .session
+                .layout
+                .as_ref()
+                .and_then(|(layout, _)| layout.regions.iter().find(|region| region.id == 6))
+                .map(|region| {
+                    [
+                        (region.bounds[0] + region.bounds[2]) / 2.,
+                        (region.bounds[1] + region.bounds[3]) / 2.,
+                    ]
+                });
             if let Some(point) = point {
-                input(&tick_web, &mut state, Input::Down(point)); input(&tick_web, &mut state, Input::Up(point));
+                input(&tick_web, &mut state, Input::Down(point));
+                input(&tick_web, &mut state, Input::Up(point));
             }
         }
         if seconds == 3 && state.session.current_frame() {
-            event(&tick_web, &state, "scroll", json!({"key":state.session.key,"delta":0.5}));
+            event(
+                &tick_web,
+                &state,
+                "scroll",
+                json!({"key":state.session.key,"delta":0.5}),
+            );
         }
-        if busy.get() || !state.active || !state.session.ready || state.session.paint == 0 || state.session.current_frame()
-            || (!state.target && state.fade.active()) {
+        if busy.get()
+            || !state.active
+            || !state.session.ready
+            || state.session.paint == 0
+            || state.session.current_frame()
+            || (!state.target && state.fade.active())
+        {
             return glib::ControlFlow::Continue;
         }
         let requested_key = state.session.key;
@@ -461,15 +675,24 @@ pub fn run(options: Options) -> Result<(), String> {
     window.close();
     let mut state = state.borrow_mut();
     state.runtime = None;
-    println!("{}", json!({"event":"summary","offscreen":true,"visible_window":false,"elapsed_ms":state.started.elapsed().as_millis(),
+    println!(
+        "{}",
+        json!({"event":"summary","offscreen":true,"visible_window":false,"elapsed_ms":state.started.elapsed().as_millis(),
         "connected":state.session.connected,"page_ready":state.session.ready,"paint_serial":state.session.paint,"layout_ready":state.session.layout.is_some(),
         "snapshots":state.snapshots,"accepted":state.accepted,"rejected":state.rejected,"hidden_frames":state.hidden_frames,
         "hidden_updates":state.hidden_updates,"clicks":state.clicks,"mean_snapshot_us":state.snapshot_us.checked_div(u128::from(state.snapshots)),
         "max_snapshot_us":state.max_snapshot_us,"runtime_submissions":state.runtime_submissions,"host_epoch":state.session.epoch,
-        "process_status":std::fs::read_to_string("/proc/self/status").ok(),"error":state.error}));
-    if let Some(error) = state.error.take() { return Err(error); }
-    if state.accepted == 0 { return Err("No matching WebKit frame; hidden snapshot route is unverified".into()); }
-    if options.seconds >= 14 && (state.hidden_updates == 0 || state.clicks == 0 || state.session.epoch < 3) {
+        "process_status":std::fs::read_to_string("/proc/self/status").ok(),"error":state.error})
+    );
+    if let Some(error) = state.error.take() {
+        return Err(error);
+    }
+    if state.accepted == 0 {
+        return Err("No matching WebKit frame; hidden snapshot route is unverified".into());
+    }
+    if options.seconds >= 14
+        && (state.hidden_updates == 0 || state.clicks == 0 || state.session.epoch < 3)
+    {
         return Err("Hidden updates, input or document recovery did not complete; inspect prototype JSON/PNG".into());
     }
     Ok(())

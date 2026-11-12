@@ -44,7 +44,8 @@ impl State {
         }
         if self.active_config.as_ref() != Some(config) {
             self.cancel();
-            self.status.state = if config.desktop_enabled && cfg!(any(windows, target_os = "linux")) {
+            self.status.state = if config.desktop_enabled && cfg!(any(windows, target_os = "linux"))
+            {
                 "idle"
             } else {
                 "disabled"
@@ -85,7 +86,13 @@ impl Manager {
 
     #[cfg(target_os = "linux")]
     pub fn shortcut_binding(&self) -> Option<String> {
-        self.state.lock().unwrap().config.as_ref().filter(|config| config.desktop_enabled).map(|config| config.shortcut.clone())
+        self.state
+            .lock()
+            .unwrap()
+            .config
+            .as_ref()
+            .filter(|config| config.desktop_enabled)
+            .map(|config| config.shortcut.clone())
     }
 
     pub fn start(
@@ -314,7 +321,8 @@ impl Manager {
             return Err("desktop_ocr.disabled".into());
         }
         #[cfg(windows)]
-        let picker = crate::desktop_capture::reserve_picker().map_err(|_| "desktop_ocr.selection_busy")?;
+        let picker =
+            crate::desktop_capture::reserve_picker().map_err(|_| "desktop_ocr.selection_busy")?;
         state.cancel();
         let scan_id = state.status.scan_id;
         state.active_config = Some(config.ocr().clone());
@@ -331,48 +339,58 @@ impl Manager {
             let result = async {
                 #[cfg(target_os = "linux")]
                 let capture = {
-                    let selected = crate::desktop_capture::picker::capture_region(app.clone(), selection_cancelled.clone(), || {
-                        app.state::<Self>().update(scan_id, |status| status.state = "selecting");
-                    }).await?;
-                    let Some(image) = selected else { return Ok(None); };
+                    let selected = crate::desktop_capture::picker::capture_region(
+                        app.clone(),
+                        selection_cancelled.clone(),
+                        || {
+                            app.state::<Self>()
+                                .update(scan_id, |status| status.state = "selecting");
+                        },
+                    )
+                    .await?;
+                    let Some(image) = selected else {
+                        return Ok(None);
+                    };
                     image
                 };
                 #[cfg(windows)]
                 let capture = {
-                let mut capture =
-                    tauri::async_runtime::spawn_blocking(move || capture_desktop(&result_windows))
-                        .await
-                        .map_err(|_| "desktop_ocr.capture_failed".to_string())??;
+                    let mut capture = tauri::async_runtime::spawn_blocking(move || {
+                        capture_desktop(&result_windows)
+                    })
+                    .await
+                    .map_err(|_| "desktop_ocr.capture_failed".to_string())??;
 
-                if !app
-                    .state::<Self>()
-                    .update(scan_id, |status| status.state = "selecting")
-                {
-                    return Ok(None);
-                }
-                let selected = tauri::async_runtime::spawn_blocking(move || {
-                    let region = super::selection_window::select_region_reserved(
-                        &capture,
-                        &selection_cancelled,
-                        &hint,
-                        &picker,
-                    )?;
-                    let Some(region) = region else {
-                        return Ok::<_, String>(None);
-                    };
-                    if selection_cancelled.load(Ordering::Acquire) {
+                    if !app
+                        .state::<Self>()
+                        .update(scan_id, |status| status.state = "selecting")
+                    {
                         return Ok(None);
                     }
-                    capture.pixels = region.crop(capture.width, capture.height, &capture.pixels)?;
-                    capture.width = region.width;
-                    capture.height = region.height;
-                    Ok(Some(capture))
-                })
-                .await
-                .map_err(|_| "desktop_ocr.capture_failed".to_string())??;
-                let Some(capture) = selected else {
-                    return Ok(None);
-                };
+                    let selected = tauri::async_runtime::spawn_blocking(move || {
+                        let region = super::selection_window::select_region_reserved(
+                            &capture,
+                            &selection_cancelled,
+                            &hint,
+                            &picker,
+                        )?;
+                        let Some(region) = region else {
+                            return Ok::<_, String>(None);
+                        };
+                        if selection_cancelled.load(Ordering::Acquire) {
+                            return Ok(None);
+                        }
+                        capture.pixels =
+                            region.crop(capture.width, capture.height, &capture.pixels)?;
+                        capture.width = region.width;
+                        capture.height = region.height;
+                        Ok(Some(capture))
+                    })
+                    .await
+                    .map_err(|_| "desktop_ocr.capture_failed".to_string())??;
+                    let Some(capture) = selected else {
+                        return Ok(None);
+                    };
                     capture
                 };
                 if !app
@@ -434,11 +452,13 @@ impl Manager {
                     tracing::warn!(scan_id, %error, "Desktop OCR scan failed");
                     if manager.update(scan_id, |status| {
                         status.state = "error";
-                        status.error = Some(if error.starts_with("desktop_ocr.") || error.starts_with("capture.") {
-                            error
-                        } else {
-                            "desktop_ocr.failed".into()
-                        });
+                        status.error = Some(
+                            if error.starts_with("desktop_ocr.") || error.starts_with("capture.") {
+                                error
+                            } else {
+                                "desktop_ocr.failed".into()
+                            },
+                        );
                     }) {
                         manager.show_result(scan_id);
                     }
@@ -467,7 +487,11 @@ fn sort_blocks(blocks: &mut [TranslatedBlock]) {
 
 #[cfg(target_os = "linux")]
 fn prepare_image(capture: crate::desktop_capture::image::Image) -> vrcs_core::ocr::OcrImage {
-    vrcs_core::ocr::OcrImage { data: vrcs_core::ocr::OcrImageData::Rgba(capture.pixels), width: capture.width, height: capture.height }
+    vrcs_core::ocr::OcrImage {
+        data: vrcs_core::ocr::OcrImageData::Rgba(capture.pixels),
+        width: capture.width,
+        height: capture.height,
+    }
 }
 
 #[cfg(windows)]

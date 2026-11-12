@@ -118,7 +118,8 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
             if let Some(frame) = capture.poll()? {
                 let hub = app.state::<SurfaceHub>();
                 let entries = hub.0.lock().map_err(|e| e.to_string())?;
-                if (frame.receipt.generation, frame.receipt.revision) == (key.generation, key.revision)
+                if (frame.receipt.generation, frame.receipt.revision)
+                    == (key.generation, key.revision)
                     && entries[surface.index()].accepts_frame(
                         key,
                         frame.receipt.paint_serial,
@@ -299,7 +300,8 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                                 ));
                             }
                             let pixels = capture.snapshot(frame)?;
-                            if (frame.receipt.generation, frame.receipt.revision) == (key.generation, key.revision)
+                            if (frame.receipt.generation, frame.receipt.revision)
+                                == (key.generation, key.revision)
                                 && pixels != previous
                             {
                                 previous = pixels;
@@ -465,7 +467,8 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                     }) {
                         return Err("Surface recovery changed another host".into());
                     }
-                    if !entries[surface.index()].commit_paint(recovered, frame.receipt.paint_serial) {
+                    if !entries[surface.index()].commit_paint(recovered, frame.receipt.paint_serial)
+                    {
                         return Err("Recovered frame did not match the current layout".into());
                     }
                     key = recovered;
@@ -742,7 +745,8 @@ fn ocr_idle(
                 .key;
             hub.send(app, surface, SurfaceEvent::Repaint)?;
             (frame, pixels) = settle(app, &mut renderer, &view, Some((frame, &pixels)))?;
-            if (frame.receipt.generation, frame.receipt.revision) != (key.generation, key.revision) {
+            if (frame.receipt.generation, frame.receipt.revision) != (key.generation, key.revision)
+            {
                 return Err("Repaint unexpectedly changed the content key".into());
             }
         }
@@ -1019,7 +1023,10 @@ fn native_reader(app: &AppHandle, mut view: SurfaceView) -> Result<serde_json::V
                 entry.publish(next, None, None);
                 entry.state.clone().unwrap()
             };
-            hosts.send(id, crate::vr_overlay::surface_protocol::SurfaceEvent::View(Box::new(state)))?;
+            hosts.send(
+                id,
+                crate::vr_overlay::surface_protocol::SurfaceEvent::View(Box::new(state)),
+            )?;
             let pixels = frame()?;
             if pixels != previous {
                 changes += 1;

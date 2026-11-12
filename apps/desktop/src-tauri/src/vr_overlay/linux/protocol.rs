@@ -49,32 +49,55 @@ pub struct Panel {
 
 impl Layout {
     pub fn valid(&self, key: Key) -> bool {
-        self.key == key && (1..=4096).contains(&self.page_count)
+        self.key == key
+            && (1..=4096).contains(&self.page_count)
             && self.regions.len() <= 64
             && self.regions.iter().enumerate().all(|(index, region)| {
-                region.id <= 7 && valid_bounds(region.bounds)
-                    && self.regions[..index].iter().all(|other| other.id != region.id)
+                region.id <= 7
+                    && valid_bounds(region.bounds)
+                    && self.regions[..index]
+                        .iter()
+                        .all(|other| other.id != region.id)
             })
             && self.menu_bounds.is_none_or(valid_bounds)
-            && self.panels.as_ref().is_none_or(|panels| panels.len() <= 64 && panels.iter().all(|panel|
-                valid_bounds(panel.bounds) && panel.radius.iter().all(|radius| radius.is_finite() && (0.0..=0.5).contains(radius))))
+            && self.panels.as_ref().is_none_or(|panels| {
+                panels.len() <= 64
+                    && panels.iter().all(|panel| {
+                        valid_bounds(panel.bounds)
+                            && panel
+                                .radius
+                                .iter()
+                                .all(|radius| radius.is_finite() && (0.0..=0.5).contains(radius))
+                    })
+            })
             && self.unplaced.as_ref().is_none_or(|ids| ids.len() <= 64)
             && self.capture_bounds.is_none()
     }
 
     pub fn hit(&self, point: [f64; 2]) -> Option<u32> {
-        self.regions.iter().find(|region| {
-            let [l, t, r, b] = region.bounds;
-            point[0] >= l && point[0] <= r && point[1] >= t && point[1] <= b
-                && (!region.circle.unwrap_or(false)
-                    || (((point[0] - (l + r) / 2.) / ((r - l) / 2.)).powi(2)
-                        + ((point[1] - (t + b) / 2.) / ((b - t) / 2.)).powi(2)) <= 1.)
-        }).map(|region| region.id)
+        self.regions
+            .iter()
+            .find(|region| {
+                let [l, t, r, b] = region.bounds;
+                point[0] >= l
+                    && point[0] <= r
+                    && point[1] >= t
+                    && point[1] <= b
+                    && (!region.circle.unwrap_or(false)
+                        || (((point[0] - (l + r) / 2.) / ((r - l) / 2.)).powi(2)
+                            + ((point[1] - (t + b) / 2.) / ((b - t) / 2.)).powi(2))
+                            <= 1.)
+            })
+            .map(|region| region.id)
     }
 }
 
 fn valid_bounds([l, t, r, b]: [f64; 4]) -> bool {
-    [l, t, r, b].iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)) && l < r && t < b
+    [l, t, r, b]
+        .iter()
+        .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+        && l < r
+        && t < b
 }
 
 pub struct Session {
@@ -93,23 +116,44 @@ pub struct Session {
 impl Session {
     pub fn new(epoch: u32) -> Self {
         Self {
-            nonce: uuid::Uuid::new_v4().to_string(), epoch,
-            key: Key { generation: epoch, revision: 1 }, layout: None, paint: 0,
-            submitted: None, last_request: 0, connected: false, ready: false, fault: None,
+            nonce: uuid::Uuid::new_v4().to_string(),
+            epoch,
+            key: Key {
+                generation: epoch,
+                revision: 1,
+            },
+            layout: None,
+            paint: 0,
+            submitted: None,
+            last_request: 0,
+            connected: false,
+            ready: false,
+            fault: None,
         }
     }
 
     pub fn decode(&mut self, bytes: &str) -> Result<Envelope, &'static str> {
-        if bytes.len() > 262144 { return Err("request_too_large"); }
+        if bytes.len() > 262144 {
+            return Err("request_too_large");
+        }
         let envelope: Envelope = serde_json::from_str(bytes).map_err(|_| "invalid_request")?;
-        if envelope.version != 1 { return Err("invalid_version"); }
+        if envelope.version != 1 {
+            return Err("invalid_version");
+        }
         if envelope.op == "connect" {
-            if envelope.nonce.is_some() || envelope.request_id.is_some() || envelope.payload.is_some() {
+            if envelope.nonce.is_some()
+                || envelope.request_id.is_some()
+                || envelope.payload.is_some()
+            {
                 return Err("invalid_request");
             }
         } else {
-            if envelope.nonce.as_deref() != Some(self.nonce.as_str()) { return Err("stale_session"); }
-            let id = envelope.request_id.filter(|id| *id > self.last_request && *id <= 9007199254740991)
+            if envelope.nonce.as_deref() != Some(self.nonce.as_str()) {
+                return Err("stale_session");
+            }
+            let id = envelope
+                .request_id
+                .filter(|id| *id > self.last_request && *id <= 9007199254740991)
                 .ok_or("invalid_request_id")?;
             self.last_request = id;
         }
@@ -117,17 +161,23 @@ impl Session {
     }
 
     pub fn advance(&mut self) {
-        self.key.revision = self.key.revision.checked_add(1).expect("prototype revision exhausted");
+        self.key.revision = self
+            .key
+            .revision
+            .checked_add(1)
+            .expect("prototype revision exhausted");
         self.layout = None;
         // Keep the old texture for fade retention, but never its input map.
     }
 
     pub fn current_frame(&self) -> bool {
-        self.fault.is_none() && self.layout.as_ref().is_some_and(|(layout, serial)| {
-            layout.key == self.key && self.submitted.is_some_and(|(key, paint)| {
-                key == self.key && paint == self.paint && at_least(paint, *serial)
+        self.fault.is_none()
+            && self.layout.as_ref().is_some_and(|(layout, serial)| {
+                layout.key == self.key
+                    && self.submitted.is_some_and(|(key, paint)| {
+                        key == self.key && paint == self.paint && at_least(paint, *serial)
+                    })
             })
-        })
     }
 
     pub fn accept(&mut self, envelope: &Envelope, state: Value) -> Result<Value, &'static str> {
@@ -140,11 +190,24 @@ impl Session {
             "layout" => {
                 #[derive(Deserialize)]
                 #[serde(deny_unknown_fields)]
-                struct Request { layout: Layout, paint_serial: u32 }
-                let request: Request = serde_json::from_value(payload).map_err(|_| "invalid_layout")?;
-                if state.get("activity").and_then(|activity| activity.get("active")).and_then(Value::as_bool) != Some(true)
-                    || !request.layout.valid(self.key) || request.paint_serial == 0
-                    || self.layout.as_ref().is_some_and(|(_, serial)| !at_least(request.paint_serial, *serial)) {
+                struct Request {
+                    layout: Layout,
+                    paint_serial: u32,
+                }
+                let request: Request =
+                    serde_json::from_value(payload).map_err(|_| "invalid_layout")?;
+                if state
+                    .get("activity")
+                    .and_then(|activity| activity.get("active"))
+                    .and_then(Value::as_bool)
+                    != Some(true)
+                    || !request.layout.valid(self.key)
+                    || request.paint_serial == 0
+                    || self
+                        .layout
+                        .as_ref()
+                        .is_some_and(|(_, serial)| !at_least(request.paint_serial, *serial))
+                {
                     return Ok(json!(false));
                 }
                 self.paint = request.paint_serial;
@@ -154,29 +217,58 @@ impl Session {
             "paint" => {
                 #[derive(Deserialize)]
                 #[serde(deny_unknown_fields)]
-                struct Request { key: Key, paint_serial: u32 }
-                let request: Request = serde_json::from_value(payload).map_err(|_| "invalid_request")?;
-                let accepted = state.get("activity").and_then(|activity| activity.get("active")).and_then(Value::as_bool) == Some(true)
-                    && request.key == self.key && request.paint_serial != 0
+                struct Request {
+                    key: Key,
+                    paint_serial: u32,
+                }
+                let request: Request =
+                    serde_json::from_value(payload).map_err(|_| "invalid_request")?;
+                let accepted = state
+                    .get("activity")
+                    .and_then(|activity| activity.get("active"))
+                    .and_then(Value::as_bool)
+                    == Some(true)
+                    && request.key == self.key
+                    && request.paint_serial != 0
                     && (self.paint == 0 || at_least(request.paint_serial, self.paint));
-                if accepted { self.paint = request.paint_serial; }
+                if accepted {
+                    self.paint = request.paint_serial;
+                }
                 Ok(json!(accepted))
             }
             "snapshot" => {
                 #[derive(Deserialize)]
                 #[serde(deny_unknown_fields)]
-                struct Request { key: Option<Key>, activity_request: u32, scroll_top: Option<f64> }
-                let request: Request = serde_json::from_value(payload).map_err(|_| "invalid_request")?;
-                Ok(json!(request.key == Some(self.key)
-                    && state.get("activity").and_then(|activity| activity.get("request")).and_then(Value::as_u64) == Some(u64::from(request.activity_request))
-                    && request.scroll_top.is_none_or(|top| top.is_finite() && top >= 0.)))
+                struct Request {
+                    key: Option<Key>,
+                    activity_request: u32,
+                    scroll_top: Option<f64>,
+                }
+                let request: Request =
+                    serde_json::from_value(payload).map_err(|_| "invalid_request")?;
+                Ok(json!(
+                    request.key == Some(self.key)
+                        && state
+                            .get("activity")
+                            .and_then(|activity| activity.get("request"))
+                            .and_then(Value::as_u64)
+                            == Some(u64::from(request.activity_request))
+                        && request
+                            .scroll_top
+                            .is_none_or(|top| top.is_finite() && top >= 0.)
+                ))
             }
             "fault" => {
                 #[derive(Deserialize)]
                 #[serde(deny_unknown_fields)]
-                struct Request { stage: String }
-                let request: Request = serde_json::from_value(payload).map_err(|_| "invalid_request")?;
-                if !["startup", "render", "unhandled"].contains(&request.stage.as_str()) { return Err("invalid_request"); }
+                struct Request {
+                    stage: String,
+                }
+                let request: Request =
+                    serde_json::from_value(payload).map_err(|_| "invalid_request")?;
+                if !["startup", "render", "unhandled"].contains(&request.stage.as_str()) {
+                    return Err("invalid_request");
+                }
                 self.fault = Some(request.stage);
                 self.submitted = None;
                 self.layout = None;
@@ -198,7 +290,16 @@ pub fn marker(pixels: &[u8], width: usize, height: usize, scale: usize) -> Optio
         let y = (height + 4 + (bit / 64) * 8) * scale;
         let offset = (y * width + x) * 4;
         pixels.get(offset..offset + 4)?.try_into().ok()
-    }).map(|(generation, revision, paint)| (Key { generation, revision }, paint))
+    })
+    .map(|(generation, revision, paint)| {
+        (
+            Key {
+                generation,
+                revision,
+            },
+            paint,
+        )
+    })
 }
 
 #[cfg(test)]
@@ -210,12 +311,31 @@ mod tests {
         let mut session = Session::new(2);
         let state = json!({"activity":{"active":true,"request":1}});
         let layout = json!({"key":session.key,"regions":[{"id":6,"bounds":[0.1,0.1,0.3,0.3],"circle":true}],"page_count":1});
-        let envelope = |op: &str, payload| Envelope { version:1, op:op.into(), nonce:Some("test".into()), request_id:Some(1), payload:Some(payload) };
-        assert_eq!(session.accept(&envelope("layout", json!({"layout":layout,"paint_serial":3})), state.clone()).unwrap(), json!(true));
+        let envelope = |op: &str, payload| Envelope {
+            version: 1,
+            op: op.into(),
+            nonce: Some("test".into()),
+            request_id: Some(1),
+            payload: Some(payload),
+        };
+        assert_eq!(
+            session
+                .accept(
+                    &envelope("layout", json!({"layout":layout,"paint_serial":3})),
+                    state.clone()
+                )
+                .unwrap(),
+            json!(true)
+        );
         assert!(!session.current_frame());
         session.submitted = Some((session.key, 3));
         assert!(session.current_frame());
-        session.accept(&envelope("paint", json!({"key":session.key,"paint_serial":4})), state).unwrap();
+        session
+            .accept(
+                &envelope("paint", json!({"key":session.key,"paint_serial":4})),
+                state,
+            )
+            .unwrap();
         assert!(!session.current_frame());
         session.submitted = Some((session.key, 4));
         assert!(session.current_frame());
@@ -226,10 +346,18 @@ mod tests {
     #[test]
     fn stale_nonce_and_replayed_requests_cannot_mutate_the_document() {
         let mut session = Session::new(1);
-        let call = |nonce: &str| json!({"version":1,"op":"ready","nonce":nonce,"request_id":1,"payload":{}}).to_string();
-        assert_eq!(session.decode(&call("old-document")).unwrap_err(), "stale_session");
+        let call = |nonce: &str| {
+            json!({"version":1,"op":"ready","nonce":nonce,"request_id":1,"payload":{}}).to_string()
+        };
+        assert_eq!(
+            session.decode(&call("old-document")).unwrap_err(),
+            "stale_session"
+        );
         let nonce = session.nonce.clone();
         assert!(session.decode(&call(&nonce)).is_ok());
-        assert_eq!(session.decode(&call(&nonce)).unwrap_err(), "invalid_request_id");
+        assert_eq!(
+            session.decode(&call(&nonce)).unwrap_err(),
+            "invalid_request_id"
+        );
     }
 }

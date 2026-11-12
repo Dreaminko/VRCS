@@ -104,8 +104,7 @@ fn target() -> String {
 }
 
 pub(crate) fn updater_available() -> bool {
-    let supported = cfg!(windows)
-        || (cfg!(target_os = "linux") && package_channel() == "appimage");
+    let supported = cfg!(windows) || (cfg!(target_os = "linux") && package_channel() == "appimage");
     supported && UPDATER_PUBLIC_KEY.is_some_and(|key| !key.trim().is_empty())
 }
 
