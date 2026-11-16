@@ -20,12 +20,14 @@ function App() {
   const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>("system");
   useAppTheme();
   const workspace = useAppWorkspace({ page, setPage, setSettingsInitialCategory });
+  const vrSceneCapture = workspace.runtime.capabilities.desktop?.vr.scene_capture.supported === true;
   const controlEpoch = useVrControlBridge({
     settings: workspace.settings.value,
     getSettings: workspace.settings.getCurrent,
     update: workspace.settings.update,
     available: workspace.runtime.ready && workspace.onboarding.status === "complete"
       && workspace.runtime.capabilities.desktop?.vr.controller_input.supported === true,
+    sceneCapture: vrSceneCapture,
     requested: workspace.runtime.health?.capture_requested,
     getRequested: workspace.capture.getRunning,
     running: workspace.runtime.health?.capture_running ?? false,
@@ -42,7 +44,7 @@ function App() {
     available: workspace.runtime.ready && !workspace.capture.pending && workspace.onboarding.status === "complete"
       && workspace.runtime.capabilities.desktop?.vr.controller_input.supported === true,
     toggle: workspace.capture.toggleCapture,
-  }, workspace.playerDisplay);
+  }, workspace.playerDisplay, vrSceneCapture);
 
   useEffect(() => {
     const preventBrowserContextMenu = (event: MouseEvent) => event.preventDefault();

@@ -311,7 +311,7 @@ export function SettingsPanel({
 
       {activeCategory === "vision" && (
         <CapabilitySection capability={capabilities.desktop?.screenshot}>
-        <OcrSettingsSection vrAvailable={settings.features.vr_overlay} draft={draft}
+        <OcrSettingsSection vrAvailable={settings.features.vr_overlay && Boolean(capabilities.desktop?.vr.scene_capture.supported)} draft={draft}
           profiles={apiProfileCatalog.profiles} applySettings={applySettings}
           onManageLocalModels={openLocalModels} />
         </CapabilitySection>

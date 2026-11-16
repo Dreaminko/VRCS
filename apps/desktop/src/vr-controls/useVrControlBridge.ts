@@ -15,6 +15,7 @@ export function useVrControlBridge(options: {
   getSettings: () => Settings | null;
   update: (apply: (settings: Settings) => Settings) => Promise<Settings>;
   available: boolean;
+  sceneCapture: boolean;
   requested: boolean | undefined;
   getRequested: () => boolean;
   running: boolean;
@@ -25,6 +26,7 @@ export function useVrControlBridge(options: {
   chatboxStatus?: ChatboxStatus | null;
 }) {
   const { t } = useTranslation();
+  const sceneCapture = options.sceneCapture;
   const current = useRef(options);
   current.current = options;
   const [epoch, setEpoch] = useState(0);
@@ -49,7 +51,7 @@ export function useVrControlBridge(options: {
       item(settings?.osc.enabled ?? false, settings?.osc.enabled ?? false, options.available && Boolean(settings), "OSC"),
       item(options.getRequested(), options.running, options.available, t(options.getRequested() ? "capture.stop" : "capture.start"), options.busy),
       item(settings?.ocr.hand_gesture_enabled ?? false, settings?.ocr.hand_gesture_enabled ?? false,
-        options.available && Boolean(settings?.features.ocr && settings.ocr.master_enabled), t("settings.vrDashboard.gesture")),
+        options.available && sceneCapture && Boolean(settings?.features.ocr && settings.ocr.master_enabled), t("settings.vrDashboard.gesture")),
     ],
   };
 

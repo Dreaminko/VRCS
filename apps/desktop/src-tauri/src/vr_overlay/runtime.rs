@@ -1090,7 +1090,10 @@ fn tick(
     }
     let any_enabled =
         state.config.enabled && (state.config.headset.enabled || state.config.wrist.enabled);
+    #[cfg(windows)]
     let ocr_enabled = state.ocr_config.enabled;
+    #[cfg(not(windows))]
+    let ocr_enabled = false;
     #[cfg(windows)]
     let vision_enabled = state.ocr.vision.enabled();
     #[cfg(not(windows))]

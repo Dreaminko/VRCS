@@ -457,7 +457,7 @@ impl OpenXrBackend {
     }
 
     pub fn update_ocr_input(&mut self, _path: &std::path::Path) -> Result<(), String> {
-        Ok(())
+        Err("vr.ocr_input_unavailable".into())
     }
 
     pub fn ocr_input(
