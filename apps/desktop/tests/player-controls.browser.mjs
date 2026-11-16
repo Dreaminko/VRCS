@@ -274,7 +274,7 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           };
           check(lastPlayerIsReachable(),'scrolling the menu body reaches the last player in a long list without a separate player scrollbar');
           click(groupButton('history'));await settled();
-          check(document.querySelectorAll('.player-history-row').length===2,'the secondary entry lists history and saved identities without current players');
+          check(document.querySelectorAll('.player-history-row').length===0,'history omits records without a saved source setting');
           click(groupButton('current'));await settled();
           changePlayers([alice,bob]);await wait(()=>document.querySelectorAll('.player-history-row').length===2);
           check(Math.abs(region.scrollTop-chatTop)<1&&!scrollApi.followingLiveSubtitles,'scrolling the personnel panel does not scroll the chat or change following');
@@ -366,6 +366,12 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           await wait(()=>row(2)&&!bobSources()[1].disabled);
           check(state.overrides[bob.user_id]?.voice_disabled===false,'show-all preserves the enabled voice source');
           check(state.overrides[bob.user_id]?.chatbox_disabled===false,'show-all preserves the enabled chatbox source');
+          changePlayers([alice]);
+          click(groupButton('history'));await settled();
+          check(!!playerRow('Bob 玩家')&&!playerRow('Alice 玩家'),'history keeps only accounts with a saved source setting');
+          click(groupButton('current'));await settled();
+          changePlayers([alice,bob]);
+          await wait(()=>bobRow()?.querySelectorAll('.player-history-source').length===2);
           click(bobSources()[1]);
           await wait(()=>state.overrides[bob.user_id]?.voice_disabled===true);
           check(bobSources()[1].getAttribute('aria-pressed')==='true','a source can be switched off again');

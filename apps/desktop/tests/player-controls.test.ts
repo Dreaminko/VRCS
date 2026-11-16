@@ -47,6 +47,22 @@ test("current metadata wins without merging same-name accounts or separate track
   assert.deepEqual(speakers.map(s => [s.id, s.display_name]), [["vrc:a", "Alice"], ["vrc:a2", "Alice"], [`saved-user:${bob.user_id}`, "Offline Bob"]]);
 });
 
+test("history keeps only saved accounts with a captured user ID", () => {
+  const row = (speaker: Subtitle["speaker"]): Subtitle => ({ speaker, source: "speaker", translations: [], id: null,
+    text: "record", language: null, started_at: null, ended_at: null, created_at: "2026-10-25T00:00:00Z" });
+  const olderAlice = { ...alice, id: "vrc:a2", display_name: undefined };
+  const unidentified = { id: "other:unidentified", index: 3, display_name: "Someone" };
+  const unsaved = { ...bob, id: "vrc:b3", display_name: "Never configured" };
+  const speakers = collectPlayerSpeakers(
+    [row(alice), row(olderAlice), row(unsaved), row(unidentified)],
+    [], [alice.user_id!], {},
+  );
+  assert.deepEqual(speakers.map(s => [s.id, s.display_name]), [["vrc:a", "Alice"]],
+    "duplicate tracks collapse to one account, while records without a saved setting or a valid ID are dropped");
+  assert.deepEqual(collectPlayerSpeakers([], [], ["usr_invalid"], {}), [],
+    "selected keys that are not VRChat user IDs cannot create history rows");
+});
+
 test("a current track with pending metadata keeps its loaded historical name", () => {
   const rows = [{ source: "speaker", speaker: alice }] as Subtitle[];
   const [speaker] = collectPlayerSpeakers(rows, [{ ...alice, display_name: undefined }], [], {});

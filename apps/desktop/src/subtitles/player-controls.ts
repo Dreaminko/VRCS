@@ -28,11 +28,32 @@ export function isPlayerSourceAction(action: PlayerDisplayAction): action is Pla
 export function collectPlayerSpeakers(subtitles: readonly Subtitle[], current: readonly SpeakerIdentity[], selected: readonly string[] | null, names: Record<string, string>): SpeakerIdentity[] {
   const known = new Map(historySpeakers(subtitles).map(speaker => [speaker.id, speaker]));
   for (const speaker of current) known.set(speaker.id, { ...speaker, display_name: speaker.display_name || known.get(speaker.id)?.display_name });
-  const users = new Set([...known.values()].map(playerUserId));
-  for (const user_id of selected ?? []) if (!users.has(user_id)) {
-    known.set(`saved-user:${user_id}`, { id: `saved-user:${user_id}`, user_id, index: 0, display_name: names[user_id] });
+  const currentIds = new Set(current.map(speaker => speaker.id));
+  const saved = new Set((selected ?? []).filter(isPlayerUserId));
+  const kept = new Map<string, SpeakerIdentity>();
+  const accounts = new Map<string, string>();
+  for (const [track_id, speaker] of known) {
+    if (currentIds.has(track_id)) {
+      kept.set(track_id, speaker);
+      continue;
+    }
+    // History keeps one row per account that has a captured user ID and a
+    // saved source setting; records without either cannot be restored here.
+    const user_id = playerUserId(speaker);
+    if (!user_id || !saved.has(user_id)) continue;
+    const first = accounts.get(user_id);
+    if (first === undefined) {
+      accounts.set(user_id, track_id);
+      kept.set(track_id, speaker);
+    } else if (!kept.get(first)?.display_name && speaker.display_name) {
+      kept.set(first, speaker);
+    }
   }
-  return [...known.values()];
+  const present = new Set([...current.map(playerUserId), ...accounts.keys()].filter((id): id is string => id !== null));
+  for (const user_id of saved) if (!present.has(user_id)) {
+    kept.set(`saved-user:${user_id}`, { id: `saved-user:${user_id}`, user_id, index: 0, display_name: names[user_id] });
+  }
+  return [...kept.values()];
 }
 
 export function sortPlayerSpeakersByDistance(speakers: readonly SpeakerIdentity[], distances: ReadonlyMap<string, number | undefined>): SpeakerIdentity[] {
