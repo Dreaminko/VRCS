@@ -23,13 +23,33 @@ pub struct PlayerAudioConfig {
     pub max_players: usize,
     /// Visible player lanes only; zero shows all. Does not limit audio processing.
     pub max_visible_players: usize,
-    /// None accepts every player; an empty list accepts none. Selection keys are
-    /// stable VRChat usr_ IDs; track IDs remain independent runtime identities.
+    /// Retired per-player allow list. Configuration loading clears it so an upgrade
+    /// cannot silently restrict processing; use `source_overrides` instead.
     pub selected_tracks: Option<Vec<String>>,
     /// Last known labels for the saved user-ID selection, for offline display only.
     pub selected_user_names: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     pub proximity: PlayerProximityConfig,
+    /// Per-player source allow list keyed by stable VRChat usr_ IDs.
+    #[serde(default)]
+    pub source_overrides: std::collections::BTreeMap<String, PlayerSourceOverride>,
+    /// Player admission for accounts without an explicit rule: `allowlist` keeps
+    /// both sources off until enabled, `everyone` keeps both on until disabled.
+    #[serde(default = "default_source_mode")]
+    pub source_mode: String,
+}
+
+pub(crate) fn default_source_mode() -> String {
+    "allowlist".into()
+}
+
+/// A player's enabled inputs. Both sources stay off until a player is enabled;
+/// a missing entry denies both, and `false` marks the allowed source.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PlayerSourceOverride {
+    pub chatbox_disabled: bool,
+    pub voice_disabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -59,6 +79,8 @@ impl Default for PlayerAudioConfig {
             selected_tracks: None,
             selected_user_names: Default::default(),
             proximity: PlayerProximityConfig::default(),
+            source_overrides: Default::default(),
+            source_mode: default_source_mode(),
         }
     }
 }
@@ -199,6 +221,14 @@ mod tests {
         assert_eq!(
             saved.as_object_mut().unwrap().remove("proximity"),
             Some(serde_json::json!({"enabled": false, "radius_m": 10.0}))
+        );
+        assert_eq!(
+            saved.as_object_mut().unwrap().remove("source_overrides"),
+            Some(serde_json::json!({}))
+        );
+        assert_eq!(
+            saved.as_object_mut().unwrap().remove("source_mode"),
+            Some("allowlist".into())
         );
         assert_eq!(saved, legacy);
     }

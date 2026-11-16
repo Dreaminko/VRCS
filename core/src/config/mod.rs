@@ -29,7 +29,7 @@ mod validation_tests;
 
 pub use audio::{
     AudioConfig, MicrophoneConfig, OutputConfig, PlayerAudioConfig, PlayerProximityConfig,
-    VadConfig,
+    PlayerSourceOverride, VadConfig,
 };
 pub use conversation_titles::{ConversationTitleConfig, TITLE_OUTPUT_LANGUAGES};
 pub use features::{apply_feature_gates, FeatureConfig, FeatureKey};

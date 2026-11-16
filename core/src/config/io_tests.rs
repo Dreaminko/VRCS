@@ -25,27 +25,33 @@ fn vrchat_chatbox_upgrade_defaults_off_and_preserves_enabled_on_save() {
 }
 
 #[test]
-fn player_user_selection_and_labels_survive_config_save_and_reload() {
+fn saved_player_labels_survive_config_save_and_reload_and_stale_selections_are_dropped() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("config.json");
     let mut config = AppConfig::default();
     config.audio.output.player_audio.enabled = true;
     let user = "usr_00000000-0000-4000-8000-000000000007";
     config.audio.output.player_audio.max_visible_players = 8;
-    config.audio.output.player_audio.selected_tracks = Some(vec![user.into()]);
     config
         .audio
         .output
         .player_audio
         .selected_user_names
         .insert(user.into(), "Saved player".into());
+    config.audio.output.player_audio.source_overrides.insert(
+        user.into(),
+        crate::config::PlayerSourceOverride {
+            chatbox_disabled: true,
+            voice_disabled: false,
+        },
+    );
     super::save_config(&path, &config).unwrap();
     assert_eq!(
         load_config(&path).unwrap().audio.output.player_audio,
         config.audio.output.player_audio
     );
-    config.audio.output.player_audio.selected_tracks = Some(vec![]);
-    config.audio.output.player_audio.selected_user_names.clear();
+    // The retired whitelist is cleared so an upgrade cannot silently restrict processing.
+    config.audio.output.player_audio.selected_tracks = Some(vec![user.into()]);
     super::save_config(&path, &config).unwrap();
     assert_eq!(
         load_config(&path)
@@ -54,7 +60,7 @@ fn player_user_selection_and_labels_survive_config_save_and_reload() {
             .output
             .player_audio
             .selected_tracks,
-        Some(vec![])
+        None
     );
 }
 

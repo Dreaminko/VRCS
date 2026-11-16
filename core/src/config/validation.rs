@@ -408,6 +408,19 @@ fn validate_audio(audio: &AudioConfig, vad: &VadConfig) -> Result<(), String> {
                 .into(),
         );
     }
+    if players.source_overrides.len() > 512
+        || players
+            .source_overrides
+            .keys()
+            .any(|id| !crate::models::is_vrchat_user_id(id))
+    {
+        return Err(
+            "Player source overrides must use valid user IDs for at most 512 players".into(),
+        );
+    }
+    if !matches!(players.source_mode.as_str(), "everyone" | "allowlist") {
+        return Err("Player audio source_mode must be everyone or allowlist".into());
+    }
     if players.opus_library_path.len() > 4096 {
         return Err("Player audio Opus library path is too long".into());
     }

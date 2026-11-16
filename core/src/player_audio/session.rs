@@ -187,6 +187,14 @@ impl VrchatNetworkSession {
         })
     }
 
+    /// Player identities are published independently of the voice subscription.
+    pub(crate) fn roster(&self) -> Vec<super::PlayerInfo> {
+        if !self.consumers.any() {
+            return Vec::new();
+        }
+        self.status.lock().expect("network status").players.clone()
+    }
+
     pub(crate) fn chatbox_status(&self) -> Option<ChatboxStatus> {
         self.consumers.chatbox.then(|| {
             let status = self.status.lock().expect("network status").clone();

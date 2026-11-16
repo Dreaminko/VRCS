@@ -886,7 +886,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
-        26..=40 => serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?,
+        26..=42 => serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?,
         23..=25 => deserialize_v24(raw.clone())?,
         22 => migrate_v22(raw)?,
         21 => migrate_v21(raw)?,
@@ -923,6 +923,9 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
     }
     normalize_token_plan_recognition(&mut config);
     normalize_proximity_radius(&mut config);
+    // Per-player selection is retired in favor of the source allow list; drop stale lists
+    // so an upgrade cannot silently restrict processing with no interface to change it.
+    config.audio.output.player_audio.selected_tracks = None;
     config.resolve_model_assignments();
     config.validate_settings()?;
     Ok(config)
