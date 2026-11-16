@@ -21,6 +21,7 @@ pub enum Action {
     },
     ClearHiddenLanguages(()),
     SetProximityRadius(f32),
+    SetSourceMode(String),
     SetUserSourceDisabled {
         user_id: String,
         source: String,
@@ -77,6 +78,9 @@ impl Action {
                     && view.proximity.is_some()
                     && radius_m.is_finite()
                     && (0.0..=10.0).contains(radius_m)
+            }
+            Self::SetSourceMode(mode) => {
+                view.available && matches!(mode.as_str(), "everyone" | "allowlist")
             }
             Self::SetUserSourceDisabled {
                 user_id, source, ..
@@ -155,6 +159,8 @@ pub struct View {
     pub available: bool,
     pub processing_available: bool,
     pub player_mode: bool,
+    #[serde(default)]
+    pub source_mode: String,
     pub players: Vec<Player>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proximity: Option<Proximity>,
@@ -215,6 +221,20 @@ mod tests {
     }
 
     #[test]
+    fn source_mode_actions_require_an_available_view_and_a_known_mode() {
+        let mut view = View {
+            available: true,
+            ..Default::default()
+        };
+        assert!(Action::SetSourceMode("everyone".into()).allowed(&view));
+        assert!(Action::SetSourceMode("allowlist".into()).allowed(&view));
+        assert!(!Action::SetSourceMode("system".into()).allowed(&view));
+        assert!(!Action::SetSourceMode(String::new()).allowed(&view));
+        view.available = false;
+        assert!(!Action::SetSourceMode("everyone".into()).allowed(&view));
+    }
+
+    #[test]
     fn action_payloads_match_the_shared_typescript_contract() {
         let cases = [
             (
@@ -259,6 +279,10 @@ mod tests {
             (
                 Action::SetProximityRadius(5.5),
                 serde_json::json!({"set_proximity_radius": 5.5}),
+            ),
+            (
+                Action::SetSourceMode("everyone".into()),
+                serde_json::json!({"set_source_mode": "everyone"}),
             ),
             (
                 Action::SetUserSourceDisabled {

@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import type { AppWorkspace } from "../app/useAppWorkspace";
 import { playerUserId } from "../capture/player-selection";
-import { collectPlayerSpeakers, playerLanguageOptions } from "../subtitles/player-controls";
+import { collectPlayerSpeakers, playerLanguageOptions, sourceMode } from "../subtitles/player-controls";
 import { defaultHiddenSourceLanguages, isAudioTrack } from "../subtitles/player-history";
 import { useSpeakerIdentities } from "../subtitles/speaker-state";
 import { localizedLanguageName } from "../translation/translation-languages";
@@ -29,7 +29,7 @@ function playerDisplayState(workspace: AppWorkspace, optimistic = false) {
   const available = workspace.onboarding.status === "complete";
   return {
     available, processingAvailable: available && workspace.runtime.ready && playerMode,
-    playerMode, names, overrides, proximity, current, preferences, defaultLanguages, unmatchedBlocked,
+    playerMode, sourceMode: sourceMode(settings?.audio.output.player_audio), names, overrides, proximity, current, preferences, defaultLanguages, unmatchedBlocked,
     hiddenTracks: preferences.hiddenTracks,
     speakers: collectPlayerSpeakers(workspace.subtitles.items, current, savedIds, names),
     languages: playerLanguageOptions(workspace.subtitles.items, defaultLanguages, preferences.hiddenSourceLanguages),
@@ -86,6 +86,7 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
       available: state.available,
       processing_available: state.processingAvailable,
       player_mode: state.playerMode,
+      source_mode: state.sourceMode,
       ...(state.proximity ? { proximity: { enabled: state.proximity.enabled, radius_m: state.proximity.radius_m } } : {}),
       ...(mic ? { microphone: {
         enabled: mic.enabled, supported: mic.supported, running: mic.running,

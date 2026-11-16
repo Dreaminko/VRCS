@@ -43,6 +43,7 @@ async function setup() {
           view: { kind: 'menu', controls, hold_progress: options.hold_progress ?? null,
             ui: { page: options.page ?? 'players', group: options.group ?? 'current', player_page: options.player_page ?? 0, language_page: options.language_page ?? 0 },
             players: { available: true, processing_available: true, player_mode: true,
+              source_mode: options.source_mode ?? 'allowlist',
               proximity: { enabled: false, radius_m: 10 },
               players, languages: languages.map((label, i) => ({ code: 'lang-' + i, label, hidden: i === 1 })),
               follow_default: false, default_languages: ['lang-1'], labels: locales[options.locale ?? 'en-US'], busy: false, error: null,
@@ -212,6 +213,15 @@ test("player and language pages paginate identities, gate writes, and fit all su
     assert.ok(Math.abs(historyGroup.x + historyGroup.width - (groupRow.x + groupRow.width)) < 1, "The group selector is right aligned");
     assert.equal(await commandButton(page, { display: { set_user_source_disabled: { user_id: "usr_0", source: "vrchat_chatbox", disabled: true } } }).count(), 1);
     assert.equal(await commandButton(page, { display: { set_user_source_disabled: { user_id: "usr_1", source: "vrchat_chatbox", disabled: true } } }).count(), 1, "Same display names retain distinct user IDs");
+    const modeRow = await page.locator(".vr-menu-source-mode").boundingBox();
+    assert.ok(modeRow && modeRow.height >= 72, "The source mode switch keeps a VR-sized hit target");
+    assert.equal(await page.locator(".vr-menu-source-mode").getAttribute("aria-label"), "Player sources");
+    assert.equal(await commandButton(page, { display: { set_source_mode: "everyone" } }).count(), 1);
+    await render(page, { source_mode: "everyone" });
+    assert.equal(await commandButton(page, { display: { set_source_mode: "everyone" } }).getAttribute("aria-pressed"), "true");
+    assert.equal(await commandButton(page, { display: { set_source_mode: "allowlist" } }).getAttribute("aria-pressed"), "false");
+    await render(page, { source_mode: "allowlist" });
+    assert.equal(await commandButton(page, { display: { set_source_mode: "allowlist" } }).getAttribute("aria-pressed"), "true");
     assert.equal(await page.locator('.vr-menu-player-row').first().locator('[data-vr-menu]').count(), 2, "Player rows offer only Chatbox and voice controls");
     assert.equal(await page.locator('.vr-menu-player-row').nth(2).locator('[data-vr-menu]').first().isDisabled(), true, "Unknown identity cannot change source settings");
     await render(page, { player_page: 1 });

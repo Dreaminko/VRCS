@@ -15,7 +15,8 @@ export type PlayerVisibilityAction =
 export type PlayerProximityAction = { set_proximity_radius: number };
 export type PlayerSourceAction =
   | { set_user_source_disabled: { user_id: string; source: "vrchat_chatbox" | "speaker"; disabled: boolean } };
-export type PlayerDisplayAction = PlayerVisibilityAction | PlayerProximityAction | PlayerSourceAction | MicrophoneSpeakerAction;
+export type PlayerSourceModeAction = { set_source_mode: PlayerSourceMode };
+export type PlayerDisplayAction = PlayerVisibilityAction | PlayerProximityAction | PlayerSourceAction | PlayerSourceModeAction | MicrophoneSpeakerAction;
 
 export function isPlayerProximityAction(action: PlayerDisplayAction): action is PlayerProximityAction {
   return "set_proximity_radius" in action;
@@ -23,6 +24,10 @@ export function isPlayerProximityAction(action: PlayerDisplayAction): action is 
 
 export function isPlayerSourceAction(action: PlayerDisplayAction): action is PlayerSourceAction {
   return "set_user_source_disabled" in action;
+}
+
+export function isPlayerSourceModeAction(action: PlayerDisplayAction): action is PlayerSourceModeAction {
+  return "set_source_mode" in action;
 }
 
 export function collectPlayerSpeakers(subtitles: readonly Subtitle[], current: readonly SpeakerIdentity[], selected: readonly string[] | null, names: Record<string, string>): SpeakerIdentity[] {

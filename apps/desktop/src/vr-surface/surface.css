@@ -106,6 +106,8 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-menu-player-groups { justify-content: flex-end; }
 .vr-menu-player-groups > .vr-menu-pagination { margin-right: auto; }
 .vr-menu-player-groups > .vr-menu-button { min-width: 260px; flex: 0 0 260px; font-size: 26px; }
+.vr-menu-source-mode { display: flex; height: 72px; flex: none; gap: 12px; }
+.vr-menu-source-mode > .vr-menu-button { min-width: 0; flex: 1; border-radius: 999px; font-size: 26px; }
 .vr-menu-proximity { display: grid; height: 72px; flex: none; grid-template-columns: minmax(0, 1fr); align-items: center; }
 .vr-menu-proximity-slider { display: grid; min-width: 0; height: 72px; grid-template-columns: minmax(0, 1fr) 132px; align-items: center; gap: 12px; }
 .vr-menu-proximity-track { position: relative; width: calc(100% - 44px); height: 72px; min-width: 72px; justify-self: center; margin: 0; padding: 0; border: 0; border-radius: 16px; color: inherit; background: transparent; font: inherit; cursor: pointer; }

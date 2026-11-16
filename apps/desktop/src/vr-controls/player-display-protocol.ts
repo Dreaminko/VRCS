@@ -1,8 +1,9 @@
 import type { Settings } from "../settings/types";
 import type { SpeakerIdentity } from "../subtitles/types";
+import type { PlayerSourceMode } from "../capture/types";
 import { playerUserId } from "../capture/player-selection.ts";
 import { sourceLanguageKey, type PlayerHistoryPreferences } from "../subtitles/player-history.ts";
-import { applyPlayerProximity, applyPlayerSourceAction, applyPlayerVisibilityAction, isPlayerProximityAction, isPlayerSourceAction, sourceMode, type PlayerDisplayAction } from "../subtitles/player-controls.ts";
+import { applyPlayerProximity, applyPlayerSourceAction, applyPlayerSourceMode, applyPlayerVisibilityAction, isPlayerProximityAction, isPlayerSourceAction, isPlayerSourceModeAction, sourceMode, type PlayerDisplayAction } from "../subtitles/player-controls.ts";
 import type { ControlAction, ControlSource } from "./protocol";
 import type { MicrophoneSpeakerAction, MicrophoneSpeakerSnapshot } from "../capture/microphone-speakers";
 
@@ -24,6 +25,7 @@ export interface PlayerDisplayView {
   available: boolean;
   processing_available: boolean;
   player_mode: boolean;
+  source_mode: PlayerSourceMode;
   players: PlayerDisplayRow[];
   proximity?: {
     enabled: boolean;
@@ -167,6 +169,13 @@ export function createPlayerDisplayExecutor(options: {
       if (!proximity || proximity.enabled !== (radius_m > 0) || Math.abs(proximity.radius_m - radius_m) >= 0.001) {
         throw new Error("Distance filter was not applied");
       }
+      return;
+    }
+    if (isPlayerSourceModeAction(action)) {
+      const mode = action.set_source_mode;
+      if (mode !== "everyone" && mode !== "allowlist") throw new Error("Player source mode is invalid");
+      const saved = await options.updateSettings(settings => applyPlayerSourceMode(settings, mode));
+      if (sourceMode(saved.audio.output.player_audio) !== mode) throw new Error("Player source mode was not applied");
       return;
     }
     if (isPlayerSourceAction(action)) {

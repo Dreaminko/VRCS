@@ -1359,6 +1359,7 @@ fn sample_player_display(scene: Scene) -> player_display::View {
         available: scene != Scene::Unavailable,
         processing_available: scene != Scene::Unavailable,
         player_mode: true,
+        source_mode: "allowlist".into(),
         players,
         proximity: Some(player_display::Proximity {
             enabled: false,
@@ -1503,6 +1504,7 @@ fn apply_player_display(view: &mut player_display::View, action: player_display:
                 proximity.radius_m = radius_m;
             }
         }
+        Action::SetSourceMode(mode) => view.source_mode = mode,
     }
 }
 

@@ -8,7 +8,7 @@ export const DEFAULT_WRIST_MENU_UI: WristMenuUi = { page: "home", group: "curren
 const PROXIMITY_SLIDER = { action: "proximity_radius", min: 0, max: 10, step: 0.1 } as const;
 
 const unavailableView: PlayerDisplayView = {
-  available: false, processing_available: false, player_mode: false,
+  available: false, processing_available: false, player_mode: false, source_mode: "allowlist",
   players: [], languages: [], follow_default: false, default_languages: [], labels: {}, busy: false, error: null,
 };
 
@@ -130,6 +130,13 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
         {pagination}
         <MenuButton state={state} id={12} command={{ group: "current" }} active={ui.group === "current"}>{label("current", "Current world")}</MenuButton>
         <MenuButton state={state} id={13} command={{ group: "history" }} active={ui.group === "history"}>{label("historySaved", "History")}</MenuButton>
+      </nav>
+      <nav className="vr-menu-source-mode" aria-label={label("sourceMode", "Player sources")}>
+        {(["everyone", "allowlist"] as const).map((mode, index) => <MenuButton key={mode} state={state} id={48 + index}
+          command={{ display: { set_source_mode: mode } }} active={view.source_mode === mode} disabled={locked}
+          label={label(mode === "everyone" ? "sourceModeEveryone" : "sourceModeAllowlist", mode === "everyone" ? "Everyone" : "Allowlist")}>
+          {label(mode === "everyone" ? "sourceModeEveryone" : "sourceModeAllowlist", mode === "everyone" ? "Everyone" : "Allowlist")}
+        </MenuButton>)}
       </nav>
       <div className="vr-menu-player-list">
         {players.items.length ? players.items.map((player, index) => <div className={`vr-menu-player-row vr-menu-track-row${player.hidden ? " is-hidden" : ""}`} key={`${player.track_id ?? "saved"}:${player.user_id ?? "unknown"}`}>

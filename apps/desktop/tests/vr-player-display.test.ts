@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createPlayerDisplayExecutor, createPlayerDisplayPublisher, createPlayerDisplayReceiver, type PlayerDisplayView } from "../src/vr-controls/player-display-protocol.ts";
+import { sourceMode } from "../src/subtitles/player-controls.ts";
 import { createSettingsAutosave } from "../src/settings/settings-autosave.ts";
 import type { Settings } from "../src/settings/types.ts";
 import type { PlayerHistoryPreferences } from "../src/subtitles/player-history.ts";
@@ -58,7 +59,7 @@ test("releasing the owner during a save suppresses its old publication and resul
 });
 
 const emptyView = (): PlayerDisplayView => ({
-  available: true, processing_available: true, player_mode: true,
+  available: true, processing_available: true, player_mode: true, source_mode: "allowlist",
   players: [], languages: [], follow_default: true, default_languages: [], labels: {}, busy: false, error: null,
 });
 
@@ -120,6 +121,25 @@ test("proximity controls are unavailable when the saved settings have no proximi
     updatePreferences: () => {},
   });
   await assert.rejects(execute({ set_proximity_radius: 5 }), /unavailable/i);
+});
+
+test("source mode switches the shared player audio policy from VR", async () => {
+  let settings = initialSettings();
+  const execute = createPlayerDisplayExecutor({
+    getState: () => ({ available: true, processingAvailable: true, speakers: [], current: [], hiddenTracks: [], defaultLanguages: [], languages: [] }),
+    updateSettings: async apply => (settings = apply(settings)),
+    updatePreferences: () => { throw new Error("Unexpected visibility change"); },
+  });
+  await execute({ set_source_mode: "everyone" });
+  assert.equal(sourceMode(settings.audio.output.player_audio), "everyone");
+  await execute({ set_source_mode: "allowlist" });
+  assert.equal(sourceMode(settings.audio.output.player_audio), "allowlist");
+  await assert.rejects(execute({ set_source_mode: "system" as never }), /invalid/i);
+  const unchanged = createPlayerDisplayExecutor({
+    getState: () => ({ available: true, processingAvailable: true, speakers: [], current: [], hiddenTracks: [], defaultLanguages: [], languages: [] }),
+    updateSettings: async () => settings, updatePreferences: () => {},
+  });
+  await assert.rejects(unchanged({ set_source_mode: "everyone" }), /not applied/);
 });
 
 test("snapshot deduplication waits for its in-flight update and does not lose a reverted state", async () => {
