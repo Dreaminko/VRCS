@@ -128,9 +128,10 @@ export function applyPlayerSourceAction(settings: Settings, action: PlayerSource
   if (keep) overrides[user_id] = rule;
   else delete overrides[user_id];
   if (Object.keys(overrides).length > 512) throw new Error("Save source settings for at most 512 players");
-  const names = { ...options.selected_user_names };
+  // Labels only describe saved rules; stale entries would count toward the backend limit.
+  const names = Object.fromEntries(Object.entries(options.selected_user_names ?? {}).filter(([id]) => id in overrides));
   const name = speaker?.display_name;
-  if (playerUserId(speaker ?? { id: "", index: 0 }) === user_id && name && [...name].length <= 128 && !/[\p{Cc}]/u.test(name)) names[user_id] = name;
+  if (keep && playerUserId(speaker ?? { id: "", index: 0 }) === user_id && name && [...name].length <= 128 && !/[\p{Cc}]/u.test(name)) names[user_id] = name;
   return { ...settings, audio: { ...settings.audio, output: { ...settings.audio.output,
     player_audio: { ...options, source_overrides: overrides, selected_user_names: names },
   } } };

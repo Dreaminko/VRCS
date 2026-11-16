@@ -429,6 +429,10 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           publishSpeakerIdentity(confirmed);
           await wait(()=>playerRow('身份已确认'));
           check([...playerRow('身份已确认').querySelectorAll('.player-history-source')].every(button=>!button.disabled),'late identity metadata enables the source controls');
+          click(playerRow('身份已确认').querySelectorAll('.player-history-source')[0]);
+          await wait(()=>state.overrides[confirmed.user_id]?.chatbox_disabled===false
+            &&playerRow('身份已确认').querySelectorAll('.player-history-source')[0].getAttribute('aria-pressed')==='false');
+          check(state.overrides[confirmed.user_id]?.chatbox_disabled===false,'late identity actions target the confirmed account');
           changeRows([]);await wait(()=>!row(1));
           check(document.documentElement.scrollWidth<=innerWidth+1,'no horizontal overflow');
           document.getElementById('result').textContent='PASS';

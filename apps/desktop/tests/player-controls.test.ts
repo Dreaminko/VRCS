@@ -78,8 +78,10 @@ test("player sources start off and are enabled per account", () => {
   assert.deepEqual(both.audio.output.player_audio?.source_overrides?.[alice.user_id!], { chatbox_disabled: false, voice_disabled: false });
   const muted = applyPlayerSourceAction(both, { set_user_source_disabled: { user_id: alice.user_id!, source: "speaker", disabled: true } }, alice);
   assert.deepEqual(muted.audio.output.player_audio?.source_overrides?.[alice.user_id!], { chatbox_disabled: false, voice_disabled: true });
-  assert.deepEqual(applyPlayerSourceAction(muted, { set_user_source_disabled: { user_id: alice.user_id!, source: "vrchat_chatbox", disabled: true } }, alice)
-    .audio.output.player_audio?.source_overrides, {});
+  const mutedBoth = applyPlayerSourceAction(muted, { set_user_source_disabled: { user_id: alice.user_id!, source: "vrchat_chatbox", disabled: true } }, alice);
+  assert.deepEqual(mutedBoth.audio.output.player_audio?.source_overrides, {});
+  assert.deepEqual(mutedBoth.audio.output.player_audio?.selected_user_names, {},
+    "a removed rule also drops its saved label");
   assert.deepEqual(applyPlayerSourceAction(start, { set_user_source_disabled: { user_id: alice.user_id!, source: "speaker", disabled: true } }, alice)
     .audio.output.player_audio?.source_overrides, {}, "muting an already muted source stores nothing");
   assert.throws(() => applyPlayerSourceAction(start, { set_user_source_disabled: { user_id: "unknown", source: "speaker", disabled: true } }));

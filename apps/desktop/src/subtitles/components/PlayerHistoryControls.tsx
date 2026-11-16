@@ -157,9 +157,9 @@ export function PlayerHistoryControls({ subtitles, status, roster, enabled, sele
         hidden={preferences.hiddenTracks.includes(speaker.id)}
         hiddenUserIds={hiddenUserIds}
         sourceEnabled={Boolean(onSource)}
-        chatboxDisabled={sourceDisabled(sourceOverrides, sourceMode, speaker, "chatbox")}
-        voiceDisabled={sourceDisabled(sourceOverrides, sourceMode, speaker, "voice")}
-        onSource={(source, disabled) => void setSource(speaker, source, disabled)} />)}
+        sourceOverrides={sourceOverrides}
+        sourceMode={sourceMode}
+        onSource={(source, disabled, resolved) => void setSource(resolved, source, disabled)} />)}
         {!visibleSpeakers.length && <p className="player-history-empty">{t(group === "current" ? "live.players.currentEmpty" : "live.players.historyEmpty")}</p>}
       </div>
       {group === "current" && current.some((player) => !player.speaker.display_name) && <small role="status">{t("live.players.namePending")}</small>}
@@ -176,14 +176,17 @@ function sourceDisabled(overrides: Record<string, PlayerSourceOverride>, mode: P
   return source === "chatbox" ? rule.chatbox_disabled : rule.voice_disabled;
 }
 
-function PlayerRow({ speaker: identity, query, current, distance, busy, hidden, hiddenUserIds, sourceEnabled, chatboxDisabled, voiceDisabled, onSource }: {
+function PlayerRow({ speaker: identity, query, current, distance, busy, hidden, hiddenUserIds, sourceEnabled, sourceOverrides, sourceMode, onSource }: {
   speaker: SpeakerIdentity; query: string; current: boolean; distance?: number; busy: boolean; hidden: boolean;
-  hiddenUserIds: ReadonlySet<string>; sourceEnabled: boolean; chatboxDisabled: boolean; voiceDisabled: boolean;
-  onSource: (source: "vrchat_chatbox" | "speaker", disabled: boolean) => void;
+  hiddenUserIds: ReadonlySet<string>; sourceEnabled: boolean;
+  sourceOverrides: Record<string, PlayerSourceOverride>; sourceMode: PlayerSourceMode;
+  onSource: (source: "vrchat_chatbox" | "speaker", disabled: boolean, speaker: SpeakerIdentity) => void;
 }) {
   const { t } = useTranslation();
   const speaker = useSpeakerIdentity(identity)!;
   const userId = playerUserId(speaker);
+  const chatboxDisabled = sourceDisabled(sourceOverrides, sourceMode, speaker, "chatbox");
+  const voiceDisabled = sourceDisabled(sourceOverrides, sourceMode, speaker, "voice");
   const saved = speaker.id.startsWith("saved-user:");
   const voiceLocked = !!userId && hiddenUserIds.has(userId);
   const label = speaker.id === "other:unidentified" ? t("live.players.unidentified") : speaker.display_name
@@ -195,7 +198,7 @@ function PlayerRow({ speaker: identity, query, current, distance, busy, hidden, 
     return <button type="button" className="secondary-button player-history-source"
       aria-pressed={disabled} data-tooltip={text} aria-label={text}
       disabled={busy || !sourceEnabled || !userId || locked}
-      onClick={() => onSource(kind, !disabled)}>
+      onClick={() => onSource(kind, !disabled, speaker)}>
       {icon}
     </button>;
   };
