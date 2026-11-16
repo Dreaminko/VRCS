@@ -356,20 +356,20 @@ mod tests {
             available: true,
             processing_available: true,
             player_mode: true,
-            selection_mode: "all".into(),
             ..Default::default()
         };
         assert!(hub.update_player_display(epoch, 1, view.clone()));
         let observed = (epoch, hub.player_display_revision());
-        let action = Action::SetProcessingMode("selected".into());
+        let action = Action::SetUserSourceDisabled {
+            user_id: "usr_bob".into(),
+            source: "speaker".into(),
+            disabled: true,
+        };
 
         let updated = View {
-            selection_mode: "selected".into(),
-            selected_count: 1,
             players: vec![Player {
                 user_id: Some("usr_bob".into()),
                 name: "Bob".into(),
-                selected: true,
                 ..Default::default()
             }],
             ..view
@@ -516,7 +516,6 @@ mod tests {
         let epoch = hub.snapshot().owner_epoch;
         let mut view = View {
             available: true,
-            selection_mode: "selected".into(),
             players: vec![Player {
                 track_id: Some("track-1".into()),
                 user_id: Some("usr_known".into()),
@@ -534,7 +533,11 @@ mod tests {
             .begin_player_display(
                 ControlSource::WristMenu,
                 (epoch, 1),
-                Action::SelectCurrent(())
+                Action::SetUserSourceDisabled {
+                    user_id: "usr_missing".into(),
+                    source: "speaker".into(),
+                    disabled: true,
+                }
             )
             .is_none());
         let hide = hub
@@ -574,10 +577,10 @@ mod tests {
         view.follow_default = false;
         assert!(hub.update_player_display(epoch, 2, view.clone()));
         for action in [
-            Action::SetProcessingMode("invalid".into()),
-            Action::SetUserSelected {
+            Action::SetUserSourceDisabled {
                 user_id: "usr_missing".into(),
-                selected: true,
+                source: "speaker".into(),
+                disabled: true,
             },
             Action::SetSourceLanguageHidden {
                 language: "missing".into(),
@@ -592,20 +595,25 @@ mod tests {
             .begin_player_display(
                 ControlSource::WristMenu,
                 (epoch, 2),
-                Action::SetUserSelected {
+                Action::SetUserSourceDisabled {
                     user_id: "usr_known".into(),
-                    selected: true,
+                    source: "speaker".into(),
+                    disabled: true,
                 },
             )
             .unwrap();
         assert!(hub.finish_player_display(&select, None));
-        view.selection_mode = "all".into();
+        view.available = false;
         assert!(hub.update_player_display(epoch, 3, view));
         assert!(hub
             .begin_player_display(
                 ControlSource::WristMenu,
                 (epoch, 3),
-                Action::ClearSelection(())
+                Action::SetUserSourceDisabled {
+                    user_id: "usr_known".into(),
+                    source: "speaker".into(),
+                    disabled: false,
+                }
             )
             .is_none());
     }
