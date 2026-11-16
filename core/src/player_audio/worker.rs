@@ -776,16 +776,16 @@ impl Engine {
             self.apply_source_rule(&id);
         }
     }
-    /// Known accounts follow the configured mode; an actor without a stable
-    /// account cannot be enabled from the interface, so it keeps flowing until
-    /// its identity resolves and the rules can decide.
+    /// Known accounts follow the configured mode. An actor without a stable
+    /// account cannot be enabled from the interface, so the allow list keeps
+    /// both sources off until its identity resolves.
     fn source_blocked(&self, id: &str) -> (bool, bool) {
         let Some(user_id) = self
             .identities
             .get(id)
             .and_then(|speaker| speaker.user_id.as_ref())
         else {
-            return (false, false);
+            return (self.source_allowlist, self.source_allowlist);
         };
         let rule = self.source_overrides.get(user_id);
         let unmatched = self.source_allowlist;
@@ -1457,6 +1457,7 @@ mod tests {
             EventSender(Arc::clone(&outputs)),
             Arc::clone(&status),
         );
+        engine.set_source_policy(BTreeMap::new(), false);
         engine.set_proximity(crate::config::PlayerProximityConfig {
             enabled: true,
             radius_m: 10.0,
@@ -1582,6 +1583,7 @@ mod tests {
         let outputs = Arc::new(std::sync::Mutex::new(output));
         let status = Arc::default();
         let mut engine = Engine::new(None, 1, EventSender(Arc::clone(&outputs)), status);
+        engine.set_source_policy(BTreeMap::new(), false);
         engine.set_selection(Some(Vec::new()));
         engine.reconcile_voice(std::path::Path::new("missing-opus.dll"));
         assert!(voice_rx.try_recv().is_err());
@@ -1686,6 +1688,14 @@ mod tests {
             let packet = super::super::crypto::seal(&[3; 32], counter, &bytes);
             engine.receive_packet(connection.clone(), true, &packet, &bytes, now, true, true);
         };
+        // The allow list also silences actors whose account is still unknown.
+        receive(&mut engine, message());
+        while let Ok(event) = text_rx.try_recv() {
+            assert!(
+                !matches!(event, ChatboxEvent::Message(_)),
+                "unidentified accounts stay muted"
+            );
+        }
         receive(
             &mut engine,
             super::super::names::tests::user_fixture(7, Some("Player"), Some(USER)),
@@ -1697,7 +1707,10 @@ mod tests {
         receive(&mut engine, message());
         assert!(text_rx.try_recv().is_err(), "unlisted accounts stay muted");
 
-        engine.set_source_policy(BTreeMap::from([(USER.into(), PlayerSourceOverride::default())]), true);
+        engine.set_source_policy(
+            BTreeMap::from([(USER.into(), PlayerSourceOverride::default())]),
+            true,
+        );
         receive(&mut engine, message());
         let ChatboxEvent::Message(first) = text_rx.try_recv().unwrap() else {
             panic!("chatbox message")
@@ -1710,7 +1723,10 @@ mod tests {
         assert!(text_rx.try_recv().is_err());
         assert_eq!(engine.identities.len(), 1);
 
-        engine.set_source_policy(BTreeMap::from([(USER.into(), PlayerSourceOverride::default())]), true);
+        engine.set_source_policy(
+            BTreeMap::from([(USER.into(), PlayerSourceOverride::default())]),
+            true,
+        );
         receive(&mut engine, message());
         assert!(matches!(text_rx.try_recv(), Ok(ChatboxEvent::Message(_))));
 
@@ -1722,7 +1738,10 @@ mod tests {
         };
         engine.set_source_policy(BTreeMap::new(), false);
         receive(&mut engine, fresh());
-        assert!(matches!(text_rx.try_recv(), Ok(ChatboxEvent::Message(_))), "everyone mode needs no allow entry");
+        assert!(
+            matches!(text_rx.try_recv(), Ok(ChatboxEvent::Message(_))),
+            "everyone mode needs no allow entry"
+        );
         engine.set_source_policy(
             BTreeMap::from([(
                 USER.into(),
@@ -1734,7 +1753,10 @@ mod tests {
             false,
         );
         receive(&mut engine, fresh());
-        assert!(text_rx.try_recv().is_err(), "an explicit rule still mutes its source");
+        assert!(
+            text_rx.try_recv().is_err(),
+            "an explicit rule still mutes its source"
+        );
     }
 
     #[test]
@@ -1823,7 +1845,10 @@ mod tests {
         let first = players[0].speaker.id.clone();
         let user_id = "usr_00000000-0000-4000-8000-000000000001";
         engine.set_selection(Some(vec![user_id.into()]));
-        engine.set_source_policy(BTreeMap::from([(user_id.into(), PlayerSourceOverride::default())]), true);
+        engine.set_source_policy(
+            BTreeMap::from([(user_id.into(), PlayerSourceOverride::default())]),
+            true,
+        );
         let message =
             super::super::names::tests::user_fixture(1, Some("Selected player"), Some(user_id));
         let mut bytes = vec![1, 0, 0, 0, 0, 7, 0, 0, 0];
@@ -1872,7 +1897,10 @@ mod tests {
             let status = Arc::new(std::sync::Mutex::new(super::super::Status::default()));
             let mut engine = Engine::new(Arc::clone(&opus), 0, tx, Arc::clone(&status));
             engine.set_selection(restored.selected_tracks);
-            engine.set_source_policy(BTreeMap::from([(user.into(), PlayerSourceOverride::default())]), true);
+            engine.set_source_policy(
+                BTreeMap::from([(user.into(), PlayerSourceOverride::default())]),
+                true,
+            );
             let connection = Connection {
                 local: "127.0.0.1:42000".parse().unwrap(),
                 remote: "127.0.0.2:27002".parse().unwrap(),
@@ -1984,7 +2012,10 @@ mod tests {
         let mut resumed = Engine::new(Arc::clone(&opus), 0, tx.clone(), Arc::clone(&status));
         resumed.restore_room(&cache, owner, 100);
         resumed.set_selection(Some(vec![user_id.into()]));
-        resumed.set_source_policy(BTreeMap::from([(user_id.into(), PlayerSourceOverride::default())]), true);
+        resumed.set_source_policy(
+            BTreeMap::from([(user_id.into(), PlayerSourceOverride::default())]),
+            true,
+        );
         let tone = opus.test_tone(440.0, 1).remove(0);
         let bytes = protocol::voice_fixture(7, 1, &tone);
         let packet = super::super::crypto::seal(&[3; 32], 2, &bytes);

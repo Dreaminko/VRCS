@@ -40,9 +40,11 @@ impl CaptureReloadPlan {
         candidate_output.player_audio.selected_user_names.clear();
         current_output.player_audio.proximity = Default::default();
         candidate_output.player_audio.proximity = Default::default();
-        // Source allows apply per packet; changing them must not restart capture.
+        // Source rules apply per packet; changing them must not restart capture.
         current_output.player_audio.source_overrides.clear();
         candidate_output.player_audio.source_overrides.clear();
+        current_output.player_audio.source_mode.clear();
+        candidate_output.player_audio.source_mode.clear();
         let network_restart = current_output.player_audio.pagefile_drive
             != candidate_output.player_audio.pagefile_drive;
         current_output.player_audio.pagefile_drive.clear();
@@ -1053,6 +1055,12 @@ mod tests {
             .player_audio
             .selected_user_names
             .insert(user.into(), "Saved player".into());
+        next.audio.output.player_audio.source_mode = "everyone".into();
+        next.audio
+            .output
+            .player_audio
+            .source_overrides
+            .insert(user.into(), Default::default());
         assert!(CaptureReloadPlan::between(&current, &next).is_empty());
         next.audio.output.player_audio.pagefile_drive = "D:".into();
         assert!(!CaptureReloadPlan::between(&current, &next).is_empty());
