@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Check, ChevronLeft, ChevronRight, Eye, EyeOff, Languages, Mic, UsersRound, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Languages, MessageSquare, MessageSquareOff, Mic, UsersRound, Volume2, VolumeX, X } from "lucide-react";
 import type { PlayerDisplayView, WristMenuCommand, WristMenuUi } from "../vr-controls/player-display-protocol";
 import type { SurfaceState } from "./protocol";
 
@@ -8,7 +8,7 @@ export const DEFAULT_WRIST_MENU_UI: WristMenuUi = { page: "home", group: "curren
 const PROXIMITY_SLIDER = { action: "proximity_radius", min: 0, max: 10, step: 0.1 } as const;
 
 const unavailableView: PlayerDisplayView = {
-  available: false, processing_available: false, player_mode: false, selection_mode: "all", selected_count: 0,
+  available: false, processing_available: false, player_mode: false,
   players: [], languages: [], follow_default: false, default_languages: [], labels: {}, busy: false, error: null,
 };
 
@@ -23,8 +23,8 @@ function MenuButton({ state, id, command, children, label, active = false, disab
   </button>;
 }
 
-function ProximitySlider({ state, id, value, disabled, label, error }: {
-  state: SurfaceState; id: number; value: number; disabled: boolean; label: string; error: string | null;
+function ProximitySlider({ state, id, value, disabled, label, offLabel, error }: {
+  state: SurfaceState; id: number; value: number; disabled: boolean; label: string; offLabel: string; error: string | null;
 }) {
   const track = useRef<HTMLButtonElement>(null);
   const dragging = useRef(false);
@@ -51,13 +51,14 @@ function ProximitySlider({ state, id, value, disabled, label, error }: {
       && (value === preview || (error !== null && error !== errorAtPress.current)))) setPreview(null);
   }, [disabled, error, preview, value]);
   const shown = preview ?? Math.max(PROXIMITY_SLIDER.min, Math.min(PROXIMITY_SLIDER.max, value));
+  const text = shown > 0 ? `${shown.toFixed(1)} m` : offLabel;
   const progress = (shown - PROXIMITY_SLIDER.min) / (PROXIMITY_SLIDER.max - PROXIMITY_SLIDER.min) * 100;
   return <div className="vr-menu-proximity-slider">
     <button type="button" tabIndex={-1} role="slider" ref={track} disabled={disabled}
       data-vr-region={id} data-vr-menu={JSON.stringify({ slider: PROXIMITY_SLIDER })}
       aria-label={label} aria-orientation="horizontal"
       aria-valuemin={PROXIMITY_SLIDER.min} aria-valuemax={PROXIMITY_SLIDER.max} aria-valuenow={shown}
-      aria-valuetext={`${shown.toFixed(1)} m`}
+      aria-valuetext={text}
       className="vr-menu-proximity-track"
       style={{ "--vr-proximity-progress": `${progress}%` } as CSSProperties}>
       <span className="vr-menu-proximity-line" aria-hidden="true">
@@ -66,7 +67,7 @@ function ProximitySlider({ state, id, value, disabled, label, error }: {
         <span className="vr-menu-proximity-scale"><span>0</span><span>10 m</span></span>
       </span>
     </button>
-    <strong className="vr-menu-proximity-value">{shown.toFixed(1)} m</strong>
+    <strong className="vr-menu-proximity-value">{text}</strong>
   </div>;
 }
 
@@ -85,8 +86,6 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
   const label = (key: string, fallback: string) => view.labels[key] || fallback;
   const named = (key: string, fallback: string, name: string) => label(key, fallback).replaceAll("{{name}}", name);
   const locked = !view.available;
-  const processingLocked = locked || !view.processing_available || !view.player_mode;
-  const selectionLocked = processingLocked || view.selection_mode !== "selected";
   const current = view.players.filter(player => player.current);
   const players = pageSlice(ui.group === "current" ? current : view.players.filter(player => !player.current), ui.player_page, 5);
   const languages = pageSlice(view.languages, ui.language_page, 12);
@@ -101,9 +100,8 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
   const activePage = page === "players" ? players : page === "microphone" ? microphones : languages;
   const paging = (index: number): WristMenuCommand => page === "players" ? { player_page: index } : page === "microphone" ? { microphone_page: index } : { language_page: index };
   const message = view.error || (!view.available ? label("unavailable", "Player settings are unavailable")
-    : page === "players" && (!view.processing_available || !view.player_mode) ? label("processingUnavailable", "Player processing is unavailable; display controls still work")
-      : page === "players" && view.selection_mode === "selected" && !current.some(player => player.selected)
-        ? label("noneSelected", "No current players selected; other-party audio is not being processed.") : "");
+    : page === "players" && (!view.processing_available || !view.player_mode)
+      ? label("processingUnavailable", "Distance filtering requires per-player audio and a connected Core") : "");
   const pagination = <div className="vr-menu-pagination">
     <MenuButton state={state} id={15} command={paging(Math.max(0, activePage.page - 1))} label={label("previous", "Previous page")} disabled={activePage.page === 0}><ChevronLeft /></MenuButton>
     <span>{activePage.page + 1} / {activePage.count}</span>
@@ -112,7 +110,7 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
 
   return <section className="vr-player-display-panel vr-surface-panel" data-vr-panel>
     <header className="vr-menu-heading">
-      <div><h1>{label("title", "People and translation display")}</h1>
+      <div><h1>{label("title", "Capture management")}</h1>
         {message && <p className={`vr-menu-status${view.error ? " vr-surface-error" : ""}`} role={view.error ? "alert" : "status"}>{message}</p>}
       </div>
       <MenuButton state={state} id={5} command={{ page: "home" }} label={label("close", "Close")}><X /></MenuButton>
@@ -123,41 +121,29 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
       {mic && <MenuButton state={state} id={29} command={{ page: "microphone" }} active={page === "microphone"}><Mic /><span>{label("mic_title", "Microphone speakers")}</span></MenuButton>}
     </nav>
     {page === "players" ? <>
-      <div className="vr-menu-processing vr-menu-processing-inline" role="group" aria-label={label("process", "Players to process")} data-available={!processingLocked}>
-        <span className="vr-menu-processing-title">{label("process", "Players to process")}</span>
-        <div className="vr-menu-processing-options">
-          <MenuButton state={state} id={8} command={{ display: { set_processing_mode: "all" } }} active={view.selection_mode === "all"} disabled={processingLocked || view.selection_mode === "all"}>{label("all", "Everyone")}</MenuButton>
-          <MenuButton state={state} id={9} command={{ display: { set_processing_mode: "selected" } }} active={view.selection_mode === "selected"} disabled={processingLocked || view.selection_mode === "selected"}>{label("selected", "Whitelist")}</MenuButton>
-        </div>
-      </div>
-      {proximity && <section className="vr-menu-proximity" aria-label={label("proximityRadius", "Range")}>
-        <MenuButton state={state} id={31} command={{ display: { set_proximity_enabled: !proximity.enabled } }}
-          className="vr-menu-proximity-toggle" active={proximity.enabled} disabled={locked || !view.player_mode}
-          label={label("proximityEnable", "Process only players within range")}>
-          <span className="vr-menu-check" aria-hidden="true">{proximity.enabled && <Check />}</span>
-          <span>{label("proximityTab", "Distance filter")}</span>
-        </MenuButton>
-        <ProximitySlider state={state} id={32} value={proximity.radius_m}
-          disabled={locked || !view.player_mode || !proximity.enabled}
-          label={label("proximityRadius", "Range")} error={view.error} />
+      {proximity && <section className="vr-menu-proximity" aria-label={label("proximityRadius", "Recognition distance")}>
+        <ProximitySlider state={state} id={32} value={proximity.enabled ? proximity.radius_m : 0}
+          disabled={locked || !view.player_mode}
+          label={label("proximityRadius", "Recognition distance")} offLabel={label("proximityOff", "Off")} error={view.error} />
       </section>}
       <nav className="vr-menu-player-groups">
         {pagination}
         <MenuButton state={state} id={12} command={{ group: "current" }} active={ui.group === "current"}>{label("current", "Current world")}</MenuButton>
-        <MenuButton state={state} id={13} command={{ group: "history" }} active={ui.group === "history"}>{label("historySaved", "History / saved")}</MenuButton>
+        <MenuButton state={state} id={13} command={{ group: "history" }} active={ui.group === "history"}>{label("historySaved", "History")}</MenuButton>
       </nav>
       <div className="vr-menu-player-list">
         {players.items.length ? players.items.map((player, index) => <div className={`vr-menu-player-row vr-menu-track-row${player.hidden ? " is-hidden" : ""}`} key={`${player.track_id ?? "saved"}:${player.user_id ?? "unknown"}`}>
           <div className="vr-menu-player-name"><strong>{player.name}</strong><small>{!player.user_id ? label("userIdPending", "Waiting for player user ID before selection") : player.detail}</small></div>
-          <MenuButton state={state} id={17 + index * 2} command={{ display: { set_user_selected: { user_id: player.user_id ?? "", selected: !player.selected } } }}
-            disabled={selectionLocked || !player.user_id} active={player.selected} label={named("translatePerson", "Translate {{name}}", player.name)}>
-            <span className="vr-menu-check" aria-hidden="true">{player.selected && <Check />}</span><span>{label("translate", "Translate")}</span>
-          </MenuButton>
-          <MenuButton state={state} id={18 + index * 2} command={{ display: { set_track_hidden: { track_id: player.track_id ?? "", hidden: !player.hidden } } }}
-            disabled={locked || !player.track_id} active={player.hidden} className="vr-menu-row-icon-button"
-            label={named(player.hidden ? "showPerson" : "hidePerson", player.hidden ? "Show records from {{name}}" : "Hide records from {{name}}", player.name)}>
-            {player.hidden ? <EyeOff /> : <Eye />}
-          </MenuButton>
+          {([["vrchat_chatbox", player.chatbox_disabled, "Chatbox"], ["speaker", player.voice_disabled, "Voice"]] as const).map(([source, disabled, icon], offset) =>
+            <MenuButton key={source} state={state} id={33 + index * 3 + offset}
+              command={{ display: { set_user_source_disabled: { user_id: player.user_id ?? "", source, disabled: !disabled } } }}
+              disabled={locked || !player.user_id || (source === "speaker" && player.voice_locked)} active={disabled} className="vr-menu-row-icon-button"
+              label={named(disabled ? `enable${icon}` : `disable${icon}`,
+                disabled ? `Resume ${icon.toLowerCase()} capture for {{name}}` : `Stop ${icon.toLowerCase()} capture for {{name}}`, player.name)}>
+              {source === "vrchat_chatbox"
+                ? disabled ? <MessageSquareOff /> : <MessageSquare />
+                : disabled ? <VolumeX /> : <Volume2 />}
+            </MenuButton>)}
         </div>) : <p className="vr-surface-empty">{label("empty", "Waiting for tracks or loading history.")}</p>}
       </div>
     </> : page === "microphone" ? <>

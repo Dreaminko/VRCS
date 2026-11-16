@@ -2,7 +2,7 @@ import type { Settings } from "../settings/types";
 import type { SpeakerIdentity } from "../subtitles/types";
 import { playerUserId } from "../capture/player-selection.ts";
 import { sourceLanguageKey, type PlayerHistoryPreferences } from "../subtitles/player-history.ts";
-import { applyPlayerProximity, applyPlayerSelectionAction, applyPlayerVisibilityAction, isPlayerProximityAction, isPlayerSelectionAction, type PlayerDisplayAction } from "../subtitles/player-controls.ts";
+import { applyPlayerProximity, applyPlayerSourceAction, applyPlayerVisibilityAction, isPlayerProximityAction, isPlayerSourceAction, sourceMode, type PlayerDisplayAction } from "../subtitles/player-controls.ts";
 import type { ControlAction, ControlSource } from "./protocol";
 import type { MicrophoneSpeakerAction, MicrophoneSpeakerSnapshot } from "../capture/microphone-speakers";
 
@@ -14,16 +14,16 @@ export interface PlayerDisplayRow {
   name: string;
   detail: string;
   current: boolean;
-  selected: boolean;
   hidden: boolean;
+  chatbox_disabled: boolean;
+  voice_disabled: boolean;
+  voice_locked: boolean;
 }
 
 export interface PlayerDisplayView {
   available: boolean;
   processing_available: boolean;
   player_mode: boolean;
-  selection_mode: "all" | "selected";
-  selected_count: number;
   players: PlayerDisplayRow[];
   proximity?: {
     enabled: boolean;
@@ -129,6 +129,7 @@ export interface PlayerDisplayExecutionState {
   processingAvailable: boolean;
   speakers: readonly SpeakerIdentity[];
   current: readonly SpeakerIdentity[];
+  hiddenTracks: readonly string[];
   defaultLanguages: readonly string[];
   languages: readonly string[];
 }
@@ -152,52 +153,51 @@ export function createPlayerDisplayExecutor(options: {
       return;
     }
     if (isPlayerProximityAction(action)) {
+      if (!Number.isFinite(action.set_proximity_radius)) throw new Error("Distance limit is invalid");
+      const radius_m = Math.round(action.set_proximity_radius * 10) / 10;
+      if (radius_m < 0 || radius_m > 10) throw new Error("Distance limit is invalid");
       const saved = await options.updateSettings(settings => {
         if (settings.audio.output.mode !== "vrchat_players") throw new Error("Player processing is unavailable");
         const proximity = settings.audio.output.player_audio?.proximity;
         if (!proximity) throw new Error("Distance filtering is unavailable");
-        if ("set_proximity_enabled" in action) {
-          return proximity.enabled === action.set_proximity_enabled ? settings
-            : applyPlayerProximity(settings, { ...proximity, enabled: action.set_proximity_enabled });
-        }
-        if (!Number.isFinite(action.set_proximity_radius)) throw new Error("Distance limit is invalid");
-        const radius_m = Math.round(action.set_proximity_radius * 10) / 10;
-        if (radius_m < 0 || radius_m > 10) throw new Error("Distance limit is invalid");
-        return proximity.radius_m === radius_m ? settings : applyPlayerProximity(settings, { ...proximity, radius_m });
+        return proximity.radius_m === radius_m && proximity.enabled === (radius_m > 0)
+          ? settings : applyPlayerProximity(settings, radius_m);
       });
       const proximity = saved.audio.output.player_audio?.proximity;
-      const applied = "set_proximity_enabled" in action
-        ? proximity?.enabled === action.set_proximity_enabled
-        : proximity !== undefined && Math.abs(proximity.radius_m - Math.round(action.set_proximity_radius * 10) / 10) < 0.001;
-      if (!proximity || !applied) throw new Error("Distance filter was not applied");
+      if (!proximity || proximity.enabled !== (radius_m > 0) || Math.abs(proximity.radius_m - radius_m) >= 0.001) {
+        throw new Error("Distance filter was not applied");
+      }
       return;
     }
-    if (isPlayerSelectionAction(action)) {
-      let expected: string[] | null | undefined;
-      const saved = await options.updateSettings(settings => {
-        // The shared save queue calls this again after a conflict or an earlier save.
-        const current = state();
-        if (!current.processingAvailable) throw new Error("Player processing is unavailable");
-        if ("set_user_selected" in action && !playerUserId({ id: "", index: 0, user_id: action.set_user_selected.user_id })) {
-          throw new Error("Player identity is unavailable");
-        }
-        const next = applyPlayerSelectionAction(settings, action, current.speakers, current.current);
-        expected = next.audio.output.player_audio?.selected_tracks ?? null;
-        return next;
-      });
-      const actual = saved.audio.output.player_audio?.selected_tracks ?? null;
-      if (saved.audio.output.mode !== "vrchat_players" || expected === undefined
-        || (expected === null ? actual !== null : actual === null
-          || expected.length !== actual.length || expected.some(id => !actual.includes(id)))) {
-        throw new Error("Player selection was not applied");
+    if (isPlayerSourceAction(action)) {
+      const { user_id, source, disabled } = action.set_user_source_disabled;
+      if (source === "speaker" && !disabled && state().speakers.some(speaker =>
+        playerUserId(speaker) === user_id && state().hiddenTracks.includes(speaker.id))) {
+        throw new Error("Unhide the player before enabling voice");
       }
+      const saved = await options.updateSettings(settings => applyPlayerSourceAction(settings, action));
+      const unmatched = sourceMode(saved.audio.output.player_audio) === "allowlist";
+      const rule = saved.audio.output.player_audio?.source_overrides?.[user_id];
+      const effective = rule ? (source === "vrchat_chatbox" ? rule.chatbox_disabled : rule.voice_disabled) : unmatched;
+      if (effective !== disabled) throw new Error("Player source setting was not applied");
+    } else if ("set_track_hidden" in action) {
+      const current = state();
+      const speaker = current.speakers.find(candidate =>
+        candidate.id === action.set_track_hidden.track_id && !candidate.id.startsWith("saved-user:"));
+      if (!speaker) throw new Error("Player track is unavailable");
+      const userId = playerUserId(speaker);
+      // Hiding also stops voice capture; unhiding never enables a muted player.
+      if (userId && action.set_track_hidden.hidden) {
+        const saved = await options.updateSettings(settings => applyPlayerSourceAction(settings,
+          { set_user_source_disabled: { user_id: userId, source: "speaker", disabled: true } }, speaker));
+        const rule = saved.audio.output.player_audio?.source_overrides?.[userId];
+        const unmatched = sourceMode(saved.audio.output.player_audio) === "allowlist";
+        if (!(rule ? rule.voice_disabled : unmatched)) throw new Error("Player source setting was not applied");
+      }
+      options.updatePreferences(preferences => applyPlayerVisibilityAction(preferences, action, current.defaultLanguages));
     } else {
       options.updatePreferences(preferences => {
         const current = state();
-        if ("set_track_hidden" in action && !current.speakers.some(speaker =>
-          speaker.id === action.set_track_hidden.track_id && !speaker.id.startsWith("saved-user:"))) {
-          throw new Error("Player track is unavailable");
-        }
         if ("set_source_language_hidden" in action) {
           const language = sourceLanguageKey(action.set_source_language_hidden.language);
           if (!language || !current.languages.includes(language)) throw new Error("Source language is unavailable");

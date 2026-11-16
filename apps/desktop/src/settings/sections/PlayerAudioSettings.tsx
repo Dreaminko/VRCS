@@ -56,9 +56,8 @@ export function PlayerAudioSettings({ value, status, memory, disabled, onChange 
     </div>
     <div className="settings-field-note" role="status">
       <strong>{phase === "streaming" && status
-        ? options.selected_tracks?.length === 0 ? t("live.players.noneSelected")
-          : status.active_players > 0 ? t("settings.audio.players.activeTracks", { players: status.active_players })
-            : t("settings.audio.players.waitingSpeech")
+        ? status.active_players > 0 ? t("settings.audio.players.activeTracks", { players: status.active_players })
+          : t("settings.audio.players.waitingSpeech")
         : t(`settings.audio.players.phase.${phase}`)}</strong>
       {phase === "acquiring_key" && keyScan && <p>{t("settings.audio.players.keyElapsed", {
         seconds: (keyScan.elapsed_ms / 1000).toFixed(1),
