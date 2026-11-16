@@ -1183,7 +1183,8 @@
         "waitingContent": "设置已开启，等待内容",
         "masterOff": "受字幕总开关限制",
         "controlBusy": "正在处理",
-        "controlFailed": "操作失败，请重试"
+        "controlFailed": "操作失败，请重试",
+        "settings": "设置"
       },
       "conversationTitles": {
         "title": "会话管理",

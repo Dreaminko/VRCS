@@ -77,6 +77,7 @@ pub enum Command {
     MicrophonePage(usize),
     Display(Action),
     Slider(Slider),
+    Dashboard,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -113,7 +114,9 @@ impl Ui {
             Command::PlayerPage(page) => self.player_page = *page,
             Command::LanguagePage(page) => self.language_page = *page,
             Command::MicrophonePage(page) => self.microphone_page = *page,
-            Command::Control(_) | Command::Display(_) | Command::Slider(_) => return false,
+            Command::Control(_) | Command::Display(_) | Command::Slider(_) | Command::Dashboard => {
+                return false
+            }
         }
         self.clamp(view);
         *self != previous

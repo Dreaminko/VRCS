@@ -320,9 +320,22 @@ pub enum DashboardAction {
 #[cfg(any(windows, linux_vr))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DashboardPointerEvent {
-    Move { x: f32, y: f32 },
-    Down { x: f32, y: f32 },
-    Up { x: f32, y: f32 },
+    Move {
+        x: f32,
+        y: f32,
+    },
+    Down {
+        x: f32,
+        y: f32,
+    },
+    Up {
+        x: f32,
+        y: f32,
+    },
+    /// Viewport fraction; positive scrolls down.
+    Scroll {
+        delta: f32,
+    },
     Shown,
     Hidden,
 }

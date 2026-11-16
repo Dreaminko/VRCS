@@ -41,7 +41,7 @@ export function useVrControlBridge(options: {
   view.current = {
     owner_epoch: epoch, revision: revision.current,
     dark: document.documentElement.dataset.theme === "dark",
-    labels: Object.fromEntries(["emptyDialogue", "dragHint", "anchorWrist", "anchorWorld", "followView", "controlBusy", "controlFailed", "masterOff", "waitingContent"]
+    labels: Object.fromEntries(["emptyDialogue", "dragHint", "anchorWrist", "anchorWorld", "followView", "controlBusy", "controlFailed", "masterOff", "waitingContent", "settings"]
       .map((key) => [key, t(`settings.vrOverlay.${key}`)])),
     items: [
       item(overlay?.wrist.enabled ?? false, false, options.available && Boolean(settings?.features.vr_overlay), t("settings.vrDashboard.wrist"), false, overlay?.enabled ? null : t("settings.vrOverlay.masterOff")),

@@ -162,7 +162,7 @@ impl CursorOverlay {
     }
 }
 
-fn texture() -> Vec<u8> {
+pub(crate) fn texture() -> Vec<u8> {
     (0..64 * 64)
         .flat_map(|i| {
             let x = (i % 64) as f32 + 0.5 - 32.;

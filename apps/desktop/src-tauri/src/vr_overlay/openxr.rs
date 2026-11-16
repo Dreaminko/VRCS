@@ -4,20 +4,108 @@
 //! the neutral backend calls onto `XrRuntime`; OpenVR-only values never cross
 //! back into the shared layer.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use openxr as xr;
 use vrcs_core::{VrOverlayHeadsetConfig, VrOverlayWristConfig};
 
 use super::backend::{menu_config, ControllerBinding, OverlayKind};
+use super::dashboard::{DashboardPointerEvent, DASHBOARD_HEIGHT, DASHBOARD_WIDTH};
 use super::pose::{
     pose_from_quaternion, DeviceId, PointerId, PointerInput, Pose, SpaceId, TrackedPose,
 };
 use super::transform;
-use super::xr::{PanelId, PanelSpace, XrRuntime};
+use super::xr::{PanelId, PanelInfo, PanelSpace, XrRuntime};
+
+const CURSOR_PX: u32 = 64;
+const CURSOR_OFFSET_M: f32 = 0.003;
 
 pub struct OpenXrBackend {
     runtime: XrRuntime,
+    cursor_ready: bool,
+    dashboard_open: bool,
+    dashboard_pointer: DashboardPointer,
+    dashboard_cursor: Option<(OverlayKind, [f32; 3], SpaceId, u32)>,
+    dashboard_placeholder: Option<String>,
+    dashboard_scroll_at: Instant,
+}
+
+#[derive(Default)]
+struct DashboardPointer {
+    pressed: Option<usize>,
+    hover: Option<[f32; 2]>,
+    triggers: [bool; 2],
+}
+
+impl DashboardPointer {
+    fn events(
+        &mut self,
+        hits: [Option<[f32; 2]>; 2],
+        triggers: [bool; 2],
+        primary: Option<usize>,
+    ) -> Vec<DashboardPointerEvent> {
+        let point = |uv: [f32; 2]| {
+            (
+                uv[0] * DASHBOARD_WIDTH as f32,
+                uv[1] * DASHBOARD_HEIGHT as f32,
+            )
+        };
+        let mut events = Vec::new();
+        if let Some(hand) = self.pressed {
+            if triggers[hand] {
+                if let Some(uv) = hits[hand] {
+                    if self.hover != Some(uv) {
+                        let (x, y) = point(uv);
+                        events.push(DashboardPointerEvent::Move { x, y });
+                        self.hover = Some(uv);
+                    }
+                } else {
+                    // Leaving the quad cancels the press, including a tracking
+                    // dropout that happened while the trigger was held.
+                    events.push(DashboardPointerEvent::Up { x: -1.0, y: -1.0 });
+                    self.pressed = None;
+                    self.hover = None;
+                }
+            } else {
+                // Only a release on the quad may commit; releasing after the
+                // ray left must not use the last hover position.
+                events.push(match hits[hand] {
+                    Some(uv) => {
+                        let (x, y) = point(uv);
+                        DashboardPointerEvent::Up { x, y }
+                    }
+                    None => DashboardPointerEvent::Up { x: -1.0, y: -1.0 },
+                });
+                self.pressed = None;
+                self.hover = None;
+            }
+        } else {
+            if let Some(uv) = primary
+                .filter(|hand| hits[*hand].is_some())
+                .and_then(|hand| hits[hand])
+            {
+                if self.hover != Some(uv) {
+                    let (x, y) = point(uv);
+                    events.push(DashboardPointerEvent::Move { x, y });
+                    self.hover = Some(uv);
+                }
+            } else if self.hover.take().is_some() {
+                events.push(DashboardPointerEvent::Move { x: -1.0, y: -1.0 });
+            }
+            // Either controller may press; the closest hand only drives hover.
+            if let Some((hand, uv)) = (0..2)
+                .filter(|hand| triggers[*hand] && !self.triggers[*hand])
+                .find_map(|hand| hits[hand].map(|uv| (hand, uv)))
+            {
+                let (x, y) = point(uv);
+                events.push(DashboardPointerEvent::Down { x, y });
+                self.pressed = Some(hand);
+                self.hover = Some(uv);
+            }
+        }
+        self.triggers = triggers;
+        events
+    }
 }
 
 fn panel(kind: OverlayKind) -> PanelId {
@@ -137,6 +225,12 @@ impl OpenXrBackend {
     pub fn connect() -> Result<Self, String> {
         Ok(Self {
             runtime: XrRuntime::open(false)?,
+            cursor_ready: false,
+            dashboard_open: false,
+            dashboard_pointer: DashboardPointer::default(),
+            dashboard_cursor: None,
+            dashboard_placeholder: None,
+            dashboard_scroll_at: Instant::now(),
         })
     }
 
@@ -157,11 +251,11 @@ impl OpenXrBackend {
     }
 
     pub fn ensure_headset(&mut self, config: &VrOverlayHeadsetConfig) -> Result<(), String> {
-        self.runtime.set_panel(
+        self.runtime.set_panel_width(
             PanelId::Headset,
             PanelSpace::View,
             xr_pose(transform::headset(config)),
-            width(config.width_m),
+            config.width_m,
         );
         Ok(())
     }
@@ -171,11 +265,11 @@ impl OpenXrBackend {
         config: &VrOverlayWristConfig,
     ) -> Result<ControllerBinding, String> {
         let hand = hand_index(config);
-        self.runtime.set_panel(
+        self.runtime.set_panel_width(
             PanelId::Wrist,
             PanelSpace::Grip(hand),
             xr_pose(transform::wrist(config)),
-            width(config.width_m),
+            config.width_m,
         );
         Ok(ControllerBinding {
             role: Some(hand_name(hand).into()),
@@ -186,11 +280,11 @@ impl OpenXrBackend {
     pub fn ensure_wrist_menu(&mut self, hand: &str) -> Result<(), String> {
         let config = menu_config(hand);
         let index = usize::from(hand == "right");
-        self.runtime.set_panel(
+        self.runtime.set_panel_width(
             PanelId::WristMenu,
             PanelSpace::Grip(index),
             xr_pose(transform::wrist(&config)),
-            width(config.width_m),
+            config.width_m,
         );
         Ok(())
     }
@@ -207,7 +301,7 @@ impl OpenXrBackend {
             None => (PanelSpace::Stage, pose),
         };
         self.runtime
-            .set_panel(PanelId::Wrist, space, xr_pose(pose), width(config.width_m));
+            .set_panel_width(PanelId::Wrist, space, xr_pose(pose), config.width_m);
         Ok(())
     }
 
@@ -257,6 +351,17 @@ impl OpenXrBackend {
         })
     }
 
+    fn world_panel(&self, info: &PanelInfo) -> Option<Pose> {
+        let local = matrix_pose(info.pose);
+        Some(match info.space {
+            PanelSpace::Stage => local,
+            PanelSpace::View => transform::compose(self.ocr_tracking().ok()?.0, local),
+            PanelSpace::Grip(hand) => {
+                transform::compose(self.runtime.controller_pose(hand)?.pose, local)
+            }
+        })
+    }
+
     pub fn intersect(
         &self,
         kind: OverlayKind,
@@ -267,14 +372,7 @@ impl OpenXrBackend {
         if !info.visible {
             return None;
         }
-        let panel_pose = matrix_pose(info.pose);
-        let world = match info.space {
-            PanelSpace::Stage => panel_pose,
-            PanelSpace::View => transform::compose(self.ocr_tracking().ok()?.0, panel_pose),
-            PanelSpace::Grip(hand) => {
-                transform::compose(self.runtime.controller_pose(hand)?.pose, panel_pose)
-            }
-        };
+        let world = self.world_panel(&info)?;
         let local = transform::compose(transform::inverse(world), ray.pose);
         let origin = [local[0][3], local[1][3], local[2][3]];
         let direction = [-local[0][2], -local[1][2], -local[2][2]];
@@ -312,8 +410,45 @@ impl OpenXrBackend {
 
     pub fn update_cursor(
         &mut self,
-        _target: Option<(OverlayKind, [f32; 3], SpaceId, u32)>,
+        target: Option<(OverlayKind, [f32; 3], SpaceId, u32)>,
     ) -> Result<(), String> {
+        // The shared pointer sampler only knows about its own surfaces; fall
+        // back to the settings quad when it owns the pointer.
+        let target = target.or_else(|| self.dashboard_cursor.filter(|_| self.dashboard_open));
+        let Some((kind, position, _space, texture_width)) = target else {
+            self.runtime.set_visible(PanelId::Cursor, false);
+            return Ok(());
+        };
+        let Some(info) = self.runtime.panel(panel(kind)) else {
+            self.runtime.set_visible(PanelId::Cursor, false);
+            return Ok(());
+        };
+        let size = info.size.width * CURSOR_PX as f32 / texture_width.max(1) as f32;
+        let Some(world) = self
+            .world_panel(&info)
+            .filter(|_| info.visible && position.iter().all(|v| v.is_finite()))
+            .filter(|_| size.is_finite() && size > 0.0)
+        else {
+            self.runtime.set_visible(PanelId::Cursor, false);
+            return Ok(());
+        };
+        if !self.cursor_ready {
+            let mut pixels = super::cursor::texture();
+            premultiply(&mut pixels);
+            self.runtime
+                .upload(PanelId::Cursor, &pixels, CURSOR_PX, CURSOR_PX)?;
+            self.cursor_ready = true;
+        }
+        let normal = [world[0][2], world[1][2], world[2][2]];
+        let mut pose = xr_pose(world);
+        pose.position = xr::Vector3f {
+            x: position[0] + normal[0] * CURSOR_OFFSET_M,
+            y: position[1] + normal[1] * CURSOR_OFFSET_M,
+            z: position[2] + normal[2] * CURSOR_OFFSET_M,
+        };
+        self.runtime
+            .set_panel(PanelId::Cursor, PanelSpace::Stage, pose, width(size));
+        self.runtime.set_visible(PanelId::Cursor, true);
         Ok(())
     }
 
@@ -349,11 +484,16 @@ impl OpenXrBackend {
     }
 
     pub fn system_dashboard_visible(&mut self) -> bool {
-        false
+        // The application-owned settings quad stands in for SteamVR's
+        // dashboard; the shared pointer pipeline goes modal while it is open.
+        self.dashboard_open
     }
 
     pub fn ensure_dashboard(&mut self) -> Result<(), String> {
-        self.runtime.set_panel(
+        if self.runtime.menu_clicked() {
+            self.set_dashboard_open(!self.dashboard_open);
+        }
+        self.runtime.set_panel_width(
             PanelId::Dashboard,
             PanelSpace::View,
             xr::Posef {
@@ -364,23 +504,142 @@ impl OpenXrBackend {
                     z: -1.2,
                 },
             },
-            width(1.0),
+            1.0,
         );
+        self.runtime
+            .set_visible(PanelId::Dashboard, self.dashboard_open);
         Ok(())
     }
 
-    pub fn show_dashboard_placeholder(&mut self, _error: Option<&str>) -> Result<(), String> {
+    pub fn show_dashboard_placeholder(&mut self, error: Option<&str>) -> Result<(), String> {
+        let message = match error {
+            Some(error) => format!("VRCS\n\nDashboard unavailable. Retrying...\n\n{error}"),
+            None => "VRCS\n\nLoading dashboard...".into(),
+        };
+        if self.dashboard_placeholder.as_deref() == Some(message.as_str()) {
+            return Ok(());
+        }
+        let texture = super::renderer::dashboard_placeholder(&message)?;
+        let mut pixels = texture.pixels;
+        premultiply(&mut pixels);
+        self.runtime
+            .upload(PanelId::Dashboard, &pixels, texture.width, texture.height)?;
+        self.runtime
+            .set_visible(PanelId::Dashboard, self.dashboard_open);
+        self.dashboard_placeholder = Some(message);
         Ok(())
     }
 
     pub fn dashboard_visible(&self) -> bool {
-        self.runtime.visible(PanelId::Dashboard)
+        self.dashboard_open
     }
 
-    pub fn poll_dashboard_events(
-        &self,
-    ) -> Result<Vec<crate::vr_overlay::dashboard::DashboardPointerEvent>, String> {
-        Ok(Vec::new())
+    pub fn toggle_dashboard(&mut self) -> Result<bool, String> {
+        self.set_dashboard_open(!self.dashboard_open);
+        self.runtime
+            .set_visible(PanelId::Dashboard, self.dashboard_open);
+        Ok(self.dashboard_open)
+    }
+
+    pub fn poll_dashboard_events(&mut self) -> Result<Vec<DashboardPointerEvent>, String> {
+        if !self.dashboard_open {
+            self.clear_dashboard_pointer();
+            return Ok(Vec::new());
+        }
+        if self.dashboard_placeholder.is_some() {
+            self.clear_dashboard_pointer();
+            return Ok(Vec::new());
+        }
+        if !self.runtime.focused() {
+            // Losing focus must not commit the press that was in progress.
+            let events = if self.dashboard_pointer.pressed.is_some() {
+                vec![DashboardPointerEvent::Up { x: -1.0, y: -1.0 }]
+            } else if self.dashboard_pointer.hover.is_some() {
+                vec![DashboardPointerEvent::Move { x: -1.0, y: -1.0 }]
+            } else {
+                Vec::new()
+            };
+            self.clear_dashboard_pointer();
+            // A trigger that is still held when focus returns must not count
+            // as a fresh press; require a release first.
+            self.dashboard_pointer.triggers = [true; 2];
+            return Ok(events);
+        }
+        let inputs = self.runtime.pointer_inputs();
+        let mut hits: [Option<[f32; 2]>; 2] = [None; 2];
+        let mut best: Option<(usize, [f32; 2], [f32; 3], f32)> = None;
+        for (hand, input) in inputs.iter().enumerate().take(2) {
+            let Some(ray) = self.runtime.pointer_pose(input.pointer) else {
+                continue;
+            };
+            let Some((uv, position, distance)) =
+                self.intersect(OverlayKind::Dashboard, input.device, ray)
+            else {
+                continue;
+            };
+            hits[hand] = Some(uv);
+            if best.is_none_or(|(_, _, _, closest)| distance < closest) {
+                best = Some((hand, uv, position, distance));
+            }
+        }
+        self.dashboard_cursor = best.map(|(_, _, position, _)| {
+            (
+                OverlayKind::Dashboard,
+                position,
+                SpaceId(0),
+                DASHBOARD_WIDTH,
+            )
+        });
+        let pressed = |hand: usize| {
+            inputs
+                .get(hand)
+                .and_then(|input| input.trigger)
+                .unwrap_or(false)
+        };
+        let mut events = self.dashboard_pointer.events(
+            hits,
+            [pressed(0), pressed(1)],
+            best.map(|(hand, _, _, _)| hand),
+        );
+        let now = Instant::now();
+        let elapsed = now
+            .saturating_duration_since(self.dashboard_scroll_at)
+            .as_secs_f32()
+            .min(0.05);
+        self.dashboard_scroll_at = now;
+        let axis = best
+            .and_then(|(hand, ..)| inputs.get(hand))
+            .map(|input| input.scroll_y)
+            .unwrap_or(0.0);
+        let delta = -axis * elapsed * 1.5;
+        if delta.abs() > 1e-4 {
+            events.push(DashboardPointerEvent::Scroll { delta });
+        }
+        Ok(events)
+    }
+
+    fn set_dashboard_open(&mut self, open: bool) {
+        self.dashboard_open = open;
+        self.dashboard_scroll_at = Instant::now();
+        if open {
+            // A trigger held while the quad opened must not count as a click.
+            self.dashboard_pointer.triggers = [false; 2];
+            if self.runtime.focused() {
+                for (hand, input) in self.runtime.pointer_inputs().iter().enumerate().take(2) {
+                    self.dashboard_pointer.triggers[hand] = input.trigger == Some(true);
+                }
+            } else {
+                self.dashboard_pointer.triggers = [true; 2];
+            }
+        } else {
+            self.clear_dashboard_pointer();
+        }
+    }
+
+    fn clear_dashboard_pointer(&mut self) {
+        self.dashboard_pointer = DashboardPointer::default();
+        self.dashboard_cursor = None;
+        self.dashboard_scroll_at = Instant::now();
     }
 
     pub fn visible(&self, kind: OverlayKind) -> bool {
@@ -388,7 +647,7 @@ impl OpenXrBackend {
     }
 
     pub fn tracking_reset(&mut self) -> bool {
-        false
+        self.runtime.take_tracking_reset()
     }
 
     pub fn has_surface_texture(&self, kind: OverlayKind) -> bool {
@@ -405,11 +664,18 @@ impl OpenXrBackend {
         let mut pixels = texture.pixels.clone();
         premultiply(&mut pixels);
         self.runtime
-            .upload(panel(kind), &pixels, texture.width, texture.height)
+            .upload(panel(kind), &pixels, texture.width, texture.height)?;
+        if kind == OverlayKind::Dashboard {
+            self.dashboard_placeholder = None;
+        }
+        Ok(())
     }
 
     pub fn clear_surface_texture(&mut self, kind: OverlayKind) -> Result<(), String> {
         self.runtime.clear(panel(kind));
+        if kind == OverlayKind::Dashboard {
+            self.dashboard_placeholder = None;
+        }
         Ok(())
     }
 
@@ -424,26 +690,37 @@ impl OpenXrBackend {
 
     pub fn hide(&mut self, kind: OverlayKind) {
         self.runtime.set_visible(panel(kind), false);
+        if kind == OverlayKind::Dashboard {
+            self.set_dashboard_open(false);
+            self.dashboard_placeholder = None;
+        }
     }
 
     pub fn hide_all(&mut self) {
         for kind in ALL_KINDS {
-            self.runtime.set_visible(panel(kind), false);
+            self.hide(kind);
         }
+        self.runtime.set_visible(PanelId::Cursor, false);
     }
 
     pub fn reset(&mut self, kind: OverlayKind) {
-        self.hide(kind);
-        self.runtime.clear(panel(kind));
+        if kind == OverlayKind::Dashboard {
+            // A surface fault must not close the user's settings quad; keep
+            // the modal open so the error placeholder and retry stay visible.
+            self.runtime.clear(panel(kind));
+            self.runtime
+                .set_visible(PanelId::Dashboard, self.dashboard_open);
+            self.dashboard_placeholder = None;
+            self.clear_dashboard_pointer();
+        } else {
+            self.hide(kind);
+            self.runtime.clear(panel(kind));
+        }
     }
 
     pub fn ensure_player_audio(&mut self, pose: Pose, _space: SpaceId) -> Result<(), String> {
-        self.runtime.set_panel(
-            PanelId::PlayerAudio,
-            PanelSpace::Stage,
-            xr_pose(pose),
-            width(0.75),
-        );
+        self.runtime
+            .set_panel_width(PanelId::PlayerAudio, PanelSpace::Stage, xr_pose(pose), 0.75);
         Ok(())
     }
 }
@@ -451,6 +728,65 @@ impl OpenXrBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dashboard_pointer_ignores_a_trigger_held_when_the_quad_opens() {
+        let mut pointer = DashboardPointer {
+            triggers: [true, false],
+            ..Default::default()
+        };
+        let hit = Some([0.5, 0.5]);
+        let opened = pointer.events([hit, None], [true, false], Some(0));
+        assert!(!opened
+            .iter()
+            .any(|event| matches!(event, DashboardPointerEvent::Down { .. })));
+        assert!(pointer
+            .events([hit, None], [false, false], Some(0))
+            .is_empty());
+        assert!(matches!(
+            pointer
+                .events([hit, None], [true, false], Some(0))
+                .as_slice(),
+            [DashboardPointerEvent::Down { .. }]
+        ));
+        assert!(matches!(
+            pointer
+                .events([hit, None], [false, false], Some(0))
+                .as_slice(),
+            [DashboardPointerEvent::Up { .. }]
+        ));
+    }
+
+    #[test]
+    fn dashboard_pointer_releases_outside_without_activating() {
+        let mut pointer = DashboardPointer::default();
+        let hit = Some([0.5, 0.5]);
+        assert!(pointer
+            .events([hit, None], [true, false], Some(0))
+            .iter()
+            .any(|event| matches!(event, DashboardPointerEvent::Down { .. })));
+        assert!(matches!(
+            pointer.events([None, None], [true, false], None).as_slice(),
+            [DashboardPointerEvent::Up { x: -1.0, y: -1.0 }]
+        ));
+        assert!(pointer
+            .events([None, None], [false, false], None)
+            .is_empty());
+        assert!(pointer.pressed.is_none());
+    }
+
+    #[test]
+    fn dashboard_pointer_release_after_leaving_does_not_use_the_last_hover() {
+        let mut pointer = DashboardPointer::default();
+        let hit = Some([0.25, 0.25]);
+        let _ = pointer.events([hit, None], [true, false], Some(0));
+        assert!(matches!(
+            pointer
+                .events([None, None], [false, false], None)
+                .as_slice(),
+            [DashboardPointerEvent::Up { x: -1.0, y: -1.0 }]
+        ));
+    }
 
     #[test]
     fn straight_alpha_is_premultiplied_for_xr_blending() {

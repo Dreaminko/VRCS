@@ -63,7 +63,8 @@ export type WristMenuCommand =
   | { language_page: number }
   | { microphone_page: number }
   | { slider: SliderCommand }
-  | { display: PlayerDisplayAction };
+  | { display: PlayerDisplayAction }
+  | "dashboard";
 
 export interface PlayerDisplayRequest {
   owner_epoch: number;

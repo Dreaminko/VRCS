@@ -414,11 +414,27 @@ impl Manager {
         if let Ok(mut config) = self.latest_config.lock() {
             config.take();
         }
-        if let Ok(mut worker) = self.worker.lock() {
-            if let Some(worker) = worker.take() {
-                if worker.join().is_err() {
-                    tracing::warn!("VR Overlay thread panicked during shutdown");
+        let worker = self.worker.lock().ok().and_then(|mut worker| worker.take());
+        if let Some(worker) = worker {
+            // A running OpenXR session can block the worker in `xrWaitFrame`
+            // when the headset stops delivering frames. Do not hold the caller
+            // (and the window close) hostage; the thread still tears itself
+            // down once the wait returns.
+            let (done, wait) = mpsc::channel();
+            let reaper = std::thread::Builder::new()
+                .name("vrcs-vr-overlay-join".into())
+                .spawn(move || {
+                    if worker.join().is_err() {
+                        tracing::warn!("VR Overlay thread panicked during shutdown");
+                    }
+                    let _ = done.send(());
+                });
+            match reaper {
+                Ok(_) if wait.recv_timeout(Duration::from_secs(1)).is_err() => {
+                    tracing::warn!("VR Overlay worker is blocked; detaching it");
                 }
+                Ok(_) => {}
+                Err(error) => tracing::warn!(%error, "VR Overlay join thread failed"),
             }
         }
     }
@@ -581,6 +597,7 @@ fn worker_loop(
     let mut business_clock = BusinessClock(next_tick);
     #[cfg(any(windows, linux_vr))]
     let mut next_pointer = Instant::now();
+    let mut xr_not_ready: Option<Instant> = None;
 
     loop {
         let started = Instant::now();
@@ -611,8 +628,16 @@ fn worker_loop(
             break;
         }
 
-        let xr_driving =
-            state.selected_backend == Some(BackendKind::OpenXr) && state.backend.is_some();
+        // Drive frames from the backend that is actually connected. A cached
+        // preference can differ after a probe/connect fallback; using it here
+        // would either leave the XR session unpumped or busy-spin OpenVR.
+        let xr_driving = state
+            .backend
+            .as_ref()
+            .is_some_and(|backend| backend.kind() == BackendKind::OpenXr);
+        if !xr_driving {
+            xr_not_ready = None;
+        }
         if xr_driving {
             match state
                 .backend
@@ -620,9 +645,25 @@ fn worker_loop(
                 .expect("XR backend checked")
                 .begin_frame()
             {
-                Ok(true) => {}
+                Ok(true) => xr_not_ready = None,
                 Ok(false) => {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    // `pump` can stay false while the runtime is STOPPING and
+                    // never deliver another frame. Reconnect instead of
+                    // sleeping forever.
+                    let since = xr_not_ready.get_or_insert_with(Instant::now);
+                    if since.elapsed() >= Duration::from_secs(2) {
+                        tracing::warn!("OpenXR session did not become ready; reconnecting");
+                        if let Some(mut backend) = state.backend.take() {
+                            backend.hide_all();
+                        }
+                        xr_not_ready = None;
+                        status.state = RuntimeState::Reconnecting;
+                        status.reconnect_attempt = status.reconnect_attempt.saturating_add(1);
+                        status.last_error_detail = Some("vr.openxr_session_stalled".into());
+                        state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
+                    } else {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
                     continue;
                 }
                 Err(error) => {
@@ -630,6 +671,7 @@ fn worker_loop(
                     if let Some(mut backend) = state.backend.take() {
                         backend.hide_all();
                     }
+                    xr_not_ready = None;
                     status.state = RuntimeState::Reconnecting;
                     status.reconnect_attempt = status.reconnect_attempt.saturating_add(1);
                     status.last_error_detail = Some(error);
@@ -1023,7 +1065,10 @@ fn tick(
         state.selected_backend =
             Some(Backend::selected_kind(&state.config.backend).unwrap_or(BackendKind::OpenVr));
     }
-    let openxr = state.selected_backend == Some(BackendKind::OpenXr);
+    let openxr = state.backend.as_ref().map_or(
+        state.selected_backend == Some(BackendKind::OpenXr),
+        |backend| backend.kind() == BackendKind::OpenXr,
+    );
     if openxr {
         // Connection failure reports the exact loader/extension reason.
         if state.backend.is_none() && Instant::now() >= state.next_probe {
@@ -1096,11 +1141,19 @@ fn tick(
         } else {
             RuntimeState::Reconnecting
         };
-        match Backend::connect(&state.config.backend) {
+        // Honor the one backend selected above. Re-running `auto` here can
+        // choose a different backend than the frame/capability path expects.
+        let preference = match state.selected_backend {
+            Some(BackendKind::OpenXr) => "openxr",
+            Some(BackendKind::OpenVr) => "openvr",
+            None => &state.config.backend,
+        };
+        match Backend::connect(preference) {
             Ok(backend) => {
                 if let Some(pid) = pid {
                     state.session.connected(pid);
                 }
+                state.selected_backend = Some(backend.kind());
                 state.backend = Some(backend);
                 if openxr {
                     status.hmd_present = true;
@@ -1354,6 +1407,11 @@ fn update_dashboard(
     state.dashboard_retry_at = None;
     let result = (|| -> Result<bool, String> {
         backend.ensure_dashboard()?;
+        // The OpenXR settings quad can open on this tick (menu button or wrist
+        // menu); request its surface before the refresh path skips a dormant tab.
+        if backend.dashboard_visible() {
+            let _ = state.dashboard_surface.request(app);
+        }
         let hub = app.state::<SurfaceHub>();
         // Keep the tab registered, but never wake its WebView before it is opened.
         if !backend.dashboard_visible() {
@@ -1384,6 +1442,12 @@ fn update_dashboard(
                 DashboardPointerEvent::Move { x, y }
                 | DashboardPointerEvent::Down { x, y }
                 | DashboardPointerEvent::Up { x, y } => (x, y),
+                DashboardPointerEvent::Scroll { delta } => {
+                    if let Err(error) = hub.scroll(app, SurfaceId::Dashboard, delta) {
+                        tracing::debug!(%error, "VR dashboard scroll unavailable");
+                    }
+                    continue;
+                }
                 DashboardPointerEvent::Shown | DashboardPointerEvent::Hidden => {
                     state.dashboard.clear_pointer();
                     state.dashboard_pressed_key = None;
@@ -1400,6 +1464,8 @@ fn update_dashboard(
                     state.dashboard.pressed = hit;
                     state.dashboard_pressed_key = layout.as_ref().map(|layout| layout.key);
                 }
+                DashboardPointerEvent::Scroll { .. } => {}
+                DashboardPointerEvent::Shown | DashboardPointerEvent::Hidden => {}
                 DashboardPointerEvent::Up { .. } => {
                     let pressed = state.dashboard.pressed.take();
                     let key = state.dashboard_pressed_key.take();
@@ -1412,6 +1478,9 @@ fn update_dashboard(
                         })
                         .and_then(|region| region.dashboard.clone());
                     if let Some(command) = command {
+                        let dismiss = matches!(command, super::dashboard::DashboardCommand::Close)
+                            && state.dashboard.ui.picker.is_none()
+                            && state.dashboard.ui.display_editor.is_none();
                         if let super::dashboard::DashboardCommand::PlayerAudio {
                             request_id,
                             action,
@@ -1428,6 +1497,12 @@ fn update_dashboard(
                             if let Some(action) = state.dashboard.activate(command, &view) {
                                 dispatch_dashboard_action(app, state, backend, action);
                             }
+                        }
+                        if dismiss {
+                            backend.hide(OverlayKind::Dashboard);
+                            state.dashboard.clear_pointer();
+                            state.dashboard_pressed_key = None;
+                            hub.point(app, SurfaceId::Dashboard, None)?;
                         }
                         // Any subsequent input must wait for the newly rendered layout.
                         layout = None;
@@ -1480,6 +1555,12 @@ fn update_dashboard(
             state.reset_dashboard();
             if let Err(placeholder_error) = backend.show_dashboard_placeholder(Some(&error)) {
                 tracing::warn!(%placeholder_error, "SteamVR dashboard error display failed");
+            }
+            // `reset_dashboard` cleared the renderer request flag. Keep the
+            // OpenXR modal alive so its error placeholder is not hidden by
+            // the same tick's `finish_tick`.
+            if backend.dashboard_visible() {
+                let _ = state.dashboard_surface.request(app);
             }
             state.dashboard_retry_at = Some(Instant::now() + Duration::from_secs(1));
             status.dashboard.visible = false;

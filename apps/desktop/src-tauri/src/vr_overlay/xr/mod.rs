@@ -6,6 +6,8 @@
 //! failure names the exact API boundary instead of "VR unavailable".
 
 use std::ptr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use ash::vk::{self, Handle as _};
 use openxr as xr;
@@ -20,7 +22,7 @@ const PANEL_W: f32 = 0.4;
 const PANEL_H: f32 = 0.1;
 const MAX_TEXTURE: u32 = 2048;
 const HEIGHT: u32 = 256;
-const PANEL_COUNT: usize = 9;
+const PANEL_COUNT: usize = 10;
 
 /// Quad layer slots exposed by the runtime. The production backend maps its
 /// overlay kinds onto these; the prototype only uses `Headset`.
@@ -35,6 +37,7 @@ pub enum PanelId {
     OcrFrame,
     OcrResult,
     Dashboard,
+    Cursor,
 }
 
 fn panel_index(kind: PanelId) -> usize {
@@ -105,6 +108,9 @@ pub struct XrRuntime {
     last_layers: usize,
     last_layer_report: std::time::Instant,
     running: bool,
+    tracking_reset: bool,
+    /// Released after the Vulkan objects the runtime was using.
+    instance: Option<xr::Instance>,
 }
 
 struct Panel {
@@ -160,7 +166,6 @@ struct Handles {
     stream: xr::FrameStream<xr::Vulkan>,
     waiter: xr::FrameWaiter,
     session: xr::Session<xr::Vulkan>,
-    instance: xr::Instance,
 }
 
 /// Check the installed loader and runtime for the two required extensions.
@@ -385,7 +390,6 @@ impl XrRuntime {
 
         Ok(Self {
             handles: Some(Handles {
-                instance,
                 session,
                 waiter,
                 stream,
@@ -408,6 +412,8 @@ impl XrRuntime {
             last_layers: usize::MAX,
             last_layer_report: std::time::Instant::now(),
             running: false,
+            tracking_reset: false,
+            instance: Some(instance),
         })
     }
 
@@ -428,6 +434,30 @@ impl XrRuntime {
             panel.space = space;
             panel.pose = pose;
             panel.size = size;
+        }
+    }
+
+    /// Set the physical width while preserving the aspect ratio of the last
+    /// uploaded texture. Callers update this every tick, so the texture aspect
+    /// must not be reset to a square here.
+    pub fn set_panel_width(
+        &mut self,
+        kind: PanelId,
+        space: PanelSpace,
+        pose: xr::Posef,
+        width: f32,
+    ) {
+        if let Some(handles) = self.handles.as_mut() {
+            let panel = &mut handles.panels[panel_index(kind)];
+            panel.space = space;
+            panel.pose = pose;
+            panel.size.width = width;
+            let [texture_width, texture_height] = panel.texture_size;
+            panel.size.height = if texture_width > 0 && texture_height > 0 {
+                width * texture_height as f32 / texture_width as f32
+            } else {
+                width
+            };
         }
     }
 
@@ -456,10 +486,10 @@ impl XrRuntime {
 
     /// Poll runtime events. Returns whether a frame should be produced now.
     pub fn pump(&mut self) -> Result<bool, String> {
+        let instance = self.instance.as_ref().ok_or("XR instance closed")?;
         let xr = self.handles.as_mut().ok_or("XR session closed")?;
         let mut event = xr::EventDataBuffer::new();
-        while let Some(event) = xr
-            .instance
+        while let Some(event) = instance
             .poll_event(&mut event)
             .map_err(|error| format!("OpenXR event poll failed: {error:?}"))?
         {
@@ -481,6 +511,12 @@ impl XrRuntime {
                     }
                     _ => {}
                 },
+                xr::Event::ReferenceSpaceChangePending(_) => {
+                    // A recenter or stage change invalidates cached world poses.
+                    // `pose_valid` only describes the optional previous-space
+                    // delta, not whether the change itself happened.
+                    self.tracking_reset = true;
+                }
                 xr::Event::InstanceLossPending(_) => {
                     self.running = false;
                     return Err("vr.openxr_instance_lost".into());
@@ -501,10 +537,11 @@ impl XrRuntime {
         xr.stream
             .begin()
             .map_err(|error| format!("Frame begin failed: {error:?}"))?;
-        let focused = !matches!(
-            xr.session.sync_actions(&[(&xr.actions.set).into()]),
-            Err(xr::sys::Result::SESSION_NOT_FOCUSED)
-        );
+        let focused = match xr.session.sync_actions(&[(&xr.actions.set).into()]) {
+            Ok(()) => true,
+            Err(xr::sys::Result::SESSION_NOT_FOCUSED) => false,
+            Err(error) => return Err(format!("Action sync failed: {error:?}")),
+        };
         xr.actions.focused = focused;
         Ok((state.predicted_display_time, state.should_render))
     }
@@ -706,8 +743,15 @@ impl XrRuntime {
                 PanelSpace::View => &handles.view,
                 PanelSpace::Stage => &handles.stage,
                 PanelSpace::Grip(hand) => {
-                    let Some(space) = handles.actions.spaces.get(hand).and_then(Option::as_ref)
-                    else {
+                    // Match `controller_pose`: the wrist follows the grip when
+                    // the profile provides it, and only falls back to aim.
+                    let space = handles
+                        .actions
+                        .grip_spaces
+                        .get(hand)
+                        .and_then(Option::as_ref)
+                        .or_else(|| handles.actions.spaces.get(hand).and_then(Option::as_ref));
+                    let Some(space) = space else {
                         continue;
                     };
                     space
@@ -849,12 +893,70 @@ impl XrRuntime {
             .collect()
     }
 
+    /// Rising edge of a controller menu button, used to toggle the settings quad.
+    pub fn menu_clicked(&mut self) -> bool {
+        let Some(xr) = self.handles.as_mut() else {
+            return false;
+        };
+        let focused = xr.actions.focused;
+        let pressed = focused
+            && xr.actions.menu.iter().any(|action| {
+                action
+                    .state(&xr.session, xr::Path::NULL)
+                    .ok()
+                    .is_some_and(|state| state.is_active && state.current_state)
+            });
+        let edge = pressed && !xr.actions.menu_pressed;
+        // Require a release after focus loss so a held menu button cannot
+        // toggle the settings quad when the session becomes focused again.
+        xr.actions.menu_pressed = pressed || !focused;
+        edge
+    }
+
     /// Rate-limited JSON input sample for the prototype.
     pub fn report(&mut self, time: xr::Time) -> Option<serde_json::Value> {
+        let instance = self.instance.as_ref()?;
         let xr = self.handles.as_mut()?;
         let focused = xr.actions.focused;
-        let (instance, session, stage) = (&xr.instance, &xr.session, &xr.stage);
-        xr.actions.poll(instance, session, stage, time, focused)
+        xr.actions
+            .poll(instance, &xr.session, &xr.stage, time, focused)
+    }
+
+    /// Ask the session to leave the frame loop and wait until the runtime has
+    /// released it. Destroying the application's VkDevice while the runtime is
+    /// still unwinding the session crashes inside the driver.
+    fn end_session(&mut self) {
+        if !self.running {
+            return;
+        }
+        let Some(instance) = self.instance.as_ref() else {
+            return;
+        };
+        let Some(handles) = self.handles.as_mut() else {
+            return;
+        };
+        let _ = handles.session.request_exit();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+        let mut ended = false;
+        let mut event = xr::EventDataBuffer::new();
+        while std::time::Instant::now() < deadline {
+            match instance.poll_event(&mut event) {
+                Ok(Some(event)) => match event {
+                    xr::Event::SessionStateChanged(event) => match event.state() {
+                        xr::SessionState::STOPPING if !ended => {
+                            let _ = handles.session.end();
+                            ended = true;
+                        }
+                        xr::SessionState::EXITING | xr::SessionState::LOSS_PENDING => return,
+                        _ => {}
+                    },
+                    xr::Event::InstanceLossPending(_) => return,
+                    _ => {}
+                },
+                Ok(None) => std::thread::sleep(std::time::Duration::from_millis(2)),
+                Err(_) => return,
+            }
+        }
     }
 
     pub fn focused(&self) -> bool {
@@ -862,46 +964,78 @@ impl XrRuntime {
             .as_ref()
             .is_some_and(|handles| handles.actions.focused)
     }
+
+    pub fn take_tracking_reset(&mut self) -> bool {
+        std::mem::take(&mut self.tracking_reset)
+    }
 }
 
 impl Drop for XrRuntime {
     fn drop(&mut self) {
-        // Session, swapchain and actions go first; the runtime touches the
-        // Vulkan device during their teardown.
-        drop(self.handles.take());
+        self.end_session();
+        let Some(handles) = self.handles.take() else {
+            return;
+        };
+        // The runtime can still have submissions in flight that reference the
+        // swapchain images; drain them before tearing the session down.
+        unsafe {
+            let _ = self.device.device_wait_idle();
+        }
+        let instance = self.instance.take();
+        // Children (swapchains, spaces, actions, frame stream) drop before the
+        // session, which drops before the Vulkan objects it was bound to.
+        drop(handles);
         for staging in &mut self.stagings {
             if let Some(mut staging) = staging.take() {
                 staging.destroy(&self.device);
             }
         }
         unsafe {
-            let _ = self.device.device_wait_idle();
             self.device.destroy_command_pool(self.pool, None);
+            self.device.destroy_device(None);
+            self.vk_instance.destroy_instance(None);
         }
-        // `vkDestroyDevice`/`vkDestroyInstance` are intentionally not called:
-        // WiVRn/Monado still references the application's device while it tears
-        // the session down asynchronously, which segfaults here. The handles are
-        // process-lifetime until the reconnect path can prove a safe ordering.
-        let _ = (&self.device, &self.vk_instance);
+        // WiVRn/Monado faults if vkDestroyInstance runs after xrDestroyInstance,
+        // so the OpenXR instance is the last handle released.
+        drop(instance);
     }
 }
 
 /// Prototype driver: open a session, show one textured panel, report input.
 pub fn run(seconds: u64) -> Result<(), String> {
+    let stopping = Arc::new(AtomicBool::new(false));
+    let timer = stopping.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(seconds));
+        timer.store(true, Ordering::Release);
+    });
     let mut runtime = XrRuntime::open(true)?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
     let mut background = [0.02f64, 0.05, 0.10];
     let mut pixels = render_sample(WIDTH, HEIGHT, background)?;
     runtime.upload(PanelId::Headset, &pixels, WIDTH, HEIGHT)?;
     let mut frames = 0u32;
-    while std::time::Instant::now() < deadline {
-        if !runtime.pump()? {
+    while !stopping.load(Ordering::Acquire) {
+        let ready = match runtime.pump() {
+            Ok(ready) => ready,
+            Err(_) if stopping.load(Ordering::Acquire) => break,
+            Err(error) => return Err(error),
+        };
+        if !ready {
             std::thread::sleep(std::time::Duration::from_millis(100));
             continue;
         }
-        let (time, should_render) = runtime.wait_frame()?;
+        let (time, should_render) = match runtime.wait_frame() {
+            Ok(frame) => frame,
+            Err(_) if stopping.load(Ordering::Acquire) => break,
+            Err(error) => return Err(error),
+        };
         if !should_render {
-            runtime.skip(time)?;
+            if let Err(error) = runtime.skip(time) {
+                if stopping.load(Ordering::Acquire) {
+                    break;
+                }
+                return Err(error);
+            }
             continue;
         }
         if runtime.click(time) {
@@ -917,7 +1051,12 @@ pub fn run(seconds: u64) -> Result<(), String> {
         if let Some(sample) = runtime.report(time) {
             println!("{sample}");
         }
-        runtime.submit(time)?;
+        if let Err(error) = runtime.submit(time) {
+            if stopping.load(Ordering::Acquire) {
+                break;
+            }
+            return Err(error);
+        }
         frames += 1;
     }
     println!(
@@ -937,8 +1076,10 @@ struct Actions {
     grip: [xr::Action<bool>; 2],
     grip_value: [xr::Action<f32>; 2],
     scroll: [xr::Action<xr::Vector2f>; 2],
+    menu: [xr::Action<bool>; 2],
     last_report: std::time::Instant,
     was_pressed: [bool; 2],
+    menu_pressed: bool,
     focused: bool,
 }
 
@@ -977,12 +1118,16 @@ impl Actions {
             set.create_action::<xr::Vector2f>("left_scroll", "Left stick", &[sides[0]])?,
             set.create_action::<xr::Vector2f>("right_scroll", "Right stick", &[sides[1]])?,
         ];
+        let menu = [
+            set.create_action::<bool>("left_menu", "Left menu", &[sides[0]])?,
+            set.create_action::<bool>("right_menu", "Right menu", &[sides[1]])?,
+        ];
         // Bind every profile the runtime advertises for hand controllers; a
         // profile that no device matches is ignored.
         let profiles: [(&str, &[&str]); 5] = [
             (
                 "/interaction_profiles/khr/simple_controller",
-                &["select/click"],
+                &["select/click", "menu/click"],
             ),
             (
                 "/interaction_profiles/ext/hand_interaction_ext",
@@ -996,6 +1141,7 @@ impl Actions {
                     "trigger/value",
                     "squeeze/value",
                     "thumbstick",
+                    "menu/click",
                 ],
             ),
             (
@@ -1006,11 +1152,18 @@ impl Actions {
                     "trigger/value",
                     "squeeze/value",
                     "thumbstick",
+                    "b/click",
                 ],
             ),
             (
                 "/interaction_profiles/htc/vive_controller",
-                &["grip/pose", "trigger/value", "squeeze/click", "trackpad"],
+                &[
+                    "grip/pose",
+                    "trigger/value",
+                    "squeeze/click",
+                    "trackpad",
+                    "menu/click",
+                ],
             ),
         ];
         for (profile, inputs) in profiles {
@@ -1034,6 +1187,10 @@ impl Actions {
                         xr::Binding::new(&grip[index], path)
                     } else if *input == "thumbstick" || *input == "trackpad" {
                         xr::Binding::new(&scroll[index], path)
+                    } else if (*input == "menu/click" && index == 0)
+                        || (*input == "b/click" && index == 1)
+                    {
+                        xr::Binding::new(&menu[index], path)
                     } else {
                         continue;
                     };
@@ -1070,8 +1227,10 @@ impl Actions {
             grip,
             grip_value,
             scroll,
+            menu,
             last_report: std::time::Instant::now() - std::time::Duration::from_secs(1),
             was_pressed: [false; 2],
+            menu_pressed: false,
             focused: false,
         })
     }
@@ -1493,6 +1652,7 @@ mod tests {
             PanelId::OcrFrame,
             PanelId::OcrResult,
             PanelId::Dashboard,
+            PanelId::Cursor,
         ];
         let mut seen = [false; PANEL_COUNT];
         for kind in kinds {

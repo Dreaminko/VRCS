@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager as _};
 use vrcs_core::VrOverlayConfig;
 
-use super::backend::{menu_config, Backend, OverlayKind};
+use super::backend::{menu_config, Backend, BackendKind, OverlayKind};
 use super::control_protocol::{ControlHub, ControlSource};
 use super::interaction::{Hit, Key, Kind, Router, Sample, Surface};
 use super::ocr_wrist::LaserEvent;
@@ -124,6 +124,7 @@ pub struct UiRuntime {
     menu_frame: Option<SurfaceView>,
     menu_ui: wrist_menu::Ui,
     pub menu_visible: bool,
+    menu_was_visible: bool,
     pub dialogue_hover: Option<u8>,
     pub dialogue_visible: bool,
     pub dialogue_revision: Option<u64>,
@@ -163,6 +164,7 @@ impl UiRuntime {
             menu_frame: None,
             menu_ui: Default::default(),
             menu_visible: false,
+            menu_was_visible: false,
             dialogue_hover: None,
             dialogue_visible: false,
             dialogue_revision: None,
@@ -244,6 +246,7 @@ impl UiRuntime {
         self.menu_surface.reset();
         self.dialogue_surface.reset();
         self.menu_visible = false;
+        self.menu_was_visible = false;
         self.dialogue_visible = false;
         self.dialogue_revision = None;
         self.dialogue_hover = None;
@@ -521,8 +524,16 @@ impl UiRuntime {
         let generation =
             |surface| (self.generation << 32) | u64::from(surfaces.generation(surface));
         let menu_layout = surfaces.layout(SurfaceId::Menu);
+        let mut menu_controls = view.clone();
+        // SteamVR owns its dashboard; only the OpenXR backend exposes the
+        // application-owned settings quad from the wrist menu.
+        if backend.kind() == BackendKind::OpenXr {
+            menu_controls
+                .labels
+                .insert("settings_available".into(), "1".into());
+        }
         let menu_view = business.then(|| SurfaceView::Menu {
-            controls: view.clone(),
+            controls: menu_controls.clone(),
             players: players.clone(),
             ui: self.menu_ui.clone(),
             hold_progress: None,
@@ -789,15 +800,27 @@ impl UiRuntime {
                     (view.owner_epoch, players_revision),
                     action,
                 ),
+                wrist_menu::Command::Dashboard => {
+                    if let Err(error) = backend.toggle_dashboard() {
+                        tracing::debug!(%error, "VR settings toggle unavailable");
+                    }
+                }
                 navigation => {
                     self.menu_ui.apply(&navigation, players);
                 }
             }
         }
+        let rising = self.menu_visible && !self.menu_was_visible;
+        self.menu_was_visible = self.menu_visible;
+        if rising {
+            // A faded-out menu may still own a capture that never produced a
+            // frame; rebuild it so the next appearance republishes the state.
+            self.menu_surface.reset();
+        }
         let result = (|| -> Result<(), String> {
             let ready = if self.menu_visible && business {
                 let frame = SurfaceView::Menu {
-                    controls: view.clone(),
+                    controls: menu_controls.clone(),
                     players: players.clone(),
                     ui: self.menu_ui.clone(),
                     hold_progress,

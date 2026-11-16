@@ -751,7 +751,7 @@ mod platform {
                 .unwrap_or(false)
         }
 
-        pub fn poll_dashboard_events(&self) -> Result<Vec<DashboardPointerEvent>, String> {
+        pub fn poll_dashboard_events(&mut self) -> Result<Vec<DashboardPointerEvent>, String> {
             let Some(handle) = self.dashboard.main() else {
                 return Ok(Vec::new());
             };
@@ -2965,7 +2965,7 @@ mod platform {
                 .unwrap_or(false)
         }
 
-        pub fn poll_dashboard_events(&self) -> Result<Vec<DashboardPointerEvent>, String> {
+        pub fn poll_dashboard_events(&mut self) -> Result<Vec<DashboardPointerEvent>, String> {
             let Some(handle) = self.dashboard.main() else {
                 return Ok(Vec::new());
             };
@@ -3709,10 +3709,20 @@ impl Backend {
         backend_ref!(self, dashboard_visible())
     }
 
+    /// Open or close the application-owned settings quad. OpenVR's dashboard is
+    /// owned by SteamVR, so only the OpenXR backend can change it here.
+    pub fn toggle_dashboard(&mut self) -> Result<bool, String> {
+        match &mut self.inner {
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.toggle_dashboard(),
+            Inner::Vr(_) => Ok(false),
+        }
+    }
+
     pub fn poll_dashboard_events(
-        &self,
+        &mut self,
     ) -> Result<Vec<crate::vr_overlay::dashboard::DashboardPointerEvent>, String> {
-        backend_ref!(self, poll_dashboard_events())
+        backend_mut!(self, poll_dashboard_events())
     }
 
     pub fn visible(&self, kind: OverlayKind) -> bool {

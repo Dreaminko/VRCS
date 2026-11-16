@@ -1183,7 +1183,8 @@
         "waitingContent": "Enabled; waiting for content",
         "masterOff": "Subtitle master switch is off",
         "controlBusy": "Working",
-        "controlFailed": "Action failed; try again"
+        "controlFailed": "Action failed; try again",
+        "settings": "Settings"
       },
       "conversationTitles": {
         "title": "Conversation management",

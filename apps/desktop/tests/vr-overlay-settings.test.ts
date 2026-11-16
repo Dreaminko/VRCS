@@ -38,6 +38,7 @@ const settings = {
 
 test("VR Overlay defaults keep OCR settings separate", () => {
   assert.deepEqual(Object.keys(DEFAULT_VR_OVERLAY_SETTINGS).sort(), [
+    "backend",
     "enabled",
     "headset",
     "translation_display",

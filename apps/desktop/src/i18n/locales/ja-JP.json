@@ -1183,7 +1183,8 @@
         "waitingContent": "有効・内容を待機中",
         "masterOff": "字幕の一括設定がオフです",
         "controlBusy": "処理中",
-        "controlFailed": "操作に失敗しました。再試行してください"
+        "controlFailed": "操作に失敗しました。再試行してください",
+        "settings": "設定"
       },
       "conversationTitles": {
         "title": "会話管理",
