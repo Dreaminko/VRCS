@@ -30,7 +30,7 @@ test("failed saves publish the confirmed view before clearing pending and a rele
     execute: async () => { throw new Error("Save failed"); },
     publish: async () => { order.push("publish"); },
     finish: async (_request, error) => { order.push(error!); }, active: () => active });
-  const request = { owner_epoch: 1, request_id: 1, base_revision: 1, source: "wrist_menu" as const, action: { clear_selection: null } };
+  const request = { owner_epoch: 1, request_id: 1, base_revision: 1, source: "wrist_menu" as const, action: { show_all_tracks: null } };
   await receive(request);
   assert.deepEqual(order, ["publish", "Save failed"]);
   active = false;
@@ -58,14 +58,14 @@ test("releasing the owner during a save suppresses its old publication and resul
 });
 
 const emptyView = (): PlayerDisplayView => ({
-  available: true, processing_available: true, player_mode: true, selection_mode: "selected", selected_count: 0,
+  available: true, processing_available: true, player_mode: true,
   players: [], languages: [], follow_default: true, default_languages: [], labels: {}, busy: false, error: null,
 });
 
 test("microphone controls keep their capture generation and do not alter player selection or visibility", async () => {
   const actions: unknown[] = [];
   const execute = createPlayerDisplayExecutor({
-    getState: () => ({ available: true, processingAvailable: false, speakers: [], current: [], defaultLanguages: [], languages: [] }),
+    getState: () => ({ available: true, processingAvailable: false, speakers: [], current: [], hiddenTracks: [], defaultLanguages: [], languages: [] }),
     updateSettings: async () => { throw new Error("Unexpected player settings change"); },
     updatePreferences: () => { throw new Error("Unexpected visibility change"); },
     updateMicrophone: async action => { actions.push(action); },
@@ -79,21 +79,35 @@ test("microphone controls keep their capture generation and do not alter player 
 test("proximity controls update the shared player audio settings and reject invalid ranges", async () => {
   let settings = initialSettings();
   const execute = createPlayerDisplayExecutor({
-    getState: () => ({ available: true, processingAvailable: true, speakers: [], current: [], defaultLanguages: [], languages: [] }),
+    getState: () => ({ available: true, processingAvailable: true, speakers: [], current: [], hiddenTracks: [], defaultLanguages: [], languages: [] }),
     updateSettings: async apply => (settings = apply(settings)),
     updatePreferences: () => { throw new Error("Unexpected visibility change"); },
   });
-  await execute({ set_proximity_enabled: true });
-  assert.deepEqual(settings.audio.output.player_audio?.proximity, { enabled: true, radius_m: 10 });
-  await execute({ set_proximity_radius: 0 });
-  assert.deepEqual(settings.audio.output.player_audio?.proximity, { enabled: true, radius_m: 0 });
   await execute({ set_proximity_radius: 4.46 });
   assert.deepEqual(settings.audio.output.player_audio?.proximity, { enabled: true, radius_m: 4.5 });
+  await execute({ set_proximity_radius: 0 });
+  assert.deepEqual(settings.audio.output.player_audio?.proximity, { enabled: false, radius_m: 0 });
+  await execute({ set_proximity_radius: 2 });
+  assert.deepEqual(settings.audio.output.player_audio?.proximity, { enabled: true, radius_m: 2 });
   await assert.rejects(execute({ set_proximity_radius: -0.1 }), /invalid/i);
   await assert.rejects(execute({ set_proximity_radius: 10.1 }), /invalid/i);
   await assert.rejects(execute({ set_proximity_radius: Number.NaN }), /invalid/i);
   settings = { ...settings, audio: { ...settings.audio, output: { ...settings.audio.output, mode: "system" } } } as Settings;
-  await assert.rejects(execute({ set_proximity_enabled: false }), /unavailable/i);
+  await assert.rejects(execute({ set_proximity_radius: 5 }), /unavailable/i);
+});
+
+test("proximity controls repair a stored radius whose enabled flag disagrees with it", async () => {
+  const legacy = { ...initialSettings(), audio: { output: { mode: "vrchat_players", player_audio: {
+    selected_user_names: {}, max_players: 3, proximity: { enabled: false, radius_m: 5 },
+  } } } } as unknown as Settings;
+  let settings = legacy;
+  const execute = createPlayerDisplayExecutor({
+    getState: () => ({ available: true, processingAvailable: true, speakers: [], current: [], hiddenTracks: [], defaultLanguages: [], languages: [] }),
+    updateSettings: async apply => (settings = apply(settings)),
+    updatePreferences: () => {},
+  });
+  await execute({ set_proximity_radius: 5 });
+  assert.deepEqual(settings.audio.output.player_audio?.proximity, { enabled: true, radius_m: 5 });
 });
 
 test("proximity controls are unavailable when the saved settings have no proximity block", async () => {
@@ -101,35 +115,35 @@ test("proximity controls are unavailable when the saved settings have no proximi
   const settings = { ...initial, audio: { ...initial.audio, output: { ...initial.audio.output,
     player_audio: { ...initial.audio.output.player_audio!, proximity: undefined } } } } as Settings;
   const execute = createPlayerDisplayExecutor({
-    getState: () => ({ available: true, processingAvailable: true, speakers: [], current: [], defaultLanguages: [], languages: [] }),
+    getState: () => ({ available: true, processingAvailable: true, speakers: [], current: [], hiddenTracks: [], defaultLanguages: [], languages: [] }),
     updateSettings: async apply => apply(settings),
     updatePreferences: () => {},
   });
-  await assert.rejects(execute({ set_proximity_enabled: true }), /unavailable/i);
+  await assert.rejects(execute({ set_proximity_radius: 5 }), /unavailable/i);
 });
 
 test("snapshot deduplication waits for its in-flight update and does not lose a reverted state", async () => {
   let view = emptyView();
-  const sent: Array<{ revision: number; selected: number }> = [];
+  const sent: Array<{ revision: number; follow: boolean }> = [];
   const complete: Array<() => void> = [];
   const publisher = createPlayerDisplayPublisher({ getView: () => view,
     update: (revision, next) => {
-      sent.push({ revision, selected: next.selected_count });
+      sent.push({ revision, follow: next.follow_default });
       return new Promise<void>(resolve => complete.push(resolve));
     } });
   const first = publisher.publish();
   complete.shift()!();
   await first;
   await publisher.publish();
-  view = { ...view, selected_count: 1 };
+  view = { ...view, follow_default: false };
   const changed = publisher.publish();
   let duplicateFinished = false;
   const duplicate = publisher.publish().then(() => { duplicateFinished = true; });
   await Promise.resolve();
   assert.equal(duplicateFinished, false);
-  view = { ...view, selected_count: 0 };
+  view = { ...view, follow_default: true };
   const reverted = publisher.publish();
-  assert.deepEqual(sent, [{ revision: 1, selected: 0 }, { revision: 2, selected: 1 }, { revision: 3, selected: 0 }]);
+  assert.deepEqual(sent, [{ revision: 1, follow: true }, { revision: 2, follow: false }, { revision: 3, follow: true }]);
   assert.equal(publisher.revision(), 3);
   complete.splice(0).forEach(resolve => resolve());
   await Promise.all([changed, duplicate, reverted]);
@@ -138,39 +152,42 @@ test("snapshot deduplication waits for its in-flight update and does not lose a 
 const alice = { id: "vrc:a", index: 0, user_id: "usr_00000000-0000-4000-8000-000000000001", display_name: "Alice" };
 const bob = { id: "vrc:b", index: 1, user_id: "usr_00000000-0000-4000-8000-000000000002", display_name: "Bob" };
 const initialSettings = () => ({ audio: { output: { mode: "vrchat_players", player_audio: {
-  selected_tracks: [], selected_user_names: {}, max_players: 3, proximity: { enabled: false, radius_m: 10 },
+  selected_user_names: {}, max_players: 3, proximity: { enabled: false, radius_m: 10 },
 } } }, osc: { enabled: false } }) as unknown as Settings;
 
-test("display actions validate live identities, actual tracks, language candidates and modes", async () => {
+test("display actions validate live identities, actual tracks and language candidates", async () => {
   let settings = initialSettings();
   let preferences: PlayerHistoryPreferences = { hiddenTracks: [], hiddenSourceLanguages: null };
   let available = true;
-  let processingAvailable = true;
   const execute = createPlayerDisplayExecutor({
-    getState: () => ({ available, processingAvailable, speakers: [alice, { id: "vrc:unknown", index: 2 },
+    getState: () => ({ available, processingAvailable: true, speakers: [alice, { id: "vrc:unknown", index: 2 },
       { id: `saved-user:${bob.user_id}`, user_id: bob.user_id, index: 0 }], current: [alice],
-      defaultLanguages: ["ja"], languages: ["ja", "en"] }),
+      hiddenTracks: preferences.hiddenTracks, defaultLanguages: ["ja"], languages: ["ja", "en"] }),
     updateSettings: async apply => (settings = apply(settings)),
     updatePreferences: apply => { preferences = apply(preferences); },
   });
-  await assert.rejects(execute({ set_user_selected: { user_id: "unknown", selected: true } }), /identity/);
+  await assert.rejects(execute({ set_user_source_disabled: { user_id: "unknown", source: "speaker", disabled: true } }), /identity/);
   await assert.rejects(execute({ set_track_hidden: { track_id: `saved-user:${bob.user_id}`, hidden: true } }), /track/i);
   await assert.rejects(execute({ set_track_hidden: { track_id: "missing", hidden: true } }), /track/i);
   await assert.rejects(execute({ set_source_language_hidden: { language: "fr", hidden: true } }), /language/i);
   await execute({ set_source_language_hidden: { language: "en-US", hidden: true } });
   assert.deepEqual(preferences.hiddenSourceLanguages, ["en"]);
-  processingAvailable = false;
-  await assert.rejects(execute({ set_processing_mode: "all" }), /unavailable/);
   await execute({ set_track_hidden: { track_id: "vrc:unknown", hidden: true } });
   assert.deepEqual(preferences.hiddenTracks, ["vrc:unknown"]);
-  processingAvailable = true;
-  settings = { ...settings, audio: { ...settings.audio, output: { ...settings.audio.output, mode: "system" } } } as Settings;
-  await assert.rejects(execute({ set_user_selected: { user_id: alice.user_id, selected: true } }), /unavailable/);
+  await execute({ set_track_hidden: { track_id: alice.id, hidden: true } });
+  assert.equal(Boolean(settings.audio.output.player_audio?.source_overrides?.[alice.user_id!]?.voice_disabled ?? true), true, "hiding leaves voice muted");
+  await assert.rejects(execute({ set_user_source_disabled: { user_id: alice.user_id!, source: "speaker", disabled: false } }), /unhide/i);
+  await execute({ set_track_hidden: { track_id: alice.id, hidden: false } });
+  assert.equal(Boolean(settings.audio.output.player_audio?.source_overrides?.[alice.user_id!]?.voice_disabled ?? true), true, "unhiding alone does not enable voice");
+  await execute({ set_user_source_disabled: { user_id: alice.user_id!, source: "speaker", disabled: false } });
+  assert.equal(settings.audio.output.player_audio?.source_overrides?.[alice.user_id!]?.voice_disabled, false);
+  await execute({ set_user_source_disabled: { user_id: alice.user_id!, source: "speaker", disabled: true } });
+  assert.equal(Boolean(settings.audio.output.player_audio?.source_overrides?.[alice.user_id!]?.voice_disabled ?? true), true);
   available = false;
   await assert.rejects(execute({ show_all_tracks: null }), /unavailable/);
 });
 
-test("VR selection shares the existing settings queue and reapplies after a conflict", async () => {
+test("VR source settings share the existing queue and reapply after a conflict", async () => {
   let confirmed = initialSettings();
   let conflict = true;
   const autosave = createSettingsAutosave({ getCurrent: () => confirmed,
@@ -186,34 +203,34 @@ test("VR selection shares the existing settings queue and reapplies after a conf
   });
   const execute = createPlayerDisplayExecutor({
     getState: () => ({ available: true, processingAvailable: true, speakers: [alice, bob], current: [alice, bob],
-      defaultLanguages: [], languages: [] }),
+      hiddenTracks: [], defaultLanguages: [], languages: [] }),
     updateSettings: autosave.update, updatePreferences: () => {},
   });
-  const vrSave = execute({ set_user_selected: { user_id: alice.user_id, selected: true } });
+  const vrSave = execute({ set_user_source_disabled: { user_id: alice.user_id!, source: "vrchat_chatbox", disabled: false } });
   const desktopSave = autosave.update(current => ({ ...current, audio: { ...current.audio, output: { ...current.audio.output,
-    player_audio: { ...current.audio.output.player_audio!, selected_tracks: [...current.audio.output.player_audio!.selected_tracks!, bob.user_id] },
+    player_audio: { ...current.audio.output.player_audio!, max_players: 5 },
   } } }));
   await Promise.all([vrSave, desktopSave]);
-  assert.deepEqual(confirmed.audio.output.player_audio?.selected_tracks, [alice.user_id, bob.user_id]);
+  assert.equal(confirmed.audio.output.player_audio?.source_overrides?.[alice.user_id!]?.chatbox_disabled, false);
   assert.equal(confirmed.osc.enabled, true);
-  assert.equal(confirmed.audio.output.player_audio?.max_players, 3);
+  assert.equal(confirmed.audio.output.player_audio?.max_players, 5);
 });
 
-test("a processing save cannot report success when Core returns an unapplied target", async () => {
+test("a source save cannot report success when Core returns an unapplied target", async () => {
   const settings = initialSettings();
   const execute = createPlayerDisplayExecutor({
     getState: () => ({ available: true, processingAvailable: true, speakers: [alice], current: [alice],
-      defaultLanguages: [], languages: [] }),
+      hiddenTracks: [], defaultLanguages: [], languages: [] }),
     updateSettings: async apply => { apply(settings); return settings; }, updatePreferences: () => {},
   });
-  await assert.rejects(execute({ set_user_selected: { user_id: alice.user_id, selected: true } }), /not applied/);
+  await assert.rejects(execute({ set_user_source_disabled: { user_id: alice.user_id!, source: "speaker", disabled: false } }), /not applied/);
 });
 
 test("show all tracks also clears hidden tracks outside the loaded conversation", async () => {
   let preferences: PlayerHistoryPreferences = { hiddenTracks: ["unloaded-track"], hiddenSourceLanguages: ["ja"] };
   const execute = createPlayerDisplayExecutor({
     getState: () => ({ available: true, processingAvailable: false, speakers: [], current: [],
-      defaultLanguages: [], languages: ["ja"] }),
+      hiddenTracks: [], defaultLanguages: [], languages: ["ja"] }),
     updateSettings: async apply => apply(initialSettings()), updatePreferences: apply => { preferences = apply(preferences); },
   });
   await execute({ show_all_tracks: null });

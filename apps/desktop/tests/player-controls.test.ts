@@ -1,29 +1,35 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { collectPlayerSpeakers, applyPlayerProximity, applyPlayerSelectionAction, applyPlayerVisibilityAction, sortPlayerSpeakersByDistance } from "../src/subtitles/player-controls.ts";
+import { collectPlayerSpeakers, applyPlayerProximity, applyPlayerSourceAction, applyPlayerSourceMode, applyPlayerVisibilityAction, sourceMode, sortPlayerSpeakersByDistance } from "../src/subtitles/player-controls.ts";
 import type { Settings } from "../src/settings/types.ts";
 import type { Subtitle } from "../src/subtitles/types.ts";
 
 const alice = { id: "vrc:a", index: 0, user_id: "usr_00000000-0000-4000-8000-000000000001", display_name: "Alice" };
 const bob = { id: "vrc:b", index: 1, user_id: "usr_00000000-0000-4000-8000-000000000002", display_name: "Alice" };
 const settings = () => ({ audio: { output: { mode: "vrchat_players", player_audio: {
-  selected_tracks: [bob.user_id], selected_user_names: { [bob.user_id]: "Offline Bob" }, max_players: 3,
+  selected_user_names: { [bob.user_id]: "Offline Bob" }, max_players: 3,
 } } } }) as Settings;
 
-test("current selection merges accounts and preserves offline names and unrelated options", () => {
-  const next = applyPlayerSelectionAction(settings(), { select_current: null }, [alice], [alice]);
-  assert.deepEqual(next.audio.output.player_audio?.selected_tracks, [bob.user_id, alice.user_id]);
-  assert.deepEqual(next.audio.output.player_audio?.selected_user_names, { [bob.user_id]: "Offline Bob", [alice.user_id]: "Alice" });
-  assert.equal(next.audio.output.player_audio?.max_players, 3);
-  assert.deepEqual(applyPlayerSelectionAction(next, { set_processing_mode: "selected" }, [], []).audio.output.player_audio?.selected_tracks, []);
-  assert.equal(applyPlayerSelectionAction(next, { set_processing_mode: "all" }, [], []).audio.output.player_audio?.selected_tracks, null);
-});
-
 test("distance settings preserve the existing player audio configuration", () => {
-  const next = applyPlayerProximity(settings(), { enabled: true, radius_m: 10 });
+  const next = applyPlayerProximity(settings(), 10);
   assert.deepEqual(next.audio.output.player_audio?.proximity, { enabled: true, radius_m: 10 });
   assert.equal(next.audio.output.player_audio?.max_players, 3);
-  assert.deepEqual(next.audio.output.player_audio?.selected_tracks, [bob.user_id]);
+  assert.deepEqual(next.audio.output.player_audio?.selected_user_names, { [bob.user_id]: "Offline Bob" });
+});
+
+test("a zero distance switches filtering off while a positive one enables it", () => {
+  assert.deepEqual(applyPlayerProximity(settings(), 0).audio.output.player_audio?.proximity, { enabled: false, radius_m: 0 });
+  assert.deepEqual(applyPlayerProximity(settings(), 2.5).audio.output.player_audio?.proximity, { enabled: true, radius_m: 2.5 });
+});
+
+test("everyone mode stores only the sources a player switched off", () => {
+  assert.equal(sourceMode(settings().audio.output.player_audio), "allowlist", "settings without a mode stay on the allow list");
+  const everyone = applyPlayerSourceMode(settings(), "everyone");
+  assert.equal(sourceMode(everyone.audio.output.player_audio), "everyone");
+  const muted = applyPlayerSourceAction(everyone, { set_user_source_disabled: { user_id: alice.user_id!, source: "speaker", disabled: true } }, alice);
+  assert.deepEqual(muted.audio.output.player_audio?.source_overrides?.[alice.user_id!], { chatbox_disabled: false, voice_disabled: true });
+  assert.deepEqual(applyPlayerSourceAction(muted, { set_user_source_disabled: { user_id: alice.user_id!, source: "speaker", disabled: false } }, alice)
+    .audio.output.player_audio?.source_overrides, {}, "restoring the default drops the entry");
 });
 
 test("players are ordered from nearest to farthest with unknown distances last", () => {
@@ -34,29 +40,33 @@ test("players are ordered from nearest to farthest with unknown distances last",
   assert.deepEqual(sorted.map(player => player.id), ["near", "far", "unknown"]);
 });
 
-test("unknown identities and stale actions cannot enter the processing whitelist", () => {
-  assert.throws(() => applyPlayerSelectionAction(settings(), { set_user_selected: { user_id: "unknown", selected: true } }, [alice], [alice]));
-  const all = applyPlayerSelectionAction(settings(), { set_processing_mode: "all" }, [], []);
-  assert.throws(() => applyPlayerSelectionAction(all, { set_user_selected: { user_id: alice.user_id, selected: true } }, [alice], [alice]));
-  const full = settings();
-  full.audio.output.player_audio!.selected_tracks = Array.from({ length: 512 }, (_, i) => `usr_00000000-0000-4000-8000-${String(i + 10).padStart(12, "0")}`);
-  assert.throws(() => applyPlayerSelectionAction(full, { select_current: null }, [alice], [alice]), /512/);
-});
-
 test("current metadata wins without merging same-name accounts or separate tracks", () => {
   const historical = { ...alice, display_name: "Old Alice" };
   const rows = [{ source: "speaker", speaker: historical }] as Subtitle[];
   const speakers = collectPlayerSpeakers(rows, [alice, { ...alice, id: "vrc:a2" }], [bob.user_id], { [bob.user_id]: "Offline Bob" });
   assert.deepEqual(speakers.map(s => [s.id, s.display_name]), [["vrc:a", "Alice"], ["vrc:a2", "Alice"], [`saved-user:${bob.user_id}`, "Offline Bob"]]);
-  const next = applyPlayerSelectionAction(settings(), { select_current: null }, [historical, bob], [alice]);
-  assert.equal(next.audio.output.player_audio?.selected_user_names?.[bob.user_id], "Offline Bob");
-  assert.equal(next.audio.output.player_audio?.selected_user_names?.[alice.user_id], "Alice");
 });
 
 test("a current track with pending metadata keeps its loaded historical name", () => {
   const rows = [{ source: "speaker", speaker: alice }] as Subtitle[];
   const [speaker] = collectPlayerSpeakers(rows, [{ ...alice, display_name: undefined }], [], {});
   assert.equal(speaker.display_name, "Alice");
+});
+
+test("player sources start off and are enabled per account", () => {
+  const start = settings();
+  const voice = applyPlayerSourceAction(start, { set_user_source_disabled: { user_id: alice.user_id!, source: "speaker", disabled: false } }, alice);
+  assert.deepEqual(voice.audio.output.player_audio?.source_overrides, { [alice.user_id!]: { chatbox_disabled: true, voice_disabled: false } });
+  assert.equal(voice.audio.output.player_audio?.selected_user_names?.[alice.user_id!], "Alice");
+  const both = applyPlayerSourceAction(voice, { set_user_source_disabled: { user_id: alice.user_id!, source: "vrchat_chatbox", disabled: false } }, alice);
+  assert.deepEqual(both.audio.output.player_audio?.source_overrides?.[alice.user_id!], { chatbox_disabled: false, voice_disabled: false });
+  const muted = applyPlayerSourceAction(both, { set_user_source_disabled: { user_id: alice.user_id!, source: "speaker", disabled: true } }, alice);
+  assert.deepEqual(muted.audio.output.player_audio?.source_overrides?.[alice.user_id!], { chatbox_disabled: false, voice_disabled: true });
+  assert.deepEqual(applyPlayerSourceAction(muted, { set_user_source_disabled: { user_id: alice.user_id!, source: "vrchat_chatbox", disabled: true } }, alice)
+    .audio.output.player_audio?.source_overrides, {});
+  assert.deepEqual(applyPlayerSourceAction(start, { set_user_source_disabled: { user_id: alice.user_id!, source: "speaker", disabled: true } }, alice)
+    .audio.output.player_audio?.source_overrides, {}, "muting an already muted source stores nothing");
+  assert.throws(() => applyPlayerSourceAction(start, { set_user_source_disabled: { user_id: "unknown", source: "speaker", disabled: true } }));
 });
 
 test("track hiding is independent of explicitly selected languages", () => {

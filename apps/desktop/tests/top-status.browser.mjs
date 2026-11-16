@@ -57,9 +57,9 @@ for (const [width, reduced] of [[1100, false], [860, false], [380, false], [1100
             <div className="window-chrome">VRCS</div><div className="app-body">
               <WorkspaceFrame page="live" scrollRef={scroll} onScroll={() => {}} toolbar={
                 <TopStatus key={version} connection={connection} health={networkHealth} settings={networkSettings} controls={
-                  <PlayerHistoryControls subtitles={[]} enabled={false} selectedUserIds={null}
+                  <PlayerHistoryControls subtitles={[]} enabled={false}
                     defaultLanguages={[]} preferences={{hiddenTracks: [], hiddenSourceLanguages: null}}
-                    onPreferences={() => {}} onSelection={async () => {}} />
+                    onPreferences={() => {}} />
                 } />
               }><p>Conversation</p></WorkspaceFrame>
             </div>
