@@ -1,5 +1,7 @@
 //! Read only lifecycle markers from the current VRChat process's output log.
-//! No world names, account IDs or log contents leave this watcher.
+//! World names, account IDs and log contents stay inside this module; the
+//! standalone service publishes only process identity, readiness and a room
+//! identity token.
 use std::fs::{self, File, OpenOptions};
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Seek, SeekFrom};
@@ -23,7 +25,7 @@ pub(super) struct WorldWatcher {
 
 impl WorldWatcher {
     #[cfg(windows)]
-    pub fn for_process(owner: super::cache::ProcessIdentity) -> Self {
+    pub(super) fn for_process(owner: crate::vrchat_process::ProcessIdentity) -> Self {
         let directory = std::env::var_os("USERPROFILE")
             .map(PathBuf::from)
             .unwrap_or_default()

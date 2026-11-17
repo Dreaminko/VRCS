@@ -685,6 +685,7 @@ pub(crate) async fn reconcile_network(
             config,
             NetworkConsumers::from_config(config),
             Arc::clone(&state.config.config),
+            state.capture.vrchat_log.clone(),
         )
         .await
         .map_err(|detail| {

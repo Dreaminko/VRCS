@@ -13,6 +13,8 @@ use super::windows::{self, Connection, Network};
 use super::{AudioEvent, Capture, SharedStatus};
 use crate::config::{PlayerAudioConfig, PlayerProximityConfig, PlayerSourceOverride};
 use crate::models::SpeakerIdentity;
+use crate::vrchat_log::VrchatLog;
+use crate::vrchat_process::ProcessIdentity;
 
 pub(super) fn start(
     config: PlayerAudioConfig,
@@ -20,6 +22,7 @@ pub(super) fn start(
     outputs: SharedOutputs,
     cache: Arc<SessionCache>,
     settings: Arc<std::sync::RwLock<crate::config::AppConfig>>,
+    log: VrchatLog,
 ) -> Result<Capture, String> {
     let tx = EventSender(outputs);
     let stop = Arc::new(AtomicBool::new(false));
@@ -27,7 +30,7 @@ pub(super) fn start(
     let thread = std::thread::Builder::new()
         .name("vrcs-vrchat-network".into())
         .spawn(move || {
-            let result = supervise(config, tx, &thread_stop, &status, &cache, &settings);
+            let result = supervise(config, tx, &thread_stop, &status, &cache, &settings, log);
             let mut state = status.lock().expect("player status");
             state.active_players = 0;
             if let Err(error) = result {
@@ -72,7 +75,7 @@ impl From<tokio::sync::mpsc::Sender<AudioEvent>> for EventSender {
     }
 }
 
-type Game = (u32, std::path::PathBuf);
+type Game = (ProcessIdentity, std::path::PathBuf);
 
 fn wait_for_game(
     stop: &AtomicBool,
@@ -114,26 +117,20 @@ fn supervise(
     status: &SharedStatus,
     cache: &SessionCache,
     settings: &Arc<std::sync::RwLock<crate::config::AppConfig>>,
+    log: VrchatLog,
 ) -> Result<(), String> {
-    while let Some((pid, path)) = wait_for_game(stop, status, windows::game)? {
+    while let Some((owner, path)) = wait_for_game(stop, status, crate::vrchat_process::game)? {
         if tx.is_closed() {
             break;
         }
         // Game installation and sockets are opened only after a process exists;
         // starting transcription itself never requires being in VRChat.
-        let owner = match windows::process_identity(pid) {
-            Ok(owner) => owner,
-            Err(_) => {
-                wait_cancellable(stop, Duration::from_millis(250));
-                continue;
-            }
-        };
         let default_opus_path = path
             .parent()
             .ok_or("Cannot find the VRChat installation")?
             .join("VRChat_Data/Plugins/x86_64/opus.dll");
         let network = Network::open()?;
-        let ports = windows::game_ports(pid)?;
+        let ports = windows::game_ports(owner.pid)?;
         status.lock().expect("player status").phase = "waiting_world";
         run(
             owner,
@@ -146,6 +143,7 @@ fn supervise(
             status,
             cache,
             settings,
+            log.clone(),
         )?;
         if stop.load(Ordering::Relaxed) {
             break;
@@ -159,7 +157,7 @@ type Pending = (Connection, bool, Vec<u8>, Instant, Option<u64>);
 // Only identity and connection metadata survive a capture restart; no PCM,
 // compressed audio or incomplete Photon fragments are kept here.
 pub(super) struct RoomMetadata {
-    owner: cache::ProcessIdentity,
+    owner: ProcessIdentity,
     token: u64,
     session: String,
     next_flow: u64,
@@ -199,7 +197,7 @@ fn acquisition_samples(
 
 #[allow(clippy::too_many_arguments)]
 fn run(
-    owner: cache::ProcessIdentity,
+    owner: ProcessIdentity,
     opus_path: std::path::PathBuf,
     network: Network,
     mut ports: HashSet<u16>,
@@ -209,6 +207,7 @@ fn run(
     status: &SharedStatus,
     cache: &SessionCache,
     settings: &Arc<std::sync::RwLock<crate::config::AppConfig>>,
+    log: VrchatLog,
 ) -> Result<(), String> {
     let pid = owner.pid;
     let mut engine = Engine::new(None, config.max_players, tx, Arc::clone(status));
@@ -224,8 +223,8 @@ fn run(
     let started = Instant::now();
     let mut refresh = started;
     let mut world_poll = started - Duration::from_secs(1);
-    let mut world = super::world::WorldWatcher::for_process(owner);
-    let mut world_ready = false;
+    let initial = log.snapshot();
+    let mut world_ready = initial.process == Some(owner) && initial.ready;
     let mut last_decrypted = started;
     let scan_stop = Arc::new(AtomicBool::new(false));
     let mut retry_at = started;
@@ -259,7 +258,7 @@ fn run(
                     Duration::from_secs(1)
                 }
             {
-                if windows::process_identity(pid).ok() != Some(owner) {
+                if crate::vrchat_process::identity(pid).ok() != Some(owner) {
                     cache.invalidate();
                     break;
                 }
@@ -267,8 +266,16 @@ fn run(
                 refresh = Instant::now();
             }
             if world_poll.elapsed() >= Duration::from_millis(250) {
+                let snapshot = log.snapshot();
+                let log_matches = snapshot.process == Some(owner);
+                let ready = log_matches && snapshot.ready;
+                let token = if log_matches {
+                    snapshot.room_token
+                } else {
+                    None
+                };
                 let was_ready = world_ready;
-                world_ready = world.poll();
+                world_ready = ready;
                 if was_ready && !world_ready {
                     engine.close_tracks_excluded();
                     engine.clear_text();
@@ -276,7 +283,7 @@ fn run(
                 }
                 world_poll = Instant::now();
                 if key.is_some() && !room_restored {
-                    if let Some(token) = world.room_token() {
+                    if let Some(token) = token {
                         engine.restore_room(cache, owner, token);
                         room_restored = true;
                     }
@@ -398,9 +405,12 @@ fn run(
                             let acquired = SessionKey::new(&bytes);
                             cache.store(owner, bytes);
                             if !room_restored {
-                                if let Some(token) = world.room_token() {
-                                    engine.restore_room(cache, owner, token);
-                                    room_restored = true;
+                                let snapshot = log.snapshot();
+                                if snapshot.process == Some(owner) {
+                                    if let Some(token) = snapshot.room_token {
+                                        engine.restore_room(cache, owner, token);
+                                        room_restored = true;
+                                    }
                                 }
                             }
                             if key.take().is_some() {
@@ -496,9 +506,12 @@ fn run(
     engine.clear_text();
     engine.publish_roster(Instant::now());
     if result.is_ok() && key.is_some() && stop.load(Ordering::Relaxed) {
-        if let Some(token) = world.room_token() {
-            *cache.room.lock().expect("room identity cache") =
-                Some(engine.take_metadata(owner, token));
+        let snapshot = log.snapshot();
+        if snapshot.process == Some(owner) {
+            if let Some(token) = snapshot.room_token {
+                *cache.room.lock().expect("room identity cache") =
+                    Some(engine.take_metadata(owner, token));
+            }
         }
     }
     result
@@ -664,7 +677,7 @@ impl Engine {
         }
     }
 
-    fn take_metadata(&mut self, owner: cache::ProcessIdentity, token: u64) -> RoomMetadata {
+    fn take_metadata(&mut self, owner: ProcessIdentity, token: u64) -> RoomMetadata {
         self.clear_proximity();
         let mut flows = std::mem::take(&mut self.flows);
         for flow in flows.values_mut() {
@@ -682,7 +695,7 @@ impl Engine {
             active_world: self.active_world.take(),
         }
     }
-    fn restore_room(&mut self, cache: &SessionCache, owner: cache::ProcessIdentity, token: u64) {
+    fn restore_room(&mut self, cache: &SessionCache, owner: ProcessIdentity, token: u64) {
         let Some(room) = cache.room.lock().expect("room identity cache").take() else {
             return;
         };
@@ -2003,7 +2016,7 @@ mod tests {
         let packet = super::super::crypto::seal(&[3; 32], 1, &bytes);
         engine.receive(connection.clone(), true, &packet, &bytes, now);
         let identity = engine.identities.values().next().unwrap().clone();
-        let owner = cache::ProcessIdentity {
+        let owner = ProcessIdentity {
             pid: 12,
             created: 34,
         };
@@ -2039,7 +2052,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Requires VRChat to be closed; starts only the local waiting worker"]
     async fn native_capture_can_start_stop_and_restart_before_vrchat() {
-        let game = windows::game().unwrap();
+        let game = crate::vrchat_process::game().unwrap();
         assert!(
             game.is_none(),
             "Close the active VRChat process first: {game:?}"
@@ -2056,6 +2069,7 @@ mod tests {
                 )),
                 Arc::clone(&cache),
                 Arc::new(std::sync::RwLock::new(crate::config::AppConfig::default())),
+                VrchatLog::default(),
             )
             .unwrap();
             tokio::time::sleep(Duration::from_millis(30)).await;
@@ -2083,13 +2097,17 @@ mod tests {
         assert!(begin.elapsed() < Duration::from_millis(100));
         stop.store(false, Ordering::Relaxed);
         let mut polls = 0;
+        let owner = ProcessIdentity {
+            pid: 42,
+            created: 7,
+        };
         let game = wait_for_game(&stop, &status, || {
             polls += 1;
-            Ok((polls == 2).then(|| (42, "test/VRChat.exe".into())))
+            Ok((polls == 2).then(|| (owner, "test/VRChat.exe".into())))
         })
         .unwrap()
         .unwrap();
-        assert_eq!(game.0, 42);
+        assert_eq!(game.0, owner);
         assert_eq!(polls, 2);
     }
 

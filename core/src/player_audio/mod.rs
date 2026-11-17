@@ -28,8 +28,6 @@ pub(crate) mod session;
 mod windows;
 #[cfg(windows)]
 mod worker;
-#[cfg(any(windows, test))]
-mod world;
 
 use serde::Serialize;
 use std::collections::HashSet;
@@ -131,16 +129,17 @@ impl Capture {
         config: crate::config::PlayerAudioConfig,
         status: SharedStatus,
         outputs: session::SharedOutputs,
+        log: crate::vrchat_log::VrchatLog,
         #[cfg(windows)] cache: Arc<SessionCache>,
         settings: Arc<std::sync::RwLock<crate::config::AppConfig>>,
     ) -> Result<Self, String> {
         #[cfg(windows)]
         {
-            worker::start(config, status, outputs, cache, settings)
+            worker::start(config, status, outputs, cache, settings, log)
         }
         #[cfg(not(windows))]
         {
-            let _ = (config, status, outputs, settings);
+            let _ = (config, status, outputs, log, settings);
             Err("VRChat network capture is available only on Windows".into())
         }
     }

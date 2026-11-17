@@ -77,6 +77,8 @@ pub(crate) struct CaptureRuntime {
     pub(crate) qwen_runtime: Arc<asr::QwenRuntime>,
     pub(crate) capture_control: AsyncMutex<()>,
     pub(crate) capture_requested: AtomicBool,
+    /// Standalone VRChat log watcher; consumers read `snapshot()` here.
+    pub(crate) vrchat_log: crate::vrchat_log::VrchatLog,
     pub(crate) network_session: AsyncMutex<crate::player_audio::session::VrchatNetworkSession>,
     pub(crate) chatbox_task: AsyncMutex<Option<tokio::task::JoinHandle<()>>>,
     pub(crate) speaker_pipeline: AsyncMutex<TranscriptionPipeline>,
@@ -91,6 +93,7 @@ pub(crate) struct CaptureRuntimeInput {
     pub(crate) model_manager: Arc<asr::ModelManager>,
     pub(crate) vad_model_path: PathBuf,
     pub(crate) shutdown: watch::Receiver<bool>,
+    pub(crate) vrchat_log: crate::vrchat_log::VrchatLog,
 }
 
 impl CaptureRuntime {
@@ -109,6 +112,7 @@ impl CaptureRuntime {
             qwen_runtime: Arc::new(asr::QwenRuntime::new(input.qwen_runtime_dir)),
             capture_control: AsyncMutex::new(()),
             capture_requested: AtomicBool::new(false),
+            vrchat_log: input.vrchat_log,
             network_session: AsyncMutex::new(Default::default()),
             chatbox_task: AsyncMutex::new(None),
             speaker_pipeline: AsyncMutex::new(TranscriptionPipeline::new(
