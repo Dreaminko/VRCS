@@ -335,6 +335,7 @@
     "live": {
       "sharedTranslation": "まとめた訳文 · {{count}} 文",
       "title": "リアルタイム字幕",
+      "enteredWorld": "ワールドに入室 · {{name}}",
       "listening": "音声を待っています…",
       "startHint": "文字起こしを開始すると、ここに字幕が表示されます。",
       "transcribing": "文字起こし中",

@@ -188,6 +188,21 @@ test("compact selection falls back to the latest subtitle when history no longer
   assert.deepEqual(subtitlesForCompactView([]), []);
 });
 
+test("compact captions ignore room markers", () => {
+  const marker: Subtitle = {
+    ...subtitles[0],
+    id: 99,
+    text: "Cozy Cafe",
+    source: "world",
+  };
+  assert.deepEqual(
+    subtitlesForCompactView([...subtitles, marker]).map((subtitle) => subtitle.id),
+    subtitlesForCompactView(subtitles).map((subtitle) => subtitle.id),
+  );
+  assert.deepEqual(subtitlesForCompactView([marker]), []);
+  assert.deepEqual(subtitlesForCompactView([marker], "Cozy Cafe"), []);
+});
+
 test("compact candidates retain growing text for the measurement layer", () => {
   const growing = subtitles.map((subtitle) => ({
     ...subtitle,

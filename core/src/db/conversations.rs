@@ -86,14 +86,25 @@ impl Database {
         configured: bool,
     ) -> AppResult<Option<TitleRequest>> {
         let transaction = self.conn.transaction()?;
-        let state = transaction.query_row(
-            "SELECT ended_at IS NOT NULL, custom_title IS NOT NULL, summary_title IS NOT NULL,
+        let state = transaction
+            .query_row(
+                "SELECT ended_at IS NOT NULL, custom_title IS NOT NULL, summary_title IS NOT NULL,
                     title_generation_status IN ('pending', 'running'),
-                    EXISTS(SELECT 1 FROM subtitles WHERE conversation_id = ?1 AND trim(text, char(9, 10, 13, 32)) <> '')
+                    EXISTS(SELECT 1 FROM subtitles WHERE conversation_id = ?1
+                        AND source <> 'world' AND trim(text, char(9, 10, 13, 32)) <> '')
              FROM conversations WHERE id = ?1",
-            [id],
-            |row| Ok((row.get::<_, bool>(0)?, row.get::<_, bool>(1)?, row.get::<_, bool>(2)?, row.get::<_, bool>(3)?, row.get::<_, bool>(4)?)),
-        ).optional()?;
+                [id],
+                |row| {
+                    Ok((
+                        row.get::<_, bool>(0)?,
+                        row.get::<_, bool>(1)?,
+                        row.get::<_, bool>(2)?,
+                        row.get::<_, bool>(3)?,
+                        row.get::<_, bool>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
         let Some((ended, custom, ready, busy, has_text)) = state else {
             return Ok(None);
         };
@@ -158,8 +169,10 @@ impl Database {
 
     pub(crate) fn conversation_title_input(&self, id: &str) -> AppResult<String> {
         let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM subtitles WHERE conversation_id = ?1 AND trim(text, char(9, 10, 13, 32)) <> ''",
-            [id], |row| row.get(0),
+            "SELECT COUNT(*) FROM subtitles WHERE conversation_id = ?1
+                AND source <> 'world' AND trim(text, char(9, 10, 13, 32)) <> ''",
+            [id],
+            |row| row.get(0),
         )?;
         if count == 0 {
             return Ok(String::new());
@@ -171,7 +184,8 @@ impl Database {
                  VALUES(0) UNION ALL SELECT n + 1 FROM samples WHERE n + 1 < ?2
              ), ranked AS (
                  SELECT id, ROW_NUMBER() OVER (ORDER BY id) - 1 AS rank
-                 FROM subtitles WHERE conversation_id = ?1 AND trim(text, char(9, 10, 13, 32)) <> ''
+                 FROM subtitles WHERE conversation_id = ?1
+                   AND source <> 'world' AND trim(text, char(9, 10, 13, 32)) <> ''
              )
              SELECT substr(s.source, 1, 16),
                     CASE WHEN json_valid(s.speaker) AND json_type(s.speaker, '$.index') = 'integer'
@@ -436,7 +450,8 @@ fn register_title(conn: &Connection, id: &str, regenerate: bool) -> AppResult<Op
          WHERE id = ?1 AND ended_at IS NOT NULL AND custom_title IS NULL
            AND (summary_title IS NULL OR ?3)
            AND title_generation_status NOT IN ('pending', 'running')
-           AND EXISTS(SELECT 1 FROM subtitles WHERE conversation_id = ?1 AND trim(text, char(9, 10, 13, 32)) <> '')",
+           AND EXISTS(SELECT 1 FROM subtitles WHERE conversation_id = ?1
+               AND source <> 'world' AND trim(text, char(9, 10, 13, 32)) <> '')",
         params![id, request_id, regenerate],
     )?;
     Ok((updated > 0).then(|| TitleJob {

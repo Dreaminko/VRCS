@@ -17,11 +17,12 @@ const DISCOVERY_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Current log-derived state. Extend this type with new fields rather than
 /// making consumers read the log file themselves.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Snapshot {
     pub process: Option<ProcessIdentity>,
     pub ready: bool,
     pub room_token: Option<u64>,
+    pub world_name: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -48,7 +49,10 @@ impl VrchatLog {
     }
 
     pub(crate) fn snapshot(&self) -> Snapshot {
-        *self.shared.read().expect("VRChat log snapshot lock")
+        self.shared
+            .read()
+            .expect("VRChat log snapshot lock")
+            .clone()
     }
 }
 
@@ -85,12 +89,14 @@ fn run(shared: Arc<RwLock<Snapshot>>, shutdown: watch::Receiver<bool>) {
         if let Some((owner, watcher)) = active.as_mut() {
             let ready = watcher.poll();
             let room_token = watcher.room_token();
+            let world_name = watcher.world_name().map(str::to_owned);
             publish(
                 &shared,
                 Snapshot {
                     process: Some(*owner),
                     ready,
                     room_token,
+                    world_name,
                 },
             );
         }
@@ -121,8 +127,9 @@ mod tests {
             process: Some(ProcessIdentity { pid: 7, created: 9 }),
             ready: true,
             room_token: Some(11),
+            world_name: Some("Test World".into()),
         };
-        publish(&log.shared, next);
+        publish(&log.shared, next.clone());
         assert_eq!(log.snapshot(), next);
     }
 }

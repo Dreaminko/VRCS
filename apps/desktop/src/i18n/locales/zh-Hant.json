@@ -335,6 +335,7 @@
     "live": {
       "sharedTranslation": "合併譯文 · {{count}} 句",
       "title": "即時字幕",
+      "enteredWorld": "進入世界 · {{name}}",
       "listening": "正在聆聽語音…",
       "startHint": "開始轉錄後，字幕會顯示在此處。",
       "transcribing": "正在轉錄",

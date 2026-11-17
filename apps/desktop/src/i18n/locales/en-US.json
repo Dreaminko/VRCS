@@ -335,6 +335,7 @@
     "live": {
       "sharedTranslation": "Shared translation · {{count}} sentences",
       "title": "Live subtitles",
+      "enteredWorld": "Entered world · {{name}}",
       "listening": "Listening for speech…",
       "startHint": "Start transcription to see subtitles here.",
       "transcribing": "Transcribing",

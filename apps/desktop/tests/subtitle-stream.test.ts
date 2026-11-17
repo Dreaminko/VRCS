@@ -34,6 +34,18 @@ test("remote Chatbox subtitles preserve player identity, Unicode and whitespace 
     utterance_id: "text-is-not-asr", text: "hello", language: null })), null);
 });
 
+test("room markers are valid subtitles without speaker or translation", () => {
+  const marker: Subtitle = {
+    ...subtitle(40, "Cozy Cafe"),
+    source: "world",
+    language: null,
+    speaker: null,
+  };
+  const message = { type: "subtitle", subtitle: marker };
+  assert.deepEqual(parseSubtitleStreamMessage(JSON.stringify(message)), message);
+  assert.equal(upsertSubtitleHistory([], marker)[0]?.source, "world");
+});
+
 test("native stream carries cumulative conversation text separately from subtitle preview", () => {
   const event = {
     type: "live_translation_updated", source: "speaker", utterance_id: "preview-1",

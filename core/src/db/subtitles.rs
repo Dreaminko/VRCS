@@ -101,7 +101,7 @@ impl Database {
         let transaction = self.conn.unchecked_transaction()?;
         let conversation_id = active_conversation_id(&transaction)?;
         let existing_count = transaction.query_row(
-            "SELECT COUNT(*) FROM subtitles WHERE conversation_id = ?1",
+            "SELECT COUNT(*) FROM subtitles WHERE conversation_id = ?1 AND source <> 'world'",
             [&conversation_id],
             |row| row.get::<_, u64>(0),
         )?;
@@ -125,7 +125,7 @@ impl Database {
             ],
         )?;
         let id = transaction.last_insert_rowid();
-        if existing_count == 0 {
+        if existing_count == 0 && subtitle.source != "world" {
             transaction.execute(
                 "UPDATE conversations
                  SET automatic_title = ?1, updated_at = ?2

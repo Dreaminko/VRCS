@@ -1,7 +1,6 @@
 //! Read only lifecycle markers from the current VRChat process's output log.
-//! World names, account IDs and log contents stay inside this module; the
-//! standalone service publishes only process identity, readiness and a room
-//! identity token.
+//! World names are emitted only as the parsed room label; account IDs and the
+//! rest of the log contents stay inside this module.
 use std::fs::{self, File, OpenOptions};
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Seek, SeekFrom};
@@ -17,10 +16,12 @@ pub(super) struct WorldWatcher {
     path: Option<PathBuf>,
     offset: u64,
     search_end: Option<u64>,
+    name_search_end: Option<u64>,
     partial: Vec<u8>,
     ready: bool,
     caught_up: bool,
     identity_stamp: Option<(u64, u64)>,
+    world_name: Option<String>,
 }
 
 impl WorldWatcher {
@@ -44,10 +45,12 @@ impl WorldWatcher {
             path: None,
             offset: 0,
             search_end: None,
+            name_search_end: None,
             partial: Vec::new(),
             ready: false,
             caught_up: false,
             identity_stamp: None,
+            world_name: None,
         }
     }
 
@@ -57,6 +60,11 @@ impl WorldWatcher {
         }
         self.ready && self.caught_up
     }
+
+    pub fn world_name(&self) -> Option<&str> {
+        self.world_name.as_deref()
+    }
+
     /// Cache identity only while the same process, room and membership remain.
     /// Byte position distinguishes repeated joins with identical timestamp/name.
     pub fn room_token(&self) -> Option<u64> {
@@ -91,6 +99,8 @@ impl WorldWatcher {
         let Some(path) = newest else {
             self.ready = false;
             self.identity_stamp = None;
+            self.world_name = None;
+            self.name_search_end = None;
             return Ok(());
         };
         let mut options = OpenOptions::new();
@@ -107,8 +117,10 @@ impl WorldWatcher {
             self.identity_stamp = None;
             self.offset = length;
             self.search_end = Some(length);
+            self.name_search_end = Some(length);
             self.partial.clear();
             self.ready = false;
+            self.world_name = None;
         }
         if length > self.offset {
             let bytes = read_range(
@@ -129,6 +141,10 @@ impl WorldWatcher {
                 if let Some(ready) = last_marker(&self.partial[..=end]) {
                     self.ready = ready;
                     self.search_end = None;
+                }
+                if let Some(update) = latest_name_update(&self.partial[..=end]) {
+                    self.world_name = update.into_name();
+                    self.name_search_end = None;
                 }
                 self.partial.drain(..=end);
             }
@@ -158,6 +174,18 @@ impl WorldWatcher {
                 }
             }
         }
+        if let Some(end) = self.name_search_end {
+            let begin = end.saturating_sub(READ_CHUNK);
+            // Overlap covers a name line split across backwards read blocks.
+            let overlap = begin.saturating_sub(LINE_LIMIT as u64);
+            let bytes = read_range(&mut file, overlap, end - overlap)?;
+            if let Some(update) = latest_name_update(&bytes) {
+                self.world_name = update.into_name();
+                self.name_search_end = None;
+            } else {
+                self.name_search_end = (begin > 0).then_some(begin);
+            }
+        }
         // Catch up to the log's current end before treating an older marker as ready.
         self.caught_up = self.offset >= length;
         Ok(())
@@ -169,6 +197,40 @@ fn read_range(file: &mut File, offset: u64, length: u64) -> std::io::Result<Vec<
     let mut bytes = Vec::with_capacity(length as usize);
     file.take(length).read_to_end(&mut bytes)?;
     Ok(bytes)
+}
+
+enum NameUpdate<'a> {
+    Name(&'a str),
+    Clear,
+}
+
+impl NameUpdate<'_> {
+    fn into_name(self) -> Option<String> {
+        match self {
+            Self::Name(name) => Some(name.to_owned()),
+            Self::Clear => None,
+        }
+    }
+}
+
+fn name_update(message: &str) -> Option<NameUpdate<'_>> {
+    if let Some(rest) = message.strip_prefix("[Behaviour] Entering Room:") {
+        let name = rest.strip_prefix(' ').unwrap_or(rest);
+        return Some(if name.trim().is_empty() {
+            NameUpdate::Clear
+        } else {
+            NameUpdate::Name(name)
+        });
+    }
+    (message == "[Behaviour] OnLeftRoom").then_some(NameUpdate::Clear)
+}
+
+fn latest_name_update(bytes: &[u8]) -> Option<NameUpdate<'_>> {
+    // An unfinished line is retained for the next poll, not interpreted early.
+    let end = bytes.iter().rposition(|byte| *byte == b'\n')?;
+    bytes[..end]
+        .rsplit(|byte| *byte == b'\n')
+        .find_map(|line| log_message(line).and_then(name_update))
 }
 
 fn last_marker(bytes: &[u8]) -> Option<bool> {
@@ -283,12 +345,14 @@ mod tests {
         fs::write(&path, line("[Behaviour] Entering Room: test")).unwrap();
         let mut watcher = WorldWatcher::new(directory.path().into(), SystemTime::UNIX_EPOCH);
         assert!(!watcher.poll());
+        assert_eq!(watcher.world_name(), Some("test"));
         let ready = line("Memory Usage: after world loaded [test]");
         let mut file = OpenOptions::new().append(true).open(&path).unwrap();
         file.write_all(&ready.as_bytes()[..35]).unwrap();
         assert!(!watcher.poll());
         file.write_all(&ready.as_bytes()[35..]).unwrap();
         assert!(watcher.poll());
+        assert_eq!(watcher.world_name(), Some("test"));
         // Starting long after entering a room still works, without reading the
         // entire log in one poll or a five-minute freshness cutoff.
         file.write_all(&vec![b'\n'; READ_CHUNK as usize + LINE_LIMIT + 100])
@@ -296,9 +360,11 @@ mod tests {
         let mut late = WorldWatcher::new(directory.path().into(), SystemTime::UNIX_EPOCH);
         assert!(!late.poll());
         assert!(late.poll());
+        assert_eq!(late.world_name(), Some("test"));
         file.write_all(line("[Behaviour] OnLeftRoom").as_bytes())
             .unwrap();
         assert!(!late.poll());
+        assert_eq!(late.world_name(), None);
         assert!(!WorldWatcher::new(
             directory.path().into(),
             SystemTime::now() + Duration::from_secs(5)
@@ -307,10 +373,12 @@ mod tests {
         drop(file);
         fs::write(&path, line("[Behaviour] Finished entering world")).unwrap();
         assert!(late.poll());
+        assert_eq!(late.world_name(), None);
         std::thread::sleep(Duration::from_millis(10));
         let next = directory.path().join("output_log_next.txt");
         fs::write(&next, line("[Behaviour] Entering Room: next")).unwrap();
         assert!(!late.poll());
+        assert_eq!(late.world_name(), Some("next"));
         OpenOptions::new()
             .append(true)
             .open(next)
@@ -318,6 +386,50 @@ mod tests {
             .write_all(line("Memory Usage: after world loaded [next]").as_bytes())
             .unwrap();
         assert!(late.poll());
+        assert_eq!(late.world_name(), Some("next"));
+    }
+
+    #[test]
+    fn keeps_entering_room_name_across_join_and_ready_and_clears_on_leave() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("output_log_current.txt");
+        fs::write(
+            &path,
+            format!(
+                "{}{}{}{}",
+                line("[Behaviour] Entering Room: Static\u{2024}"),
+                line("[Behaviour] Joining wrld_test:1234~region(eu)"),
+                line("[Behaviour] Joining or Creating Room: Static\u{2024}"),
+                line("[Behaviour] Finished entering world."),
+            ),
+        )
+        .unwrap();
+        let mut watcher = WorldWatcher::new(directory.path().into(), SystemTime::UNIX_EPOCH);
+        assert!(watcher.poll());
+        assert_eq!(watcher.world_name(), Some("Static\u{2024}"));
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(line("[Behaviour] Joining wrld_test:5678~region(eu)").as_bytes())
+            .unwrap();
+        assert!(!watcher.poll());
+        assert_eq!(watcher.world_name(), Some("Static\u{2024}"));
+        file.write_all(line("[Behaviour] Finished entering world.").as_bytes())
+            .unwrap();
+        assert!(watcher.poll());
+        assert_eq!(watcher.world_name(), Some("Static\u{2024}"));
+        file.write_all(line("[Behaviour] OnLeftRoom").as_bytes())
+            .unwrap();
+        assert!(!watcher.poll());
+        assert_eq!(watcher.world_name(), None);
+        file.write_all(
+            line("[Behaviour] Entering Room: Apt\u{2024} 404\u{FF3B}CN\u{2044}test\u{FF3D} - cafe")
+                .as_bytes(),
+        )
+        .unwrap();
+        assert!(!watcher.poll());
+        assert_eq!(
+            watcher.world_name(),
+            Some("Apt\u{2024} 404\u{FF3B}CN\u{2044}test\u{FF3D} - cafe")
+        );
     }
 
     #[test]
@@ -346,5 +458,9 @@ mod tests {
             ),
             Some(false)
         );
+        assert!(matches!(
+            latest_name_update(line("[Behaviour] Entering Room: ").as_bytes()),
+            Some(NameUpdate::Clear)
+        ));
     }
 }
