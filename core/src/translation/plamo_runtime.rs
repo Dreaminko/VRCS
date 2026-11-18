@@ -2,14 +2,15 @@ use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::Mutex;
+
+use crate::work_priority::{Gate, Permit};
 
 use super::plamo::{self, CompletionRequest, MODEL_ID};
 use super::{LlmProgress, TranslationError};
@@ -17,14 +18,6 @@ use super::{LlmProgress, TranslationError};
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
 const MAX_WAITING_REQUESTS: usize = 8;
-
-struct WaitingRequest<'a>(&'a AtomicUsize);
-
-impl Drop for WaitingRequest<'_> {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::AcqRel);
-    }
-}
 
 #[derive(Clone)]
 struct Connection {
@@ -68,8 +61,7 @@ pub(crate) struct PlamoRuntime {
     runtime_directory: PathBuf,
     state: Mutex<RuntimeState>,
     startup: Mutex<()>,
-    slots: Arc<Semaphore>,
-    waiting: AtomicUsize,
+    slots: Gate,
     http: reqwest::Client,
 }
 
@@ -79,8 +71,7 @@ impl PlamoRuntime {
             runtime_directory,
             state: Mutex::new(RuntimeState::default()),
             startup: Mutex::new(()),
-            slots: Arc::new(Semaphore::new(2)),
-            waiting: AtomicUsize::new(0),
+            slots: Gate::new(2, MAX_WAITING_REQUESTS),
             http: reqwest::Client::builder()
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
@@ -140,10 +131,12 @@ impl PlamoRuntime {
                 )
             })?
         };
-        let started = Instant::now();
-        let _permit = self.acquire_slot(REQUEST_TIMEOUT).await?;
-        let remaining = REQUEST_TIMEOUT.saturating_sub(started.elapsed());
-        let result = tokio::time::timeout(remaining, {
+        // Waiting for one of the two slots must not consume inference time.
+        // The bounded queue can contain eight earlier requests.
+        let _permit = self
+            .acquire_slot(REQUEST_TIMEOUT * MAX_WAITING_REQUESTS as u32)
+            .await?;
+        let result = tokio::time::timeout(REQUEST_TIMEOUT, {
             plamo::translate(
                 &self.http,
                 &connection.origin,
@@ -174,27 +167,10 @@ impl PlamoRuntime {
         }
     }
 
-    async fn acquire_slot(
-        &self,
-        timeout: Duration,
-    ) -> Result<OwnedSemaphorePermit, TranslationError> {
-        let waiting = self.waiting.fetch_add(1, Ordering::AcqRel);
-        let _waiting = WaitingRequest(&self.waiting);
-        if waiting >= MAX_WAITING_REQUESTS && self.slots.available_permits() == 0 {
-            return Err(local_error(
-                "translation.local_queue_full",
-                "The local PLaMo translation queue is full",
-                true,
-            ));
-        }
-        let permit = tokio::time::timeout(timeout, Arc::clone(&self.slots).acquire_owned()).await;
-        match permit {
+    async fn acquire_slot(&self, timeout: Duration) -> Result<Permit, TranslationError> {
+        match tokio::time::timeout(timeout, self.slots.acquire()).await {
             Ok(Ok(permit)) => Ok(permit),
-            Ok(Err(_)) => Err(local_error(
-                "translation.local_runtime_unavailable",
-                "The local PLaMo request queue is closed",
-                true,
-            )),
+            Ok(Err(detail)) => Err(local_error("translation.local_queue_full", detail, true)),
             Err(_) => Err(local_error(
                 "translation.timeout",
                 "Local PLaMo translation timed out while waiting",
@@ -658,41 +634,38 @@ mod tests {
 
     #[tokio::test]
     async fn request_queue_rejects_excess_waiters_and_times_out() {
-        let runtime = Arc::new(PlamoRuntime::new(PathBuf::new()));
+        use std::future::{poll_fn, Future};
+        use std::task::Poll;
+
+        let runtime = PlamoRuntime::new(PathBuf::new());
         let first = runtime.acquire_slot(Duration::from_secs(1)).await.unwrap();
         let second = runtime.acquire_slot(Duration::from_secs(1)).await.unwrap();
         let mut waiters = Vec::new();
         for _ in 0..MAX_WAITING_REQUESTS {
-            let runtime = Arc::clone(&runtime);
-            waiters.push(tokio::spawn(async move {
-                runtime.acquire_slot(Duration::from_secs(2)).await
-            }));
+            let mut waiter = Box::pin(runtime.acquire_slot(Duration::from_secs(2)));
+            poll_fn(|cx| {
+                assert!(waiter.as_mut().poll(cx).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            waiters.push(waiter);
         }
-        tokio::time::timeout(Duration::from_secs(1), async {
-            while runtime.waiting.load(Ordering::Acquire) < MAX_WAITING_REQUESTS {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
-
         let error = runtime
             .acquire_slot(Duration::from_millis(10))
             .await
-            .unwrap_err();
+            .err()
+            .unwrap();
         assert_eq!(error.code, "translation.local_queue_full");
-        for waiter in waiters {
-            waiter.abort();
-            let _ = waiter.await;
-        }
-        assert_eq!(runtime.waiting.load(Ordering::Acquire), 0);
+        drop(waiters);
         let error = runtime
             .acquire_slot(Duration::from_millis(10))
             .await
-            .unwrap_err();
+            .err()
+            .unwrap();
         assert_eq!(error.code, "translation.timeout");
         drop(first);
-        drop(second);
+        let replacement = runtime.acquire_slot(Duration::from_secs(1)).await.unwrap();
+        drop((replacement, second));
     }
 
     #[tokio::test]

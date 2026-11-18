@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
@@ -15,6 +16,26 @@ const MAX_AUDIO_SAMPLES: usize = 16_000 * MAX_AUDIO_SECONDS;
 const UPLOAD_QUEUE_CAPACITY: usize = 4;
 const EVENT_QUEUE_CAPACITY: usize = 32;
 
+fn upload_gate(
+    profile: &ApiProfile,
+    settings: &RecognitionServiceSettings,
+) -> crate::work_priority::Gate {
+    static GATES: LazyLock<StdMutex<HashMap<String, crate::work_priority::Gate>>> =
+        LazyLock::new(Default::default);
+    let key = format!(
+        "{}:{}:{}",
+        profile.provider,
+        profile.base_url.as_deref().unwrap_or(&profile.id),
+        settings.model
+    );
+    GATES
+        .lock()
+        .expect("upload admission gates")
+        .entry(key)
+        .or_insert_with(|| crate::work_priority::Gate::new(4, 512))
+        .clone()
+}
+
 struct UploadJob {
     utterance_id: String,
     samples: Vec<f32>,
@@ -26,6 +47,7 @@ enum UploadTarget {
         profile: Box<ApiProfile>,
         api_key: String,
         settings: RecognitionServiceSettings,
+        admission: crate::work_priority::Gate,
     },
     ManagedQwen {
         connection: QwenConnection,
@@ -55,16 +77,23 @@ impl SegmentedUploadSession {
         };
         let (jobs_tx, jobs_rx) = mpsc::channel(UPLOAD_QUEUE_CAPACITY);
         let (events_tx, events_rx) = mpsc::channel(EVENT_QUEUE_CAPACITY);
-        let task = tokio::spawn(run_worker(
-            UploadTarget::Profile {
-                profile: Box::new(profile),
-                api_key,
-                settings,
-            },
-            language,
-            jobs_rx,
-            events_tx,
-        ));
+        let priority = crate::work_priority::Context::current();
+        let admission = upload_gate(&profile, &settings);
+        let task = tokio::spawn(async move {
+            priority
+                .scope(run_worker(
+                    UploadTarget::Profile {
+                        profile: Box::new(profile),
+                        api_key,
+                        settings,
+                        admission,
+                    },
+                    language,
+                    jobs_rx,
+                    events_tx,
+                ))
+                .await
+        });
         Self {
             audio: Mutex::new(Vec::new()),
             max_audio_samples,
@@ -81,15 +110,20 @@ impl SegmentedUploadSession {
     ) -> Self {
         let (jobs_tx, jobs_rx) = mpsc::channel(UPLOAD_QUEUE_CAPACITY);
         let (events_tx, events_rx) = mpsc::channel(EVENT_QUEUE_CAPACITY);
-        let task = tokio::spawn(run_worker(
-            UploadTarget::ManagedQwen {
-                connection,
-                runtime,
-            },
-            language,
-            jobs_rx,
-            events_tx,
-        ));
+        let priority = crate::work_priority::Context::current();
+        let task = tokio::spawn(async move {
+            priority
+                .scope(run_worker(
+                    UploadTarget::ManagedQwen {
+                        connection,
+                        runtime,
+                    },
+                    language,
+                    jobs_rx,
+                    events_tx,
+                ))
+                .await
+        });
         Self {
             audio: Mutex::new(Vec::new()),
             max_audio_samples: MAX_AUDIO_SAMPLES,
@@ -209,8 +243,23 @@ async fn run_worker(
                 profile,
                 api_key,
                 settings,
+                admission,
             } => {
                 let http = http.as_ref().expect("profile client exists");
+                let _permit = match admission.acquire().await {
+                    Ok(permit) => permit,
+                    Err(error) => {
+                        let _ = events
+                            .send(CloudEvent::Failed {
+                                utterance_id: Some(job.utterance_id),
+                                reset_session: false,
+                                code: "asr.cloud_transcription_failed".into(),
+                                detail: error.to_owned(),
+                            })
+                            .await;
+                        continue;
+                    }
+                };
                 if profile.provider == crate::providers::MIMO_PROVIDER {
                     mimo::transcribe(
                         http,
@@ -238,22 +287,35 @@ async fn run_worker(
             UploadTarget::ManagedQwen {
                 connection,
                 runtime,
-            } => match runtime.reconnect(connection).await {
-                Ok(current) => {
-                    *connection = current;
-                    let result = openai_audio_transcriptions::transcribe_managed_qwen(
-                        connection,
-                        &language,
-                        &job.samples,
-                    )
-                    .await;
-                    match runtime.connection().await {
-                        Ok(Some(current)) if current.generation == connection.generation => result,
-                        _ => Err("Managed Qwen ASR runtime changed during transcription".into()),
-                    }
+            } => {
+                let permit = runtime.requests.acquire().await;
+                match permit {
+                    Ok(_permit) => match runtime.reconnect(connection).await {
+                        Ok(current) => {
+                            *connection = current;
+                            let result = openai_audio_transcriptions::transcribe_managed_qwen(
+                                connection,
+                                &language,
+                                &job.samples,
+                            )
+                            .await;
+                            match runtime.connection().await {
+                                Ok(Some(current))
+                                    if current.generation == connection.generation =>
+                                {
+                                    result
+                                }
+                                _ => {
+                                    Err("Managed Qwen ASR runtime changed during transcription"
+                                        .into())
+                                }
+                            }
+                        }
+                        Err(error) => Err(error),
+                    },
+                    Err(error) => Err(error.to_owned()),
                 }
-                Err(error) => Err(error),
-            },
+            }
         };
         let event = match result {
             Ok(result) => CloudEvent::Final {

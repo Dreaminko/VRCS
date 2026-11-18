@@ -72,6 +72,7 @@ pub(crate) struct QwenRuntime {
     startup: Mutex<()>,
     devices: OnceCell<Vec<String>>,
     http: reqwest::Client,
+    pub(crate) requests: crate::work_priority::Gate,
 }
 impl QwenRuntime {
     pub(crate) fn new(directory: PathBuf) -> Self {
@@ -80,6 +81,7 @@ impl QwenRuntime {
             state: Mutex::new(RuntimeState::default()),
             startup: Mutex::new(()),
             devices: OnceCell::new(),
+            requests: crate::work_priority::Gate::new(2, 32),
             http: reqwest::Client::builder()
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
