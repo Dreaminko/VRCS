@@ -893,8 +893,9 @@ async fn service_models(
     service: &ProviderServiceDefinition,
     query: ModelCatalogQuery,
 ) -> ApiResult<Json<Value>> {
-    let api_key = if service.supports_model_listing
-        || service.id == providers::SERVICE_OPENROUTER_TRANSCRIPTION
+    let api_key = if profile.requires_api_key()
+        && (service.supports_model_listing
+            || service.id == providers::SERVICE_OPENROUTER_TRANSCRIPTION)
     {
         if query.refresh {
             profile_api_key(profile)?
