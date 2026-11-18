@@ -1,9 +1,9 @@
 use std::path::Path;
 
 #[cfg(target_os = "linux")]
-pub(super) use super::linux::{game, process_identity, Network};
+pub(super) use super::linux::Network;
 #[cfg(windows)]
-pub(super) use super::windows::{game, process_identity, Network};
+pub(super) use super::windows::Network;
 
 pub(super) fn opus_path(game: &Path) -> std::path::PathBuf {
     #[cfg(windows)]
@@ -17,8 +17,4 @@ pub(super) fn opus_path(game: &Path) -> std::path::PathBuf {
         let _ = game;
         Path::new("libopus.so.0").to_path_buf()
     }
-}
-
-pub(super) fn world(owner: super::cache::ProcessIdentity) -> super::world::WorldWatcher {
-    super::world::WorldWatcher::for_process(owner)
 }

@@ -1554,12 +1554,15 @@ mod tests {
             output.clone(),
             crate::vrcx::VrcxIntegration::new(tokio::sync::watch::channel(false).1),
         );
+        let mut config = crate::config::AppConfig::default();
+        // These fixtures exercise identity and output scoping, not source admission.
+        config.audio.output.player_audio.source_mode = "everyone".into();
         PipelineDependencies::new(
             db,
             live,
             catalog,
             translation,
-            Arc::new(std::sync::RwLock::new(crate::config::AppConfig::default())),
+            Arc::new(std::sync::RwLock::new(config)),
             Arc::new(std::sync::RwLock::new(
                 crate::language_session::ActiveLanguageSession::Global,
             )),

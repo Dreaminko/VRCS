@@ -16,6 +16,8 @@ Linux 助手按目标进程持有的 socket inode、本地/远端端点确认流
 绑定原进程内存的 `/proc/<pid>/mem`，并在读取前后复核 PID/starttime。扫描取消和
 40 秒预算覆盖读取失败路径，Core 的扫描结果等待另有 45 秒上限；明确访问拒绝会
 结束网络会话。世界日志优先从目标的 Wine/Proton 环境定位，日志尚未出现时继续等待。
+独立日志监视器在 Linux 上共享同一份进程、房间与玩家身份快照，玩家音轨和世界切换历史
+无需各自轮询日志；未启动网络接收时也能记录世界名称，不触发 polkit 授权。
 
 `GET /api/capabilities` 沿用 Bearer 鉴权，返回 OS、arch 与各功能的
 `supported`／`available`／`reason_code`，不包含凭据。已接入 PipeWire 麦克风／系统输出、
@@ -23,6 +25,8 @@ Secret Service 和固定 llama.cpp b11501 的托管 Qwen CPU/Vulkan；ARM64 原�
 Linux GNU x86_64 支持 PLaMo 本地 CPU 翻译，复用 b11501 运行组件；ARM64 PLaMo 暂未验证，保持禁用。应用独占音频仍明确拒绝；网络接收仅支持 x86_64 且需安装匹配助手，AppImage 不含系统安装的助手。OSC 发送独立，用户偏好与模型绑定保留。
 schema 42 增加 `audio.output.device_key`／`audio.microphone.device_key`，保留旧 `device_id`。
 PipeWire key 不存在时要求重选，不回退其他设备；旧 Windows 数值 ID 不在 Linux 猜测映射。
+schema 43 在此基础上迁移为按账号控制语音／Chatbox 来源；升级时保留 schema 41／42
+备份、稳定设备键与数值 ID，旧的空玩家选择仍禁止接收未配置来源。
 已启动的默认麦克风／系统输出采集会在设备暂缺、流断开或 PipeWire 服务重启后自动重建，
 保留原 PCM 通道，等待恢复时仍可停止。显式设备失效以及权限、格式等永久错误仍会上报。
 完整范围与实测限制见 [Linux 开发说明](../CONTRIBUTING.md#linux-development-initial-adaptation)。
@@ -49,7 +53,9 @@ Core 首次启动时会从 Silero 官方仓库下载固定的 v6.2.1 模型到�
 
 新配置的 ASR 模型包默认存放在配置文件同目录的 `models/asr/`，可通过设置页或 `storage.model_directory` 自定义；相对路径以配置文件目录为基准。旧配置保留原目录，包括 `models/whisper/` 和其中的 Qwen 包。修改保存位置时，Core 只迁移托管 Qwen 包；目标冲突或迁移失败时保留原设置与原目录。旧 Whisper 文件和其他非托管文件留在原目录，不会自动删除。`VRCS_ASR_MODEL_DIR` 可在启动时覆盖该设置。
 
-Qwen 模型包通过 `/api/asr/local-models/qwen` 管理，下载源固定到已知仓库版本，完成后校验大小与 SHA-256。文件未变化时复用校验记录；删除正在下载的包会取消任务，使用中的包受到删除保护。
+Qwen 模型包通过 `/api/asr/local-models/qwen` 管理，支持 0.6B Q8_0 和 1.7B Q8_0；默认包仍为 0.6B，1.7B 的主权重与音频投影器合计约 2.52 GB。下载源固定到已知仓库版本，官方 Hugging Face 和 ModelScope 镜像使用同一组预期大小与 SHA-256；校验通过后才激活模型包。文件未变化时复用校验记录。
+
+同一来源最多尝试 4 次。连接失败、超时、HTTP 408／429／5xx 和响应体中断会在有界等待后重试；已接收前缀在当前下载任务内通过 HTTP Range 续传。`206` 响应的范围起点、终点、总量必须与请求及模型清单一致，错误范围不会写入文件；来源忽略 Range 并返回完整响应时从头下载。取消、任务重启或切换来源不保留未完成文件的续传进度，已校验完成的同包文件可复用。
 
 Core 默认构建和 `--no-default-features` 均支持云端功能和托管 Qwen CPU 识别。`--features vulkan` 允许独立 `llama-server` 运行时使用 Vulkan GPU，无需 Vulkan SDK 或着色器编译器。自动设备模式优先使用可用 GPU；GPU 启动失败且启动时限仍有剩余时尝试 CPU。未启用 Vulkan 时不探测 GPU，自动模式使用 CPU，显式选择 GPU 会报告 Vulkan 后端不可用。语音在本机处理。
 

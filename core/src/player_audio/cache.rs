@@ -1,15 +1,11 @@
 //! In-memory login key and room identity caches. Neither is serialized. The key
 //! survives world changes; actor identities require unchanged room membership.
 use super::crypto::{encrypted, SessionKey};
+use crate::vrchat_process::ProcessIdentity;
 use std::collections::HashSet;
 use std::sync::Mutex;
 use zeroize::Zeroizing;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct ProcessIdentity {
-    pub pid: u32,
-    pub created: u64,
-}
 struct Entry {
     owner: ProcessIdentity,
     key: Zeroizing<[u8; 32]>,

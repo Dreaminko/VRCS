@@ -57,8 +57,8 @@ test("microphone controls work without player audio and wrist actions preserve t
               ...('set_microphone_filter' in action ? { enabled: action.set_microphone_filter } : { speakers: value.speakers.map(s => s.id === action.set_microphone_speaker.id ? { ...s, decision: action.set_microphone_speaker.decision } : s) }) }));
           } };
         return <div style={{ position: 'relative', width: 480, height: '100vh', padding: 12 }}>
-          <PlayerHistoryControls subtitles={[]} enabled={false} selectedUserIds={null} defaultLanguages={[]} preferences={preferences}
-            onPreferences={setPreferences} onSelection={async () => { throw Error('Unexpected player selection'); }} microphone={control} />
+          <PlayerHistoryControls subtitles={[]} enabled={false} defaultLanguages={[]} preferences={preferences}
+            onPreferences={setPreferences} microphone={control} />
         </div>;
       }
       window.renderDesktop = () => flushSync(() => root.render(<Desktop />));
@@ -93,7 +93,7 @@ test("microphone controls work without player audio and wrist actions preserve t
     await preset.check();
     await page.waitForFunction(() => window.presetSettings.audio.microphone.speaker_filter_enabled);
     await page.evaluate(() => window.renderDesktop());
-    await page.getByRole("button", { name: "人员与译文显示", exact: true }).click();
+    await page.getByRole("button", { name: "捕获管理", exact: true }).click();
     const mic = page.locator(".microphone-speaker-controls");
     await mic.getByRole("checkbox").check();
     assert.equal(await mic.locator(".player-history-row").first().getByRole("button", { name: "允许", exact: true }).getAttribute("aria-pressed"), "true");

@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import type { AppWorkspace } from "../app/useAppWorkspace";
 import { playerUserId } from "../capture/player-selection";
-import { collectPlayerSpeakers, playerLanguageOptions } from "../subtitles/player-controls";
+import { collectPlayerSpeakers, playerLanguageOptions, sourceMode } from "../subtitles/player-controls";
 import { defaultHiddenSourceLanguages, isAudioTrack } from "../subtitles/player-history";
 import { useSpeakerIdentities } from "../subtitles/speaker-state";
 import { localizedLanguageName } from "../translation/translation-languages";
@@ -16,17 +16,23 @@ function playerDisplayState(workspace: AppWorkspace, optimistic = false) {
     ? workspace.settings.getOptimistic() ?? workspace.settings.value ?? confirmed
     : confirmed;
   const playerMode = settings?.audio.output.mode === "vrchat_players";
-  const selected = settings?.audio.output.player_audio?.selected_tracks ?? null;
+  const playerAudioAvailable = workspace.runtime.capabilities.core?.audio.player_audio.available === true;
   const names = settings?.audio.output.player_audio?.selected_user_names ?? {};
+  const overrides = settings?.audio.output.player_audio?.source_overrides ?? {};
+  const unmatchedBlocked = settings?.audio.output.player_audio?.source_mode !== "everyone";
   const proximity = settings?.audio.output.player_audio?.proximity;
-  const current = playerMode ? (workspace.runtime.health?.player_audio?.players ?? []).map(player => player.speaker) : [];
+  const roster = workspace.runtime.health?.network_players
+    ?? (playerMode ? workspace.runtime.health?.player_audio?.players ?? [] : []);
+  const current = roster.map(player => player.speaker);
+  const savedIds = Object.keys(overrides);
   const preferences = workspace.playerDisplay.getCurrent();
   const defaultLanguages = defaultHiddenSourceLanguages(settings?.translation, workspace.runtime.health?.language_session);
   const available = workspace.onboarding.status === "complete";
   return {
-    available, processingAvailable: available && workspace.runtime.ready && playerMode,
-    playerMode, selected, names, proximity, current, preferences, defaultLanguages,
-    speakers: collectPlayerSpeakers(workspace.subtitles.items, current, selected, names),
+    available, processingAvailable: available && workspace.runtime.ready && playerMode && playerAudioAvailable,
+    playerMode, sourceMode: sourceMode(settings?.audio.output.player_audio), names, overrides, proximity, current, preferences, defaultLanguages, unmatchedBlocked,
+    hiddenTracks: preferences.hiddenTracks,
+    speakers: collectPlayerSpeakers(workspace.subtitles.items, current, savedIds, names),
     languages: playerLanguageOptions(workspace.subtitles.items, defaultLanguages, preferences.hiddenSourceLanguages),
   };
 }
@@ -68,6 +74,10 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
       next: translate("wristReader.nextPage"), busy: translate("settings.vrOverlay.controlBusy"),
     };
     const hiddenLanguages = state.preferences.hiddenSourceLanguages ?? [];
+    const hiddenUserIds = new Set(state.speakers
+      .filter(speaker => state.hiddenTracks.includes(speaker.id))
+      .map(playerUserId)
+      .filter((id): id is string => id !== null));
     const languageName = (language: string) => localizedLanguageName(language, locale);
     const micControl = current.current.workspace.microphoneSpeakers;
     const mic = micControl.connected
@@ -77,6 +87,7 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
       available: state.available,
       processing_available: state.processingAvailable,
       player_mode: state.playerMode,
+      source_mode: state.sourceMode,
       ...(state.proximity ? { proximity: { enabled: state.proximity.enabled, radius_m: state.proximity.radius_m } } : {}),
       ...(mic ? { microphone: {
         enabled: mic.enabled, supported: mic.supported, running: mic.running,
@@ -85,8 +96,6 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
           name: translate("live.speakerNumber", { number: speaker.index + 1 }),
           last_active: translate("live.microphoneSpeakers.lastActive", { time: new Date(speaker.last_active_at).toLocaleTimeString(locale) }) })),
       } } : {}),
-      selection_mode: state.selected === null ? "all" : "selected",
-      selected_count: state.selected?.length ?? 0,
       players: [...state.speakers].sort((a, b) => order.current.get(a.id)! - order.current.get(b.id)!).map(speaker => {
         const userId = playerUserId(speaker);
         const saved = speaker.id.startsWith("saved-user:");
@@ -97,10 +106,13 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
         const category = isCurrent ? labels.current : saved ? labels.savedSelection : labels.history;
         const detail = saved ? `${category} - ${userId?.slice(-8) ?? ""}`
           : `${category} - ${number}${isCurrent && !userId ? ` - ${labels.userIdPending}` : ""}`;
+        const rule = userId ? state.overrides[userId] : undefined;
         return {
           track_id: saved ? null : speaker.id, user_id: userId, name, detail,
-          current: isCurrent, selected: state.selected === null || Boolean(userId && state.selected.includes(userId)),
+          current: isCurrent,
           hidden: !saved && state.preferences.hiddenTracks.includes(speaker.id),
+          chatbox_disabled: rule ? rule.chatbox_disabled : state.unmatchedBlocked, voice_disabled: rule ? rule.voice_disabled : state.unmatchedBlocked,
+          voice_locked: Boolean(userId && hiddenUserIds.has(userId)),
         };
       }),
       languages: state.languages.map(code => ({ code, label: languageName(code), hidden: hiddenLanguages.includes(code) })),

@@ -10,6 +10,7 @@ use super::{AudioEvent, Capture, SharedStatus, Status};
 use crate::config::AppConfig;
 use crate::models::SpeakerIdentity;
 use crate::vrchat_chatbox::{ChatboxEvent, TaskValidity};
+use crate::vrchat_log::VrchatLog;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct NetworkConsumers {
@@ -204,6 +205,14 @@ impl VrchatNetworkSession {
         })
     }
 
+    /// Player identities are published independently of the voice subscription.
+    pub(crate) fn roster(&self) -> Vec<super::PlayerInfo> {
+        if !self.consumers.any() {
+            return Vec::new();
+        }
+        self.status.lock().expect("network status").players.clone()
+    }
+
     pub(crate) fn chatbox_status(&self) -> Option<ChatboxStatus> {
         self.consumers.chatbox.then(|| {
             let status = self.status.lock().expect("network status").clone();
@@ -224,6 +233,7 @@ impl VrchatNetworkSession {
         config: &AppConfig,
         consumers: NetworkConsumers,
         settings: Arc<RwLock<AppConfig>>,
+        log: VrchatLog,
     ) -> Result<Subscriptions, String> {
         let options = config.audio.output.player_audio.clone();
         {
@@ -235,11 +245,12 @@ impl VrchatNetworkSession {
         }
         #[cfg(any(windows, target_os = "linux"))]
         let cache = Arc::clone(&self.cache);
-        self.reconcile_with(consumers, |status, outputs| {
+        self.reconcile_with(consumers, move |status, outputs| {
             Capture::start(
                 options,
                 status,
                 outputs,
+                log,
                 #[cfg(any(windows, target_os = "linux"))]
                 cache,
                 settings,

@@ -13,7 +13,7 @@ use player_audio_helper::{
     procfs, read_event, write_command, Command as HelperCommand, Event, ScanResult,
 };
 
-use super::cache::ProcessIdentity;
+use crate::vrchat_process::ProcessIdentity;
 use super::connection::{Connection, Datagram};
 use super::SharedStatus;
 
@@ -49,63 +49,6 @@ fn trusted_helper(path: &Path) -> bool {
         && parent.mode() & 0o022 == 0
 }
 
-pub(super) fn game() -> Result<Option<(u32, PathBuf)>, String> {
-    let mut found = Vec::new();
-    let entries = fs::read_dir("/proc").map_err(|error| error.to_string())?;
-    for entry in entries.flatten() {
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|name| name.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        if pid == std::process::id() {
-            continue;
-        }
-        let comm = fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
-        let cmdline = fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
-        if !comm.to_ascii_lowercase().contains("vrchat.exe")
-            && !String::from_utf8_lossy(&cmdline)
-                .to_ascii_lowercase()
-                .contains("vrchat.exe")
-        {
-            continue;
-        }
-        let Ok(owner) = process_identity(pid) else {
-            continue;
-        };
-        if !same_uid(pid) {
-            continue;
-        }
-        // The EAC launcher also has VRChat in its command line; only the
-        // IL2CPP host maps GameAssembly.dll.
-        let maps = fs::read_to_string(format!("/proc/{pid}/maps")).unwrap_or_default();
-        if !maps.to_ascii_lowercase().contains("gameassembly.dll") {
-            continue;
-        }
-        found.push((pid, owner));
-    }
-    match found.len() {
-        0 => Ok(None),
-        1 => Ok(Some((found[0].0, executable(found[0].0)))),
-        _ => Err("More than one VRChat process is running; close the extra instance".into()),
-    }
-}
-
-fn executable(pid: u32) -> PathBuf {
-    fs::read_link(format!("/proc/{pid}/exe")).unwrap_or_default()
-}
-
-fn same_uid(pid: u32) -> bool {
-    procfs::uids(pid).is_ok_and(|uids| uids[0] == unsafe { libc::geteuid() })
-}
-
-pub(super) fn process_identity(pid: u32) -> Result<ProcessIdentity, String> {
-    let created = procfs::starttime(pid)
-        .map_err(|error| format!("Cannot read VRChat process: {error}"))?;
-    Ok(ProcessIdentity { pid, created })
-}
 
 struct Waiter {
     request: u64,

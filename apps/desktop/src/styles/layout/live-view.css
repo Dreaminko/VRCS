@@ -1,5 +1,23 @@
 .conversation { display: flex; flex-direction: column; gap: 22px; }
 .workspace-live > .conversation { flex: 1; }
+.world-marker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.world-marker-line { flex: 1; height: 1px; background: var(--border); }
+.world-marker-label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.world-marker-label svg { flex: 0 0 auto; }
+.world-marker.subtitle-search-focused .world-marker-label { color: var(--primary-ink); }
 .message-group {
   display: flex;
   max-width: 72%;

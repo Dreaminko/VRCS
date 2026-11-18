@@ -6,7 +6,7 @@ use super::{
     VadConfig, VrOcrConfig, VrOverlayConfig, VrchatChatboxConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 42;
+pub const SCHEMA_VERSION: u32 = 43;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -193,6 +193,8 @@ mod tests {
                 "proximity",
                 "selected_tracks",
                 "selected_user_names",
+                "source_mode",
+                "source_overrides",
             ],
         );
         assert_keys(

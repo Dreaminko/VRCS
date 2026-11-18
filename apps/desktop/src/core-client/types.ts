@@ -5,6 +5,7 @@ import type {
   OscTranslationStrategy,
   TranslationSettings,
 } from "../settings/types";
+import type { SpeakerIdentity } from "../subtitles/types";
 
 export type ConnectionState = "connecting" | "connected" | "disconnected";
 
@@ -23,6 +24,8 @@ export interface Health {
   vad_model_version: string | null;
   last_error: string | null;
   player_audio?: PlayerAudioStatus | null;
+  /** Current network player identities, independent of the voice subscription. */
+  network_players?: { speaker: SpeakerIdentity; selected: boolean; active: boolean; distance_m?: number }[];
   vrchat_chatbox?: ChatboxStatus | null;
   osc?: OscRuntimeStatus;
   vrchat_mute_sync: VrchatMuteStatus;
@@ -39,7 +42,7 @@ export interface ChatboxStatus {
 }
 
 export interface PlayerAudioStatus {
-  players?: { speaker: import("../subtitles/types").SpeakerIdentity; selected: boolean; active: boolean; distance_m?: number }[];
+  players?: { speaker: SpeakerIdentity; selected: boolean; active: boolean; distance_m?: number }[];
   phase: "waiting_game" | "waiting_world" | "authorizing" | "waiting_traffic" | "waiting_key" | "acquiring_key" | "retrying_key" | "streaming" | "failed" | "stopped";
   captured_packets: number;
   decrypted_packets: number;

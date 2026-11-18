@@ -1,43 +1,64 @@
 import type { Settings } from "../settings/types";
 import type { SpeakerIdentity, Subtitle } from "./types";
-import type { PlayerAudioSettings, PlayerProximitySettings } from "../capture/types";
-import { playerUserId } from "../capture/player-selection.ts";
+import type { PlayerAudioSettings, PlayerSourceMode } from "../capture/types";
+import { isPlayerUserId, playerUserId } from "../capture/player-selection.ts";
 import { historySpeakers, isOtherPlayerSource, sourceLanguageKey, subtitleSourceLanguage, type PlayerHistoryPreferences } from "./player-history.ts";
 import { TRANSLATION_LANGUAGE_CODES } from "../translation/translation-languages.ts";
 import type { MicrophoneSpeakerAction } from "../capture/microphone-speakers";
 
-export type PlayerSelectionAction =
-  | { set_processing_mode: "all" | "selected" }
-  | { set_user_selected: { user_id: string; selected: boolean } }
-  | { select_current: null }
-  | { clear_selection: null };
 export type PlayerVisibilityAction =
   | { set_track_hidden: { track_id: string; hidden: boolean } }
   | { show_all_tracks: null }
   | { set_follow_default: boolean }
   | { set_source_language_hidden: { language: string; hidden: boolean } }
   | { clear_hidden_languages: null };
-export type PlayerProximityAction =
-  | { set_proximity_enabled: boolean }
-  | { set_proximity_radius: number };
-export type PlayerDisplayAction = PlayerSelectionAction | PlayerVisibilityAction | PlayerProximityAction | MicrophoneSpeakerAction;
-
-export function isPlayerSelectionAction(action: PlayerDisplayAction): action is PlayerSelectionAction {
-  return "set_processing_mode" in action || "set_user_selected" in action || "select_current" in action || "clear_selection" in action;
-}
+export type PlayerProximityAction = { set_proximity_radius: number };
+export type PlayerSourceAction =
+  | { set_user_source_disabled: { user_id: string; source: "vrchat_chatbox" | "speaker"; disabled: boolean } };
+export type PlayerSourceModeAction = { set_source_mode: PlayerSourceMode };
+export type PlayerDisplayAction = PlayerVisibilityAction | PlayerProximityAction | PlayerSourceAction | PlayerSourceModeAction | MicrophoneSpeakerAction;
 
 export function isPlayerProximityAction(action: PlayerDisplayAction): action is PlayerProximityAction {
-  return "set_proximity_enabled" in action || "set_proximity_radius" in action;
+  return "set_proximity_radius" in action;
+}
+
+export function isPlayerSourceAction(action: PlayerDisplayAction): action is PlayerSourceAction {
+  return "set_user_source_disabled" in action;
+}
+
+export function isPlayerSourceModeAction(action: PlayerDisplayAction): action is PlayerSourceModeAction {
+  return "set_source_mode" in action;
 }
 
 export function collectPlayerSpeakers(subtitles: readonly Subtitle[], current: readonly SpeakerIdentity[], selected: readonly string[] | null, names: Record<string, string>): SpeakerIdentity[] {
   const known = new Map(historySpeakers(subtitles).map(speaker => [speaker.id, speaker]));
   for (const speaker of current) known.set(speaker.id, { ...speaker, display_name: speaker.display_name || known.get(speaker.id)?.display_name });
-  const users = new Set([...known.values()].map(playerUserId));
-  for (const user_id of selected ?? []) if (!users.has(user_id)) {
-    known.set(`saved-user:${user_id}`, { id: `saved-user:${user_id}`, user_id, index: 0, display_name: names[user_id] });
+  const currentIds = new Set(current.map(speaker => speaker.id));
+  const saved = new Set((selected ?? []).filter(isPlayerUserId));
+  const kept = new Map<string, SpeakerIdentity>();
+  const accounts = new Map<string, string>();
+  for (const [track_id, speaker] of known) {
+    if (currentIds.has(track_id)) {
+      kept.set(track_id, speaker);
+      continue;
+    }
+    // History keeps one row per account that has a captured user ID and a
+    // saved source setting; records without either cannot be restored here.
+    const user_id = playerUserId(speaker);
+    if (!user_id || !saved.has(user_id)) continue;
+    const first = accounts.get(user_id);
+    if (first === undefined) {
+      accounts.set(user_id, track_id);
+      kept.set(track_id, speaker);
+    } else if (!kept.get(first)?.display_name && speaker.display_name) {
+      kept.set(first, speaker);
+    }
   }
-  return [...known.values()];
+  const present = new Set([...current.map(playerUserId), ...accounts.keys()].filter((id): id is string => id !== null));
+  for (const user_id of saved) if (!present.has(user_id)) {
+    kept.set(`saved-user:${user_id}`, { id: `saved-user:${user_id}`, user_id, index: 0, display_name: names[user_id] });
+  }
+  return [...kept.values()];
 }
 
 export function sortPlayerSpeakersByDistance(speakers: readonly SpeakerIdentity[], distances: ReadonlyMap<string, number | undefined>): SpeakerIdentity[] {
@@ -66,47 +87,53 @@ function playerAudioOptions(options: PlayerAudioSettings | undefined): PlayerAud
     opus_library_path: "",
     max_players: 0,
     max_visible_players: 4,
+    source_mode: "allowlist",
   };
 }
 
-export function applyPlayerSelectionAction(settings: Settings, action: PlayerSelectionAction, speakers: readonly SpeakerIdentity[], current: readonly SpeakerIdentity[]): Settings {
-  if (settings.audio.output.mode !== "vrchat_players") throw new Error("Player processing is unavailable");
+export function sourceMode(options: PlayerAudioSettings | undefined): PlayerSourceMode {
+  return options?.source_mode === "everyone" ? "everyone" : "allowlist";
+}
+
+/** A zero radius switches distance filtering off; any positive radius limits processing to that range. */
+export function applyPlayerProximity(settings: Settings, radius_m: number): Settings {
   const options = playerAudioOptions(settings.audio.output.player_audio);
-  let selected = options.selected_tracks ?? null;
-  if ("set_processing_mode" in action) {
-    if (action.set_processing_mode === "all") selected = null;
-    else selected = [];
-  } else {
-    if (selected === null) throw new Error("Player selection mode changed; try again");
-    if ("clear_selection" in action) selected = [];
-    else if ("select_current" in action) selected = [...new Set([...selected, ...current.map(playerUserId).filter((id): id is string => id !== null)])];
-    else {
-      const { user_id, selected: included } = action.set_user_selected;
-      if (!speakers.some(s => playerUserId(s) === user_id) && !selected.includes(user_id)) throw new Error("Player identity is unavailable");
-      selected = setMembership(selected, user_id, included);
-    }
-  }
-  if ((selected?.length ?? 0) > 512) throw new Error("Select at most 512 players");
-  const names = new Map(Object.entries(options.selected_user_names ?? {}));
-  const validName = (name: string | null | undefined): name is string => !!name && [...name].length <= 128 && !/[\p{Cc}]/u.test(name);
-  for (const speaker of speakers) {
-    const id = playerUserId(speaker);
-    if (id && validName(speaker.display_name) && !names.has(id)) names.set(id, speaker.display_name);
-  }
-  for (const speaker of current) {
-    const id = playerUserId(speaker);
-    if (id && validName(speaker.display_name)) names.set(id, speaker.display_name);
-  }
-  const selected_user_names = Object.fromEntries((selected ?? []).flatMap(id => names.has(id) ? [[id, names.get(id)!]] : []));
   return { ...settings, audio: { ...settings.audio, output: { ...settings.audio.output,
-    player_audio: { ...options, selected_tracks: selected, selected_user_names },
+    player_audio: { ...options, proximity: { enabled: radius_m > 0, radius_m } },
   } } };
 }
 
-export function applyPlayerProximity(settings: Settings, proximity: PlayerProximitySettings): Settings {
+export function applyPlayerSourceMode(settings: Settings, mode: PlayerSourceMode): Settings {
   const options = playerAudioOptions(settings.audio.output.player_audio);
   return { ...settings, audio: { ...settings.audio, output: { ...settings.audio.output,
-    player_audio: { ...options, proximity },
+    player_audio: { ...options, source_mode: mode },
+  } } };
+}
+
+export function applyPlayerSourceAction(settings: Settings, action: PlayerSourceAction, speaker?: SpeakerIdentity): Settings {
+  const options = playerAudioOptions(settings.audio.output.player_audio);
+  const { user_id, source, disabled } = action.set_user_source_disabled;
+  if (!isPlayerUserId(user_id)) throw new Error("Player identity is unavailable");
+  const overrides = { ...(options.source_overrides ?? {}) };
+  const previous = overrides[user_id];
+  const mode = sourceMode(options);
+  // A missing rule inherits the mode: off until enabled, or on until disabled.
+  const unmatched = mode === "allowlist";
+  const rule = {
+    chatbox_disabled: source === "vrchat_chatbox" ? disabled : previous?.chatbox_disabled ?? unmatched,
+    voice_disabled: source === "speaker" ? disabled : previous?.voice_disabled ?? unmatched,
+  };
+  // Store the entry only while it still differs from the mode's default.
+  const keep = mode === "allowlist" ? !rule.chatbox_disabled || !rule.voice_disabled : rule.chatbox_disabled || rule.voice_disabled;
+  if (keep) overrides[user_id] = rule;
+  else delete overrides[user_id];
+  if (Object.keys(overrides).length > 512) throw new Error("Save source settings for at most 512 players");
+  // Labels only describe saved rules; stale entries would count toward the backend limit.
+  const names = Object.fromEntries(Object.entries(options.selected_user_names ?? {}).filter(([id]) => id in overrides));
+  const name = speaker?.display_name;
+  if (keep && playerUserId(speaker ?? { id: "", index: 0 }) === user_id && name && [...name].length <= 128 && !/[\p{Cc}]/u.test(name)) names[user_id] = name;
+  return { ...settings, audio: { ...settings.audio, output: { ...settings.audio.output,
+    player_audio: { ...options, source_overrides: overrides, selected_user_names: names },
   } } };
 }
 

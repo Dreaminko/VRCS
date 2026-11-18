@@ -1,9 +1,12 @@
 use std::net::SocketAddr;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
+use crate::models::{now_iso8601, Subtitle};
 use crate::server::{self, AppState, CaptureContext, CORE_VERSION};
 
 pub(crate) struct RuntimeTasks {
@@ -21,11 +24,13 @@ impl RuntimeTasks {
         let capture = CaptureContext::from_app(&state);
         let glossary_refresh = spawn_glossary_refresh(capture.clone(), shutdown.clone());
         let mute_coordinator = spawn_mute_coordinator(capture, shutdown.clone());
+        let room_markers = spawn_room_marker_recorder(Arc::clone(&state), shutdown.clone());
         let listener = match tokio::net::TcpListener::bind(requested_address).await {
             Ok(listener) => listener,
             Err(error) => {
                 glossary_refresh.abort();
                 mute_coordinator.abort();
+                room_markers.abort();
                 return Err(format!("Failed to listen on {requested_address}: {error}"));
             }
         };
@@ -34,6 +39,7 @@ impl RuntimeTasks {
             Err(error) => {
                 glossary_refresh.abort();
                 mute_coordinator.abort();
+                room_markers.abort();
                 return Err(format!("Failed to read the listen address: {error}"));
             }
         };
@@ -43,7 +49,7 @@ impl RuntimeTasks {
         Ok(Self {
             address,
             server: Some(server),
-            auxiliaries: vec![glossary_refresh, mute_coordinator],
+            auxiliaries: vec![glossary_refresh, mute_coordinator, room_markers],
         })
     }
 
@@ -157,4 +163,61 @@ fn spawn_mute_coordinator(
             }
         }
     })
+}
+
+fn spawn_room_marker_recorder(
+    state: Arc<AppState>,
+    mut shutdown: watch::Receiver<bool>,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_millis(250));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut last_name: Option<String> = None;
+        let mut was_recording = false;
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let recording = state.capture.capture_requested.load(Ordering::SeqCst);
+                    let name = state.capture.vrchat_log.snapshot().world_name;
+                    let switched = name != last_name;
+                    if recording && name.is_some() && (switched || !was_recording) {
+                        if let Err(error) = record_room_marker(&state, name.as_deref().unwrap_or_default()).await {
+                            tracing::warn!(%error, "VRChat room marker could not be stored");
+                        }
+                    }
+                    last_name = name;
+                    was_recording = recording;
+                }
+                changed = shutdown.changed() => {
+                    if changed.is_err() || *shutdown.borrow() {
+                        break;
+                    }
+                }
+            }
+        }
+    })
+}
+
+async fn record_room_marker(state: &AppState, name: &str) -> crate::error::AppResult<()> {
+    let subtitle = Subtitle {
+        id: None,
+        conversation_id: None,
+        text: name.trim().to_owned(),
+        speaker: None,
+        language: None,
+        started_at: None,
+        ended_at: None,
+        source: "world".into(),
+        created_at: now_iso8601(),
+        translations: Vec::new(),
+    };
+    let catalog = state.content.conversation_catalog_tx.clone();
+    let saved = server::db_call(Arc::clone(&state.content.db), move |db| {
+        let saved = db.add_subtitle(&subtitle)?;
+        crate::db::conversations::publish_latest_catalog(db, &catalog);
+        Ok(saved)
+    })
+    .await?;
+    state.content.subtitle_output.room_marker_recorded(saved);
+    Ok(())
 }

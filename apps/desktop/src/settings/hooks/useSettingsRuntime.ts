@@ -186,7 +186,7 @@ export function useSettingsRuntime({
   }, [settings]);
 
   const refreshingPlayerNames = useRef(false);
-  const observedPlayers = health.value?.player_audio?.players;
+  const observedPlayers = health.value?.network_players ?? health.value?.player_audio?.players;
   useEffect(() => {
     // This runtime stays mounted on every page. Use the shared autosave queue so
     // a name refresh cannot overwrite concurrent settings or restore a deselection.

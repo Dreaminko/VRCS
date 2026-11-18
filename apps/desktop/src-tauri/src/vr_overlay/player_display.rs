@@ -10,13 +10,6 @@ pub const REQUEST_EVENT: &str = "vr-overlay-player-display-request";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Action {
-    SetProcessingMode(String),
-    SetUserSelected {
-        user_id: String,
-        selected: bool,
-    },
-    SelectCurrent(()),
-    ClearSelection(()),
     SetTrackHidden {
         track_id: String,
         hidden: bool,
@@ -28,8 +21,13 @@ pub enum Action {
         hidden: bool,
     },
     ClearHiddenLanguages(()),
-    SetProximityEnabled(bool),
     SetProximityRadius(f32),
+    SetSourceMode(String),
+    SetUserSourceDisabled {
+        user_id: String,
+        source: String,
+        disabled: bool,
+    },
     SetMicrophoneFilter(bool),
     SetMicrophoneSpeaker {
         generation: String,
@@ -42,8 +40,6 @@ pub enum Action {
 #[cfg(any(windows, linux_vr, test))]
 impl Action {
     pub(super) fn allowed(&self, view: &View) -> bool {
-        let processing = view.processing_available && view.player_mode;
-        let selecting = processing && view.selection_mode == "selected";
         match self {
             Self::SetMicrophoneFilter(_) => view.microphone.is_some(),
             Self::SetMicrophoneSpeaker {
@@ -60,18 +56,6 @@ impl Action {
                     && matches!(decision.as_str(), "allow" | "block")
                     && mic.speakers.iter().any(|speaker| speaker.id == *id)
             }),
-            Self::SetProcessingMode(mode) => {
-                processing && matches!(mode.as_str(), "all" | "selected")
-            }
-            Self::SetUserSelected { user_id, .. } => {
-                selecting
-                    && !user_id.is_empty()
-                    && view
-                        .players
-                        .iter()
-                        .any(|player| player.user_id.as_ref() == Some(user_id))
-            }
-            Self::SelectCurrent(()) | Self::ClearSelection(()) => selecting,
             Self::SetTrackHidden { track_id, .. } => {
                 !track_id.is_empty()
                     && view
@@ -90,15 +74,25 @@ impl Action {
             Self::ShowAllTracks(())
             | Self::SetFollowDefault(_)
             | Self::ClearHiddenLanguages(()) => true,
-            Self::SetProximityEnabled(_) => {
-                view.available && view.player_mode && view.proximity.is_some()
-            }
             Self::SetProximityRadius(radius_m) => {
                 view.available
                     && view.player_mode
                     && view.proximity.is_some()
                     && radius_m.is_finite()
                     && (0.0..=10.0).contains(radius_m)
+            }
+            Self::SetSourceMode(mode) => {
+                view.available && matches!(mode.as_str(), "everyone" | "allowlist")
+            }
+            Self::SetUserSourceDisabled {
+                user_id, source, ..
+            } => {
+                view.available
+                    && matches!(source.as_str(), "vrchat_chatbox" | "speaker")
+                    && view
+                        .players
+                        .iter()
+                        .any(|player| player.user_id.as_ref() == Some(user_id))
             }
         }
     }
@@ -120,8 +114,14 @@ pub struct Player {
     pub name: String,
     pub detail: String,
     pub current: bool,
-    pub selected: bool,
     pub hidden: bool,
+    #[serde(default)]
+    pub chatbox_disabled: bool,
+    #[serde(default)]
+    pub voice_disabled: bool,
+    /// The account has a hidden track, so voice cannot be resumed before unhiding.
+    #[serde(default)]
+    pub voice_locked: bool,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,8 +161,8 @@ pub struct View {
     pub available: bool,
     pub processing_available: bool,
     pub player_mode: bool,
-    pub selection_mode: String,
-    pub selected_count: usize,
+    #[serde(default)]
+    pub source_mode: String,
     pub players: Vec<Player>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proximity: Option<Proximity>,
@@ -209,7 +209,6 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert!(Action::SetProximityEnabled(true).allowed(&view));
         assert!(Action::SetProximityRadius(0.0).allowed(&view));
         assert!(Action::SetProximityRadius(0.9).allowed(&view));
         assert!(Action::SetProximityRadius(5.5).allowed(&view));
@@ -217,10 +216,24 @@ mod tests {
         assert!(!Action::SetProximityRadius(10.1).allowed(&view));
         assert!(!Action::SetProximityRadius(f32::NAN).allowed(&view));
         view.player_mode = false;
-        assert!(!Action::SetProximityEnabled(true).allowed(&view));
+        assert!(!Action::SetProximityRadius(5.0).allowed(&view));
         view.player_mode = true;
         view.proximity = None;
         assert!(!Action::SetProximityRadius(5.0).allowed(&view));
+    }
+
+    #[test]
+    fn source_mode_actions_require_an_available_view_and_a_known_mode() {
+        let mut view = View {
+            available: true,
+            ..Default::default()
+        };
+        assert!(Action::SetSourceMode("everyone".into()).allowed(&view));
+        assert!(Action::SetSourceMode("allowlist".into()).allowed(&view));
+        assert!(!Action::SetSourceMode("system".into()).allowed(&view));
+        assert!(!Action::SetSourceMode(String::new()).allowed(&view));
+        view.available = false;
+        assert!(!Action::SetSourceMode("everyone".into()).allowed(&view));
     }
 
     #[test]
@@ -238,25 +251,6 @@ mod tests {
                     decision: "block".into(),
                 },
                 serde_json::json!({"set_microphone_speaker": {"generation": "session", "revision": 7, "id": "speaker-1", "decision": "block"}}),
-            ),
-            (
-                Action::SetProcessingMode("selected".into()),
-                serde_json::json!({"set_processing_mode": "selected"}),
-            ),
-            (
-                Action::SetUserSelected {
-                    user_id: "usr_known".into(),
-                    selected: true,
-                },
-                serde_json::json!({"set_user_selected": {"user_id": "usr_known", "selected": true}}),
-            ),
-            (
-                Action::SelectCurrent(()),
-                serde_json::json!({"select_current": null}),
-            ),
-            (
-                Action::ClearSelection(()),
-                serde_json::json!({"clear_selection": null}),
             ),
             (
                 Action::SetTrackHidden {
@@ -285,12 +279,20 @@ mod tests {
                 serde_json::json!({"clear_hidden_languages": null}),
             ),
             (
-                Action::SetProximityEnabled(true),
-                serde_json::json!({"set_proximity_enabled": true}),
-            ),
-            (
                 Action::SetProximityRadius(5.5),
                 serde_json::json!({"set_proximity_radius": 5.5}),
+            ),
+            (
+                Action::SetSourceMode("everyone".into()),
+                serde_json::json!({"set_source_mode": "everyone"}),
+            ),
+            (
+                Action::SetUserSourceDisabled {
+                    user_id: "usr_known".into(),
+                    source: "vrchat_chatbox".into(),
+                    disabled: true,
+                },
+                serde_json::json!({"set_user_source_disabled": {"user_id": "usr_known", "source": "vrchat_chatbox", "disabled": true}}),
             ),
         ];
         for (action, wire) in cases {

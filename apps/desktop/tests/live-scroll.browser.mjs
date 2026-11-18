@@ -49,8 +49,8 @@ test("live translation scroll follows layout changes and respects user input", {
           <div className="window-chrome">Live scroll test</div>
           <div className="app-body"><WorkspaceFrame page="live" scrollRef={api.liveScrollRef} onScroll={api.onLiveScroll} toolbar={<>
             <TopStatus connection="connected" health={null} settings={null}/>
-            <PlayerHistoryControls subtitles={rows} enabled={false} selectedUserIds={null} defaultLanguages={['zh']}
-              preferences={preferences} onPreferences={setPreferences} onSelection={async()=>{}}/>
+            <PlayerHistoryControls subtitles={rows} enabled={false} defaultLanguages={['zh']}
+              preferences={preferences} onPreferences={setPreferences}/>
           </>}>
               <input id="editor" aria-label="Editable text" />
               <LiveView subtitles={rows} scrollContainerRef={api.liveScrollRef} running={true} hasOlder={false}

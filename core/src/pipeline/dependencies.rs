@@ -54,15 +54,22 @@ pub(crate) struct PipelineDependencies {
 
 impl PipelineDependencies {
     pub(super) fn player_selected(&self, speaker: &crate::models::SpeakerIdentity) -> bool {
-        self.config
-            .read()
-            .expect("config lock")
-            .audio
-            .output
-            .player_audio
+        let config = self.config.read().expect("config lock");
+        let player_audio = &config.audio.output.player_audio;
+        let selected = player_audio
             .selected_tracks
             .as_ref()
-            .is_none_or(|ids| speaker.user_id.as_ref().is_some_and(|id| ids.contains(id)))
+            .is_none_or(|ids| speaker.user_id.as_ref().is_some_and(|id| ids.contains(id)));
+        // A revoked voice source must also suppress results from tasks that
+        // already left the active map while finishing their last utterance.
+        let rule = speaker
+            .user_id
+            .as_ref()
+            .and_then(|id| player_audio.source_overrides.get(id));
+        let voice_blocked = rule.map_or(player_audio.source_mode != "everyone", |rule| {
+            rule.voice_disabled
+        });
+        selected && !voice_blocked
     }
 
     pub(super) fn current_player_selected(&self) -> bool {
@@ -1385,6 +1392,53 @@ mod tests {
         );
         assert!(native_repair_target(&config, &[], "microphone", "zh-Hans").is_none());
         assert!(native_repair_target(&config, &[], "microphone", "ja").is_none());
+    }
+
+    #[tokio::test]
+    async fn revoked_voice_source_suppresses_late_results_from_a_retired_task() {
+        use crate::config::PlayerSourceOverride;
+        use crate::models::SpeakerIdentity;
+        let base =
+            super::super::tests::test_dependencies(crate::domain_events::DomainEventHub::new());
+        let user = "usr_00000000-0000-4000-8000-000000000008";
+        let speaker = SpeakerIdentity {
+            id: "retired-track".into(),
+            index: 0,
+            display_name: None,
+            user_id: Some(user.into()),
+        };
+        {
+            let mut config = base.config.write().unwrap();
+            config.audio.output.player_audio.source_mode = "allowlist".into();
+            config.audio.output.player_audio.source_overrides.insert(
+                user.into(),
+                PlayerSourceOverride {
+                    chatbox_disabled: true,
+                    voice_disabled: false,
+                },
+            );
+        }
+        let task = base.clone().with_player(speaker);
+        task.publish_text("kept".into(), None, "speaker", "before-revocation".into())
+            .await
+            .unwrap();
+        base.config
+            .write()
+            .unwrap()
+            .audio
+            .output
+            .player_audio
+            .source_overrides
+            .get_mut(user)
+            .unwrap()
+            .voice_disabled = true;
+        // This task never leaves the active map, so only the source policy can stop it.
+        task.publish_text("revoked".into(), None, "speaker", "after-revocation".into())
+            .await
+            .unwrap();
+        let rows = base.database.lock().unwrap().subtitle_history(10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].text, "kept");
     }
 
     #[tokio::test]

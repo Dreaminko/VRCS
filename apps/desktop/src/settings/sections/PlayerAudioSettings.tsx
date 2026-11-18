@@ -29,6 +29,8 @@ export function PlayerAudioSettings({ value, status, memory, disabled, onChange 
   const keyScan = status?.key_scan;
   const keyReady = keyScan?.stage === "verified" || keyScan?.stage === "cached";
   const formatPlayerCount = (count: number) => count === 0 ? t("settings.audio.players.unlimited") : String(count);
+  const noVoiceSources = options.source_mode !== "everyone"
+    && !Object.values(options.source_overrides ?? {}).some(rule => !rule.voice_disabled);
   return <section className="vr-overlay-card player-audio-settings" aria-labelledby="player-audio-title">
     <div className="vr-overlay-card-heading vr-overlay-feature-heading"><div><FlaskConical size={18} />
       <span><strong id="player-audio-title">{t("settings.capture.networkTitle")}</strong></span>
@@ -58,7 +60,7 @@ export function PlayerAudioSettings({ value, status, memory, disabled, onChange 
     </div>
     <div className="settings-field-note" role="status">
       <strong>{phase === "streaming" && status
-        ? options.selected_tracks?.length === 0 ? t("live.players.noneSelected")
+        ? noVoiceSources ? t("settings.audio.players.noVoiceSources")
           : status.active_players > 0 ? t("settings.audio.players.activeTracks", { players: status.active_players })
             : t("settings.audio.players.waitingSpeech")
         : t(`settings.audio.players.phase.${phase}`, { defaultValue: t("status.networkStarting") })}</strong>

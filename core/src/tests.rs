@@ -581,7 +581,7 @@ async fn local_recognition_sources_can_be_saved_without_an_api_profile() {
             .await
             .unwrap()
             .status(),
-        if cfg!(windows) {
+        if cfg!(any(windows, target_os = "linux")) {
             reqwest::StatusCode::CONFLICT
         } else {
             reqwest::StatusCode::SERVICE_UNAVAILABLE

@@ -1,12 +1,16 @@
+use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use futures_util::StreamExt;
 use sha2::{Digest, Sha256};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::watch;
 
 use super::package::{cache_verified_asset, managed_parent, verify_asset};
 use super::{activate_staging, staging_dir, AssetSpec, PackageSpec};
+
+const DOWNLOAD_ATTEMPTS: usize = 4;
 
 pub(crate) async fn download_into_staging(
     root: &Path,
@@ -121,6 +125,17 @@ async fn download_file_from_sources(
     Err(last_error)
 }
 
+fn content_range_length(value: &str, offset: u64, total: u64) -> Option<u64> {
+    let (range, size) = value.strip_prefix("bytes ")?.split_once('/')?;
+    let (start, end) = range.split_once('-')?;
+    let start = start.parse::<u64>().ok()?;
+    let end = end.parse::<u64>().ok()?;
+    if start != offset || end < start || end >= total || size.parse::<u64>().ok()? != total {
+        return None;
+    }
+    Some(end - start + 1)
+}
+
 pub(crate) async fn download_file(
     client: &reqwest::Client,
     url: reqwest::Url,
@@ -130,56 +145,125 @@ pub(crate) async fn download_file(
     cancel: &mut watch::Receiver<bool>,
     mut on_progress: impl FnMut(u64),
 ) -> Result<(), String> {
-    let request = client.get(url).send();
-    let response = tokio::select! {
-        _ = cancel.changed() => return Err("Model download was cancelled".into()),
-        response = request => response,
-    }
-    .and_then(reqwest::Response::error_for_status)
-    .map_err(|error| {
-        format!(
-            "Could not download model asset {}: {}",
-            asset.name,
-            error.without_url()
-        )
-    })?;
-    if response
-        .content_length()
-        .is_some_and(|size| size != asset.bytes)
-    {
-        return Err(format!("Model asset {} has an unexpected size", asset.name));
-    }
-    let mut file = tokio::fs::File::create(temporary)
+    let mut file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(temporary)
         .await
         .map_err(|error| format!("Could not create model download file: {error}"))?;
-    let mut stream = response.bytes_stream();
     let mut downloaded = 0u64;
     let mut digest = Sha256::new();
-    loop {
-        let chunk = tokio::select! {
-            _ = cancel.changed() => return Err("Model download was cancelled".into()),
-            chunk = stream.next() => chunk,
-        };
-        let Some(chunk) = chunk else { break };
-        let chunk = chunk
-            .map_err(|error| format!("Model download was interrupted: {}", error.without_url()))?;
-        downloaded = downloaded
-            .checked_add(chunk.len() as u64)
-            .ok_or_else(|| "Model download size overflow".to_string())?;
-        if downloaded > asset.bytes {
-            return Err(format!(
-                "Model asset {} exceeds its expected size",
-                asset.name
-            ));
+    let mut last_error = format!("Model asset {} is incomplete", asset.name);
+    'attempts: for attempt in 0..DOWNLOAD_ATTEMPTS {
+        if *cancel.borrow() {
+            return Err("Model download was cancelled".into());
         }
-        file.write_all(&chunk)
+        if attempt > 0 {
+            tokio::select! {
+                _ = cancel.changed() => return Err("Model download was cancelled".into()),
+                _ = tokio::time::sleep(Duration::from_millis(500 * attempt as u64)) => {}
+            }
+        }
+        file.seek(SeekFrom::Start(downloaded))
             .await
-            .map_err(|error| format!("Could not write model download: {error}"))?;
-        digest.update(&chunk);
-        on_progress(downloaded);
+            .map_err(|error| format!("Could not resume model download: {error}"))?;
+        let mut request = client.get(url.clone());
+        if downloaded > 0 {
+            request = request.header(reqwest::header::RANGE, format!("bytes={downloaded}-"));
+        }
+        let response = tokio::select! {
+            _ = cancel.changed() => return Err("Model download was cancelled".into()),
+            response = request.send() => response,
+        }
+        .and_then(reqwest::Response::error_for_status);
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                let retryable = match error.status() {
+                    Some(status) => {
+                        status.is_server_error() || matches!(status.as_u16(), 408 | 429)
+                    }
+                    None => error.is_connect() || error.is_timeout() || error.is_request(),
+                };
+                last_error = format!(
+                    "Could not download model asset {}: {}",
+                    asset.name,
+                    error.without_url()
+                );
+                if retryable {
+                    continue;
+                }
+                return Err(last_error);
+            }
+        };
+        if downloaded > 0 && response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+            // A source that ignores the range must restart, not mix responses.
+            file.set_len(0)
+                .await
+                .map_err(|error| format!("Could not restart model download: {error}"))?;
+            file.seek(SeekFrom::Start(0))
+                .await
+                .map_err(|error| format!("Could not restart model download: {error}"))?;
+            downloaded = 0;
+            digest = Sha256::new();
+        }
+        let expected_bytes = if response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+            let length = response
+                .headers()
+                .get(reqwest::header::CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| content_range_length(value, downloaded, asset.bytes));
+            let Some(length) = length else {
+                last_error = format!("Model asset {} has an unexpected Content-Range", asset.name);
+                continue;
+            };
+            length
+        } else {
+            asset.bytes - downloaded
+        };
+        if response
+            .content_length()
+            .is_some_and(|size| size != expected_bytes)
+        {
+            return Err(format!("Model asset {} has an unexpected size", asset.name));
+        }
+        let mut stream = response.bytes_stream();
+        loop {
+            let chunk = tokio::select! {
+                _ = cancel.changed() => return Err("Model download was cancelled".into()),
+                chunk = stream.next() => chunk,
+            };
+            let Some(chunk) = chunk else { break };
+            let chunk = match chunk {
+                Ok(chunk) => chunk,
+                Err(error) => {
+                    last_error = format!("Model download was interrupted: {}", error.without_url());
+                    continue 'attempts;
+                }
+            };
+            downloaded = downloaded
+                .checked_add(chunk.len() as u64)
+                .ok_or_else(|| "Model download size overflow".to_string())?;
+            if downloaded > asset.bytes {
+                return Err(format!(
+                    "Model asset {} exceeds its expected size",
+                    asset.name
+                ));
+            }
+            file.write_all(&chunk)
+                .await
+                .map_err(|error| format!("Could not write model download: {error}"))?;
+            digest.update(&chunk);
+            on_progress(downloaded);
+        }
+        if downloaded == asset.bytes {
+            break;
+        }
+        last_error = format!("Model asset {} is incomplete", asset.name);
     }
     if downloaded != asset.bytes {
-        return Err(format!("Model asset {} is incomplete", asset.name));
+        return Err(last_error);
     }
     let digest = format!("{:x}", digest.finalize());
     if digest != asset.sha256 {
@@ -263,6 +347,88 @@ mod tests {
         result.unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"abc");
         assert!(!temporary.exists());
+    }
+
+    #[tokio::test]
+    async fn interrupted_transfers_preserve_prefix_across_request_and_range_failures() {
+        use tokio::io::AsyncReadExt;
+
+        let cases = [
+            ("body interruption", vec![]),
+            ("connection failure and 503", vec![
+                "",
+                "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n",
+            ]),
+            ("request timeout", vec!["HTTP/1.1 408 Request Timeout\r\nContent-Length: 0\r\n\r\n"]),
+            ("rate limit", vec!["HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n"]),
+            ("wrong range start", vec!["HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-0/3\r\nContent-Length: 1\r\n\r\na"]),
+            ("wrong range total", vec!["HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 2-2/4\r\nContent-Length: 1\r\n\r\na"]),
+            ("invalid range end", vec!["HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 2-3/3\r\nContent-Length: 2\r\n\r\naa"]),
+            ("missing range", vec!["HTTP/1.1 206 Partial Content\r\nContent-Length: 1\r\n\r\na"]),
+            ("malformed range", vec!["HTTP/1.1 206 Partial Content\r\nContent-Range: invalid\r\nContent-Length: 1\r\n\r\na"]),
+        ];
+        for (case, middle) in cases {
+            let mut responses = vec!["HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nab"];
+            responses.extend(middle);
+            responses.push("HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 2-2/3\r\nContent-Length: 1\r\n\r\nc");
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let mut ranges = Vec::new();
+                for response in responses {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = Vec::new();
+                    let mut buffer = [0u8; 256];
+                    loop {
+                        let read = socket.read(&mut buffer).await.unwrap();
+                        request.extend_from_slice(&buffer[..read]);
+                        if read == 0 || request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    let text = String::from_utf8_lossy(&request).to_ascii_lowercase();
+                    ranges.push(
+                        text.lines()
+                            .find(|line| line.starts_with("range:"))
+                            .map(str::to_owned),
+                    );
+                    socket.write_all(response.as_bytes()).await.unwrap();
+                    socket.shutdown().await.unwrap();
+                }
+                ranges
+            });
+            let root = tempfile::tempdir().unwrap();
+            let manager = crate::asr::ModelManager::new(root.path().into()).unwrap();
+            let path = root.path().join(ASSET.name);
+            let temporary = root.path().join("fixture.part");
+            let (_cancel_tx, mut cancel) = watch::channel(false);
+            let result = tokio::time::timeout(
+                Duration::from_secs(10),
+                download_file(
+                    &manager.client,
+                    format!("http://{address}/asset").parse().unwrap(),
+                    ASSET,
+                    &path,
+                    &temporary,
+                    &mut cancel,
+                    |_| {},
+                ),
+            )
+            .await;
+            if !matches!(&result, Ok(Ok(()))) {
+                server.abort();
+                panic!("{case}: {result:?}");
+            }
+            let ranges = server.await.unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), b"abc", "{case}");
+            assert_eq!(ranges[0], None, "{case}");
+            assert!(
+                ranges[1..]
+                    .iter()
+                    .all(|range| range.as_deref() == Some("range: bytes=2-")),
+                "{case}"
+            );
+        }
     }
 
     #[tokio::test]

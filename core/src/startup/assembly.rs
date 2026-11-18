@@ -139,6 +139,7 @@ impl RuntimeAssembly {
         );
         let (vr_overlay_config_tx, _) =
             watch::channel((effective.vr_overlay.clone(), effective.ocr.clone()));
+        let vrchat_log = crate::vrchat_log::VrchatLog::start(shutdown_rx.clone());
 
         let capture_runtime = CaptureRuntime::new(CaptureRuntimeInput {
             qwen_runtime_dir,
@@ -147,6 +148,7 @@ impl RuntimeAssembly {
             model_manager: Arc::clone(&model_manager),
             vad_model_path: plan.vad_model_path,
             shutdown: shutdown_rx.clone(),
+            vrchat_log,
         });
         let content_services = ContentServices::new(ContentServicesInput {
             db,

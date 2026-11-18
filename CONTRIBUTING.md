@@ -119,6 +119,15 @@ These steps install prerequisites only: network capture remains experimental,
 and real VRChat/Proton reception, authorization and sustained operation still
 require game acceptance.
 
+Schema 43 retains Linux device keys and numeric device IDs while migrating legacy
+player selections to per-account source policies. Upgrades from schema 41 or 42
+keep a versioned configuration backup; an empty legacy selection remains blocked.
+The standalone VRChat log watcher also runs on Linux, using the target process's
+Wine/Proton prefix. Network capture and conversation world markers share its
+snapshot, so log monitoring does not require starting the privileged helper.
+Managed Qwen 0.6B and 1.7B models share the existing Linux CPU/Vulkan runtime;
+the larger model does not require a separate runtime package.
+
 Implemented boundaries:
 
 - Authenticated Core `GET /api/capabilities` and Tauri `platform_capabilities`

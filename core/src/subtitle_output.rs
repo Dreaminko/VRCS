@@ -189,6 +189,12 @@ impl SubtitleLifecyclePublisher {
         self.publish_subtitle(subtitle, None);
     }
 
+    /// Publish a conversation marker to desktop history without treating it as
+    /// speech for VR, translation, or OSC output.
+    pub fn room_marker_recorded(&self, subtitle: Subtitle) {
+        let _ = self.subtitles.send(subtitle);
+    }
+
     #[cfg(any(windows, target_os = "linux", test))]
     pub(crate) fn remote_subtitle_recorded(&self, subtitle: Subtitle, message_id: &str) {
         debug_assert_eq!(subtitle.source, "vrchat_chatbox");
@@ -482,6 +488,27 @@ mod tests {
             created_at: now_iso8601(),
             translations: Vec::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn room_markers_reach_desktop_history_without_presentation_events() {
+        let (subtitles, _) = broadcast::channel(4);
+        let (translations, _) = broadcast::channel(4);
+        let output = SubtitleLifecyclePublisher::new(
+            subtitles,
+            translations,
+            OscChatboxDispatcher::new(OscConfig::default()),
+        );
+        let mut history = output.subscribe_subtitles();
+        let mut presentation = output.subscribe_presentation_events();
+        let mut marker = subtitle(9);
+        marker.source = "world".into();
+        marker.text = "Cozy Cafe".into();
+        output.room_marker_recorded(marker);
+        let published = history.recv().await.unwrap();
+        assert_eq!(published.source, "world");
+        assert_eq!(published.text, "Cozy Cafe");
+        assert!(presentation.try_recv().is_err());
     }
 
     #[tokio::test]

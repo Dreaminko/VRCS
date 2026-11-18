@@ -20,7 +20,7 @@ import { SelectionToolOverlays } from "./SelectionToolOverlays";
 import type { AppWorkspace } from "./useAppWorkspace";
 import { openDesktopVision } from "../vision/api";
 import { PlayerHistoryControls } from "../subtitles/components/PlayerHistoryControls";
-import { applyPlayerProximity, applyPlayerSelectionAction } from "../subtitles/player-controls";
+import { applyPlayerProximity, applyPlayerSourceAction, applyPlayerSourceMode, sourceMode } from "../subtitles/player-controls";
 
 let learningWorkspaceModule: Promise<typeof import("../learning/components/LearningWorkspace")> | undefined;
 let settingsPanelModule: Promise<typeof import("../settings/SettingsPanel")> | undefined;
@@ -217,15 +217,18 @@ export function DesktopShell({
                   microphone={features?.microphone_speaker_filter ? workspace.microphoneSpeakers : undefined}
                   subtitles={conversations.selectedSubtitles}
                   status={runtime.health?.player_audio}
+                  roster={runtime.health?.network_players}
                   enabled={settings.value?.audio.output.mode === "vrchat_players" && runtime.capabilities.core?.audio.player_audio.available === true}
-                  selectedUserIds={settings.value?.audio.output.player_audio?.selected_tracks ?? null}
                   selectedUserNames={settings.value?.audio.output.player_audio?.selected_user_names}
+                  sourceOverrides={settings.value?.audio.output.player_audio?.source_overrides}
+                  sourceMode={sourceMode(settings.value?.audio.output.player_audio)}
                   proximity={settings.value?.audio.output.player_audio?.proximity}
                   defaultLanguages={playerDisplay.defaultLanguages}
                   preferences={playerDisplay.preferences}
                   onPreferences={playerDisplay.update}
-                  onSelection={(action, speakers, observed) => settings.update(current => applyPlayerSelectionAction(current, action, speakers, observed))}
-                  onProximityChange={(proximity) => settings.update(current => applyPlayerProximity(current, proximity))}
+                  onSource={(action, speaker) => settings.update(current => applyPlayerSourceAction(current, action, speaker))}
+                  onSourceMode={(mode) => settings.update(current => applyPlayerSourceMode(current, mode))}
+                  onProximityChange={(radius_m) => settings.update(current => applyPlayerProximity(current, radius_m))}
                 />}
             />
           }

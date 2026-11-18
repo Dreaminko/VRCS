@@ -1,12 +1,13 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Eye, EyeOff, Plus, UsersRound, X } from "lucide-react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { MessageSquare, MessageSquareOff, Volume2, VolumeX, Plus, UsersRound, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { PlayerProximitySettings } from "../../capture/types";
 import type { PlayerAudioStatus } from "../../core-client/types";
 import type { SpeakerIdentity, Subtitle } from "../types";
 import { useSpeakerIdentity } from "../speaker-state";
 import { isAudioTrack, type PlayerHistoryPreferences } from "../player-history";
-import { collectPlayerSpeakers, playerLanguageOptions, applyPlayerVisibilityAction, sortPlayerSpeakersByDistance, type PlayerSelectionAction, type PlayerVisibilityAction } from "../player-controls";
+import { collectPlayerSpeakers, playerLanguageOptions, applyPlayerVisibilityAction, sortPlayerSpeakersByDistance, type PlayerSourceAction, type PlayerVisibilityAction } from "../player-controls";
+import type { PlayerSourceMode, PlayerSourceOverride } from "../../capture/types";
 import { playerUserId } from "../../capture/player-selection";
 import { localizedLanguageName } from "../../translation/translation-languages";
 import { LanguagePicker } from "../../shared/ui/LanguagePicker";
@@ -14,21 +15,24 @@ import { useDismissibleLayer } from "../../shared/hooks/use-dismissible-layer";
 import { useDropdownMenuMotion } from "../../shared/hooks/use-dropdown-menu-motion";
 import { MicrophoneSpeakerControls } from "../../capture/MicrophoneSpeakerControls";
 import type { MicrophoneSpeakerControl } from "../../capture/useMicrophoneSpeakers";
-import { PreferenceToggle, RangeField } from "../../settings/SettingsControls";
+import { RangeField } from "../../settings/SettingsControls";
 
-export function PlayerHistoryControls({ subtitles, status, enabled, selectedUserIds, selectedUserNames = {}, proximity, defaultLanguages, preferences, onPreferences, onSelection, onProximityChange, microphone }: {
+export function PlayerHistoryControls({ subtitles, status, roster, enabled, selectedUserNames = {}, sourceOverrides = {}, sourceMode = "allowlist", proximity, defaultLanguages, preferences, onPreferences, onSource, onSourceMode, onProximityChange, microphone }: {
   microphone?: MicrophoneSpeakerControl;
   subtitles: Subtitle[];
   status?: PlayerAudioStatus | null;
+  roster?: PlayerAudioStatus["players"];
   enabled: boolean;
-  selectedUserIds: string[] | null;
   selectedUserNames?: Record<string, string>;
+  sourceOverrides?: Record<string, PlayerSourceOverride>;
+  sourceMode?: PlayerSourceMode;
   proximity?: PlayerProximitySettings;
   defaultLanguages: string[];
   preferences: PlayerHistoryPreferences;
   onPreferences: (apply: (value: PlayerHistoryPreferences) => PlayerHistoryPreferences) => void;
-  onSelection: (action: PlayerSelectionAction, speakers: readonly SpeakerIdentity[], current: readonly SpeakerIdentity[]) => Promise<unknown>;
-  onProximityChange?: (proximity: PlayerProximitySettings) => Promise<unknown> | void;
+  onSource?: (action: PlayerSourceAction, speaker: SpeakerIdentity) => Promise<unknown>;
+  onSourceMode?: (mode: PlayerSourceMode) => Promise<unknown> | void;
+  onProximityChange?: (radius_m: number) => Promise<unknown> | void;
 }) {
   const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -53,38 +57,42 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
     return () => observer.disconnect();
   }, [menuRef, panelMounted]);
   const panelId = useId();
-  const titleId = useId();
   const close = () => {
     setOpen(false);
     if (rootRef.current?.contains(document.activeElement)) triggerRef.current?.focus({ preventScroll: true });
   };
   useDismissibleLayer(open, rootRef, close);
   const [busy, setBusy] = useState(false);
-  const processingMode = selectedUserIds === null ? "all" : "selected";
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<"current" | "history">("current");
-  const current = enabled ? status?.players ?? [] : [];
+  const current = roster ?? (enabled ? status?.players ?? [] : []);
   const currentIds = current.map((player) => player.speaker.id);
-  const currentUsers = [...new Set(current.map((player) => playerUserId(player.speaker)).filter((id): id is string => id !== null))];
+  const savedUserIds = useMemo(() => Object.keys(sourceOverrides), [sourceOverrides]);
   const playerDistances = useMemo(() => new Map(current.map(player => [player.speaker.id, player.distance_m])), [current]);
   const speakers = useMemo(() => sortPlayerSpeakersByDistance(
-    collectPlayerSpeakers(subtitles, enabled ? (status?.players ?? []).map(p => p.speaker) : [], selectedUserIds, selectedUserNames),
+    collectPlayerSpeakers(subtitles, current.map(p => p.speaker), savedUserIds, selectedUserNames),
     playerDistances,
-  ), [subtitles, status?.players, enabled, selectedUserIds, selectedUserNames, playerDistances]);
+  ), [subtitles, roster, status?.players, enabled, savedUserIds, selectedUserNames, playerDistances]);
   const currentSpeakerIds = new Set(currentIds);
   const currentSpeakers = speakers.filter((speaker) => currentSpeakerIds.has(speaker.id));
   const historySpeakers = speakers.filter((speaker) => !currentSpeakerIds.has(speaker.id));
   const visibleSpeakers = group === "current" ? currentSpeakers : historySpeakers;
+  const hiddenUserIds = useMemo(() => new Set(speakers
+    .filter((speaker) => preferences.hiddenTracks.includes(speaker.id))
+    .map(playerUserId)
+    .filter((id): id is string => id !== null)), [speakers, preferences.hiddenTracks]);
   const languages = preferences.hiddenSourceLanguages ?? [];
+  const displayedRadius = proximity?.enabled ? proximity.radius_m : 0;
   const languageCodes = playerLanguageOptions(subtitles, defaultLanguages, preferences.hiddenSourceLanguages).filter(language => !languages.includes(language));
   const languageName = (language: string) => localizedLanguageName(language, i18n.resolvedLanguage ?? "en-US");
   const display = (action: PlayerVisibilityAction) => onPreferences(value => applyPlayerVisibilityAction(value, action, defaultLanguages));
   const setLanguageHidden = (language: string, hidden: boolean) => display({ set_source_language_hidden: { language, hidden } });
-  const select = async (action: PlayerSelectionAction, updatedSpeaker?: SpeakerIdentity) => {
+  const setSource = async (speaker: SpeakerIdentity, source: "vrchat_chatbox" | "speaker", disabled: boolean) => {
+    const userId = playerUserId(speaker);
+    if (!onSource || !userId) return;
     setBusy(true);
-    const known = updatedSpeaker ? speakers.map(s => s.id === updatedSpeaker.id ? updatedSpeaker : s) : speakers;
-    const observed = current.map(p => updatedSpeaker?.id === p.speaker.id ? updatedSpeaker : p.speaker);
-    try { await onSelection(action, known, observed); } catch { /* The shared settings error banner reports persistence failures. */ }
+    try { await onSource({ set_user_source_disabled: { user_id: userId, source, disabled } }, speaker); }
+    catch { /* The shared settings error banner reports persistence failures. */ }
     finally { setBusy(false); }
   };
   return <div className="player-history-controls" ref={rootRef} onPointerDown={(event) => {
@@ -100,39 +108,14 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
       <UsersRound size={18} aria-hidden="true" />
     </button>
     {panelMounted && <section className="player-history-panel" ref={menuRef} id={panelId}
-      aria-labelledby={titleId} aria-hidden={!open} inert={!open}>
-      <header className="player-history-heading">
-        <strong id={titleId}>{t("live.players.title")}</strong>
-        {preferences.hiddenTracks.length > 0 && <small>{t("live.players.hiddenCount", { count: preferences.hiddenTracks.length })}</small>}
-        <button type="button" className="player-history-close" aria-label={t("common.close")} onClick={close}><X size={16} aria-hidden="true" /></button>
-      </header>
+      aria-label={t("live.players.title")} aria-hidden={!open} inert={!open}>
     <div className="player-history-body">
       {microphone && <MicrophoneSpeakerControls control={microphone} />}
-      {enabled && <div className="player-history-processing">
-        <div className="field">
-          <span>{t("live.players.process")}</span>
-          <div className="theme-toggle-group" role="group" aria-label={t("live.players.process")}>
-            {(["all", "selected"] as const).map((mode) => <button key={mode} type="button"
-              aria-pressed={processingMode === mode} className={processingMode === mode ? "active" : ""} disabled={busy}
-              onClick={() => { if (processingMode !== mode) void select({ set_processing_mode: mode }); }}>
-              {t(`live.players.${mode}`)}
-            </button>)}
-          </div>
-        </div>
-        {selectedUserIds !== null && <div className="player-history-actions">
-          <button type="button" className="secondary-button" disabled={busy || !currentUsers.length} onClick={() => void select({ select_current: null })}>{t("live.players.selectCurrent")}</button>
-          <button type="button" className="secondary-button" disabled={busy || !selectedUserIds.length} onClick={() => void select({ clear_selection: null })}>{t("live.players.selectNone")}</button>
-          {!currentUsers.some((id) => selectedUserIds.includes(id)) && <small role="status">{t("live.players.noneSelected")}</small>}
-        </div>}
-      </div>}
-      {proximity && <div className="player-history-proximity" role="group" aria-label={t("live.players.proximityEnable")}>
-        <PreferenceToggle title={t("live.players.proximityEnable")} checked={proximity.enabled}
-          disabled={!enabled || !onProximityChange}
-          onChange={(enabled) => void onProximityChange?.({ ...proximity, enabled })} />
-        <RangeField label={t("live.players.proximityRadius")} value={proximity.radius_m}
-          min={0} max={10} step={0.1} disabled={!enabled || !proximity.enabled || !onProximityChange}
-          formatValue={(radius) => `${radius.toFixed(1)} m`}
-          onCommit={(radius_m) => void onProximityChange?.({ ...proximity, radius_m })} />
+      {proximity && <div className="player-history-proximity" role="group" aria-label={t("live.players.proximityRadius")}>
+        <RangeField label={t("live.players.proximityRadius")} value={displayedRadius}
+          min={0} max={10} step={0.1} disabled={!enabled || !onProximityChange}
+          formatValue={(radius) => radius > 0 ? `${radius.toFixed(1)} m` : t("live.players.proximityOff")}
+          onCommit={(radius_m) => void onProximityChange?.(radius_m)} />
       </div>}
       <fieldset className="player-history-languages">
         <legend>{t("live.players.languages")}</legend>
@@ -160,16 +143,23 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
           </button>)}
         </div>
       </div>
+      <div className="player-history-source-mode" role="group" aria-label={t("live.players.sourceMode")}>
+        {(["everyone", "allowlist"] as const).map((mode) => <button key={mode} type="button" data-source-mode={mode}
+          className={sourceMode === mode ? "is-active" : ""} aria-pressed={sourceMode === mode}
+          disabled={!onSourceMode} onClick={() => void onSourceMode?.(mode)}>
+          {t(mode === "everyone" ? "live.players.sourceModeEveryone" : "live.players.sourceModeAllowlist")}
+        </button>)}
+      </div>
       <div className="player-history-list">{visibleSpeakers.map((speaker) => <PlayerRow key={speaker.id} speaker={speaker} query={query}
-        current={currentIds.includes(speaker.id)} selectionEnabled={enabled && selectedUserIds !== null}
+        current={currentIds.includes(speaker.id)}
         distance={playerDistances.get(speaker.id)}
-        selectedUserIds={selectedUserIds} busy={busy}
+        busy={busy}
         hidden={preferences.hiddenTracks.includes(speaker.id)}
-        onSelected={(selected, speaker) => {
-          const userId = playerUserId(speaker)!;
-          void select({ set_user_selected: { user_id: userId, selected } }, speaker);
-        }}
-        onHidden={(hidden) => display({ set_track_hidden: { track_id: speaker.id, hidden } })} />)}
+        hiddenUserIds={hiddenUserIds}
+        sourceEnabled={Boolean(onSource)}
+        sourceOverrides={sourceOverrides}
+        sourceMode={sourceMode}
+        onSource={(source, disabled, resolved) => void setSource(resolved, source, disabled)} />)}
         {!visibleSpeakers.length && <p className="player-history-empty">{t(group === "current" ? "live.players.currentEmpty" : "live.players.historyEmpty")}</p>}
       </div>
       {group === "current" && current.some((player) => !player.speaker.display_name) && <small role="status">{t("live.players.namePending")}</small>}
@@ -178,17 +168,40 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
   </div>;
 }
 
-function PlayerRow({ speaker: identity, query, current, distance, selectionEnabled, selectedUserIds, busy, hidden, onSelected, onHidden }: {
-  speaker: SpeakerIdentity; query: string; current: boolean; distance?: number; selectionEnabled: boolean; selectedUserIds: string[] | null; busy: boolean; hidden: boolean;
-  onSelected: (selected: boolean, speaker: SpeakerIdentity) => void; onHidden: (hidden: boolean) => void;
+function sourceDisabled(overrides: Record<string, PlayerSourceOverride>, mode: PlayerSourceMode, speaker: SpeakerIdentity, source: "chatbox" | "voice"): boolean {
+  const userId = playerUserId(speaker);
+  const rule = userId ? overrides[userId] : undefined;
+  // A missing rule inherits the mode: off until enabled, or on until disabled.
+  if (!rule) return mode === "allowlist";
+  return source === "chatbox" ? rule.chatbox_disabled : rule.voice_disabled;
+}
+
+function PlayerRow({ speaker: identity, query, current, distance, busy, hidden, hiddenUserIds, sourceEnabled, sourceOverrides, sourceMode, onSource }: {
+  speaker: SpeakerIdentity; query: string; current: boolean; distance?: number; busy: boolean; hidden: boolean;
+  hiddenUserIds: ReadonlySet<string>; sourceEnabled: boolean;
+  sourceOverrides: Record<string, PlayerSourceOverride>; sourceMode: PlayerSourceMode;
+  onSource: (source: "vrchat_chatbox" | "speaker", disabled: boolean, speaker: SpeakerIdentity) => void;
 }) {
   const { t } = useTranslation();
   const speaker = useSpeakerIdentity(identity)!;
   const userId = playerUserId(speaker);
+  const chatboxDisabled = sourceDisabled(sourceOverrides, sourceMode, speaker, "chatbox");
+  const voiceDisabled = sourceDisabled(sourceOverrides, sourceMode, speaker, "voice");
   const saved = speaker.id.startsWith("saved-user:");
-  const selected = selectedUserIds === null || !!userId && selectedUserIds.includes(userId);
+  const voiceLocked = !!userId && hiddenUserIds.has(userId);
   const label = speaker.id === "other:unidentified" ? t("live.players.unidentified") : speaker.display_name
     || userId || t(isAudioTrack(speaker) || current ? "live.trackNumber" : "live.speakerNumber", { number:speaker.index + 1 });
+  const source = (kind: "vrchat_chatbox" | "speaker", disabled: boolean, icon: ReactNode) => {
+    const locked = kind === "speaker" && voiceLocked;
+    const text = locked ? t("live.players.unhideToEnableVoice", { name: label })
+      : t(`live.players.${disabled ? "enable" : "disable"}${kind === "vrchat_chatbox" ? "Chatbox" : "Voice"}`, { name: label });
+    return <button type="button" className="secondary-button player-history-source"
+      aria-pressed={disabled} data-tooltip={text} aria-label={text}
+      disabled={busy || !sourceEnabled || !userId || locked}
+      onClick={() => onSource(kind, !disabled, speaker)}>
+      {icon}
+    </button>;
+  };
   if (query && !label.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) return null;
   return <div className={`player-history-row ${hidden ? "is-hidden" : ""}`}>
     <span className="player-history-name">{label}<small>{current ? <>
@@ -196,12 +209,10 @@ function PlayerRow({ speaker: identity, query, current, distance, selectionEnabl
         ? t("live.players.distanceUnknown")
         : t("live.players.distance", { distance: distance.toFixed(1) })}</span>
     </> : t(saved ? "live.players.savedSelection" : "live.players.history")}</small>
-      {selectionEnabled && current && !userId && <small>{t("live.players.userIdPending")}</small>}</span>
-    {selectionEnabled && (current || userId) && <label className="player-history-check"><input type="checkbox" checked={selected} disabled={busy || !userId}
-      aria-label={t("live.players.translatePerson", { name:label })} onChange={(event) => { if (userId) onSelected(event.target.checked, speaker); }} />{t("live.players.translate")}</label>}
-    {!saved && <button type="button" className="secondary-button player-history-visibility" aria-pressed={hidden}
-      aria-label={t(hidden ? "live.players.showPerson" : "live.players.hidePerson", {name:label})} onClick={() => onHidden(!hidden)}>
-      {hidden ? <EyeOff size={15} /> : <Eye size={15} />}<span>{t(hidden ? "live.players.show" : "live.players.hide")}</span>
-    </button>}
+      {current && !userId && <small>{t("live.players.userIdPending")}</small>}</span>
+    <span className="player-history-row-actions">
+      {source("vrchat_chatbox", chatboxDisabled, chatboxDisabled ? <MessageSquareOff size={15} aria-hidden="true" /> : <MessageSquare size={15} aria-hidden="true" />)}
+      {source("speaker", voiceDisabled, voiceDisabled ? <VolumeX size={15} aria-hidden="true" /> : <Volume2 size={15} aria-hidden="true" />)}
+    </span>
   </div>;
 }

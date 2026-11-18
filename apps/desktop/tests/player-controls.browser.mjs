@@ -22,7 +22,7 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
         import {initReactI18next} from 'react-i18next';
         import locale from './src/i18n/locales/zh-CN.json';
         import {PlayerHistoryControls} from './src/subtitles/components/PlayerHistoryControls';
-        import {applyPlayerSelectionAction} from './src/subtitles/player-controls';
+        import {applyPlayerSourceAction} from './src/subtitles/player-controls';
         import {LiveView,TopStatus} from './src/subtitles/components/SubtitleViews';
         import {WorkspaceFrame} from './src/app/components/WorkspaceFrame';
         import {useLiveConversationScroll} from './src/conversations/useLiveConversationScroll';
@@ -34,27 +34,31 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
         const translation=(language,source_language)=>({text:'译文-'+language,source_language,target_language:language,provider:'local',created_at:'2026-10-25T00:00:00Z',model:null});
         const rows=[alice,bob,null].map((speaker,index)=>({id:index+1,source:speaker?'speaker':'microphone',speaker,
           text:'原文-'+index,language:['ja','zh-CN','zh'][index],started_at:null,ended_at:null,created_at:'2026-10-25T00:00:00Z',translations:['zh-Hans','en','ja'].map(language=>translation(language,['ja','zh-CN','zh'][index]))}));
-        let state,changeLanguages,changeRows,changeFocus,changePlayers,changeHeight,scrollApi;
+        let state,changeLanguages,changeHiddenTracks,changeRows,changeFocus,changePlayers,changeOverrides,changeHeight,scrollApi;
         const noop=async()=>{};
         function Fixture(){
           const [preferences,setPreferences]=useState({hiddenTracks:[],hiddenSourceLanguages:['zh','en']});
-          const [selected,setSelected]=useState(null);
-          const [selectedNames,setSelectedNames]=useState({});
+          const [overrides,setOverrides]=useState({});
           const [players,setPlayers]=useState([alice,bob]);
           const defaults=['zh','en'];
           const [subtitles,setSubtitles]=useState(rows);
           const [focused,setFocused]=useState(null);
           const [height,setHeight]=useState(850);
+          const [proximity,setProximity]=useState({enabled:false,radius_m:10});
+          const [sourceMode,setSourceMode]=useState('allowlist');
           changeHeight=setHeight;
           changeFocus=setFocused;
           scrollApi=useLiveConversationScroll({page:'live',activeConversationId:'current',selectedConversationId:'current',openedConversationId:'current',loadingConversationSubtitles:false,selectedConversationUpdatedAt:String(subtitles.length),focusedSubtitleId:focused});
           const scroll=scrollApi.liveScrollRef;
-          state={preferences,selected,selectedNames,subtitles};changeLanguages=languages=>setPreferences(value=>({...value,hiddenSourceLanguages:languages}));changeRows=setSubtitles;changePlayers=setPlayers;
+          state={preferences,overrides,subtitles,proximity};changeLanguages=languages=>setPreferences(value=>({...value,hiddenSourceLanguages:languages}));changeRows=setSubtitles;changePlayers=setPlayers;changeOverrides=setOverrides;
+          changeHiddenTracks=hiddenTracks=>setPreferences(value=>({...value,hiddenTracks}));
           return <div className="app-shell live-shell sidebar-collapsed" style={{height}}><div className="window-chrome">VRCS</div><div className="app-body">
             <WorkspaceFrame page="live" scrollRef={scroll} onScroll={scrollApi.onLiveScroll} toolbar={
             <TopStatus connection="connected" health={null} settings={null} controls={<PlayerHistoryControls subtitles={subtitles} status={{players:players.map(speaker=>({speaker,active:true,selected:true}))}}
-              enabled={true} selectedUserIds={selected} selectedUserNames={selectedNames} defaultLanguages={defaults} preferences={preferences} onPreferences={setPreferences}
-              onSelection={async (action,speakers,current)=>{await new Promise(resolve=>setTimeout(resolve,30));const next=applyPlayerSelectionAction({audio:{output:{mode:'vrchat_players',player_audio:{selected_tracks:selected,selected_user_names:selectedNames}}}},action,speakers,current).audio.output.player_audio;setSelected(next.selected_tracks);setSelectedNames(next.selected_user_names);}} />}/>
+              enabled={true} sourceOverrides={overrides} defaultLanguages={defaults} preferences={preferences} onPreferences={setPreferences} proximity={proximity}
+              sourceMode={sourceMode} onSourceMode={setSourceMode}
+              onProximityChange={radius_m=>setProximity({enabled:radius_m>0,radius_m})}
+              onSource={async (action,speaker)=>{await new Promise(resolve=>setTimeout(resolve,30));setOverrides(current=>applyPlayerSourceAction({audio:{output:{mode:'vrchat_players',player_audio:{source_overrides:current,source_mode:sourceMode}}}},action,speaker).audio.output.player_audio.source_overrides);}} />}/>
             }>
             <LiveView subtitles={subtitles} hiddenTracks={preferences.hiddenTracks} hiddenSourceLanguages={preferences.hiddenSourceLanguages??[]}
               scrollContainerRef={scroll} running={true} hasOlder={true} loading={false} loadingOlder={false} onLoadOlder={noop} onSelect={noop} />
@@ -91,6 +95,7 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
         };
         const row=id=>document.querySelector('[data-subtitle-id="'+id+'"]');
         const groupButton=name=>document.querySelector('[data-player-group="'+name+'"]');
+        const playerRow=name=>[...document.querySelectorAll('.player-history-row')].find(node=>node.textContent.includes(name));
         try{
           check(matchMedia('(prefers-reduced-motion: reduce)').matches===${reduced},'the system motion preference is applied');
           await wait(()=>document.querySelector('.player-history-trigger'));
@@ -109,7 +114,6 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           check(document.elementFromPoint(region.getBoundingClientRect().left+2,triggerRect.top+triggerRect.height/2)?.closest('.app-scroll-region')===region,'empty toolbar space passes pointer input through to the conversation');
           check(document.elementFromPoint(triggerRect.left+triggerRect.width/2,triggerRect.top+triggerRect.height/2)?.closest('.player-history-trigger')===trigger,'the floating personnel button remains clickable');
           check(triggerRect.width===42&&triggerRect.height===42&&getComputedStyle(trigger).borderRadius==='50%','the personnel control is a circular button');
-          check(!trigger.textContent.trim()&&trigger.getAttribute('aria-label')==='人员与译文显示','the icon-only button retains an accessible name');
           if(${width}>680){
             const core=document.querySelector('.core-summary').getBoundingClientRect();
             check(triggerRect.right<core.left&&Math.abs(triggerRect.top+triggerRect.height/2-core.top-core.height/2)<1,'the button sits immediately left of Core on the same row');
@@ -146,6 +150,25 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
               'the panel expands from the trigger center, not the toolbar or window corner');
           };
           checkAnchor();
+          const proximityRow=document.querySelector('.player-history-proximity');
+          check(proximityRow&&proximityRow.querySelector('.range-field-header span')?.textContent==='识别距离','the distance slider keeps its title above the track');
+          check(!proximityRow.querySelector('legend'),'only the language control labels its border');
+          check(proximityRow.querySelectorAll('input[type=range]').length===1,'distance filtering is one slider without a separate toggle');
+          check(!proximityRow.querySelector('input[type=checkbox]')&&!proximityRow.querySelector('.settings-toggle-row'),'the distance toggle is gone');
+          const radiusInput=proximityRow.querySelector('input[type=range]');
+          check(radiusInput.value==='0'&&radiusInput.getAttribute('aria-valuetext')==='关闭','an off filter parks the slider at zero');
+          check(!radiusInput.disabled,'the slider stays usable while filtering is off');
+          const setRadius=async value=>{
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(radiusInput,String(value));
+            radiusInput.dispatchEvent(new Event('input',{bubbles:true}));
+            radiusInput.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true}));
+            await wait(()=>state.proximity.radius_m===value);
+            await settled();
+          };
+          await setRadius(3);
+          check(state.proximity.enabled&&radiusInput.getAttribute('aria-valuetext')==='3.0 m','a positive distance enables filtering');
+          await setRadius(0);
+          check(!state.proximity.enabled&&radiusInput.getAttribute('aria-valuetext')==='关闭','dragging back to zero turns filtering off');
           document.body.style.zoom='1.25';
           await settled();checkAnchor();
           document.body.style.zoom='';
@@ -189,6 +212,8 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           check(region.getBoundingClientRect().top===initialRegionTop,'the floating panel does not move the conversation');
           const expanded=document.querySelector('.player-history-panel').getBoundingClientRect();
           check(expanded.left>=0&&expanded.right<=innerWidth+1&&expanded.top>triggerRect.bottom,'settings open below the toolbar within the viewport');
+          const contentBox=document.querySelector('.player-history-proximity').getBoundingClientRect();
+          check(Math.abs(contentBox.left-expanded.left-(expanded.right-contentBox.right))<1,'panel content is horizontally centered instead of leaving extra space on the right');
           check(groupButton('current').getAttribute('aria-pressed')==='true'&&groupButton('history').getAttribute('aria-pressed')==='false','the player list defaults to the current world');
           check(document.querySelectorAll('.player-history-list .player-history-row').length===2,'only current-world players are listed initially');
           const groupSelector=document.querySelector('.player-history-groups').getBoundingClientRect();
@@ -199,14 +224,11 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           check(searchBox.width<=180,'the player search stays compact instead of filling the row');
           const showAll=document.querySelector('.player-history-show-all');
           check(showAll&&!showAll.textContent.trim()&&showAll.getAttribute('aria-label')==='显示所有记录','show all records is an icon-only clear button');
-          const processingTitle=document.querySelector('.player-history-processing .field > span').getBoundingClientRect();
-          const processingToggle=document.querySelector('.player-history-processing .theme-toggle-group').getBoundingClientRect();
-          check(processingToggle.left>processingTitle.right&&Math.abs(processingToggle.top+processingToggle.height/2-(processingTitle.top+processingTitle.height/2))<1,'the processing selector sits beside its title instead of on its own row');
-          check(processingToggle.width<document.querySelector('.player-history-processing').getBoundingClientRect().width*0.75,'the processing selector uses a compact width');
-          const closeButton=document.querySelector('.player-history-close');
-          check(document.elementFromPoint(expanded.right-25,expanded.top+25)?.closest('.player-history-close')===closeButton,'the expanded panel is not clipped by the toolbar');
-          closeButton.focus();
-          closeButton.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+          const panelEl=document.querySelector('.player-history-panel');
+          check(document.elementFromPoint(expanded.right-25,expanded.top+25)?.closest('.player-history-panel')===panelEl,'the expanded panel is not clipped by the toolbar');
+          const escapeTarget=groupButton('history');
+          escapeTarget.focus();
+          escapeTarget.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
           await settled();
           check(!document.querySelector('.player-history-panel')&&document.activeElement===trigger,'Escape closes settings and restores focus to the trigger');
           trigger.click();await settled();
@@ -246,13 +268,13 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           panel.scrollTop=panel.scrollHeight;await settled();
           check(panel.scrollTop>0&&panel.scrollTop+panel.clientHeight>=panel.scrollHeight-1,'every panel control is reachable through its own scrollbar');
           const lastPlayerIsReachable=()=>{
-            const button=document.querySelector('.player-history-row:last-child button');
+            const button=document.querySelector('.player-history-row:last-child .player-history-source:last-child');
             const rect=button.getBoundingClientRect();
             return document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2)?.closest('button')===button;
           };
           check(lastPlayerIsReachable(),'scrolling the menu body reaches the last player in a long list without a separate player scrollbar');
           click(groupButton('history'));await settled();
-          check(document.querySelectorAll('.player-history-row').length===2,'the secondary entry lists history and saved identities without current players');
+          check(document.querySelectorAll('.player-history-row').length===0,'history omits records without a saved source setting');
           click(groupButton('current'));await settled();
           changePlayers([alice,bob]);await wait(()=>document.querySelectorAll('.player-history-row').length===2);
           check(Math.abs(region.scrollTop-chatTop)<1&&!scrollApi.followingLiveSubtitles,'scrolling the personnel panel does not scroll the chat or change following');
@@ -283,7 +305,7 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           check(row(14).textContent.includes('这是自己的中文原文'),'text inference never hides the microphone');
           changeRows(rows);
           await wait(()=>state.subtitles.length===3&&!row(12));
-          check(document.querySelector('legend').textContent==='隐藏的原文语言','control describes original-language hiding');
+          check(document.querySelector('.player-history-languages legend').textContent==='隐藏的原文语言','control describes original-language hiding');
           const languageTags=[...document.querySelectorAll('.player-history-language-list .player-history-language')];
           const languageAdd=document.querySelector('.player-history-language-add').getBoundingClientRect();
           const lastLanguageTag=languageTags.at(-1)?.getBoundingClientRect();
@@ -315,33 +337,46 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           await wait(()=>!row(4));
           changeRows(rows);
           await wait(()=>state.subtitles.length===3);
-          document.querySelector('[aria-label="隐藏 Bob 玩家 的记录"]').click();
+          const bobRow=()=>playerRow('Bob 玩家');
+          const bobSources=()=>bobRow().querySelectorAll('.player-history-source');
+          check(bobRow().querySelectorAll('button').length===2,'player rows offer only Chatbox and voice controls');
+          check([...bobSources()].every(button=>button.getAttribute('aria-pressed')==='true'),'players start with both sources off');
+          const modeButton=mode=>document.querySelector('.player-history-source-mode [data-source-mode="'+mode+'"]');
+          check(modeButton('allowlist').getAttribute('aria-pressed')==='true','the panel defaults to allowlist mode');
+          check(document.querySelector('.player-history-source-mode').getAttribute('aria-label')==='玩家来源','the mode switch is labelled');
+          click(modeButton('everyone'));
+          await wait(()=>modeButton('everyone').getAttribute('aria-pressed')==='true');
+          check([...bobSources()].every(button=>button.getAttribute('aria-pressed')==='false'),'everyone mode admits both sources');
+          click(modeButton('allowlist'));
+          await wait(()=>modeButton('allowlist').getAttribute('aria-pressed')==='true'&&[...bobSources()].every(button=>button.getAttribute('aria-pressed')==='true'));
+          check(state.subtitles.length===3,'switching modes keeps existing records');
+          await wait(()=>!bobSources()[0].disabled);
+          click(bobSources()[0]);
+          await wait(()=>state.overrides[bob.user_id]?.chatbox_disabled===false);
+          check(bobSources()[0].getAttribute('aria-pressed')==='false','the chatbox icon reflects the enabled source');
+          check(bobSources()[1].getAttribute('aria-pressed')==='true','voice stays off until it is enabled');
+          await wait(()=>!bobSources()[1].disabled);
+          click(bobSources()[1]);
+          await wait(()=>state.overrides[bob.user_id]?.voice_disabled===false);
+          check(bobSources()[1].getAttribute('aria-pressed')==='false','the voice allow is independent of chatbox');
+          check(row(2)&&state.subtitles.length===3,'enabling a source preserves existing records');
+          changeHiddenTracks([bob.id]);
+          await wait(()=>!row(2)&&bobSources()[1].disabled);
+          click(document.querySelector('.player-history-show-all'));
+          await wait(()=>row(2)&&!bobSources()[1].disabled);
+          check(state.overrides[bob.user_id]?.voice_disabled===false,'show-all preserves the enabled voice source');
+          check(state.overrides[bob.user_id]?.chatbox_disabled===false,'show-all preserves the enabled chatbox source');
+          changePlayers([alice]);
+          click(groupButton('history'));await settled();
+          check(!!playerRow('Bob 玩家')&&!playerRow('Alice 玩家'),'history keeps only accounts with a saved source setting');
+          click(groupButton('current'));await settled();
+          changePlayers([alice,bob]);
+          await wait(()=>bobRow()?.querySelectorAll('.player-history-source').length===2);
+          click(bobSources()[1]);
+          await wait(()=>state.overrides[bob.user_id]?.voice_disabled===true);
+          check(bobSources()[1].getAttribute('aria-pressed')==='true','a source can be switched off again');
+          changeHiddenTracks([bob.id]);
           await wait(()=>!row(2));
-          check(state.subtitles.length===3 && state.selected===null,'hiding never deletes history or changes capture');
-          const processingOptions=document.querySelector('.player-history-processing [role=group]');
-          const [allOption,selectedOption]=processingOptions.querySelectorAll('button');
-          check(processingOptions.getAttribute('aria-label')==='处理哪些玩家','the processing mode group retains an accessible name');
-          check(allOption.textContent.trim()==='所有人'&&selectedOption.textContent.trim()==='白名单','the processing options use concise labels');
-          check(allOption.getAttribute('aria-pressed')==='true'&&selectedOption.getAttribute('aria-pressed')==='false','everyone is initially selected');
-          selectedOption.focus();click(selectedOption);
-          check(allOption.disabled&&selectedOption.disabled,'both processing options are disabled while saving');
-          await wait(()=>Array.isArray(state.selected) && document.querySelector('[aria-label="翻译 Alice 玩家"]'));
-          check(allOption.getAttribute('aria-pressed')==='false'&&selectedOption.getAttribute('aria-pressed')==='true','the whitelist option is visibly active after saving');
-          click(allOption);
-          await wait(()=>state.selected===null&&!allOption.disabled);
-          check(allOption.getAttribute('aria-pressed')==='true'&&!document.querySelector('[aria-label="翻译 Alice 玩家"]'),'switching to everyone removes individual processing controls');
-          click(selectedOption);
-          await wait(()=>Array.isArray(state.selected)&&!selectedOption.disabled);
-          document.querySelector('[aria-label="翻译 Alice 玩家"]').focus();
-          document.querySelector('[aria-label="翻译 Alice 玩家"]').click();
-          await wait(()=>state.selected?.length===1);
-          check(trigger.getAttribute('aria-expanded')==='true','saving a focused selection keeps the settings panel open');
-          check(state.selected[0]===alice.user_id,'selection stores the VRChat user ID instead of the current track ID');
-          check(state.selectedNames[alice.user_id]===alice.display_name,'selection saves the display label alongside the account ID');
-          click(selectedOption);
-          await new Promise(resolve=>setTimeout(resolve,60));
-          check(state.selected.length===1&&state.selected[0]===alice.user_id,'clicking the active processing mode preserves selected players');
-          check(!document.querySelector('[aria-label="翻译 Bob 玩家"]').checked,'unselected player remains excluded');
           publishSpeakerIdentity({...alice,display_name:'Alice <VRC> '+ '长名字'.repeat(15)});
           await wait(()=>row(1).textContent.includes('Alice <VRC>'));
           check(!row(1).querySelector('vrc'),'display names are literal text');
@@ -378,37 +413,26 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           changeRows(rows);
           await wait(()=>row(1));
           changeRows([]);changePlayers([]);
+          changeOverrides({[alice.user_id]:{chatbox_disabled:true,voice_disabled:false}});
           click(groupButton('history'));await settled();
-          await wait(()=>document.querySelector('.player-history-row small')?.textContent==='已保存的选择');
-          check(document.querySelector('[aria-label="翻译 Alice 玩家"]').checked,'offline account selection retains its saved name');
+          await wait(()=>playerRow(alice.user_id));
+          check(playerRow(alice.user_id).querySelectorAll('.player-history-source').length===2,'saved rows keep both account-level source controls');
+          check(playerRow(alice.user_id).querySelectorAll('.player-history-source')[0].getAttribute('aria-pressed')==='true','saved rows show the stored source state');
           click(groupButton('current'));await settled();
           const rejoined={...alice,id:'vrc:new-session:new-actor',index:42,display_name:'Alice 新名字'};
           const unknown={id:'vrc:unknown',index:43,display_name:'等待确认的人'};
           changePlayers([rejoined,bob,unknown]);
-          await wait(()=>document.querySelector('[aria-label="翻译 Alice 新名字"]'));
-          check(document.querySelector('[aria-label="翻译 Alice 新名字"]').checked,'saved account is selected after changing track ID and name');
-          check(!document.querySelector('[aria-label="翻译 Bob 玩家"]').checked,'another account stays excluded');
-          check(document.querySelector('[aria-label="翻译 等待确认的人"]').disabled,'a name without an account ID cannot be selected');
+          await wait(()=>playerRow('Alice 新名字'));
+          check(playerRow('Alice 新名字').querySelector('.player-history-source[aria-pressed="true"]'),'a saved account keeps its source state on a new track');
+          check([...playerRow('等待确认的人').querySelectorAll('.player-history-source')].every(button=>button.disabled),'a name without an account ID cannot change source settings');
           const confirmed={...unknown,user_id:'usr_00000000-0000-4000-8000-000000000003',display_name:'身份已确认'};
           publishSpeakerIdentity(confirmed);
-          await wait(()=>document.querySelector('[aria-label="翻译 身份已确认"]')&&!document.querySelector('[aria-label="翻译 身份已确认"]').disabled);
-          document.querySelector('[aria-label="翻译 身份已确认"]').click();
-          await wait(()=>state.selected.includes(confirmed.user_id));
-          check(state.selectedNames[confirmed.user_id]===confirmed.display_name,'late identity metadata is saved immediately on selection');
-          click(groupButton('history'));await settled();
-          changePlayers([bob]);
-          await wait(()=>document.querySelector('[aria-label="翻译 Alice 新名字"]'));
-          [...document.querySelectorAll('.player-history-actions button')].find(button=>button.textContent.includes('选中当前所有人')).click();
-          await wait(()=>state.selected.includes(bob.user_id));
-          check(state.selected.includes(alice.user_id)&&state.selected.includes(confirmed.user_id),'selecting current players preserves offline saved selections');
-          document.querySelector('[aria-label="翻译 身份已确认"]').click();
-          await wait(()=>!state.selected.includes(confirmed.user_id));
-          check(!state.selectedNames[confirmed.user_id]&&!document.querySelector('[aria-label="翻译 身份已确认"]'),'offline selections can be removed together with their cached name');
-          click(groupButton('current'));await settled();
-          changeRows([rows[0]]);await wait(()=>row(1));
-          document.querySelector('[aria-label="翻译 Bob 玩家"]').click();
-          await wait(()=>!state.selected.includes(bob.user_id));
-          check(state.selectedNames[alice.user_id]===rejoined.display_name,'selecting with older history loaded must preserve the newer saved account name');
+          await wait(()=>playerRow('身份已确认'));
+          check([...playerRow('身份已确认').querySelectorAll('.player-history-source')].every(button=>!button.disabled),'late identity metadata enables the source controls');
+          click(playerRow('身份已确认').querySelectorAll('.player-history-source')[0]);
+          await wait(()=>state.overrides[confirmed.user_id]?.chatbox_disabled===false
+            &&playerRow('身份已确认').querySelectorAll('.player-history-source')[0].getAttribute('aria-pressed')==='false');
+          check(state.overrides[confirmed.user_id]?.chatbox_disabled===false,'late identity actions target the confirmed account');
           changeRows([]);await wait(()=>!row(1));
           check(document.documentElement.scrollWidth<=innerWidth+1,'no horizontal overflow');
           document.getElementById('result').textContent='PASS';

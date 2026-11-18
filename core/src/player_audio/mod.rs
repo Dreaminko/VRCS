@@ -37,8 +37,6 @@ pub(crate) use linux::network_available;
 mod windows;
 #[cfg(any(windows, target_os = "linux"))]
 mod worker;
-#[cfg(any(windows, target_os = "linux", test))]
-mod world;
 
 use serde::Serialize;
 #[cfg(any(windows, target_os = "linux"))]
@@ -148,17 +146,18 @@ impl Capture {
         config: crate::config::PlayerAudioConfig,
         status: SharedStatus,
         outputs: session::SharedOutputs,
+        log: crate::vrchat_log::VrchatLog,
         #[cfg(any(windows, target_os = "linux"))] cache: Arc<SessionCache>,
         settings: Arc<std::sync::RwLock<crate::config::AppConfig>>,
     ) -> Result<Self, String> {
         #[cfg(any(windows, target_os = "linux"))]
         {
-            worker::start(config, status, outputs, cache, settings)
+            worker::start(config, status, outputs, cache, settings, log)
         }
         #[cfg(not(any(windows, target_os = "linux")))]
         {
-            let _ = (config, status, outputs, settings);
-            Err("VRChat network capture is available only on Windows".into())
+            let _ = (config, status, outputs, log, settings);
+            Err("VRChat network capture is available only on Windows and Linux".into())
         }
     }
     pub(crate) async fn shutdown(mut self) {

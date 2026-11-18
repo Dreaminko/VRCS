@@ -220,7 +220,7 @@ async fn run_players(
                 position,
             } => {
                 let id = speaker.id.clone();
-                // Discard frames already queued when the selection changed too.
+                // Discard frames already queued when the selection or source policy changed too.
                 let proximity_blocked = input
                     .status
                     .lock()

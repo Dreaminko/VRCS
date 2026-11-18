@@ -3,6 +3,7 @@ import { Download, HardDrive } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { QwenModelRecord, QwenRuntimeStatus } from "../../providers/types";
+import { managedQwenModelLabel } from "../../providers/recognition-services";
 import type { Settings } from "../types";
 import { Select } from "../SettingsControls";
 import { formatBytes } from "../settings-derived";
@@ -118,8 +119,8 @@ export function ManagedQwenSettings({
           options={[
             ...(!draft.asr.managed_qwen.package_id ? [{ value: "", label: t("settings.recognition.modelStatus.notSelected") }] : []),
             ...(models.length
-            ? models.map((model) => ({ value: model.id, label: `Qwen3-ASR 0.6B Q8_0 · ${t(`settings.recognition.qwenStatus.${model.status}`)}` }))
-            : draft.asr.managed_qwen.package_id ? [{ value: draft.asr.managed_qwen.package_id, label: "Qwen3-ASR 0.6B Q8_0" }] : []),
+            ? models.map((model) => ({ value: model.id, label: `${managedQwenModelLabel(model.id)} · ${t(`settings.recognition.qwenStatus.${model.status}`)}` }))
+            : draft.asr.managed_qwen.package_id ? [{ value: draft.asr.managed_qwen.package_id, label: managedQwenModelLabel(draft.asr.managed_qwen.package_id) }] : []),
           ]}
           disabled={disabled || !ready}
           onChange={(value) => onUpdateQwen("package_id", value)}

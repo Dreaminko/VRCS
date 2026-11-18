@@ -79,12 +79,13 @@ export function subtitlesForCompactView(
   subtitles: Subtitle[],
   selectionContext?: string,
 ): Subtitle[] {
+  const captions = subtitles.filter((subtitle) => subtitle.source !== "world");
   if (selectionContext) {
-    const selected = subtitles.find((subtitle) => subtitle.text === selectionContext)
-      ?? subtitles[0];
+    const selected = captions.find((subtitle) => subtitle.text === selectionContext)
+      ?? captions[0];
     return selected ? [selected] : [];
   }
 
   // The layout layer bounds measurement work and chooses the visible suffix.
-  return subtitles.slice().reverse();
+  return captions.slice().reverse();
 }

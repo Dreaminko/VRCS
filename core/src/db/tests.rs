@@ -249,6 +249,52 @@ fn conversation_title_freezes_and_subtitles_use_keyset_pages() {
 }
 
 #[test]
+fn world_markers_are_stored_without_seeding_titles_or_title_input() {
+    let (_path, database) = open_temp_db("world-markers");
+    let marker = Subtitle {
+        source: "world".into(),
+        language: None,
+        text: "Cozy Cafe".into(),
+        ..subtitle("Cozy Cafe")
+    };
+    let saved = database.add_subtitle(&marker).unwrap();
+    assert_eq!(saved.source, "world");
+    let conversation = database
+        .conversation_catalog()
+        .unwrap()
+        .conversations
+        .into_iter()
+        .find(|conversation| conversation.active)
+        .unwrap();
+    assert_eq!(conversation.automatic_title, None);
+    assert_eq!(
+        database.conversation_title_input(&conversation.id).unwrap(),
+        ""
+    );
+
+    database.add_subtitle(&subtitle("hello")).unwrap();
+    let conversation = database
+        .conversation_catalog()
+        .unwrap()
+        .conversations
+        .into_iter()
+        .find(|conversation| conversation.active)
+        .unwrap();
+    assert_eq!(conversation.automatic_title.as_deref(), Some("hello"));
+    let title_input = database.conversation_title_input(&conversation.id).unwrap();
+    assert!(title_input.contains("hello"));
+    assert!(!title_input.contains("Cozy Cafe"));
+    let history = database
+        .conversation_subtitles(&conversation.id, 10, None)
+        .unwrap()
+        .unwrap();
+    assert!(history
+        .items
+        .iter()
+        .any(|subtitle| subtitle.source == "world" && subtitle.text == "Cozy Cafe"));
+}
+
+#[test]
 fn creating_a_conversation_switches_subsequent_subtitle_ownership() {
     let (_path, mut database) = open_temp_db("conversation-switch");
     let initial_id = database

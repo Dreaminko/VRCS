@@ -8,6 +8,60 @@ use crate::providers::{
 };
 
 #[test]
+fn v42_source_policy_upgrade_preserves_device_keys_and_saved_player_preferences() {
+    let user = "usr_00000000-0000-4000-8000-000000000007";
+    for selected_tracks in [serde_json::json!([]), serde_json::json!([user])] {
+        let raw = serde_json::json!({
+            "schema_version": 42,
+            "audio": {
+                "output": {
+                    "mode": "system",
+                    "device_id": 10,
+                    "device_key": "pipewire:output:saved-device",
+                    "player_audio": {
+                        "enabled": true,
+                        "selected_tracks": selected_tracks,
+                        "selected_user_names": { (user): "Saved player" },
+                        "max_visible_players": 8,
+                        "proximity": { "enabled": true, "radius_m": 5.0 }
+                    }
+                },
+                "microphone": {
+                    "mode": "device",
+                    "device_id": 20,
+                    "device_key": "pipewire:input:saved-device"
+                }
+            }
+        });
+
+        let config = config_from_value(&raw).unwrap();
+
+        assert_eq!(config.schema_version, 43);
+        assert_eq!(config.audio.output.device_id, Some(10));
+        assert_eq!(
+            config.audio.output.device_key.as_deref(),
+            Some("pipewire:output:saved-device")
+        );
+        assert_eq!(config.audio.microphone.device_id, Some(20));
+        assert_eq!(
+            config.audio.microphone.device_key.as_deref(),
+            Some("pipewire:input:saved-device")
+        );
+        let players = &config.audio.output.player_audio;
+        assert!(players.enabled);
+        assert_eq!(players.selected_tracks, None);
+        assert_eq!(players.selected_user_names[user], "Saved player");
+        assert_eq!(players.max_visible_players, 8);
+        assert!(players.proximity.enabled);
+        assert_eq!(players.proximity.radius_m, 5.0);
+        assert_eq!(players.source_mode, "allowlist");
+        assert!(players.source_overrides.is_empty());
+        let saved = serde_json::to_value(&config).unwrap();
+        assert_eq!(config_from_value(&saved).unwrap(), config);
+    }
+}
+
+#[test]
 fn microphone_speakers_filter_defaults_off_and_preserves_saved_choice() {
     let migrated = config_from_value(&serde_json::json!({"schema_version": 34})).unwrap();
     assert!(!migrated.audio.microphone.speaker_filter_enabled);

@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
 import { createPortal } from "react-dom";
-import { LoaderCircle } from "lucide-react";
+import { Globe2, LoaderCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { subtitleVisible } from "../player-history";
 
@@ -77,7 +77,9 @@ export const LiveView = memo(function LiveView({
   const chronological = useMemo(() => [...subtitles].reverse().filter((subtitle) =>
     subtitleVisible(subtitle, hiddenTracks, hiddenSourceLanguages)), [subtitles, hiddenTracks, hiddenSourceLanguages]);
   const selectableIds = useMemo(
-    () => chronological.flatMap((subtitle) => subtitle.id === null ? [] : [subtitle.id]),
+    () => chronological.flatMap((subtitle) => (
+      subtitle.id === null || subtitle.source === "world" ? [] : [subtitle.id]
+    )),
     [chronological],
   );
   const {
@@ -176,6 +178,22 @@ export const LiveView = memo(function LiveView({
       {chronological.length ? (
         <>
           {chronological.map((subtitle, index) => {
+            if (subtitle.source === "world") {
+              return (
+                <div
+                  key={subtitle.id ?? `${subtitle.created_at}-${index}`}
+                  className={`world-marker ${subtitle.id === focusedSubtitleId ? "subtitle-search-focused" : ""}`}
+                  data-subtitle-id={subtitle.id ?? undefined}
+                >
+                  <span className="world-marker-line" aria-hidden="true" />
+                  <span className="world-marker-label">
+                    <Globe2 size={14} aria-hidden="true" />
+                    {t("live.enteredWorld", { name: subtitle.text })}
+                  </span>
+                  <span className="world-marker-line" aria-hidden="true" />
+                </div>
+              );
+            }
             const selected = subtitle.id !== null && selectedIds.has(subtitle.id);
             return (
               <SubtitleBubble

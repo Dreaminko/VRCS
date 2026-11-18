@@ -106,8 +106,9 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-menu-player-groups { justify-content: flex-end; }
 .vr-menu-player-groups > .vr-menu-pagination { margin-right: auto; }
 .vr-menu-player-groups > .vr-menu-button { min-width: 260px; flex: 0 0 260px; font-size: 26px; }
-.vr-menu-proximity { display: grid; height: 72px; flex: none; grid-template-columns: 320px minmax(0, 1fr); align-items: center; gap: 12px; }
-.vr-menu-proximity-toggle { height: 72px; font-size: 26px; }
+.vr-menu-source-mode { display: flex; height: 72px; flex: none; gap: 12px; }
+.vr-menu-source-mode > .vr-menu-button { min-width: 0; flex: 1; border-radius: 999px; font-size: 26px; }
+.vr-menu-proximity { display: grid; height: 72px; flex: none; grid-template-columns: minmax(0, 1fr); align-items: center; }
 .vr-menu-proximity-slider { display: grid; min-width: 0; height: 72px; grid-template-columns: minmax(0, 1fr) 132px; align-items: center; gap: 12px; }
 .vr-menu-proximity-track { position: relative; width: calc(100% - 44px); height: 72px; min-width: 72px; justify-self: center; margin: 0; padding: 0; border: 0; border-radius: 16px; color: inherit; background: transparent; font: inherit; cursor: pointer; }
 .vr-menu-proximity-track:disabled { opacity: 0.42; }
@@ -121,7 +122,7 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-menu-pagination > span { min-width: 84px; color: var(--text-secondary); font-size: 26px; text-align: center; font-variant-numeric: tabular-nums; }
 .vr-menu-player-list { display: grid; min-height: 0; flex: 1; grid-template-rows: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .vr-menu-player-row { display: grid; min-height: 0; grid-template-columns: minmax(0, 1fr) 216px 176px; align-items: center; gap: 16px; padding: 4px 16px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); }
-.vr-menu-track-row { grid-template-columns: minmax(0, 1fr) 216px 72px; }
+.vr-menu-track-row { grid-template-columns: minmax(0, 1fr) repeat(2, 72px); }
 .vr-menu-player-row.is-hidden { background: var(--surface-subtle); }
 .vr-menu-player-name { min-width: 0; }
 .vr-menu-player-name strong { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 30px; font-weight: 600; line-height: 1.05; overflow-wrap: anywhere; }

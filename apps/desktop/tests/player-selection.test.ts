@@ -10,17 +10,18 @@ const speaker = { id:"vrc:new-world:new-track", index:7, user_id:user, display_n
 function settings(): Settings {
   const audio: Settings["audio"] = { sample_rate:16000, microphone:{mode:"disabled",device_id:null,trigger_threshold_dbfs:-45},
     output: { mode:"vrchat_players", device_id:null, trigger_threshold_dbfs:-45, player_audio: {
-    pagefile_drive:"C:", opus_library_path:"", max_players:0, selected_tracks:[user, other],
+    pagefile_drive:"C:", opus_library_path:"", max_players:0,
+    source_overrides:{[user]:{chatbox_disabled:true,voice_disabled:false},[other]:{chatbox_disabled:false,voice_disabled:true}},
     selected_user_names:{[user]:"Previous name",[other]:"Offline player"},
   } } };
   return { audio } as Settings;
 }
 
-test("a saved account is renamed on its new track while offline selections and other settings remain intact", () => {
+test("a saved account is renamed on its new track while other accounts and settings remain intact", () => {
   const original = settings();
   const updated = withCurrentPlayerNames(original, [speaker]);
   assert.deepEqual(updated.audio.output.player_audio?.selected_user_names, {[user]:"Current name",[other]:"Offline player"});
-  assert.equal(updated.audio.output.player_audio?.selected_tracks, original.audio.output.player_audio?.selected_tracks);
+  assert.deepEqual(updated.audio.output.player_audio?.source_overrides, original.audio.output.player_audio?.source_overrides);
   assert.equal(updated.audio.microphone, original.audio.microphone);
   assert.equal(original.audio.output.player_audio?.selected_user_names?.[user], "Previous name");
   assert.equal(withCurrentPlayerNames(updated, [speaker]), updated, "an unchanged name must not schedule another file write");
@@ -28,7 +29,7 @@ test("a saved account is renamed on its new track while offline selections and o
   assert.equal(withCurrentPlayerNames(restored, [{...speaker,id:"vrc:another-session",index:99}]), restored);
 });
 
-test("only a confirmed selected user ID can change a saved label", () => {
+test("only a confirmed saved user ID can change a saved label", () => {
   const original = settings();
   for (const user_id of [undefined, null, "Previous name", "usr_invalid", "usr_00000000-0000-4000-8000-000000000009"]) {
     assert.equal(withCurrentPlayerNames(original,[{...speaker,user_id}]), original);
@@ -38,7 +39,7 @@ test("only a confirmed selected user ID can change a saved label", () => {
   }
   assert.equal(playerUserId({...speaker,user_id:null}), null);
   assert.equal(playerUserId(speaker), user);
-  original.audio.output.player_audio!.selected_tracks = null;
+  original.audio.output.player_audio!.source_overrides = {};
   assert.equal(withCurrentPlayerNames(original,[speaker]), original);
 });
 
@@ -53,13 +54,14 @@ test("a queued automatic name refresh cannot restore a removed player or overwri
     onOptimistic:()=>{},onCommit:()=>{},onError:()=>{},
   });
   const change = save.update(value=>({...value,audio:{...value.audio,output:{...value.audio.output,
-    trigger_threshold_dbfs:-35,player_audio:{...value.audio.output.player_audio!,selected_tracks:[other],selected_user_names:{[other]:"Offline player"}},
+    trigger_threshold_dbfs:-35,player_audio:{...value.audio.output.player_audio!,
+      source_overrides:{[other]:{chatbox_disabled:false,voice_disabled:true}},selected_user_names:{[other]:"Offline player"}},
   }}}));
   const refresh = save.update(value=>withCurrentPlayerNames(value,[speaker]));
   release();
   await Promise.all([change,refresh]);
   assert.equal(writes.length,1);
   assert.equal(current.audio.output.trigger_threshold_dbfs,-35);
-  assert.deepEqual(current.audio.output.player_audio?.selected_tracks,[other]);
+  assert.deepEqual(current.audio.output.player_audio?.source_overrides,{[other]:{chatbox_disabled:false,voice_disabled:true}});
   assert.deepEqual(current.audio.output.player_audio?.selected_user_names,{[other]:"Offline player"});
 });

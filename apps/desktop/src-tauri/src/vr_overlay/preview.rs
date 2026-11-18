@@ -1337,8 +1337,10 @@ fn sample_player_display(scene: Scene) -> player_display::View {
                     format!("Track {} - account {user:04}", index + 1)
                 },
                 current: index < current,
-                selected: false,
                 hidden: false,
+                chatbox_disabled: index == 1,
+                voice_disabled: index == 3,
+                voice_locked: index == 3,
             });
         }
         players.push(player_display::Player {
@@ -1347,16 +1349,17 @@ fn sample_player_display(scene: Scene) -> player_display::View {
             name: "Saved offline player".into(),
             detail: "Saved selection - account 0999".into(),
             current: false,
-            selected: true,
             hidden: false,
+            chatbox_disabled: false,
+            voice_disabled: true,
+            voice_locked: false,
         });
     }
     player_display::View {
         available: scene != Scene::Unavailable,
         processing_available: scene != Scene::Unavailable,
         player_mode: true,
-        selection_mode: "selected".into(),
-        selected_count: usize::from(!players.is_empty()),
+        source_mode: "allowlist".into(),
         players,
         proximity: Some(player_display::Proximity {
             enabled: false,
@@ -1391,33 +1394,24 @@ fn sample_player_display(scene: Scene) -> player_display::View {
         follow_default: true,
         default_languages: vec!["English".into(), "Japanese".into()],
         labels: [
-            ("title", "People and translation display"),
+            ("title", "Capture management"),
             ("playersTab", "People"),
-            ("historySaved", "History and saved"),
+            ("historySaved", "History"),
             (
                 "processingUnavailable",
-                "Player processing requires per-player audio and a connected Core.",
+                "Distance filtering requires per-player audio and a connected Core.",
             ),
             (
                 "unavailable",
                 "Open the main VRCS window to use these settings.",
             ),
-            ("process", "Players to process"),
-            ("all", "Everyone"),
-            ("selected", "Whitelist"),
-            (
-                "noneSelected",
-                "No players selected; other-party audio is not being processed.",
-            ),
             ("languages", "Hidden original languages"),
             ("followDefault", "Follow default"),
             ("noHiddenLanguages", "No languages hidden"),
             ("showAll", "Restore people display"),
-            ("proximityEnable", "Process only players within range"),
-            ("proximityRadius", "Range"),
-            ("proximityTab", "Distance filter"),
+            ("proximityOff", "Off"),
+            ("proximityRadius", "Recognition distance"),
             ("empty", "Waiting for tracks or loading history."),
-            ("translate", "Translate"),
             ("show", "Show"),
             ("hide", "Hide"),
             ("current", "Current world"),
@@ -1451,42 +1445,28 @@ fn apply_player_display(view: &mut player_display::View, action: player_display:
                 mic.revision += 1;
             }
         }
-        Action::SetProcessingMode(mode) => {
-            view.selection_mode = mode;
-            for player in &mut view.players {
-                player.selected = false;
-            }
-        }
-        Action::SetUserSelected { user_id, selected } => {
+        Action::SetUserSourceDisabled {
+            user_id,
+            source,
+            disabled,
+        } => {
             for player in &mut view.players {
                 if player.user_id.as_ref() == Some(&user_id) {
-                    player.selected = selected;
+                    if source == "vrchat_chatbox" {
+                        player.chatbox_disabled = disabled;
+                    } else {
+                        player.voice_disabled = disabled;
+                    }
                 }
-            }
-        }
-        Action::SelectCurrent(()) => {
-            let users: std::collections::HashSet<_> = view
-                .players
-                .iter()
-                .filter(|player| player.current)
-                .filter_map(|player| player.user_id.clone())
-                .collect();
-            for player in &mut view.players {
-                player.selected |= player
-                    .user_id
-                    .as_ref()
-                    .is_some_and(|user| users.contains(user));
-            }
-        }
-        Action::ClearSelection(()) => {
-            for player in &mut view.players {
-                player.selected = false;
             }
         }
         Action::SetTrackHidden { track_id, hidden } => {
             for player in &mut view.players {
                 if player.track_id.as_ref() == Some(&track_id) {
                     player.hidden = hidden;
+                    // Hiding also stops voice processing for the account.
+                    player.voice_disabled = hidden;
+                    player.voice_locked = hidden;
                 }
             }
         }
@@ -1518,24 +1498,14 @@ fn apply_player_display(view: &mut player_display::View, action: player_display:
                 language.hidden = false;
             }
         }
-        Action::SetProximityEnabled(enabled) => {
-            if let Some(proximity) = &mut view.proximity {
-                proximity.enabled = enabled;
-            }
-        }
         Action::SetProximityRadius(radius_m) => {
             if let Some(proximity) = &mut view.proximity {
+                proximity.enabled = radius_m > 0.0;
                 proximity.radius_m = radius_m;
             }
         }
+        Action::SetSourceMode(mode) => view.source_mode = mode,
     }
-    view.selected_count = view
-        .players
-        .iter()
-        .filter(|player| player.selected)
-        .filter_map(|player| player.user_id.as_ref())
-        .collect::<std::collections::HashSet<_>>()
-        .len();
 }
 
 fn apply_dashboard(view: &mut DashboardViewModel, action: DashboardAction) {
@@ -1906,18 +1876,9 @@ mod tests {
     }
 
     #[test]
-    fn mock_personnel_processing_visibility_and_language_filters_are_independent() {
+    fn mock_personnel_source_and_visibility_controls_are_independent() {
         let mut p = mock();
         let first = p.players.players[0].clone();
-        let saved = p
-            .players
-            .players
-            .iter()
-            .find(|player| player.track_id.is_none())
-            .unwrap()
-            .user_id
-            .clone()
-            .unwrap();
         let languages = p.players.languages.clone();
         let select = |p: &mut Preview, action| {
             p.apply_mock(Effect::PlayerDisplay(action));
@@ -1927,59 +1888,37 @@ mod tests {
             assert!(!p.players.busy);
             assert!(p.players.error.is_none());
         };
-        select(&mut p, player_display::Action::SelectCurrent(()));
-        assert_eq!(p.players.selected_count, 3);
-        assert!(p
-            .players
-            .players
-            .iter()
-            .filter(|player| player.current && player.user_id.is_some())
-            .all(|player| player.selected));
-        assert!(
-            p.players
-                .players
-                .iter()
-                .find(|player| player.user_id.as_ref() == Some(&saved))
-                .unwrap()
-                .selected
-        );
-        assert!(
-            !p.players
-                .players
-                .iter()
-                .find(|player| player.user_id.is_none())
-                .unwrap()
-                .selected
-        );
         select(
             &mut p,
-            player_display::Action::SetUserSelected {
+            player_display::Action::SetUserSourceDisabled {
                 user_id: first.user_id.clone().unwrap(),
-                selected: false,
+                source: "vrchat_chatbox".into(),
+                disabled: true,
             },
         );
-        assert_eq!(p.players.selected_count, 2);
         assert!(p
             .players
             .players
             .iter()
             .filter(|player| player.user_id == first.user_id)
-            .all(|player| !player.selected));
-        let selected_count = p.players.selected_count;
+            .all(|player| player.chatbox_disabled));
+        assert_eq!(p.players.languages, languages);
         select(
             &mut p,
             player_display::Action::SetTrackHidden {
-                track_id: first.track_id.unwrap(),
+                track_id: first.track_id.clone().unwrap(),
                 hidden: true,
             },
         );
-        assert_eq!(p.players.selected_count, selected_count);
-        assert_eq!(p.players.languages, languages);
         assert!(p.players.players[0].hidden);
-        select(&mut p, player_display::Action::ClearSelection(()));
-        assert_eq!(p.players.selection_mode, "selected");
-        assert_eq!(p.players.selected_count, 0);
-        assert!(p.players.players[0].hidden);
+        assert!(p
+            .players
+            .players
+            .iter()
+            .filter(|player| player.user_id == first.user_id)
+            .all(|player| player.voice_disabled && player.voice_locked));
+        select(&mut p, player_display::Action::ShowAllTracks(()));
+        assert!(p.players.players.iter().all(|player| !player.hidden));
         select(&mut p, player_display::Action::SetFollowDefault(false));
         assert_eq!(p.players.languages, languages);
         select(
@@ -1989,8 +1928,6 @@ mod tests {
                 hidden: true,
             },
         );
-        select(&mut p, player_display::Action::ShowAllTracks(()));
-        assert!(p.players.players.iter().all(|player| !player.hidden));
         assert!(
             p.players
                 .languages
@@ -1999,9 +1936,6 @@ mod tests {
                 .unwrap()
                 .hidden
         );
-        select(&mut p, player_display::Action::ClearHiddenLanguages(()));
-        assert!(!p.players.follow_default);
-        assert!(p.players.languages.iter().all(|language| !language.hidden));
         select(&mut p, player_display::Action::SetFollowDefault(true));
         assert!(p.players.follow_default);
         assert!(
@@ -2012,12 +1946,6 @@ mod tests {
                 .unwrap()
                 .hidden
         );
-        select(
-            &mut p,
-            player_display::Action::SetProcessingMode("all".into()),
-        );
-        assert_eq!(p.players.selection_mode, "all");
-        assert_eq!(p.players.selected_count, 0);
     }
 
     #[test]

@@ -456,14 +456,15 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
             pipeline.last_error(),
         )
     };
-    let (network_running, player_audio, vrchat_chatbox) = {
+    let (network_running, player_audio, vrchat_chatbox, network_players) = {
         let network = state.capture.network_session.lock().await;
         let voice = network.voice_status();
         let text = network.chatbox_status();
+        let players = network.roster();
         let receiving_text = text
             .as_ref()
             .is_some_and(|status| status.phase != "failed" && status.phase != "stopped");
-        (network.running() && receiving_text, voice, text)
+        (network.running() && receiving_text, voice, text, players)
     };
     let (microphone_running, microphone_device, microphone_error) = {
         let pipeline = state.capture.microphone_pipeline.lock().await;
@@ -507,6 +508,7 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
         },
         "audio_device": audio_device,
         "player_audio": player_audio,
+        "network_players": network_players,
         "vrchat_chatbox": vrchat_chatbox,
         "microphone_device": microphone_device,
         "microphone_test_running": microphone_test_running,

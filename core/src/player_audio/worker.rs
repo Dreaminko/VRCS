@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(windows)]
 use std::sync::mpsc;
@@ -14,8 +14,10 @@ use super::platform::{self, Network};
 use super::protocol::{self, Parser, VoicePacket};
 use super::session::SharedOutputs;
 use super::{AudioEvent, Capture, SharedStatus};
-use crate::config::{PlayerAudioConfig, PlayerProximityConfig};
+use crate::config::{PlayerAudioConfig, PlayerProximityConfig, PlayerSourceOverride};
 use crate::models::SpeakerIdentity;
+use crate::vrchat_log::VrchatLog;
+use crate::vrchat_process::ProcessIdentity;
 
 pub(super) fn start(
     config: PlayerAudioConfig,
@@ -23,6 +25,7 @@ pub(super) fn start(
     outputs: SharedOutputs,
     cache: Arc<SessionCache>,
     settings: Arc<std::sync::RwLock<crate::config::AppConfig>>,
+    log: VrchatLog,
 ) -> Result<Capture, String> {
     let tx = EventSender(outputs);
     let stop = Arc::new(AtomicBool::new(false));
@@ -30,7 +33,7 @@ pub(super) fn start(
     let thread = std::thread::Builder::new()
         .name("vrcs-vrchat-network".into())
         .spawn(move || {
-            let result = supervise(config, tx, &thread_stop, &status, &cache, &settings);
+            let result = supervise(config, tx, &thread_stop, &status, &cache, &settings, log);
             let mut state = status.lock().expect("player status");
             state.active_players = 0;
             if let Err(error) = result {
@@ -74,7 +77,7 @@ impl From<tokio::sync::mpsc::Sender<AudioEvent>> for EventSender {
     }
 }
 
-type Game = (u32, std::path::PathBuf);
+type Game = (ProcessIdentity, std::path::PathBuf);
 
 fn wait_for_game(
     stop: &AtomicBool,
@@ -116,20 +119,14 @@ fn supervise(
     status: &SharedStatus,
     cache: &SessionCache,
     settings: &Arc<std::sync::RwLock<crate::config::AppConfig>>,
+    log: VrchatLog,
 ) -> Result<(), String> {
-    while let Some((pid, path)) = wait_for_game(stop, status, platform::game)? {
+    while let Some((owner, path)) = wait_for_game(stop, status, crate::vrchat_process::game)? {
         if tx.is_closed() {
             break;
         }
         // Game installation and sockets are opened only after a process exists;
         // starting transcription itself never requires being in VRChat.
-        let owner = match platform::process_identity(pid) {
-            Ok(owner) => owner,
-            Err(_) => {
-                wait_cancellable(stop, Duration::from_millis(250));
-                continue;
-            }
-        };
         let default_opus_path = platform::opus_path(&path);
         #[cfg(target_os = "linux")]
         {
@@ -147,6 +144,7 @@ fn supervise(
             status,
             cache,
             settings,
+            log.clone(),
         )?;
         if stop.load(Ordering::Relaxed) {
             break;
@@ -160,7 +158,7 @@ type Pending = (Connection, bool, Vec<u8>, Instant);
 // Only identity and connection metadata survive a capture restart; no PCM,
 // compressed audio or incomplete Photon fragments are kept here.
 pub(super) struct RoomMetadata {
-    owner: cache::ProcessIdentity,
+    owner: ProcessIdentity,
     token: u64,
     session: String,
     next_flow: u64,
@@ -200,7 +198,7 @@ fn acquisition_samples(
 
 #[allow(clippy::too_many_arguments)]
 fn run(
-    owner: cache::ProcessIdentity,
+    owner: ProcessIdentity,
     opus_path: std::path::PathBuf,
     mut network: Network,
     config: &PlayerAudioConfig,
@@ -209,6 +207,7 @@ fn run(
     status: &SharedStatus,
     cache: &SessionCache,
     settings: &Arc<std::sync::RwLock<crate::config::AppConfig>>,
+    log: VrchatLog,
 ) -> Result<(), String> {
     let pid = owner.pid;
     let mut engine = Engine::new(None, config.max_players, tx, Arc::clone(status));
@@ -227,8 +226,8 @@ fn run(
     let started = Instant::now();
     let mut refresh = started;
     let mut world_poll = started - Duration::from_secs(1);
-    let mut world = platform::world(owner);
-    let mut world_ready = false;
+    let initial = log.snapshot();
+    let mut world_ready = initial.process == Some(owner) && initial.ready;
     let mut last_decrypted = started;
     let scan_stop = Arc::new(AtomicBool::new(false));
     let mut retry_at = started;
@@ -240,16 +239,19 @@ fn run(
             engine.reconcile_voice(&opus_path);
             engine.reconcile_text();
             if selection_poll.elapsed() >= Duration::from_millis(50) {
-                let (selection, proximity) = {
+                let (selection, proximity, overrides, allowlist) = {
                     let config = settings.read().expect("config lock");
                     let player_audio = &config.audio.output.player_audio;
                     (
                         player_audio.selected_tracks.clone(),
                         player_audio.proximity.clone(),
+                        player_audio.source_overrides.clone(),
+                        player_audio.source_mode != "everyone",
                     )
                 };
                 engine.set_selection(selection);
                 engine.set_proximity(proximity);
+                engine.set_source_policy(overrides, allowlist);
                 selection_poll = Instant::now();
             }
             if refresh.elapsed()
@@ -259,7 +261,7 @@ fn run(
                     Duration::from_secs(1)
                 }
             {
-                if platform::process_identity(pid).ok() != Some(owner) {
+                if crate::vrchat_process::identity(pid).ok() != Some(owner) {
                     cache.invalidate();
                     break;
                 }
@@ -267,8 +269,16 @@ fn run(
                 refresh = Instant::now();
             }
             if world_poll.elapsed() >= Duration::from_millis(250) {
+                let snapshot = log.snapshot();
+                let log_matches = snapshot.process == Some(owner);
+                let ready = log_matches && snapshot.ready;
+                let token = if log_matches {
+                    snapshot.room_token
+                } else {
+                    None
+                };
                 let was_ready = world_ready;
-                world_ready = world.poll();
+                world_ready = ready;
                 if was_ready && !world_ready {
                     engine.close_tracks_excluded();
                     engine.clear_text();
@@ -276,7 +286,7 @@ fn run(
                 }
                 world_poll = Instant::now();
                 if key.is_some() && !room_restored {
-                    if let Some(token) = world.room_token() {
+                    if let Some(token) = token {
                         engine.restore_room(cache, owner, token);
                         room_restored = true;
                     }
@@ -291,7 +301,7 @@ fn run(
                         "waiting_traffic"
                     };
                     if !world_ready {
-                        state.detail = world.error().map(str::to_owned);
+                        state.detail = snapshot.error;
                     } else if !was_ready {
                         state.detail = None;
                     }
@@ -407,9 +417,12 @@ fn run(
                             let acquired = SessionKey::new(&bytes);
                             cache.store(owner, bytes);
                             if !room_restored {
-                                if let Some(token) = world.room_token() {
-                                    engine.restore_room(cache, owner, token);
-                                    room_restored = true;
+                                let snapshot = log.snapshot();
+                                if snapshot.process == Some(owner) {
+                                    if let Some(token) = snapshot.room_token {
+                                        engine.restore_room(cache, owner, token);
+                                        room_restored = true;
+                                    }
                                 }
                             }
                             if key.take().is_some() {
@@ -529,9 +542,12 @@ fn run(
     engine.clear_text();
     engine.publish_roster(Instant::now());
     if result.is_ok() && key.is_some() && stop.load(Ordering::Relaxed) {
-        if let Some(token) = world.room_token() {
-            *cache.room.lock().expect("room identity cache") =
-                Some(engine.take_metadata(owner, token));
+        let snapshot = log.snapshot();
+        if snapshot.process == Some(owner) {
+            if let Some(token) = snapshot.room_token {
+                *cache.room.lock().expect("room identity cache") =
+                    Some(engine.take_metadata(owner, token));
+            }
         }
     }
     result
@@ -597,6 +613,8 @@ struct Engine {
     tracks: HashMap<String, Track>,
     identities: HashMap<String, SpeakerIdentity>,
     selection: Option<HashSet<String>>,
+    source_overrides: BTreeMap<String, PlayerSourceOverride>,
+    source_allowlist: bool,
     roster_dirty: bool,
     active_world: Option<String>,
     tx: EventSender,
@@ -665,6 +683,9 @@ impl Engine {
     fn text(&mut self, speaker: SpeakerIdentity, text: String, now: Instant) {
         use super::chatbox::Outcome;
         use crate::vrchat_chatbox::{ChatboxEvent, ChatboxMessage};
+        if self.source_blocked(&speaker.id).1 {
+            return;
+        }
         let mut outputs = self.tx.0.lock().expect("network outputs");
         if !outputs.chatbox_enabled() || outputs.text_generation != self.text_generation {
             return;
@@ -696,7 +717,7 @@ impl Engine {
         }
     }
 
-    fn take_metadata(&mut self, owner: cache::ProcessIdentity, token: u64) -> RoomMetadata {
+    fn take_metadata(&mut self, owner: ProcessIdentity, token: u64) -> RoomMetadata {
         self.clear_proximity();
         let mut flows = std::mem::take(&mut self.flows);
         for flow in flows.values_mut() {
@@ -714,7 +735,7 @@ impl Engine {
             active_world: self.active_world.take(),
         }
     }
-    fn restore_room(&mut self, cache: &SessionCache, owner: cache::ProcessIdentity, token: u64) {
+    fn restore_room(&mut self, cache: &SessionCache, owner: ProcessIdentity, token: u64) {
         let Some(room) = cache.room.lock().expect("room identity cache").take() else {
             return;
         };
@@ -753,6 +774,8 @@ impl Engine {
             tracks: HashMap::new(),
             identities: HashMap::new(),
             selection: None,
+            source_overrides: BTreeMap::new(),
+            source_allowlist: true,
             roster_dirty: false,
             active_world: None,
             tx: tx.into(),
@@ -788,6 +811,57 @@ impl Engine {
             self.close(&id);
         }
         self.roster_dirty = true;
+    }
+    /// Applies the admission policy. In allowlist mode both sources stay off for
+    /// accounts without an entry; in everyone mode both stay on unless an entry
+    /// disables one. Entries are keyed by stable accounts, so a track may already
+    /// be decoding when a rule or the mode changes.
+    fn set_source_policy(
+        &mut self,
+        overrides: BTreeMap<String, PlayerSourceOverride>,
+        allowlist: bool,
+    ) {
+        if self.source_overrides == overrides && self.source_allowlist == allowlist {
+            return;
+        }
+        self.source_overrides = overrides;
+        self.source_allowlist = allowlist;
+        let affected: Vec<_> = self.identities.keys().cloned().collect();
+        for id in affected {
+            self.apply_source_rule(&id);
+        }
+    }
+    /// Known accounts follow the configured mode. An actor without a stable
+    /// account cannot be enabled from the interface, so the allow list keeps
+    /// both sources off until its identity resolves.
+    fn source_blocked(&self, id: &str) -> (bool, bool) {
+        let Some(user_id) = self
+            .identities
+            .get(id)
+            .and_then(|speaker| speaker.user_id.as_ref())
+        else {
+            return (self.source_allowlist, self.source_allowlist);
+        };
+        let rule = self.source_overrides.get(user_id);
+        let unmatched = self.source_allowlist;
+        (
+            rule.map_or(unmatched, |rule| rule.voice_disabled),
+            rule.map_or(unmatched, |rule| rule.chatbox_disabled),
+        )
+    }
+    fn apply_source_rule(&mut self, id: &str) {
+        let (voice_blocked, chatbox_blocked) = self.source_blocked(id);
+        if voice_blocked {
+            self.retire_excluded(id);
+        }
+        if chatbox_blocked {
+            self.recent_text.remove(id);
+            self.tx
+                .0
+                .lock()
+                .expect("network outputs")
+                .invalidate_scope(id);
+        }
     }
     fn set_proximity(&mut self, config: PlayerProximityConfig) {
         if self.proximity_config == config {
@@ -854,6 +928,8 @@ impl Engine {
                 .lock()
                 .expect("network outputs")
                 .speaker(speaker.clone());
+            // A user ID resolved after the last settings poll can enable a rule.
+            self.apply_source_rule(&speaker.id);
         }
         speaker
     }
@@ -1111,6 +1187,9 @@ impl Engine {
     ) {
         let id = self.speaker_id(flow, epoch, packet.actor, participant.generation);
         let speaker = self.remember(id.clone(), participant.display_name, participant.user_id);
+        if self.source_blocked(&id).0 {
+            return;
+        }
         // Discover the track and its identity, then discard compressed speech
         // before allocating an Opus decoder, PCM, VAD or recognition connection.
         if !self.selected(&id) {
@@ -1433,6 +1512,7 @@ mod tests {
             EventSender(Arc::clone(&outputs)),
             Arc::clone(&status),
         );
+        engine.set_source_policy(BTreeMap::new(), false);
         engine.set_proximity(crate::config::PlayerProximityConfig {
             enabled: true,
             radius_m: 10.0,
@@ -1558,6 +1638,7 @@ mod tests {
         let outputs = Arc::new(std::sync::Mutex::new(output));
         let status = Arc::default();
         let mut engine = Engine::new(None, 1, EventSender(Arc::clone(&outputs)), status);
+        engine.set_source_policy(BTreeMap::new(), false);
         engine.set_selection(Some(Vec::new()));
         engine.reconcile_voice(std::path::Path::new("missing-opus.dll"));
         assert!(voice_rx.try_recv().is_err());
@@ -1628,6 +1709,110 @@ mod tests {
         let outputs = outputs.lock().unwrap();
         assert_eq!(outputs.chatbox_status.accepted, 2);
         assert_eq!(outputs.chatbox_status.duplicates, 5);
+    }
+
+    #[test]
+    fn player_sources_stay_off_until_the_account_is_enabled() {
+        use crate::vrchat_chatbox::ChatboxEvent;
+        const USER: &str = "usr_00000000-0000-4000-8000-000000000042";
+        let (text_tx, mut text_rx) = tokio::sync::mpsc::channel(64);
+        let (voice_tx, mut voice_rx) = tokio::sync::mpsc::channel(8);
+        let mut output = super::super::session::Outputs::with_voice(voice_tx);
+        output.chatbox = Some(text_tx);
+        let outputs = Arc::new(std::sync::Mutex::new(output));
+        let status = Arc::default();
+        let mut engine = Engine::new(None, 1, EventSender(Arc::clone(&outputs)), status);
+        engine.reconcile_text();
+        let connection = Connection {
+            local: "127.0.0.1:42000".parse().unwrap(),
+            remote: "127.0.0.2:27002".parse().unwrap(),
+            challenge: [1; 4],
+        };
+        let now = Instant::now();
+        let mut counter = 0;
+        let message = || {
+            vec![
+                0xf3, 4, 43, 2, 254, 11, 7, 245, 7, 5, b'h', b'e', b'l', b'l', b'o',
+            ]
+        };
+        let mut receive = |engine: &mut Engine, payload: Vec<u8>| {
+            counter += 1;
+            let mut bytes = vec![1, 0, 0, 0, 0, 7, 0, 0, 0];
+            bytes.extend((payload.len() as u32 + 12).to_be_bytes());
+            bytes.extend([0; 4]);
+            bytes.extend(payload);
+            let packet = super::super::crypto::seal(&[3; 32], counter, &bytes);
+            engine.receive_packet(connection.clone(), true, &packet, &bytes, now, true, true);
+        };
+        // The allow list also silences actors whose account is still unknown.
+        receive(&mut engine, message());
+        while let Ok(event) = text_rx.try_recv() {
+            assert!(
+                !matches!(event, ChatboxEvent::Message(_)),
+                "unidentified accounts stay muted"
+            );
+        }
+        receive(
+            &mut engine,
+            super::super::names::tests::user_fixture(7, Some("Player"), Some(USER)),
+        );
+        while text_rx.try_recv().is_ok() {}
+        while voice_rx.try_recv().is_ok() {}
+
+        // A known account that was never enabled sends nothing.
+        receive(&mut engine, message());
+        assert!(text_rx.try_recv().is_err(), "unlisted accounts stay muted");
+
+        engine.set_source_policy(
+            BTreeMap::from([(USER.into(), PlayerSourceOverride::default())]),
+            true,
+        );
+        receive(&mut engine, message());
+        let ChatboxEvent::Message(first) = text_rx.try_recv().unwrap() else {
+            panic!("chatbox message")
+        };
+
+        engine.set_source_policy(BTreeMap::new(), true);
+        assert!(!first.validity.is_current());
+        assert!(matches!(voice_rx.try_recv(), Ok(AudioEvent::Excluded(_))));
+        receive(&mut engine, message());
+        assert!(text_rx.try_recv().is_err());
+        assert_eq!(engine.identities.len(), 1);
+
+        engine.set_source_policy(
+            BTreeMap::from([(USER.into(), PlayerSourceOverride::default())]),
+            true,
+        );
+        receive(&mut engine, message());
+        assert!(matches!(text_rx.try_recv(), Ok(ChatboxEvent::Message(_))));
+
+        // Everyone mode keeps both sources on until an entry disables one.
+        let fresh = || {
+            vec![
+                0xf3, 4, 43, 2, 254, 11, 7, 245, 7, 5, b'w', b'o', b'r', b'l', b'd',
+            ]
+        };
+        engine.set_source_policy(BTreeMap::new(), false);
+        receive(&mut engine, fresh());
+        assert!(
+            matches!(text_rx.try_recv(), Ok(ChatboxEvent::Message(_))),
+            "everyone mode needs no allow entry"
+        );
+        engine.set_source_policy(
+            BTreeMap::from([(
+                USER.into(),
+                PlayerSourceOverride {
+                    chatbox_disabled: true,
+                    voice_disabled: false,
+                },
+            )]),
+            false,
+        );
+        receive(&mut engine, fresh());
+        assert!(
+            text_rx.try_recv().is_err(),
+            "an explicit rule still mutes its source"
+        );
     }
 
     #[test]
@@ -1716,6 +1901,10 @@ mod tests {
         let first = players[0].speaker.id.clone();
         let user_id = "usr_00000000-0000-4000-8000-000000000001";
         engine.set_selection(Some(vec![user_id.into()]));
+        engine.set_source_policy(
+            BTreeMap::from([(user_id.into(), PlayerSourceOverride::default())]),
+            true,
+        );
         let message =
             super::super::names::tests::user_fixture(1, Some("Selected player"), Some(user_id));
         let mut bytes = vec![1, 0, 0, 0, 0, 7, 0, 0, 0];
@@ -1764,6 +1953,10 @@ mod tests {
             let status = Arc::new(std::sync::Mutex::new(super::super::Status::default()));
             let mut engine = Engine::new(Arc::clone(&opus), 0, tx, Arc::clone(&status));
             engine.set_selection(restored.selected_tracks);
+            engine.set_source_policy(
+                BTreeMap::from([(user.into(), PlayerSourceOverride::default())]),
+                true,
+            );
             let connection = Connection {
                 local: "127.0.0.1:42000".parse().unwrap(),
                 remote: "127.0.0.2:27002".parse().unwrap(),
@@ -1866,7 +2059,7 @@ mod tests {
         let packet = super::super::crypto::seal(&[3; 32], 1, &bytes);
         engine.receive(connection.clone(), true, &packet, &bytes, now);
         let identity = engine.identities.values().next().unwrap().clone();
-        let owner = cache::ProcessIdentity {
+        let owner = ProcessIdentity {
             pid: 12,
             created: 34,
         };
@@ -1875,6 +2068,10 @@ mod tests {
         let mut resumed = Engine::new(Arc::clone(&opus), 0, tx.clone(), Arc::clone(&status));
         resumed.restore_room(&cache, owner, 100);
         resumed.set_selection(Some(vec![user_id.into()]));
+        resumed.set_source_policy(
+            BTreeMap::from([(user_id.into(), PlayerSourceOverride::default())]),
+            true,
+        );
         let tone = opus.test_tone(440.0, 1).remove(0);
         let bytes = protocol::voice_fixture(7, 1, &tone);
         let packet = super::super::crypto::seal(&[3; 32], 2, &bytes);
@@ -1898,7 +2095,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Requires VRChat to be closed; starts only the local waiting worker"]
     async fn native_capture_can_start_stop_and_restart_before_vrchat() {
-        let game = platform::game().unwrap();
+        let game = crate::vrchat_process::game().unwrap();
         assert!(
             game.is_none(),
             "Close the active VRChat process first: {game:?}"
@@ -1915,6 +2112,7 @@ mod tests {
                 )),
                 Arc::clone(&cache),
                 Arc::new(std::sync::RwLock::new(crate::config::AppConfig::default())),
+                VrchatLog::default(),
             )
             .unwrap();
             tokio::time::sleep(Duration::from_millis(30)).await;
@@ -1942,13 +2140,17 @@ mod tests {
         assert!(begin.elapsed() < Duration::from_millis(100));
         stop.store(false, Ordering::Relaxed);
         let mut polls = 0;
+        let owner = ProcessIdentity {
+            pid: 42,
+            created: 7,
+        };
         let game = wait_for_game(&stop, &status, || {
             polls += 1;
-            Ok((polls == 2).then(|| (42, "test/VRChat.exe".into())))
+            Ok((polls == 2).then(|| (owner, "test/VRChat.exe".into())))
         })
         .unwrap()
         .unwrap();
-        assert_eq!(game.0, 42);
+        assert_eq!(game.0, owner);
         assert_eq!(polls, 2);
     }
 
