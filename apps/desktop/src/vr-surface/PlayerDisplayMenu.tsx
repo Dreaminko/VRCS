@@ -108,9 +108,7 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
     : page === "players" && (!view.processing_available || !view.player_mode)
       ? label("processingUnavailable", "Distance filtering requires per-player audio and a connected Core")
       : page === "players" && viewPriority?.enabled && !viewPriority.local_view
-        ? label("viewWaiting", "Waiting for view data; players currently run at normal priority.")
-        : page === "players" && viewPriority
-          ? label("viewPriorityHint", "Only affects per-player voice. Players in your horizontal view are processed sooner when resources are busy; other players still run normally.") : "");
+        ? label("viewWaiting", "Waiting for view data; players currently run at normal priority.") : "");
   const pagination = <div className="vr-menu-pagination">
     <MenuButton state={state} id={15} command={paging(Math.max(0, activePage.page - 1))} label={label("previous", "Previous page")} disabled={activePage.page === 0}><ChevronLeft /></MenuButton>
     <span>{activePage.page + 1} / {activePage.count}</span>
@@ -148,8 +146,7 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
           {label(mode === "everyone" ? "sourceModeEveryone" : "sourceModeAllowlist", mode === "everyone" ? "Everyone" : "Allowlist")}
         </MenuButton>)}
       </nav>
-      {viewPriority && <section className="vr-menu-view-priority" aria-label={label("viewPriority", "Prioritize players in view")}
-        title={label("viewPriorityHint", "Only affects per-player voice. Players in your horizontal view are processed sooner when resources are busy; other players still run normally.")}>
+      {viewPriority && <section className="vr-menu-view-priority" aria-label={label("viewPriority", "Prioritize players in view")}>
         <MenuButton state={state} id={50} active={viewPriority.enabled} disabled={locked || !view.player_mode}
           command={{ display: { set_view_priority: { enabled: !viewPriority.enabled, horizontal_fov_deg: viewPriority.horizontal_fov_deg } } }}
           label={label("viewPriority", "Prioritize players in view")}>

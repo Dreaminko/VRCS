@@ -1419,7 +1419,6 @@ fn sample_player_display(scene: Scene) -> player_display::View {
             ("viewPriority", "Prioritize players in view (experimental)"),
             ("viewAngle", "Horizontal view"),
             ("viewWaiting", "Waiting for view data; players currently run at normal priority."),
-            ("viewPriorityHint", "Only affects per-player voice. When resources are busy, process recognition and translation for players in your horizontal view sooner. Other players still run normally. Estimates by horizontal angle; ignores pitch and occlusion."),
             ("empty", "Waiting for tracks or loading history."),
             ("show", "Show"),
             ("hide", "Hide"),

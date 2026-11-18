@@ -125,7 +125,7 @@ export function PlayerHistoryControls({ subtitles, status, roster, enabled, sele
           onCommit={(radius_m) => void onProximityChange?.(radius_m)} />
       </div>}
       {viewPriority && <div className="player-history-proximity" role="group" aria-label={t("live.players.viewPriority")}>
-        <PreferenceToggle title={t("live.players.viewPriority")} description={t("live.players.viewPriorityHint")}
+        <PreferenceToggle title={t("live.players.viewPriority")}
           checked={viewPriority.enabled} disabled={!enabled || !onViewPriorityChange}
           onChange={(checked) => void onViewPriorityChange?.(checked, viewPriority.horizontal_fov_deg)} />
         <RangeField label={t("live.players.viewAngle")} value={viewPriority.horizontal_fov_deg}
