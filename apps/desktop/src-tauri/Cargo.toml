@@ -1,6 +1,6 @@
 [package]
 name = "vrcs-desktop"
-version = "0.3.8"
+version = "0.3.10"
 description = "VRCS desktop subtitle client"
 authors = ["VRCS contributors"]
 license = "AGPL-3.0-only"
@@ -31,6 +31,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
+semver = "1"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 tracing = "0.1"

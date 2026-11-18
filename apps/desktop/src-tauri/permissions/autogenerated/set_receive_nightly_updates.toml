@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-receive-nightly-updates"
+description = "Enables the set_receive_nightly_updates command without any pre-configured scope."
+commands.allow = ["set_receive_nightly_updates"]
+
+[[permission]]
+identifier = "deny-set-receive-nightly-updates"
+description = "Denies the set_receive_nightly_updates command without any pre-configured scope."
+commands.deny = ["set_receive_nightly_updates"]

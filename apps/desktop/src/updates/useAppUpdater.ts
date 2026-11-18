@@ -9,8 +9,9 @@ import {
   type AppUpdateMetadata,
 } from "./app-updater";
 import {
-  loadAutomaticUpdatePreference,
+  loadUpdatePreferences,
   saveAutomaticUpdatePreference,
+  saveNightlyUpdatePreference,
 } from "./update-preferences";
 
 const STARTUP_CHECK_DELAY_MS = 10_000;
@@ -28,6 +29,7 @@ export type UpdatePhase =
 export interface AppUpdaterState {
   buildInfo: AppBuildInfo | null;
   automaticChecks: boolean;
+  receiveNightlyUpdates: boolean;
   preferenceReady: boolean;
   preferenceSaving: boolean;
   phase: UpdatePhase;
@@ -40,11 +42,13 @@ export interface AppUpdaterState {
   install: () => Promise<void>;
   dismissNotice: () => void;
   setAutomaticChecks: (enabled: boolean) => Promise<void>;
+  setReceiveNightlyUpdates: (enabled: boolean) => Promise<void>;
 }
 
 export function useAppUpdater(enabled: boolean): AppUpdaterState {
   const [buildInfo, setBuildInfo] = useState<AppBuildInfo | null>(null);
   const [automaticChecks, setAutomaticChecksState] = useState(true);
+  const [receiveNightlyUpdates, setReceiveNightlyUpdatesState] = useState(false);
   const [preferenceReady, setPreferenceReady] = useState(false);
   const [preferenceSaving, setPreferenceSaving] = useState(false);
   const [phase, setPhase] = useState<UpdatePhase>("idle");
@@ -54,7 +58,6 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
   const [totalBytes, setTotalBytes] = useState<number | null>(null);
   const [noticeVisible, setNoticeVisible] = useState(false);
   const busyRef = useRef(false);
-  const preferenceSavingRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,8 +71,10 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
 
   useEffect(() => {
     let cancelled = false;
-    void loadAutomaticUpdatePreference().then((automatic) => {
-      if (!cancelled) setAutomaticChecksState(automatic);
+    void loadUpdatePreferences().then((preferences) => {
+      if (cancelled) return;
+      setAutomaticChecksState(preferences.automaticChecks);
+      setReceiveNightlyUpdatesState(preferences.receiveNightlyUpdates);
     }).catch(() => undefined).finally(() => {
       if (!cancelled) setPreferenceReady(true);
     });
@@ -79,10 +84,12 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
   }, []);
 
   const check = useCallback(async (manual = true) => {
-    if (busyRef.current || buildInfo?.updaterAvailable === false) return;
+    if (busyRef.current || !buildInfo?.updaterAvailable) return;
     busyRef.current = true;
     setPhase("checking");
     setErrorCode(null);
+    setUpdate(null);
+    setNoticeVisible(false);
     try {
       const available = await checkForAppUpdate();
       setUpdate(available);
@@ -118,7 +125,7 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
     setDownloadedBytes(0);
     setTotalBytes(null);
     try {
-      await downloadAndInstallAppUpdate((event) => {
+      await downloadAndInstallAppUpdate(update.version, (event) => {
         if (event.event === "started") {
           setTotalBytes(event.data.contentLength);
         } else if (event.event === "progress") {
@@ -135,9 +142,9 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
   }, [update]);
 
   const setAutomaticChecks = useCallback(async (next: boolean) => {
-    if (preferenceSavingRef.current) return;
+    if (busyRef.current) return;
     const previous = automaticChecks;
-    preferenceSavingRef.current = true;
+    busyRef.current = true;
     setPreferenceSaving(true);
     setAutomaticChecksState(next);
     try {
@@ -147,14 +154,37 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
       setErrorCode("failed");
       setPhase("error");
     } finally {
-      preferenceSavingRef.current = false;
+      busyRef.current = false;
       setPreferenceSaving(false);
     }
   }, [automaticChecks]);
 
+  const setReceiveNightlyUpdates = useCallback(async (next: boolean) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setPreferenceSaving(true);
+    try {
+      await saveNightlyUpdatePreference(next);
+      setReceiveNightlyUpdatesState(next);
+      setUpdate(null);
+      setNoticeVisible(false);
+      setErrorCode(null);
+      setPhase("idle");
+    } catch (reason) {
+      setErrorCode(updaterErrorCode(reason));
+      setPhase("error");
+      return;
+    } finally {
+      busyRef.current = false;
+      setPreferenceSaving(false);
+    }
+    if (automaticChecks) await check(false);
+  }, [automaticChecks, check]);
+
   return {
     buildInfo,
     automaticChecks,
+    receiveNightlyUpdates,
     preferenceReady,
     preferenceSaving,
     phase,
@@ -167,5 +197,6 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
     install,
     dismissNotice: () => setNoticeVisible(false),
     setAutomaticChecks,
+    setReceiveNightlyUpdates,
   };
 }

@@ -2,13 +2,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use semver::Version;
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
+use tauri_plugin_store::StoreExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-const UPDATE_ENDPOINT: &str =
+const STABLE_ENDPOINT: &str =
     "https://github.com/Dreaminko/VRCS/releases/latest/download/latest.json";
+const NIGHTLY_ENDPOINT: &str =
+    "https://raw.githubusercontent.com/Dreaminko/VRCS/nightly-updates/nightly.json";
+const NIGHTLY_PREFERENCE: &str = "receiveNightlyUpdates";
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(30);
 const UPDATER_PUBLIC_KEY: Option<&str> = option_env!("TAURI_UPDATER_PUBLIC_KEY");
 
@@ -37,7 +42,7 @@ impl Drop for BusyGuard<'_> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct BuildInfo {
-    version: &'static str,
+    version: String,
     variant: &'static str,
     updater_available: bool,
 }
@@ -48,6 +53,36 @@ pub(crate) struct UpdateMetadata {
     version: String,
     current_version: String,
     notes: Option<String>,
+    channel: UpdateChannel,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum UpdateChannel {
+    Stable,
+    Nightly,
+}
+
+impl UpdateChannel {
+    fn endpoint(self) -> &'static str {
+        match self {
+            Self::Stable => STABLE_ENDPOINT,
+            Self::Nightly => NIGHTLY_ENDPOINT,
+        }
+    }
+
+    fn matches(self, version: &Version) -> bool {
+        match self {
+            Self::Stable => version.pre.is_empty(),
+            Self::Nightly => version
+                .pre
+                .as_str()
+                .strip_prefix("nightly.")
+                .is_some_and(|date| {
+                    date.len() == 8 && date.bytes().all(|digit| digit.is_ascii_digit())
+                }),
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -68,6 +103,9 @@ pub(crate) enum UpdateError {
     Unavailable,
     Busy,
     NoPendingUpdate,
+    CheckFailed(UpdateChannel),
+    BothChecksFailed,
+    PreferenceSaveFailed,
     Failed,
 }
 
@@ -80,6 +118,10 @@ impl Serialize for UpdateError {
             Self::Unavailable => "update.unavailable",
             Self::Busy => "update.busy",
             Self::NoPendingUpdate => "update.no_pending",
+            Self::CheckFailed(UpdateChannel::Stable) => "update.stable_check_failed",
+            Self::CheckFailed(UpdateChannel::Nightly) => "update.nightly_check_failed",
+            Self::BothChecksFailed => "update.both_checks_failed",
+            Self::PreferenceSaveFailed => "update.preference_save_failed",
             Self::Failed => "update.failed",
         };
         serializer.serialize_str(code)
@@ -116,12 +158,42 @@ pub(crate) fn register_plugin(app: &tauri::App) -> tauri::Result<()> {
 }
 
 #[tauri::command]
-pub(crate) fn app_build_info() -> BuildInfo {
+pub(crate) fn app_build_info(app: AppHandle) -> BuildInfo {
     BuildInfo {
-        version: env!("CARGO_PKG_VERSION"),
+        version: app.package_info().version.to_string(),
         variant: variant(),
         updater_available: UPDATER_PUBLIC_KEY.is_some_and(|key| !key.trim().is_empty()),
     }
+}
+
+async fn check_channel(
+    app: &AppHandle,
+    channel: UpdateChannel,
+) -> Result<Option<Update>, UpdateError> {
+    let endpoint = channel.endpoint().parse().map_err(|error| {
+        tracing::error!(?channel, %error, "invalid updater endpoint");
+        UpdateError::CheckFailed(channel)
+    })?;
+    let before_exit_app = app.clone();
+    let result = async {
+        app.updater_builder()
+            .endpoints(vec![endpoint])?
+            .version_comparator(move |current, release| {
+                channel.matches(&release.version)
+                    && release.version.cmp_precedence(&current).is_gt()
+            })
+            .timeout(UPDATE_TIMEOUT)
+            .on_before_exit(move || crate::prepare_for_exit(&before_exit_app))
+            .build()?
+            .check()
+            .await
+    }
+    .await;
+
+    result.map_err(|error| {
+        tracing::warn!(?channel, %error, "application update check failed");
+        UpdateError::CheckFailed(channel)
+    })
 }
 
 #[tauri::command]
@@ -129,50 +201,86 @@ pub(crate) async fn check_for_update(
     app: AppHandle,
     state: State<'_, UpdateState>,
 ) -> Result<Option<UpdateMetadata>, UpdateError> {
-    let public_key = UPDATER_PUBLIC_KEY
-        .filter(|key| !key.trim().is_empty())
-        .ok_or(UpdateError::Unavailable)?;
     let _busy = acquire_busy(&state)?;
-    let endpoint = UPDATE_ENDPOINT.parse().map_err(|error| {
-        tracing::error!(%error, "invalid updater endpoint");
-        UpdateError::Failed
-    })?;
-    let before_exit_app = app.clone();
-    let update = app
-        .updater_builder()
-        .pubkey(public_key)
-        .target(target())
-        .endpoints(vec![endpoint])
+    *state.pending.lock().map_err(|_| UpdateError::Failed)? = None;
+    if !UPDATER_PUBLIC_KEY.is_some_and(|key| !key.trim().is_empty()) {
+        return Err(UpdateError::Unavailable);
+    }
+    let receive_nightly = app
+        .store("preferences.json")
         .map_err(|error| {
-            tracing::warn!(%error, "failed to configure application updater");
+            tracing::warn!(%error, "could not read update preferences");
             UpdateError::Failed
         })?
-        .timeout(UPDATE_TIMEOUT)
-        .on_before_exit(move || crate::prepare_for_exit(&before_exit_app))
-        .build()
-        .map_err(|error| {
-            tracing::warn!(%error, "failed to initialize application updater");
-            UpdateError::Failed
-        })?
-        .check()
-        .await
-        .map_err(|error| {
-            tracing::warn!(%error, "application update check failed");
-            UpdateError::Failed
-        })?;
+        .get(NIGHTLY_PREFERENCE)
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
 
-    let metadata = update.as_ref().map(|update| UpdateMetadata {
+    let stable = check_channel(&app, UpdateChannel::Stable).await;
+    let nightly = if receive_nightly {
+        check_channel(&app, UpdateChannel::Nightly).await
+    } else {
+        Ok(None)
+    };
+    let (update, channel) = match (stable, nightly) {
+        (Ok(Some(stable)), Ok(Some(nightly))) => {
+            let stable_version =
+                Version::parse(&stable.version).map_err(|_| UpdateError::Failed)?;
+            let nightly_version =
+                Version::parse(&nightly.version).map_err(|_| UpdateError::Failed)?;
+            if nightly_version.cmp_precedence(&stable_version).is_gt() {
+                (nightly, UpdateChannel::Nightly)
+            } else {
+                (stable, UpdateChannel::Stable)
+            }
+        }
+        (Ok(Some(stable)), _) => (stable, UpdateChannel::Stable),
+        (_, Ok(Some(nightly))) => (nightly, UpdateChannel::Nightly),
+        (Ok(None), Ok(None)) => return Ok(None),
+        (Err(_), Err(_)) => return Err(UpdateError::BothChecksFailed),
+        (Err(error), _) | (_, Err(error)) => return Err(error),
+    };
+    let metadata = UpdateMetadata {
         version: update.version.clone(),
         current_version: update.current_version.clone(),
         notes: update.body.clone(),
-    });
-    *state.pending.lock().map_err(|_| UpdateError::Failed)? = update;
-    Ok(metadata)
+        channel,
+    };
+    *state.pending.lock().map_err(|_| UpdateError::Failed)? = Some(update);
+    Ok(Some(metadata))
+}
+
+#[tauri::command]
+pub(crate) fn set_receive_nightly_updates(
+    app: AppHandle,
+    state: State<'_, UpdateState>,
+    enabled: bool,
+) -> Result<(), UpdateError> {
+    let _busy = acquire_busy(&state)?;
+    let mut pending = state.pending.lock().map_err(|_| UpdateError::Failed)?;
+    let store = app.store("preferences.json").map_err(|error| {
+        tracing::warn!(%error, "could not load update preferences");
+        UpdateError::PreferenceSaveFailed
+    })?;
+    let previous = store.get(NIGHTLY_PREFERENCE);
+    store.set(NIGHTLY_PREFERENCE, enabled);
+    if let Err(error) = store.save() {
+        if let Some(value) = previous {
+            store.set(NIGHTLY_PREFERENCE, value);
+        } else {
+            store.delete(NIGHTLY_PREFERENCE);
+        }
+        tracing::warn!(%error, "could not save Nightly update preference");
+        return Err(UpdateError::PreferenceSaveFailed);
+    }
+    *pending = None;
+    Ok(())
 }
 
 #[tauri::command]
 pub(crate) async fn download_and_install_update(
     state: State<'_, UpdateState>,
+    version: String,
     on_event: Channel<DownloadEvent>,
 ) -> Result<(), UpdateError> {
     let _busy = acquire_busy(&state)?;
@@ -180,7 +288,7 @@ pub(crate) async fn download_and_install_update(
         .pending
         .lock()
         .map_err(|_| UpdateError::Failed)?
-        .take()
+        .take_if(|update| update.version == version)
         .ok_or(UpdateError::NoPendingUpdate)?;
     let started = AtomicBool::new(false);
 

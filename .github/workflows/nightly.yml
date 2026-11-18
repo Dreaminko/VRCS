@@ -1,0 +1,152 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '17 16 * * *'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: Completed Beijing date (YYYY-MM-DD)
+        required: true
+        type: string
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha: ${{ steps.detect.outputs.sha }}
+      date: ${{ steps.detect.outputs.date }}
+      version: ${{ steps.detect.outputs.version }}
+      published: ${{ steps.detect.outputs.published }}
+      reuse: ${{ steps.ci.outputs.reuse }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Select the last main change of the Beijing day
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_REQUESTED_DATE: ${{ inputs.date }}
+        run: node scripts/nightly-release.mjs detect
+      - name: Find complete CI for the selected commit
+        if: steps.detect.outputs.sha != '' && steps.detect.outputs.published != 'true'
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.detect.outputs.sha }}
+        run: node scripts/find-release-ci.mjs
+
+  validate:
+    needs: detect
+    if: needs.detect.outputs.sha != '' && needs.detect.outputs.published != 'true' && needs.detect.outputs.reuse != 'true'
+    uses: ./.github/workflows/ci.yml
+    with:
+      target-sha: ${{ needs.detect.outputs.sha }}
+
+  windows-x64:
+    needs: [detect, validate]
+    if: >-
+      ${{ !cancelled() && needs.detect.result == 'success' &&
+          needs.detect.outputs.sha != '' && needs.detect.outputs.published != 'true' &&
+          (needs.detect.outputs.reuse == 'true' || needs.validate.result == 'success') }}
+    runs-on: windows-2022
+    env:
+      CMAKE_GENERATOR: Visual Studio 17 2022
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.build
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect.outputs.sha }}
+          persist-credentials: false
+      - name: Check out Nightly packaging scripts
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .nightly-tools
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/build-release.ps1
+            scripts/write-release-metadata.ps1
+          sparse-checkout-cone-mode: false
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-windows-x64-vulkan
+          save-if: false
+          workspaces: |
+            core -> ../.build
+            apps/desktop/src-tauri -> ../../../.build
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Build and sign the Nightly installer
+        shell: pwsh
+        env:
+          NIGHTLY_SHA: ${{ needs.detect.outputs.sha }}
+          NIGHTLY_DATE: ${{ needs.detect.outputs.date }}
+          NIGHTLY_VERSION: ${{ needs.detect.outputs.version }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: |
+          .\.nightly-tools\scripts\build-release.ps1 -RepoRoot $env:GITHUB_WORKSPACE -Channel nightly `
+            -Version $env:NIGHTLY_VERSION -BuildDate $env:NIGHTLY_DATE -SourceSha $env:NIGHTLY_SHA -SkipInstall -SkipTests
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nightly-windows-x64-${{ needs.detect.outputs.sha }}
+          path: release-artifacts/*
+          if-no-files-found: error
+          overwrite: true
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    needs: [detect, windows-x64]
+    if: >-
+      ${{ !cancelled() && needs.detect.result == 'success' && needs.detect.outputs.sha != '' &&
+          (needs.detect.outputs.published == 'true' || needs.windows-x64.result == 'success') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v8
+        if: needs.detect.outputs.published != 'true'
+        with:
+          name: nightly-windows-x64-${{ needs.detect.outputs.sha }}
+          path: release-artifacts
+      - name: Publish or recover the Nightly release and update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_REF_TOKEN: ${{ secrets.NIGHTLY_REF_TOKEN }}
+          NIGHTLY_SHA: ${{ needs.detect.outputs.sha }}
+          NIGHTLY_DATE: ${{ needs.detect.outputs.date }}
+          NIGHTLY_VERSION: ${{ needs.detect.outputs.version }}
+        run: node scripts/nightly-release.mjs publish

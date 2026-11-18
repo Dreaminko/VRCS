@@ -81,6 +81,26 @@ Runtime. Close VRCS before starting it: the preview uses the existing VRCS data
 directory. Each preview passes the startup self-test from its artifact folder
 before upload; the full CI suite runs separately.
 
+## Nightly releases
+
+The **Nightly** workflow runs daily at 00:17 Beijing time. It builds the last
+change to `main` from the preceding calendar day when that day had any changes.
+The Windows x64 installer uses the existing release signing secrets. A successful
+build is published as a `nightly-YYYYMMDD` GitHub pre-release, then its updater
+manifest is committed to `nightly-updates`.
+
+GitHub can require Workflows write permission to create a ref for an older
+commit. Set the `NIGHTLY_REF_TOKEN` Actions secret to a fine-grained token
+scoped to this repository with Contents and Workflows write access to support
+those builds. Nightly uses it only when creating refs.
+[GitHub ref permissions](https://docs.github.com/en/rest/git/refs#create-a-reference)
+
+Run **Nightly** from `main` with a completed Beijing date to recover a missed or
+failed run. A rerun can finish publishing a manifest from an existing release.
+After merging the workflow, publish the first Nightly before publishing the
+first stable build that exposes the Nightly switch. See the
+[release plan](docs/plans/nightly-release.zh-CN.md) for versioning and rollout checks.
+
 ## Player audio development
 
 The [player audio guide](docs/experimental-player-audio.md) describes setup,

@@ -709,24 +709,30 @@
       }
     },
     "updates": {
+      "channel": {
+        "stable": "正式版",
+        "nightly": "Nightly"
+      },
       "title": "软件更新",
       "currentVersion": "当前版本 {{version}}",
       "variant": {
         "standard": "标准版"
       },
       "automaticChecks": "自动检查更新",
+      "receiveNightlyUpdates": "接收 Nightly 更新",
+      "nightlyDescription": "Nightly 可能不稳定。正式版与 Nightly 共用本机数据。",
       "checkNow": "立即检查",
-      "availableTitle": "VRCS {{version}} 已发布",
+      "availableTitle": "VRCS {{version}}（{{channel}}）已发布",
       "availableDescription": "新版本已可下载并安装。",
       "downloadAndInstall": "下载并安装",
       "later": "稍后",
       "stopTranscriptionFirst": "请先停止转写，再安装更新。",
       "status": {
-        "ready": "可从 GitHub Releases 检查更新。",
+        "ready": "可检查软件更新。",
         "unavailable": "当前开发构建未启用更新功能。",
-        "checking": "正在检查 GitHub Releases…",
+        "checking": "正在检查更新…",
         "upToDate": "当前已是最新版本。",
-        "available": "版本 {{version}} 已可下载。",
+        "available": "版本 {{version}}（{{channel}}）已可下载。",
         "downloading": "正在下载更新…",
         "installing": "正在安装更新…"
       },
@@ -746,6 +752,10 @@
         "unavailable": "当前构建未配置更新功能。",
         "busy": "已有更新操作正在进行。",
         "no_pending": "请重新检查更新后再安装。",
+        "stable_check_failed": "无法检查正式版更新，请重试。",
+        "nightly_check_failed": "无法检查 Nightly 更新，请重试。",
+        "both_checks_failed": "无法检查正式版和 Nightly 更新，请重试。",
+        "preference_save_failed": "无法保存 Nightly 更新设置，请重试。",
         "failed": "更新操作未能完成，请检查网络连接后重试。"
       }
     },

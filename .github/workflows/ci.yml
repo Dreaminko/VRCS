@@ -7,13 +7,18 @@ on:
         description: Run all checks when this workflow is reused
         type: boolean
         default: true
+      target-sha:
+        description: Exact commit to validate when it differs from the caller commit
+        type: string
+        required: false
+        default: ""
   pull_request:
   push:
     branches:
       - main
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  group: ci-${{ github.workflow }}-${{ inputs.target-sha || (github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref) }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
@@ -28,6 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.target-sha || github.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
@@ -73,6 +79,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target-sha || github.sha }}
 
       - uses: actions/setup-node@v6
         with:
@@ -97,6 +105,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target-sha || github.sha }}
 
       - name: Install pinned Rust toolchain
         shell: pwsh
@@ -126,6 +136,8 @@ jobs:
         backend: [cpu, vulkan]
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target-sha || github.sha }}
 
       - name: Install pinned Rust toolchain
         shell: pwsh

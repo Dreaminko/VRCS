@@ -709,24 +709,30 @@
       }
     },
     "updates": {
+      "channel": {
+        "stable": "正式版",
+        "nightly": "Nightly"
+      },
       "title": "ソフトウェア更新",
       "currentVersion": "現在のバージョン {{version}}",
       "variant": {
         "standard": "標準版"
       },
       "automaticChecks": "更新を自動確認する",
+      "receiveNightlyUpdates": "Nightly の更新を受け取る",
+      "nightlyDescription": "Nightly は動作が不安定な場合があります。正式版と Nightly はこの端末のデータを共有します。",
       "checkNow": "今すぐ確認",
-      "availableTitle": "VRCS {{version}} を利用できます",
+      "availableTitle": "VRCS {{version}}（{{channel}}）を利用できます",
       "availableDescription": "新しいバージョンをダウンロードしてインストールできます。",
       "downloadAndInstall": "ダウンロードしてインストール",
       "later": "後で",
       "stopTranscriptionFirst": "更新をインストールする前に文字起こしを停止してください。",
       "status": {
-        "ready": "GitHub Releases から更新を確認できます。",
+        "ready": "更新を確認できます。",
         "unavailable": "この開発ビルドでは更新機能を利用できません。",
-        "checking": "GitHub Releases を確認しています…",
+        "checking": "更新を確認しています…",
         "upToDate": "VRCS は最新です。",
-        "available": "バージョン {{version}} をダウンロードできます。",
+        "available": "バージョン {{version}}（{{channel}}）をダウンロードできます。",
         "downloading": "更新をダウンロードしています…",
         "installing": "更新をインストールしています…"
       },
@@ -746,6 +752,10 @@
         "unavailable": "このビルドには更新機能が設定されていません。",
         "busy": "別の更新操作が実行中です。",
         "no_pending": "もう一度更新を確認してからインストールしてください。",
+        "stable_check_failed": "正式版の更新を確認できませんでした。もう一度お試しください。",
+        "nightly_check_failed": "Nightly の更新を確認できませんでした。もう一度お試しください。",
+        "both_checks_failed": "正式版と Nightly の更新を確認できませんでした。もう一度お試しください。",
+        "preference_save_failed": "Nightly の更新設定を保存できませんでした。もう一度お試しください。",
         "failed": "更新操作を完了できませんでした。接続を確認して再試行してください。"
       }
     },

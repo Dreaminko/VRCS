@@ -26,7 +26,10 @@ export function UpdateNotice({
     <aside className="update-notice" aria-labelledby="update-notice-title">
       <div className="update-notice-icon" aria-hidden="true"><Download size={18} /></div>
       <div className="update-notice-copy">
-        <strong id="update-notice-title">{t("updates.availableTitle", { version: updater.update.version })}</strong>
+        <strong id="update-notice-title">{t("updates.availableTitle", {
+          version: updater.update.version,
+          channel: t(`updates.channel.${updater.update.channel}`),
+        })}</strong>
         <p>{updater.update.notes?.trim() || t("updates.availableDescription")}</p>
         {busy && (
           <div className="update-download-status" role="status">
@@ -45,7 +48,7 @@ export function UpdateNotice({
           <button
             className="primary-button"
             type="button"
-            disabled={checking || busy || transcriptionRunning}
+            disabled={checking || busy || updater.preferenceSaving || transcriptionRunning}
             onClick={() => void (updater.phase === "error" ? updater.check(true) : updater.install())}
           >
             {t(updater.phase === "error" ? "common.retry" : "updates.downloadAndInstall")}

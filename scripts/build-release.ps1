@@ -2,12 +2,16 @@
 param(
     [ValidatePattern('^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$')]
     [string]$Version,
+    [ValidateSet('stable', 'nightly')][string]$Channel = 'stable',
+    [string]$BuildDate,
+    [string]$SourceSha,
+    [string]$RepoRoot = (Join-Path $PSScriptRoot '..'),
     [switch]$SkipInstall,
     [switch]$SkipTests
 )
 
 $ErrorActionPreference = "Stop"
-$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$repoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
 $tauriConfigPath = Join-Path $repoRoot "apps\desktop\src-tauri\tauri.conf.json"
 $tauriReleaseConfigTemplatePath = Join-Path $repoRoot "apps\desktop\src-tauri\tauri.release.conf.json"
 $generatedTauriConfigPath = Join-Path $repoRoot "apps\desktop\src-tauri\tauri.release.generated.conf.json"
@@ -20,14 +24,31 @@ $artifactRoot = Join-Path $repoRoot "release-artifacts"
 $tauriConfig = Get-Content -LiteralPath $tauriConfigPath -Raw | ConvertFrom-Json
 if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) { throw "TAURI_SIGNING_PRIVATE_KEY is required for release builds" }
 if ([string]::IsNullOrWhiteSpace($env:TAURI_UPDATER_PUBLIC_KEY)) { throw "TAURI_UPDATER_PUBLIC_KEY is required for release builds" }
-if (-not $Version) { $Version = $tauriConfig.version }
+$baseVersion = $tauriConfig.version
+if ($Channel -eq 'nightly') {
+    $dateSuffix = $BuildDate.Replace('-', '')
+    if ($BuildDate -cnotmatch '^\d{4}-\d{2}-\d{2}$' -or
+        $SourceSha -cnotmatch '^[0-9a-f]{40}$' -or
+        $Version -cnotmatch "^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-nightly\.$dateSuffix$") {
+        throw 'Nightly builds require a matching version, build date, and full source SHA'
+    }
+    $actualSha = & git -C $repoRoot rev-parse HEAD
+    if ($LASTEXITCODE -ne 0 -or $actualSha -cne $SourceSha) {
+        throw "Nightly checkout does not match source SHA $SourceSha"
+    }
+} else {
+    if (-not $Version) { $Version = $baseVersion }
+    if ($Version -cne $baseVersion) {
+        throw "Stable release version $Version does not match Tauri version $baseVersion"
+    }
+}
 $cargoVersion = (Select-String -LiteralPath $cargoManifestPath -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
 $desktopPackageVersion = (Get-Content -LiteralPath $desktopPackagePath -Raw | ConvertFrom-Json).version
 $coreVersion = (Select-String -LiteralPath $coreManifestPath -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
 
-foreach ($actual in @($tauriConfig.version, $cargoVersion, $desktopPackageVersion, $coreVersion)) {
-    if ($actual -ne $Version) {
-        throw "Release version mismatch: requested $Version but a project manifest contains $actual"
+foreach ($actual in @($cargoVersion, $desktopPackageVersion, $coreVersion)) {
+    if ($actual -cne $baseVersion) {
+        throw "Release base version mismatch: Tauri contains $baseVersion but a project manifest contains $actual"
     }
 }
 
@@ -48,6 +69,9 @@ function Write-ReleaseTauriConfig {
     )
 
     $releaseConfig = Get-Content -LiteralPath $TemplatePath -Raw | ConvertFrom-Json
+    if ($Channel -eq 'nightly') {
+        $releaseConfig | Add-Member -Force -NotePropertyName "version" -NotePropertyValue $Version
+    }
     $releaseConfig | Add-Member -Force -NotePropertyName "plugins" -NotePropertyValue ([PSCustomObject]@{
         updater = [PSCustomObject]@{
             pubkey = $PublicKey
@@ -81,6 +105,7 @@ function Invoke-ReleaseBuild {
         "--config", $generatedTauriConfigArgument,
         "--bundles", "nsis"
     )
+    if ($Channel -eq 'nightly') { $arguments += @('--', '--locked') }
 
     $previousCargoTargetDir = [Environment]::GetEnvironmentVariable("CARGO_TARGET_DIR", "Process")
     try {
@@ -149,7 +174,7 @@ try {
     # OpenVR's CMake cache cannot be reused after a generator or toolchain change.
     & cargo clean --manifest-path $cargoManifestPath -p openvr_sys
     if ($LASTEXITCODE -ne 0) { throw "OpenVR build cache cleanup failed" }
-    & (Join-Path $PSScriptRoot "prepare-vulkan-runtime.ps1")
+    & (Join-Path $repoRoot 'scripts/prepare-vulkan-runtime.ps1')
     Write-ReleaseTauriConfig `
         -TemplatePath $tauriReleaseConfigTemplatePath `
         -DestinationPath $generatedTauriConfigPath `
@@ -161,7 +186,7 @@ try {
     }
 
     if (-not $SkipTests) {
-        & (Join-Path $PSScriptRoot "test-core.ps1") -Vulkan
+        & (Join-Path $repoRoot 'scripts/test-core.ps1') -Vulkan
         if ($LASTEXITCODE -ne 0) { throw "Rust Core tests failed" }
         & npm --workspace apps/desktop test
         if ($LASTEXITCODE -ne 0) { throw "Frontend tests failed" }
@@ -170,14 +195,15 @@ try {
     }
 
     $releaseBuilds = @(Invoke-ReleaseBuild -Label "standard" -Features @("vulkan"))
-    $latestPath = & (Join-Path $PSScriptRoot "write-release-metadata.ps1") -Version $Version -ArtifactRoot $artifactRoot
-    Assert-NonEmptyFile $latestPath
+    $metadataPath = & (Join-Path $PSScriptRoot "write-release-metadata.ps1") `
+        -Version $Version -ArtifactRoot $artifactRoot -Channel $Channel -BuildDate $BuildDate -SourceSha $SourceSha
+    Assert-NonEmptyFile $metadataPath
 
     $releaseArtifacts = @($releaseBuilds | ForEach-Object {
         $_.ArtifactPath
         $_.SignaturePath
         $_.ChecksumPath
-    }) + $latestPath
+    }) + $metadataPath
 }
 finally {
     [Environment]::SetEnvironmentVariable("CARGO_TARGET_DIR", $previousReleaseCargoTargetDir, "Process")
