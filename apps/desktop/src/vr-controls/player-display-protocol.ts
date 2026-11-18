@@ -3,7 +3,7 @@ import type { SpeakerIdentity } from "../subtitles/types";
 import type { PlayerSourceMode } from "../capture/types";
 import { playerUserId } from "../capture/player-selection.ts";
 import { sourceLanguageKey, type PlayerHistoryPreferences } from "../subtitles/player-history.ts";
-import { applyPlayerProximity, applyPlayerSourceAction, applyPlayerSourceMode, applyPlayerVisibilityAction, isPlayerProximityAction, isPlayerSourceAction, isPlayerSourceModeAction, sourceMode, type PlayerDisplayAction } from "../subtitles/player-controls.ts";
+import { applyPlayerProximity, applyPlayerSourceAction, applyPlayerSourceMode, applyPlayerViewPriority, applyPlayerVisibilityAction, isPlayerProximityAction, isPlayerSourceAction, isPlayerSourceModeAction, isPlayerViewPriorityAction, sourceMode, type PlayerDisplayAction } from "../subtitles/player-controls.ts";
 import type { ControlAction, ControlSource } from "./protocol";
 import type { MicrophoneSpeakerAction, MicrophoneSpeakerSnapshot } from "../capture/microphone-speakers";
 
@@ -31,6 +31,11 @@ export interface PlayerDisplayView {
     enabled: boolean;
     radius_m: number;
   };
+  view_priority?: {
+    enabled: boolean;
+    horizontal_fov_deg: number;
+    local_view: boolean;
+  };
   microphone?: Omit<MicrophoneSpeakerSnapshot, "snapshot_sequence" | "speakers"> & {
     speakers: Array<{ id: string; index: number; decision: "allow" | "block"; name: string; last_active: string }>;
   };
@@ -51,7 +56,7 @@ export interface WristMenuUi {
 }
 
 export interface SliderCommand {
-  action: "proximity_radius";
+  action: "proximity_radius" | "view_horizontal_fov";
   min: number;
   max: number;
   step: number;
@@ -168,6 +173,22 @@ export function createPlayerDisplayExecutor(options: {
       const proximity = saved.audio.output.player_audio?.proximity;
       if (!proximity || proximity.enabled !== (radius_m > 0) || Math.abs(proximity.radius_m - radius_m) >= 0.001) {
         throw new Error("Distance filter was not applied");
+      }
+      return;
+    }
+    if (isPlayerViewPriorityAction(action)) {
+      const { enabled, horizontal_fov_deg } = action.set_view_priority;
+      if (!Number.isFinite(horizontal_fov_deg) || horizontal_fov_deg < 30 || horizontal_fov_deg > 180) {
+        throw new Error("Horizontal view is invalid");
+      }
+      const saved = await options.updateSettings(settings => {
+        if (settings.audio.output.mode !== "vrchat_players") throw new Error("Player processing is unavailable");
+        if (!settings.audio.output.player_audio?.view_priority) throw new Error("View priority is unavailable");
+        return applyPlayerViewPriority(settings, enabled, horizontal_fov_deg);
+      });
+      const view = saved.audio.output.player_audio?.view_priority;
+      if (!view || view.enabled !== enabled || Math.abs(view.horizontal_fov_deg - horizontal_fov_deg) >= 0.001) {
+        throw new Error("View priority was not applied");
       }
       return;
     }

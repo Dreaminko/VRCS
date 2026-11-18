@@ -45,6 +45,7 @@ export interface PlayerAudioSettings {
   max_players: number;
   max_visible_players?: number;
   proximity?: PlayerProximitySettings;
+  view_priority?: PlayerViewPrioritySettings;
   selected_user_names?: Record<string, string>;
   /** Per-player source rules keyed by stable VRChat user IDs. */
   source_overrides?: Record<string, PlayerSourceOverride>;
@@ -62,6 +63,11 @@ export interface PlayerSourceOverride {
 export interface PlayerProximitySettings {
   enabled: boolean;
   radius_m: number;
+}
+
+export interface PlayerViewPrioritySettings {
+  enabled: boolean;
+  horizontal_fov_deg: number;
 }
 
 export interface MicrophoneSettings {

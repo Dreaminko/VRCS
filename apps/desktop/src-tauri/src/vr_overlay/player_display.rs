@@ -21,6 +21,10 @@ pub enum Action {
     },
     ClearHiddenLanguages(()),
     SetProximityRadius(f32),
+    SetViewPriority {
+        enabled: bool,
+        horizontal_fov_deg: f32,
+    },
     SetSourceMode(String),
     SetUserSourceDisabled {
         user_id: String,
@@ -78,6 +82,15 @@ impl Action {
                     && view.proximity.is_some()
                     && radius_m.is_finite()
                     && (0.0..=10.0).contains(radius_m)
+            }
+            Self::SetViewPriority {
+                horizontal_fov_deg, ..
+            } => {
+                view.available
+                    && view.player_mode
+                    && view.view_priority.is_some()
+                    && horizontal_fov_deg.is_finite()
+                    && (30.0..=180.0).contains(horizontal_fov_deg)
             }
             Self::SetSourceMode(mode) => {
                 view.available && matches!(mode.as_str(), "everyone" | "allowlist")
@@ -154,6 +167,14 @@ pub struct Proximity {
     pub radius_m: f32,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewPriority {
+    pub enabled: bool,
+    pub horizontal_fov_deg: f32,
+    #[serde(default)]
+    pub local_view: bool,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct View {
     pub available: bool,
@@ -164,6 +185,8 @@ pub struct View {
     pub players: Vec<Player>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proximity: Option<Proximity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view_priority: Option<ViewPriority>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub microphone: Option<Microphone>,
     pub languages: Vec<Language>,
@@ -279,6 +302,13 @@ mod tests {
             (
                 Action::SetProximityRadius(5.5),
                 serde_json::json!({"set_proximity_radius": 5.5}),
+            ),
+            (
+                Action::SetViewPriority {
+                    enabled: true,
+                    horizontal_fov_deg: 120.0,
+                },
+                serde_json::json!({"set_view_priority": {"enabled": true, "horizontal_fov_deg": 120.0}}),
             ),
             (
                 Action::SetSourceMode("everyone".into()),

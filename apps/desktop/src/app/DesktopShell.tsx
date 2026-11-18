@@ -20,7 +20,7 @@ import { SelectionToolOverlays } from "./SelectionToolOverlays";
 import type { AppWorkspace } from "./useAppWorkspace";
 import { openDesktopVision } from "../vision/api";
 import { PlayerHistoryControls } from "../subtitles/components/PlayerHistoryControls";
-import { applyPlayerProximity, applyPlayerSourceAction, applyPlayerSourceMode, sourceMode } from "../subtitles/player-controls";
+import { applyPlayerProximity, applyPlayerSourceAction, applyPlayerSourceMode, applyPlayerViewPriority, sourceMode } from "../subtitles/player-controls";
 
 let learningWorkspaceModule: Promise<typeof import("../learning/components/LearningWorkspace")> | undefined;
 let settingsPanelModule: Promise<typeof import("../settings/SettingsPanel")> | undefined;
@@ -223,12 +223,14 @@ export function DesktopShell({
                   sourceOverrides={settings.value?.audio.output.player_audio?.source_overrides}
                   sourceMode={sourceMode(settings.value?.audio.output.player_audio)}
                   proximity={settings.value?.audio.output.player_audio?.proximity}
+                  viewPriority={settings.value?.audio.output.player_audio?.view_priority ?? { enabled: false, horizontal_fov_deg: 120 }}
                   defaultLanguages={playerDisplay.defaultLanguages}
                   preferences={playerDisplay.preferences}
                   onPreferences={playerDisplay.update}
                   onSource={(action, speaker) => settings.update(current => applyPlayerSourceAction(current, action, speaker))}
                   onSourceMode={(mode) => settings.update(current => applyPlayerSourceMode(current, mode))}
                   onProximityChange={(radius_m) => settings.update(current => applyPlayerProximity(current, radius_m))}
+                  onViewPriorityChange={(enabled, horizontal_fov_deg) => settings.update(current => applyPlayerViewPriority(current, enabled, horizontal_fov_deg))}
                 />}
             />
           }

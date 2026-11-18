@@ -20,6 +20,7 @@ function playerDisplayState(workspace: AppWorkspace, optimistic = false) {
   const overrides = settings?.audio.output.player_audio?.source_overrides ?? {};
   const unmatchedBlocked = settings?.audio.output.player_audio?.source_mode !== "everyone";
   const proximity = settings?.audio.output.player_audio?.proximity;
+  const viewPriority = settings?.audio.output.player_audio?.view_priority;
   const roster = workspace.runtime.health?.network_players
     ?? (playerMode ? workspace.runtime.health?.player_audio?.players ?? [] : []);
   const current = roster.map(player => player.speaker);
@@ -29,7 +30,7 @@ function playerDisplayState(workspace: AppWorkspace, optimistic = false) {
   const available = workspace.onboarding.status === "complete";
   return {
     available, processingAvailable: available && workspace.runtime.ready && playerMode,
-    playerMode, sourceMode: sourceMode(settings?.audio.output.player_audio), names, overrides, proximity, current, preferences, defaultLanguages, unmatchedBlocked,
+    playerMode, sourceMode: sourceMode(settings?.audio.output.player_audio), names, overrides, proximity, viewPriority, current, preferences, defaultLanguages, unmatchedBlocked,
     hiddenTracks: preferences.hiddenTracks,
     speakers: collectPlayerSpeakers(workspace.subtitles.items, current, savedIds, names),
     languages: playerLanguageOptions(workspace.subtitles.items, defaultLanguages, preferences.hiddenSourceLanguages),
@@ -82,12 +83,17 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
     const mic = micControl.connected
       && current.current.workspace.settings.getOptimistic()?.features.microphone_speaker_filter
       ? micControl.getCurrent() : null;
+    const viewHealth = current.current.workspace.runtime.health?.player_audio?.proximity;
     return {
       available: state.available,
       processing_available: state.processingAvailable,
       player_mode: state.playerMode,
       source_mode: state.sourceMode,
       ...(state.proximity ? { proximity: { enabled: state.proximity.enabled, radius_m: state.proximity.radius_m } } : {}),
+      ...(state.viewPriority ? { view_priority: {
+        enabled: state.viewPriority.enabled, horizontal_fov_deg: state.viewPriority.horizontal_fov_deg,
+        local_view: state.processingAvailable && viewHealth?.view_enabled === true && viewHealth.local_view,
+      } } : {}),
       ...(mic ? { microphone: {
         enabled: mic.enabled, supported: mic.supported, running: mic.running,
         generation: mic.generation, revision: mic.revision,

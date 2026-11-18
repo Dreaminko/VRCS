@@ -56,6 +56,9 @@ export interface PlayerAudioStatus {
     tracked_players: number;
     excluded_packets: number;
     unknown_packets: number;
+    view_enabled: boolean;
+    local_view: boolean;
+    in_view_players: number;
   };
   key_scan?: {
     stage: "paging" | "scanning" | "verified" | "cached";

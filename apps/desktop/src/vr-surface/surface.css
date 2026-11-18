@@ -82,7 +82,7 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-menu-capsule .vr-surface-tooltip { bottom: calc(100% + 6px); max-width: 230px; font-size: 20px; }
 .vr-surface-divider { width: 2px; height: 40px; flex: 0 0 2px; margin: 0 10px; background: var(--border); }
 .vr-surface-panel { border: 2px solid var(--border); border-radius: 32px; background: color-mix(in srgb, var(--surface) calc(var(--vr-background-opacity) * 100%), transparent); }
-.vr-player-display-panel { position: absolute; inset: 16px 16px 272px; display: flex; flex-direction: column; gap: 8px; padding: 24px; overflow: hidden; }
+.vr-player-display-panel { position: absolute; inset: 16px 16px 272px; display: flex; flex-direction: column; gap: 6px; padding: 20px; overflow: hidden; }
 .vr-menu-heading { display: flex; min-height: 72px; max-height: 96px; flex: none; align-items: center; justify-content: space-between; gap: 20px; }
 .vr-menu-heading > div { min-width: 0; }
 .vr-menu-heading h1 { margin: 0; font-size: 32px; line-height: 1.3; font-weight: 650; }
@@ -106,8 +106,11 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-menu-player-groups { justify-content: flex-end; }
 .vr-menu-player-groups > .vr-menu-pagination { margin-right: auto; }
 .vr-menu-player-groups > .vr-menu-button { min-width: 260px; flex: 0 0 260px; font-size: 26px; }
-.vr-menu-source-mode { display: flex; height: 72px; flex: none; gap: 12px; }
-.vr-menu-source-mode > .vr-menu-button { min-width: 0; flex: 1; border-radius: 999px; font-size: 26px; }
+.vr-menu-source-mode { display: flex; height: 56px; flex: none; gap: 12px; }
+.vr-menu-source-mode > .vr-menu-button { min-width: 0; min-height: 56px; flex: 1; border-radius: 999px; font-size: 26px; }
+.vr-menu-view-priority { display: grid; height: 72px; flex: none; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.vr-menu-view-priority > .vr-menu-button { min-width: 0; font-size: 22px; }
+.vr-menu-view-priority > .vr-menu-proximity-slider { grid-template-columns: minmax(0, 1fr) 88px; }
 .vr-menu-proximity { display: grid; height: 72px; flex: none; grid-template-columns: minmax(0, 1fr); align-items: center; }
 .vr-menu-proximity-slider { display: grid; min-width: 0; height: 72px; grid-template-columns: minmax(0, 1fr) 132px; align-items: center; gap: 12px; }
 .vr-menu-proximity-track { position: relative; width: calc(100% - 44px); height: 72px; min-width: 72px; justify-self: center; margin: 0; padding: 0; border: 0; border-radius: 16px; color: inherit; background: transparent; font: inherit; cursor: pointer; }

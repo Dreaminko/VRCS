@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { MessageSquare, MessageSquareOff, Volume2, VolumeX, Plus, UsersRound, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { PlayerProximitySettings } from "../../capture/types";
+import type { PlayerProximitySettings, PlayerViewPrioritySettings } from "../../capture/types";
 import type { PlayerAudioStatus } from "../../core-client/types";
 import type { SpeakerIdentity, Subtitle } from "../types";
 import { useSpeakerIdentity } from "../speaker-state";
@@ -15,9 +15,9 @@ import { useDismissibleLayer } from "../../shared/hooks/use-dismissible-layer";
 import { useDropdownMenuMotion } from "../../shared/hooks/use-dropdown-menu-motion";
 import { MicrophoneSpeakerControls } from "../../capture/MicrophoneSpeakerControls";
 import type { MicrophoneSpeakerControl } from "../../capture/useMicrophoneSpeakers";
-import { RangeField } from "../../settings/SettingsControls";
+import { PreferenceToggle, RangeField } from "../../settings/SettingsControls";
 
-export function PlayerHistoryControls({ subtitles, status, roster, enabled, selectedUserNames = {}, sourceOverrides = {}, sourceMode = "allowlist", proximity, defaultLanguages, preferences, onPreferences, onSource, onSourceMode, onProximityChange, microphone }: {
+export function PlayerHistoryControls({ subtitles, status, roster, enabled, selectedUserNames = {}, sourceOverrides = {}, sourceMode = "allowlist", proximity, viewPriority, defaultLanguages, preferences, onPreferences, onSource, onSourceMode, onProximityChange, onViewPriorityChange, microphone }: {
   microphone?: MicrophoneSpeakerControl;
   subtitles: Subtitle[];
   status?: PlayerAudioStatus | null;
@@ -27,12 +27,14 @@ export function PlayerHistoryControls({ subtitles, status, roster, enabled, sele
   sourceOverrides?: Record<string, PlayerSourceOverride>;
   sourceMode?: PlayerSourceMode;
   proximity?: PlayerProximitySettings;
+  viewPriority?: PlayerViewPrioritySettings;
   defaultLanguages: string[];
   preferences: PlayerHistoryPreferences;
   onPreferences: (apply: (value: PlayerHistoryPreferences) => PlayerHistoryPreferences) => void;
   onSource?: (action: PlayerSourceAction, speaker: SpeakerIdentity) => Promise<unknown>;
   onSourceMode?: (mode: PlayerSourceMode) => Promise<unknown> | void;
   onProximityChange?: (radius_m: number) => Promise<unknown> | void;
+  onViewPriorityChange?: (enabled: boolean, horizontal_fov_deg: number) => Promise<unknown> | void;
 }) {
   const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -65,14 +67,14 @@ export function PlayerHistoryControls({ subtitles, status, roster, enabled, sele
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<"current" | "history">("current");
-  const current = roster ?? (enabled ? status?.players ?? [] : []);
-  const currentIds = current.map((player) => player.speaker.id);
+  const current = useMemo(() => panelMounted ? (roster ?? (enabled ? status?.players ?? [] : [])) : [], [panelMounted, roster, enabled, status?.players]);
+  const currentIds = useMemo(() => current.map((player) => player.speaker.id), [current]);
   const savedUserIds = useMemo(() => Object.keys(sourceOverrides), [sourceOverrides]);
   const playerDistances = useMemo(() => new Map(current.map(player => [player.speaker.id, player.distance_m])), [current]);
-  const speakers = useMemo(() => sortPlayerSpeakersByDistance(
+  const speakers = useMemo(() => panelMounted ? sortPlayerSpeakersByDistance(
     collectPlayerSpeakers(subtitles, current.map(p => p.speaker), savedUserIds, selectedUserNames),
     playerDistances,
-  ), [subtitles, roster, status?.players, enabled, savedUserIds, selectedUserNames, playerDistances]);
+  ) : [], [panelMounted, subtitles, current, savedUserIds, selectedUserNames, playerDistances]);
   const currentSpeakerIds = new Set(currentIds);
   const currentSpeakers = speakers.filter((speaker) => currentSpeakerIds.has(speaker.id));
   const historySpeakers = speakers.filter((speaker) => !currentSpeakerIds.has(speaker.id));
@@ -83,7 +85,12 @@ export function PlayerHistoryControls({ subtitles, status, roster, enabled, sele
     .filter((id): id is string => id !== null)), [speakers, preferences.hiddenTracks]);
   const languages = preferences.hiddenSourceLanguages ?? [];
   const displayedRadius = proximity?.enabled ? proximity.radius_m : 0;
-  const languageCodes = playerLanguageOptions(subtitles, defaultLanguages, preferences.hiddenSourceLanguages).filter(language => !languages.includes(language));
+  const languageCodes = useMemo(
+    () => panelMounted
+      ? playerLanguageOptions(subtitles, defaultLanguages, preferences.hiddenSourceLanguages).filter(language => !languages.includes(language))
+      : [],
+    [panelMounted, subtitles, defaultLanguages, preferences.hiddenSourceLanguages, languages],
+  );
   const languageName = (language: string) => localizedLanguageName(language, i18n.resolvedLanguage ?? "en-US");
   const display = (action: PlayerVisibilityAction) => onPreferences(value => applyPlayerVisibilityAction(value, action, defaultLanguages));
   const setLanguageHidden = (language: string, hidden: boolean) => display({ set_source_language_hidden: { language, hidden } });
@@ -116,6 +123,16 @@ export function PlayerHistoryControls({ subtitles, status, roster, enabled, sele
           min={0} max={10} step={0.1} disabled={!enabled || !onProximityChange}
           formatValue={(radius) => radius > 0 ? `${radius.toFixed(1)} m` : t("live.players.proximityOff")}
           onCommit={(radius_m) => void onProximityChange?.(radius_m)} />
+      </div>}
+      {viewPriority && <div className="player-history-proximity" role="group" aria-label={t("live.players.viewPriority")}>
+        <PreferenceToggle title={t("live.players.viewPriority")} description={t("live.players.viewPriorityHint")}
+          checked={viewPriority.enabled} disabled={!enabled || !onViewPriorityChange}
+          onChange={(checked) => void onViewPriorityChange?.(checked, viewPriority.horizontal_fov_deg)} />
+        <RangeField label={t("live.players.viewAngle")} value={viewPriority.horizontal_fov_deg}
+          min={30} max={180} step={1} disabled={!enabled || !viewPriority.enabled || !onViewPriorityChange}
+          formatValue={(degrees) => `${degrees}°`}
+          onCommit={(horizontal_fov_deg) => void onViewPriorityChange?.(true, horizontal_fov_deg)} />
+        {status?.proximity?.view_enabled && !status.proximity.local_view && <small role="status">{t("live.players.viewWaiting")}</small>}
       </div>}
       <fieldset className="player-history-languages">
         <legend>{t("live.players.languages")}</legend>
