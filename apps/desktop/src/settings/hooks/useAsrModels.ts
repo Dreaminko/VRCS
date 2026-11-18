@@ -19,6 +19,12 @@ import {
 import { selectRecognitionSource } from "../settings-derived";
 import type { SettingsDraftController } from "./useSettingsDraft";
 
+function isQwenTransferBusy(models: QwenModelRecord[], runtime: QwenRuntimeStatus | null): boolean {
+  return models.some((model) => ["downloading", "verifying"].includes(model.status))
+    || runtime?.status === "loading"
+    || ["downloading", "verifying"].includes(runtime?.installation.status ?? "");
+}
+
 export function useAsrModels({
   active,
   settings,
@@ -47,22 +53,24 @@ export function useAsrModels({
     setModelDirectoryText(settings.storage.model_directory);
   }, [settings.storage.model_directory]);
 
-  const fetchQwenModels = useCallback(async (isCancelled: () => boolean) => {
+  const fetchQwenModels = useCallback(async (isCancelled: () => boolean): Promise<boolean> => {
     try {
       const [next, runtime] = await Promise.all([providersApi.qwenModels(), providersApi.qwenRuntime()]);
-      if (isCancelled()) return;
+      if (isCancelled()) return false;
       const wasBusy = qwenModelsRef.current.some((model) => ["downloading", "verifying"].includes(model.status));
       qwenModelsRef.current = next;
-      setQwenModels(next);
+      setQwenModels((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
       if (wasBusy && !next.some((model) => ["downloading", "verifying"].includes(model.status))) {
         void onModelsChanged();
       }
-      setQwenRuntime(runtime);
+      setQwenRuntime((current) => JSON.stringify(current) === JSON.stringify(runtime) ? current : runtime);
       setQwenModelsReady(true);
+      return isQwenTransferBusy(next, runtime);
     } catch (reason) {
-      if (isCancelled()) return;
+      if (isCancelled()) return false;
       setQwenModelsReady(false);
       setQwenMessage(localizedError(reason, t, "errors.asr.models"));
+      return false;
     }
   }, [onModelsChanged, t]);
   const loadQwenModels = useCallback(
@@ -70,19 +78,36 @@ export function useAsrModels({
     [fetchQwenModels],
   );
 
+  const transferBusy = isQwenTransferBusy(qwenModels, qwenRuntime);
+
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
-    let timer: number | null = null;
-    const poll = async () => {
-      await fetchQwenModels(() => cancelled);
-      if (!cancelled && active) timer = window.setTimeout(() => void poll(), 750);
+    void fetchQwenModels(() => cancelled);
+    return () => {
+      cancelled = true;
     };
-    void poll();
+  }, [active, fetchQwenModels]);
+
+  useEffect(() => {
+    if (!active || !transferBusy) return;
+    let cancelled = false;
+    let timer: number | null = window.setTimeout(function poll() {
+      if (document.hidden) {
+        timer = window.setTimeout(poll, 750);
+        return;
+      }
+      void fetchQwenModels(() => cancelled).then((stillBusy) => {
+        if (!cancelled && stillBusy) {
+          timer = window.setTimeout(poll, 750);
+        }
+      });
+    }, 750);
     return () => {
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [active, fetchQwenModels]);
+  }, [active, transferBusy, fetchQwenModels]);
 
   const updateAsr = <K extends keyof Settings["asr"]>(
     key: K,

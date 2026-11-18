@@ -118,7 +118,7 @@ export function DesktopShell({
 
   useEffect(() => {
     const preloadDeferredPages = () => {
-      preloadPage("learning");
+      if (features?.learning) preloadPage("learning");
       preloadPage("settings");
     };
     if ("requestIdleCallback" in window) {
@@ -127,7 +127,7 @@ export function DesktopShell({
     }
     const timer = globalThis.setTimeout(preloadDeferredPages, 250);
     return () => globalThis.clearTimeout(timer);
-  }, []);
+  }, [features?.learning]);
 
   const selectConversation = useCallback((id: string) => {
     conversations.selectConversation(id);
