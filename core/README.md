@@ -57,6 +57,9 @@ Qwen 模型包通过 `/api/asr/local-models/qwen` 管理，支持 0.6B Q8_0 和 
 
 同一来源最多尝试 4 次。连接失败、超时、HTTP 408／429／5xx 和响应体中断会在有界等待后重试；已接收前缀在当前下载任务内通过 HTTP Range 续传。`206` 响应的范围起点、终点、总量必须与请求及模型清单一致，错误范围不会写入文件；来源忽略 Range 并返回完整响应时从头下载。取消、任务重启或切换来源不保留未完成文件的续传进度，已校验完成的同包文件可复用。
 
+模型目录的后台刷新使用 Core 初始化时保存的 Tokio runtime；同步配置／诊断调用与
+Linux 凭据工作线程不会因缺少调用线程的 runtime 而触发刷新崩溃。
+
 Core 默认构建和 `--no-default-features` 均支持云端功能和托管 Qwen CPU 识别。`--features vulkan` 允许独立 `llama-server` 运行时使用 Vulkan GPU，无需 Vulkan SDK 或着色器编译器。自动设备模式优先使用可用 GPU；GPU 启动失败且启动时限仍有剩余时尝试 CPU。未启用 Vulkan 时不探测 GPU，自动模式使用 CPU，显式选择 GPU 会报告 Vulkan 后端不可用。语音在本机处理。
 
 Linux GNU x86_64/aarch64 的 Vulkan 构建下载对应的固定 Vulkan 运行包，包含 CPU 后端，无需 Vulkan SDK 或编译着色器；系统需安装 Vulkan loader（Ubuntu 为 `libvulkan1`）及显卡驱动。桌面开发用 `npm run dev:vulkan`，独立 Core 用 `cargo run --manifest-path core/Cargo.toml --features vulkan`。默认开发构建仍仅使用 CPU，Linux 发布/预览包已启用 Vulkan。CPU/Vulkan 运行包按后端分别存放；首次切换到 Vulkan 构建需在模型设置中下载该运行组件，已有 ASR 模型不需重下。
