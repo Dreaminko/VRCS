@@ -204,7 +204,7 @@ type DirectCatalog = (ApiProfile, Instant, BTreeMap<String, ModelDetails>);
 struct Store {
     snapshot: RwLock<Snapshot>,
     direct: RwLock<BTreeMap<String, DirectCatalog>>,
-    runtime: Mutex<Option<(PathBuf, watch::Receiver<bool>)>>,
+    runtime: Mutex<Option<(PathBuf, watch::Receiver<bool>, tokio::runtime::Handle)>>,
     refresh: Mutex<RefreshState>,
 }
 
@@ -239,7 +239,8 @@ pub fn initialize(config_path: &Path, profiles: &[ApiProfile], shutdown: watch::
         *current = cache;
     }
     drop(current);
-    *store.runtime.lock().expect("catalog runtime lock") = Some((cache_path, shutdown));
+    *store.runtime.lock().expect("catalog runtime lock") =
+        Some((cache_path, shutdown, tokio::runtime::Handle::current()));
     if profiles
         .iter()
         .any(|profile| provider_id(profile).is_some())
@@ -320,7 +321,8 @@ impl Store {
     }
 
     fn schedule_refresh_from(self: &Arc<Self>, url: &str) {
-        let Some((path, mut shutdown)) = self.runtime.lock().expect("catalog runtime lock").clone()
+        let Some((path, mut shutdown, runtime)) =
+            self.runtime.lock().expect("catalog runtime lock").clone()
         else {
             return;
         };
@@ -338,7 +340,7 @@ impl Store {
         state.running = true;
         let store = Arc::clone(self);
         let url = url.to_owned();
-        tokio::spawn(async move {
+        runtime.spawn(async move {
             let etag = store.snapshot.read().expect("catalog lock").etag.clone();
             let result = tokio::select! {
                 result = fetch(&url, etag.as_deref()) => Some(result),
@@ -638,11 +640,20 @@ mod tests {
                 Snapshot::parse(&fixture(), now() - 2 * 24 * 3600, None).unwrap(),
             ),
             direct: RwLock::new(BTreeMap::new()),
-            runtime: Mutex::new(Some((path.clone(), receiver))),
+            runtime: Mutex::new(Some((
+                path.clone(),
+                receiver,
+                tokio::runtime::Handle::current(),
+            ))),
             refresh: Mutex::new(RefreshState::default()),
         });
-        store.schedule_refresh_from(&url);
-        store.schedule_refresh_from(&url);
+        let sync_store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            sync_store.schedule_refresh_from(&url);
+            sync_store.schedule_refresh_from(&url);
+        })
+        .join()
+        .unwrap();
         tokio::time::timeout(Duration::from_secs(2), started.notified())
             .await
             .unwrap();
