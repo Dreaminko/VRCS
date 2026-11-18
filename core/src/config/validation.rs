@@ -382,6 +382,13 @@ fn validate_audio(audio: &AudioConfig, vad: &VadConfig) -> Result<(), String> {
     {
         return Err("Player audio proximity.radius_m must be between 0 and 10".into());
     }
+    if !players.view_priority.horizontal_fov_deg.is_finite()
+        || !(30.0..=180.0).contains(&players.view_priority.horizontal_fov_deg)
+    {
+        return Err(
+            "Player audio view_priority.horizontal_fov_deg must be between 30 and 180".into(),
+        );
+    }
     if let Some(ids) = &players.selected_tracks {
         let mut seen = HashSet::new();
         if ids.len() > 512

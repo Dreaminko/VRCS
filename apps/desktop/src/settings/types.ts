@@ -12,7 +12,7 @@ export type ModelDownloadSource = "auto" | "official" | "modelscope";
 export type TranslationBackend = "api" | "plamo_local";
 
 export interface Settings {
-  schema_version: 43;
+  schema_version: 44;
   model_defaults: ModelDefaults;
   learning_ai: LearningAiSettings;
   vrchat_chatbox: VrchatChatboxConfig;

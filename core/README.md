@@ -34,6 +34,12 @@ Core 默认构建和 `--no-default-features` 均支持云端功能和托管 Qwen
 
 Windows 构建的本地 PP-OCRv6 small 支持 ONNX Runtime DirectML，无需 CUDA 或 Vulkan SDK。`ocr.device` 默认为 `cpu`，设为 `directml` 时会优先选择高性能兼容 GPU；模型加载或推理失败后回退 CPU。回退后的 CPU 会话保持使用，直到切换推理设备或重新启动服务。`GET /api/ocr/runtime` 返回最近请求的设备、实际加载的设备和回退原因。其他平台会回退 CPU。
 
+## 实验性视野优先
+
+开启 VRChat 网络采集并使用分玩家独立音轨后，可在桌面或 VR 的「捕获管理」开启「优先处理视野内玩家」。配置为 `audio.output.player_audio.view_priority`，默认关闭，水平总视角默认 120°、可设 30°–180°，支持热更新。
+
+此功能仅估算水平视野，不能判断俯仰或墙体遮挡；姿态缺失／过期时恢复普通优先级，视野外玩家仍正常处理。来源规则、距离筛选及原有并发限制继续有效，不因转头取消已经执行的请求。共享 ASR／翻译资源繁忙时优先分配等待名额；远端服务内部排队和模型推理速度不受本地权重保证。候选 yaw 的真实头部／相机语义仍需实机校准。
+
 ## API Profile 接口
 
 API 管理使用 `/api/profile`。旧路径 `/api/asr/profiles` 已移除，调用方需要同步更新。

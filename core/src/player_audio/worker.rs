@@ -11,7 +11,9 @@ use super::protocol::{self, Parser, VoicePacket};
 use super::session::SharedOutputs;
 use super::windows::{self, Connection, Network};
 use super::{AudioEvent, Capture, SharedStatus};
-use crate::config::{PlayerAudioConfig, PlayerProximityConfig, PlayerSourceOverride};
+use crate::config::{
+    PlayerAudioConfig, PlayerProximityConfig, PlayerSourceOverride, PlayerViewPriorityConfig,
+};
 use crate::models::SpeakerIdentity;
 use crate::vrchat_log::VrchatLog;
 use crate::vrchat_process::ProcessIdentity;
@@ -31,6 +33,7 @@ pub(super) fn start(
         .name("vrcs-vrchat-network".into())
         .spawn(move || {
             let result = supervise(config, tx, &thread_stop, &status, &cache, &settings, log);
+            super::clear_view_priority();
             let mut state = status.lock().expect("player status");
             state.active_players = 0;
             if let Err(error) = result {
@@ -236,18 +239,20 @@ fn run(
             engine.reconcile_voice(&opus_path);
             engine.reconcile_text();
             if selection_poll.elapsed() >= Duration::from_millis(50) {
-                let (selection, proximity, overrides, allowlist) = {
+                let (selection, proximity, view_priority, overrides, allowlist) = {
                     let config = settings.read().expect("config lock");
                     let player_audio = &config.audio.output.player_audio;
                     (
                         player_audio.selected_tracks.clone(),
                         player_audio.proximity.clone(),
+                        player_audio.view_priority.clone(),
                         player_audio.source_overrides.clone(),
                         player_audio.source_mode != "everyone",
                     )
                 };
                 engine.set_selection(selection);
                 engine.set_proximity(proximity);
+                engine.set_view_priority(view_priority);
                 engine.set_source_policy(overrides, allowlist);
                 selection_poll = Instant::now();
             }
@@ -504,6 +509,7 @@ fn run(
     }
     engine.close_tracks();
     engine.clear_text();
+    engine.clear_proximity();
     engine.publish_roster(Instant::now());
     if result.is_ok() && key.is_some() && stop.load(Ordering::Relaxed) {
         let snapshot = log.snapshot();
@@ -583,6 +589,7 @@ struct Engine {
     status: SharedStatus,
     proximity: super::proximity::Registry,
     proximity_config: PlayerProximityConfig,
+    view_priority_config: PlayerViewPriorityConfig,
     admitted_proximity: HashSet<String>,
     admission_pending: HashSet<String>,
     proximity_status_at: Instant,
@@ -604,9 +611,11 @@ impl Engine {
             )
         };
         if !enabled {
+            self.clear_proximity();
             self.tracks.clear();
             self.opus = None;
         } else if self.opus.is_none() || generation != self.voice_generation {
+            self.clear_proximity();
             self.tracks.clear();
             self.voice_generation = generation;
             match Opus::load(&path) {
@@ -740,6 +749,7 @@ impl Engine {
             status,
             proximity: super::proximity::Registry::default(),
             proximity_config: PlayerProximityConfig::default(),
+            view_priority_config: PlayerViewPriorityConfig::default(),
             admitted_proximity: HashSet::new(),
             admission_pending: HashSet::new(),
             proximity_status_at: Instant::now() - Duration::from_secs(1),
@@ -820,6 +830,13 @@ impl Engine {
                 .expect("network outputs")
                 .invalidate_scope(id);
         }
+    }
+    fn set_view_priority(&mut self, config: PlayerViewPriorityConfig) {
+        if self.view_priority_config == config {
+            return;
+        }
+        self.view_priority_config = config;
+        self.publish_view_priority(Instant::now());
     }
     fn set_proximity(&mut self, config: PlayerProximityConfig) {
         if self.proximity_config == config {
@@ -939,6 +956,8 @@ impl Engine {
                 },
             );
         }
+        let spatial_enabled =
+            allow_voice && self.tx.0.lock().expect("network outputs").voice_enabled();
         let flow = self.flows.get_mut(&connection).unwrap();
         let nonce: [u8; 12] = packet[7..19].try_into().unwrap();
         if flow.nonces.contains(&(incoming, nonce)) {
@@ -959,12 +978,13 @@ impl Engine {
         let mut texts = Vec::new();
         let mut updates = Vec::new();
         let mut departures = Vec::new();
-        let mut local_position = None;
+        let mut local_position: Option<super::proximity::Position> = None;
+        let mut local_yaw: Option<(u32, f32)> = None;
         let mut player_positions = Vec::new();
         let mut changed = false;
         let mut joined_room = None;
         for message in messages {
-            let position = allow_voice
+            let position = spatial_enabled
                 .then(|| super::proximity::decode_message(&message))
                 .flatten();
             if !incoming {
@@ -978,17 +998,27 @@ impl Engine {
                         changed = true;
                     }
                 }
-                if let Some(super::proximity::DecodedMessage {
-                    position: super::proximity::PositionDecode::Sample(position),
-                    ..
-                }) = position
-                {
-                    local_position = Some(position);
+                if let Some(decoded) = position {
+                    if let super::proximity::PositionDecode::Sample(position) = decoded.position {
+                        if local_position.is_none_or(|previous| {
+                            super::proximity::newer_tick(position.tick, previous.tick)
+                        }) {
+                            local_position = Some(position);
+                        }
+                        if let Some(yaw) = decoded.yaw_deg {
+                            if local_yaw.is_none_or(|(tick, _)| {
+                                super::proximity::newer_tick(position.tick, tick)
+                            }) {
+                                local_yaw = Some((position.tick, yaw));
+                            }
+                        }
+                    }
                 }
             } else {
                 if let Some(super::proximity::DecodedMessage {
                     actor: Some(actor),
                     position: super::proximity::PositionDecode::Sample(position),
+                    ..
                 }) = position
                 {
                     if let Some(participant) = flow.participant(actor) {
@@ -1080,14 +1110,23 @@ impl Engine {
             self.identities.retain(|id, _| !id.starts_with(&prefix));
             self.roster_dirty = true;
         }
+        let spatial_changed =
+            local_position.is_some() || local_yaw.is_some() || !player_positions.is_empty();
         if let Some(position) = local_position {
             self.proximity
                 .observe_local(flow_number, epoch, position, now);
+        }
+        if let Some((tick, yaw)) = local_yaw {
+            self.proximity
+                .observe_local_yaw(flow_number, epoch, tick, yaw, now);
         }
         for (actor, generation, position) in player_positions {
             let id = self.speaker_id(flow_number, epoch, actor, generation);
             self.proximity
                 .observe_player(&id, flow_number, epoch, position, now);
+        }
+        if spatial_changed {
+            self.publish_view_priority(now);
         }
         self.update_proximity_status(now);
         for (voice, participant) in voices {
@@ -1108,6 +1147,7 @@ impl Engine {
                 self.close(&id);
             }
         }
+        let departed = !departures.is_empty();
         for (actor, generation) in departures {
             let id = self.speaker_id(flow_number, epoch, actor, generation);
             self.close(&id);
@@ -1128,6 +1168,9 @@ impl Engine {
                 .invalidate_scope(&id);
             self.identities.remove(&id);
             self.roster_dirty = true;
+        }
+        if departed {
+            self.publish_view_priority(now);
         }
     }
 
@@ -1323,6 +1366,21 @@ impl Engine {
         status.proximity.local_position = self.proximity.local_fresh(now);
         status.proximity.tracked_players = self.proximity.fresh_players(now);
     }
+    fn publish_view_priority(&mut self, now: Instant) {
+        let outputs = self.tx.0.lock().expect("network outputs");
+        let (enabled, local_view, visible, valid_until) = self.proximity.visibility(
+            self.view_priority_config.enabled && outputs.voice_enabled(),
+            self.view_priority_config.horizontal_fov_deg,
+            now,
+        );
+        let count = visible.len();
+        super::publish_view_priority(enabled, visible, valid_until);
+        drop(outputs);
+        let mut status = self.status.lock().expect("player status");
+        status.proximity.view_enabled = enabled;
+        status.proximity.local_view = local_view;
+        status.proximity.in_view_players = count;
+    }
     fn refresh_proximity(&mut self, now: Instant) {
         let mut ids = self.admitted_proximity.clone();
         ids.extend(self.proximity.player_ids().map(str::to_owned));
@@ -1365,6 +1423,7 @@ impl Engine {
             status.proximity.tracked_players = self.proximity.fresh_players(now);
             status.proximity.blocked_players = blocked;
         }
+        self.publish_view_priority(now);
         self.refresh_player_distances(now);
     }
     fn refresh_player_distances(&mut self, now: Instant) {
@@ -1393,11 +1452,15 @@ impl Engine {
     }
     fn clear_proximity(&mut self) {
         self.proximity.clear();
+        super::clear_view_priority();
         self.admitted_proximity.clear();
         self.admission_pending.clear();
         let mut status = self.status.lock().expect("player status");
         status.proximity.local_position = false;
         status.proximity.tracked_players = 0;
+        status.proximity.view_enabled = false;
+        status.proximity.local_view = false;
+        status.proximity.in_view_players = 0;
         for player in &mut status.players {
             player.distance_m = None;
         }
@@ -1456,6 +1519,93 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn visibility_tracks_remote_moves_departures_batch_heading_and_voice_detach() {
+        let (voice_tx, _voice_rx) = tokio::sync::mpsc::channel(8);
+        let outputs = Arc::new(std::sync::Mutex::new(
+            super::super::session::Outputs::with_voice(voice_tx),
+        ));
+        let status = Arc::default();
+        let mut engine = Engine::new(
+            None,
+            0,
+            EventSender(Arc::clone(&outputs)),
+            Arc::clone(&status),
+        );
+        engine.set_view_priority(PlayerViewPriorityConfig {
+            enabled: true,
+            horizontal_fov_deg: 60.0,
+        });
+        let connection = Connection {
+            local: "127.0.0.1:42000".parse().unwrap(),
+            remote: "127.0.0.2:27002".parse().unwrap(),
+            challenge: [1; 4],
+        };
+        let now = Instant::now();
+        let mut nonce = 0;
+        let mut receive = |engine: &mut Engine, messages: Vec<Vec<u8>>, incoming: bool| {
+            nonce += 1;
+            let mut bytes = vec![messages.len() as u8, 0, 0, 0, 0];
+            for message in messages {
+                bytes.extend([7, 0, 0, 0]);
+                bytes.extend((message.len() as u32 + 12).to_be_bytes());
+                bytes.extend([0; 4]);
+                bytes.extend(message);
+            }
+            let packet = super::super::crypto::seal(&[3; 32], nonce, &bytes);
+            engine.receive_packet(
+                connection.clone(),
+                incoming,
+                &packet,
+                &bytes,
+                now,
+                true,
+                false,
+            );
+        };
+        let mut heading = event_12_at(None, 10, [0.0, 0.0, 0.0]);
+        heading[9] += 1;
+        heading.push(0); // 0x47 high bits encode an east-facing 90-degree yaw.
+                         // A later no-heading sample must not erase the earlier heading.
+        receive(
+            &mut engine,
+            vec![heading, event_12_at(None, 11, [0.0, 0.0, 0.0])],
+            false,
+        );
+        receive(
+            &mut engine,
+            vec![event_12_at(Some(7), 10, [5.0, 0.0, 0.0])],
+            true,
+        );
+        assert_eq!(status.lock().unwrap().proximity.in_view_players, 1);
+        receive(
+            &mut engine,
+            vec![event_12_at(Some(7), 11, [-5.0, 0.0, 0.0])],
+            true,
+        );
+        assert_eq!(status.lock().unwrap().proximity.in_view_players, 0);
+        receive(
+            &mut engine,
+            vec![event_12_at(Some(7), 12, [5.0, 0.0, 0.0])],
+            true,
+        );
+        assert_eq!(status.lock().unwrap().proximity.in_view_players, 1);
+        receive(&mut engine, vec![vec![0xf3, 4, 254, 1, 254, 11, 7]], true);
+        assert_eq!(status.lock().unwrap().proximity.in_view_players, 0);
+        outputs.lock().unwrap().voice_failed("detached".into());
+        engine.reconcile_voice(std::path::Path::new("unused.dll"));
+        receive(
+            &mut engine,
+            vec![event_12_at(None, 12, [0.0, 0.0, 0.0])],
+            false,
+        );
+        engine.tick(now + Duration::from_millis(250));
+        let status = status.lock().unwrap();
+        assert!(!status.proximity.view_enabled);
+        assert!(!status.proximity.local_view);
+        assert!(!status.proximity.local_position);
+    }
 
     #[test]
     fn proximity_filter_rejects_unknown_and_out_of_range_voice_before_decode() {
