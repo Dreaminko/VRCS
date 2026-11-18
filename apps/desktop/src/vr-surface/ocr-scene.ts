@@ -30,23 +30,38 @@ export function memoizeTextMeasure(measure: Measure): Measure {
   };
 }
 
-const bounds = (quad: Quad): Bounds => [Math.min(...quad.map(([x]) => x)), Math.min(...quad.map(([, y]) => y)), Math.max(...quad.map(([x]) => x)), Math.max(...quad.map(([, y]) => y))];
+const bounds = (quad: Quad): Bounds => [
+  Math.min(quad[0][0], quad[1][0], quad[2][0], quad[3][0]),
+  Math.min(quad[0][1], quad[1][1], quad[2][1], quad[3][1]),
+  Math.max(quad[0][0], quad[1][0], quad[2][0], quad[3][0]),
+  Math.max(quad[0][1], quad[1][1], quad[2][1], quad[3][1]),
+];
+const boundsOverlap = (a: Bounds, b: Bounds) => a[2] > b[0] && b[2] > a[0] && a[3] > b[1] && b[3] > a[1];
 const rectangle = ([l, t, r, b]: Bounds): Quad => [[l, t], [r, t], [r, b], [l, b]];
 const edge = (a: number[], b: number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!);
 
-function overlaps(a: Quad, b: Quad) {
-  for (const quad of [a, b]) {
-    for (let index = 0; index < 4; index++) {
-      const from = quad[index]!;
-      const to = quad[(index + 1) % 4]!;
-      const axis = [to[1] - from[1], from[0] - to[0]];
-      const project = (point: number[]) => point[0]! * axis[0]! + point[1]! * axis[1]!;
-      const ap = a.map(project);
-      const bp = b.map(project);
-      if (Math.max(...ap) <= Math.min(...bp) + 0.01 || Math.max(...bp) <= Math.min(...ap) + 0.01) return false;
+function separatedOnAxes(source: Quad, a: Quad, b: Quad): boolean {
+  for (let index = 0; index < 4; index++) {
+    const from = source[index]!;
+    const to = source[(index + 1) % 4]!;
+    const axisX = to[1] - from[1];
+    const axisY = from[0] - to[0];
+    let aMin = Infinity, aMax = -Infinity, bMin = Infinity, bMax = -Infinity;
+    for (let i = 0; i < 4; i++) {
+      const ap = a[i]![0] * axisX + a[i]![1] * axisY;
+      if (ap < aMin) aMin = ap;
+      if (ap > aMax) aMax = ap;
+      const bp = b[i]![0] * axisX + b[i]![1] * axisY;
+      if (bp < bMin) bMin = bp;
+      if (bp > bMax) bMax = bp;
     }
+    if (aMax <= bMin + 0.01 || bMax <= aMin + 0.01) return true;
   }
-  return true;
+  return false;
+}
+
+function overlaps(a: Quad, b: Quad) {
+  return !separatedOnAxes(a, a, b) && !separatedOnAxes(b, a, b);
 }
 
 function wrapText(text: string, width: number, fontSize: number, maxLines: number, measure: Measure): string[] | null {
@@ -114,20 +129,21 @@ export function layoutOcrScene(scene: OcrScene, measure: Measure): { cards: OcrC
   const scale = (quad: Quad): Quad => quad.map(([x, y]) => [x * WIDTH, y * height]) as Quad;
   const blocks = scene.blocks.map((block) => ({ ...block, quad: scale(block.quad), masks: block.masks.map(scale) }));
   const occupied = [
-    ...scene.excluded.map((quad) => ({ id: null, quad: scale(quad) })),
-    ...blocks.flatMap((block) => block.masks.map((quad) => ({ id: block.id, quad }))),
+    ...scene.excluded.map((quad) => { const scaled = scale(quad); return { id: null as number | null, quad: scaled, box: bounds(scaled) }; }),
+    ...blocks.flatMap((block) => block.masks.map((quad) => ({ id: block.id as number | null, quad, box: bounds(quad) }))),
   ];
   const cards: OcrCard[] = [];
   const unplaced: number[] = [];
   const pending: typeof blocks = [];
   const free = (quad: Quad, id: number) => {
-    const [l, t, r, b] = bounds(quad);
+    const box = bounds(quad);
+    const [l, t, r, b] = box;
     return l >= 4 && t >= 4 && r <= WIDTH - 4 && b <= height - 4
-      && !occupied.some((other) => other.id !== id && overlaps(quad, other.quad));
+      && !occupied.some((other) => other.id !== id && boundsOverlap(box, other.box) && overlaps(quad, other.quad));
   };
   const place = (block: typeof blocks[number], quad: Quad, width: number, cardHeight: number, text: NonNullable<ReturnType<typeof fitText>>, connected: boolean) => {
     cards.push({ id: block.id, quad, source: block.quad, width, height: cardHeight, fontSize: text.fontSize, lines: text.lines, connected });
-    occupied.push({ id: block.id, quad });
+    occupied.push({ id: block.id, quad, box: bounds(quad) });
   };
   // Reserve in-place text before looking for extra space around crowded groups.
   for (const block of blocks) {

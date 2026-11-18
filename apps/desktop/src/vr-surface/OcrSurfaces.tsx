@@ -10,6 +10,7 @@ export function OcrResultSurface({ scene }: { scene: OcrScene }) {
   const root = useRef<HTMLDivElement>(null);
   const context = useRef<CanvasRenderingContext2D | null>(null);
   const measurement = useRef<{ family: string; measure: ReturnType<typeof memoizeTextMeasure> } | null>(null);
+  const cachedLayout = useRef<{ key: string; family: string; result: ReturnType<typeof layoutOcrScene> } | null>(null);
   const [layout, setLayout] = useState<{ scene: OcrScene; result: ReturnType<typeof layoutOcrScene> } | null>(null);
   const current = layout?.scene === scene ? layout.result : null;
   useLayoutEffect(() => {
@@ -27,10 +28,14 @@ export function OcrResultSurface({ scene }: { scene: OcrScene }) {
           return canvas.measureText(text).width;
         }) };
       }
-      const result = layoutOcrScene(scene, measurement.current.measure);
+      const key = JSON.stringify([scene.aspect, scene.blocks, scene.excluded]);
+      const result = cachedLayout.current?.key === key && cachedLayout.current.family === family
+        ? cachedLayout.current.result
+        : layoutOcrScene(scene, measurement.current.measure);
+      cachedLayout.current = { key, family, result };
       setLayout({ scene, result });
     };
-    const fontsChanged = () => { measurement.current = null; measure(); };
+    const fontsChanged = () => { measurement.current = null; cachedLayout.current = null; measure(); };
     document.fonts.addEventListener("loadingdone", fontsChanged);
     void document.fonts.ready.then(measure);
     return () => { cancelled = true; document.fonts.removeEventListener("loadingdone", fontsChanged); };
