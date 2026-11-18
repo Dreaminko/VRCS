@@ -1418,7 +1418,10 @@ fn sample_player_display(scene: Scene) -> player_display::View {
             ("proximityRadius", "Recognition distance"),
             ("viewPriority", "Prioritize players in view (experimental)"),
             ("viewAngle", "Horizontal view"),
-            ("viewWaiting", "Waiting for view data; players currently run at normal priority."),
+            (
+                "viewWaiting",
+                "Waiting for view data; players currently run at normal priority.",
+            ),
             ("empty", "Waiting for tracks or loading history."),
             ("show", "Show"),
             ("hide", "Hide"),
