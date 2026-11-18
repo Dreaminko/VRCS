@@ -103,6 +103,8 @@ cargo run --manifest-path core/Cargo.toml --no-default-features
 
 可用 `-Check format`、`-Check clippy` 或 `-Check test` 单独执行一个阶段。Vulkan 检查会准备 loader，无需 SDK。发布包支持 CPU/Vulkan。
 
+会话标题生成的集成测试在模拟服务收到 HTTP 请求后才推进 Tokio 的虚拟时钟。这样既能验证请求超时的错误码，也不会把 Windows CI 上的本地网络调度耗时计入超时场景。
+
 ## 音频实现要点
 
 - `AudioCapture`（`src/audio.rs`）替代 Python 版 PyAudioWPatch 封装与 `vrcs-process-audio` 子进程：采集线程内完成 COM 初始化、事件驱动读取、原生 PCM/Float→f32、多声道混平均与线性插值重采样，按 512 采样块经 channel 交给下游。
