@@ -20,17 +20,24 @@ async function render() {
   initializeMotionPreference();
   const windowLabel = isTauri() ? (await import("@tauri-apps/api/window")).getCurrentWindow().label : "";
   const vrPreview = import.meta.env.DEV && (route === "vr-preview" || windowLabel === "vr-preview");
-  await initializeI18n({ nativePreferences: !vrPreview });
   const ocrWindow = route === "ocr" || windowLabel === "ocr";
   const visionWindow = route === "vision" || windowLabel === "vision";
   if (vrPreview) {
-    const { VrPreview } = await import("./vr-preview/VrPreview");
+    const [, { VrPreview }] = await Promise.all([
+      initializeI18n({ nativePreferences: false }),
+      import("./vr-preview/VrPreview"),
+    ]);
     createRoot(rootElement).render(<StrictMode><AppErrorBoundary><VrPreview /></AppErrorBoundary></StrictMode>);
     return;
   }
-  const Component = visionWindow ? (await import("./vision/VisionWindow")).VisionWindow
-    : ocrWindow ? (await import("./ocr/OcrWindow")).OcrWindow
-      : (await import("./app/App")).default;
+  const [, Component] = await Promise.all([
+    initializeI18n({ nativePreferences: true }),
+    visionWindow
+      ? import("./vision/VisionWindow").then(({ VisionWindow }) => VisionWindow)
+      : ocrWindow
+        ? import("./ocr/OcrWindow").then(({ OcrWindow }) => OcrWindow)
+        : import("./app/App").then(({ default: App }) => App),
+  ]);
   createRoot(rootElement).render(
     <StrictMode>
       <AppErrorBoundary>

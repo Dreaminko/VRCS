@@ -1,0 +1,26 @@
+[
+  {
+    "locale": "en-US",
+    "name": "English",
+    "direction": "ltr",
+    "status": "complete"
+  },
+  {
+    "locale": "ja-JP",
+    "name": "日本語",
+    "direction": "ltr",
+    "status": "complete"
+  },
+  {
+    "locale": "zh-CN",
+    "name": "简体中文",
+    "direction": "ltr",
+    "status": "complete"
+  },
+  {
+    "locale": "zh-Hant",
+    "name": "繁體中文",
+    "direction": "ltr",
+    "status": "complete"
+  }
+]
