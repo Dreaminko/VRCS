@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 import type {
   AudioLevel,
@@ -10,7 +10,7 @@ type Listener = () => void;
 type TranslationPartial = NonNullable<Subtitle["translation_partial"]> & { preferred: boolean };
 
 const audioLevels = new Map<AudioLevel["source"], AudioLevel>();
-const audioLevelListeners = new Set<Listener>();
+const audioLevelListeners = new Map<AudioLevel["source"], Set<Listener>>();
 const livePartials = new Map<LiveTranscription["source"], LiveTranscription[]>();
 const EMPTY_LIVE_PARTIALS: LiveTranscription[] = [];
 const livePartialListeners = new Map<LiveTranscription["source"], Set<Listener>>();
@@ -19,14 +19,11 @@ const terminatedLivePartialOrder: string[] = [];
 const MAX_TERMINATED_LIVE_PARTIALS = 1_024;
 const translationPartials = new Map<number, TranslationPartial[]>();
 const translationPartialListeners = new Map<number, Set<Listener>>();
+const nullSnapshot = () => null;
+const emptyLivePartialsSnapshot = () => EMPTY_LIVE_PARTIALS;
 
 function notify(listeners: Set<Listener>) {
   listeners.forEach((listener) => listener());
-}
-
-function subscribe(listeners: Set<Listener>, listener: Listener) {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
 }
 
 function subscribeKey<Key>(
@@ -50,21 +47,37 @@ function notifyKey<Key>(listenersByKey: Map<Key, Set<Listener>>, key: Key) {
 
 export function publishAudioLevel(level: AudioLevel) {
   audioLevels.set(level.source, level);
-  notify(audioLevelListeners);
+  notifyKey(audioLevelListeners, level.source);
 }
 
 export function clearAudioLevels() {
   if (!audioLevels.size) return;
+  const sources = [...audioLevels.keys()];
   audioLevels.clear();
-  notify(audioLevelListeners);
+  sources.forEach((source) => notifyKey(audioLevelListeners, source));
 }
 
-export function useAudioLevel(source: AudioLevel["source"]): AudioLevel | null {
-  return useSyncExternalStore(
-    (listener) => subscribe(audioLevelListeners, listener),
-    () => audioLevels.get(source) ?? null,
-    () => null,
+export function subscribeAudioLevel(
+  source: AudioLevel["source"],
+  listener: (level: AudioLevel | null) => void,
+): () => void {
+  return subscribeKey(audioLevelListeners, source, () => {
+    listener(audioLevels.get(source) ?? null);
+  });
+}
+
+export function useAudioLevel(source: AudioLevel["source"], enabled = true): AudioLevel | null {
+  const subscribeSource = useCallback(
+    (listener: Listener) => (enabled
+      ? subscribeKey(audioLevelListeners, source, listener)
+      : () => undefined),
+    [enabled, source],
   );
+  const getSnapshot = useCallback(
+    () => (enabled ? audioLevels.get(source) ?? null : null),
+    [enabled, source],
+  );
+  return useSyncExternalStore(subscribeSource, getSnapshot, nullSnapshot);
 }
 
 function livePartialKey(source: LiveTranscription["source"], utteranceId: string) {
@@ -152,11 +165,12 @@ export function getLivePartials(source: LiveTranscription["source"]): LiveTransc
 }
 
 export function useLivePartials(source: LiveTranscription["source"]): LiveTranscription[] {
-  return useSyncExternalStore(
-    (listener) => subscribeKey(livePartialListeners, source, listener),
-    () => getLivePartials(source),
-    () => EMPTY_LIVE_PARTIALS,
+  const subscribeSource = useCallback(
+    (listener: Listener) => subscribeKey(livePartialListeners, source, listener),
+    [source],
   );
+  const getSnapshot = useCallback(() => getLivePartials(source), [source]);
+  return useSyncExternalStore(subscribeSource, getSnapshot, emptyLivePartialsSnapshot);
 }
 
 export function livePartialHasSubtitle(
@@ -172,11 +186,12 @@ export function livePartialHasSubtitle(
 export function useLivePartial(
   source: LiveTranscription["source"],
 ): LiveTranscription | null {
-  return useSyncExternalStore(
-    (listener) => subscribeKey(livePartialListeners, source, listener),
-    () => getLivePartial(source),
-    () => null,
+  const subscribeSource = useCallback(
+    (listener: Listener) => subscribeKey(livePartialListeners, source, listener),
+    [source],
   );
+  const getSnapshot = useCallback(() => getLivePartial(source), [source]);
+  return useSyncExternalStore(subscribeSource, getSnapshot, nullSnapshot);
 }
 
 export function publishTranslationPartial(
@@ -213,19 +228,24 @@ export function clearTranslationPartials() {
 }
 
 const EMPTY_TRANSLATION_PARTIALS: TranslationPartial[] = [];
+const emptyTranslationPartialsSnapshot = () => EMPTY_TRANSLATION_PARTIALS;
 
 export function useTranslationPartials(
   subtitleId: number | null,
 ): TranslationPartial[] {
-  return useSyncExternalStore(
-    (listener) => subtitleId === null
+  const subscribeSubtitle = useCallback(
+    (listener: Listener) => (subtitleId === null
       ? () => undefined
-      : subscribeKey(translationPartialListeners, subtitleId, listener),
-    () => subtitleId === null
-      ? EMPTY_TRANSLATION_PARTIALS
-      : translationPartials.get(subtitleId) ?? EMPTY_TRANSLATION_PARTIALS,
-    () => EMPTY_TRANSLATION_PARTIALS,
+      : subscribeKey(translationPartialListeners, subtitleId, listener)),
+    [subtitleId],
   );
+  const getSnapshot = useCallback(
+    () => (subtitleId === null
+      ? EMPTY_TRANSLATION_PARTIALS
+      : translationPartials.get(subtitleId) ?? EMPTY_TRANSLATION_PARTIALS),
+    [subtitleId],
+  );
+  return useSyncExternalStore(subscribeSubtitle, getSnapshot, emptyTranslationPartialsSnapshot);
 }
 
 /** A stable snapshot for a bounded set of compact-layout candidates. */

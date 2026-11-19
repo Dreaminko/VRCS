@@ -67,7 +67,8 @@
   transition: transform 80ms linear, background-color 120ms ease-out;
 }
 .microphone-level-setting.triggered .microphone-live-fill { background: var(--primary-hover); }
-.microphone-live-peak { position: absolute; z-index: 1; top: 1px; bottom: 1px; left: var(--microphone-peak); width: 2px; border-radius: var(--radius-pill); background: var(--surface); box-shadow: 0 0 0 1px rgb(29 40 52 / 22%); transform: translateX(-1px); }
+.microphone-live-peak { position: absolute; z-index: 1; inset: 1px 0; transform: translateX(var(--microphone-peak)); pointer-events: none; }
+.microphone-live-peak::after { content: ""; position: absolute; top: 0; bottom: 0; left: -1px; width: 2px; border-radius: var(--radius-pill); background: var(--surface); box-shadow: 0 0 0 1px rgb(29 40 52 / 22%); }
 .microphone-test-control { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; }
 
 .microphone-test-button { flex: 0 0 auto; min-width: 128px; }

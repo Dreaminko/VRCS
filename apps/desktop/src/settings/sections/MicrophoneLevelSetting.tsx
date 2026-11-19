@@ -7,6 +7,7 @@ import {
   MIN_MICROPHONE_LEVEL_DBFS,
 } from "../../capture/microphone-calibration";
 import type { AudioLevel } from "../../capture/types";
+import { useAudioLevel } from "../../core-client/realtime-state";
 import { RangeField } from "../SettingsControls";
 
 function clamp(value: number, min: number, max: number): number {
@@ -32,7 +33,7 @@ export function MicrophoneLevelSetting({
   onToggleTest,
   onCommit,
 }: {
-  level: AudioLevel | null;
+  level?: AudioLevel | null;
   enabled: boolean;
   captureRunning: boolean;
   transcriptionRunning: boolean;
@@ -46,10 +47,12 @@ export function MicrophoneLevelSetting({
 }) {
   const { t } = useTranslation();
   const active = captureRunning || testing;
-  const rmsDbfs = active && level ? level.rms_dbfs : MIN_MICROPHONE_LEVEL_DBFS;
-  const peakDbfs = active && level ? level.peak_dbfs : MIN_MICROPHONE_LEVEL_DBFS;
+  const liveLevel = useAudioLevel("microphone", level === undefined && active);
+  const resolvedLevel = level === undefined ? liveLevel : level;
+  const rmsDbfs = active && resolvedLevel ? resolvedLevel.rms_dbfs : MIN_MICROPHONE_LEVEL_DBFS;
+  const peakDbfs = active && resolvedLevel ? resolvedLevel.peak_dbfs : MIN_MICROPHONE_LEVEL_DBFS;
   const speech = Boolean(
-    active && level && (testing ? level.rms_dbfs >= threshold : level.speech),
+    active && resolvedLevel && (testing ? resolvedLevel.rms_dbfs >= threshold : resolvedLevel.speech),
   );
   const status = !enabled
     ? t("settings.audio.previewDisabled")

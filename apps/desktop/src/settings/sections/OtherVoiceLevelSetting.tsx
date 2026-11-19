@@ -6,6 +6,7 @@ import {
   MIN_MICROPHONE_LEVEL_DBFS,
 } from "../../capture/microphone-calibration";
 import type { AudioLevel } from "../../capture/types";
+import { useAudioLevel } from "../../core-client/realtime-state";
 import { RangeField } from "../SettingsControls";
 
 function clamp(value: number, min: number, max: number): number {
@@ -25,7 +26,7 @@ export function OtherVoiceLevelSetting({
   disabled,
   onCommit,
 }: {
-  level: AudioLevel | null;
+  level?: AudioLevel | null;
   enabled: boolean;
   captureRunning: boolean;
   threshold: number;
@@ -34,9 +35,11 @@ export function OtherVoiceLevelSetting({
 }) {
   const { t } = useTranslation();
   const active = enabled && captureRunning;
-  const rmsDbfs = active && level ? level.rms_dbfs : MIN_MICROPHONE_LEVEL_DBFS;
-  const peakDbfs = active && level ? level.peak_dbfs : MIN_MICROPHONE_LEVEL_DBFS;
-  const speech = Boolean(active && level?.speech);
+  const liveLevel = useAudioLevel("speaker", level === undefined && active);
+  const resolvedLevel = level === undefined ? liveLevel : level;
+  const rmsDbfs = active && resolvedLevel ? resolvedLevel.rms_dbfs : MIN_MICROPHONE_LEVEL_DBFS;
+  const peakDbfs = active && resolvedLevel ? resolvedLevel.peak_dbfs : MIN_MICROPHONE_LEVEL_DBFS;
+  const speech = Boolean(active && resolvedLevel?.speech);
   const status = !enabled
     ? t("settings.audio.otherVoicePreviewDisabled")
     : !captureRunning

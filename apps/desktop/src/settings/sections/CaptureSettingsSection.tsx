@@ -4,7 +4,6 @@ import { Mic, RefreshCw, Sparkles, TriangleAlert, Volume2 } from "lucide-react";
 
 import { useMicrophoneCalibration } from "../hooks/useMicrophoneCalibration";
 import { DEFAULT_MICROPHONE_THRESHOLD_DBFS } from "../../capture/microphone-calibration";
-import { useAudioLevel } from "../../core-client/realtime-state";
 import type { AudioDevice } from "../../capture/types";
 import type { Settings, TranslationSettings } from "../types";
 import type { ApplySettings, SaveState } from "../settings-types";
@@ -64,14 +63,11 @@ export function CaptureSettingsSection({
   onStopMicrophoneTest: () => Promise<void>;
 }) {
   const { t } = useTranslation();
-  const microphoneLevel = useAudioLevel("microphone");
-  const speakerLevel = useAudioLevel("speaker");
   const [microphoneTestBusy, setMicrophoneTestBusy] = useState(false);
   const [networkRequiredOpen, setNetworkRequiredOpen] = useState(false);
   const networkEnabled = draft.audio.output.player_audio?.enabled === true;
   const networkSupported = playerAudioStart?.memory.status?.supported !== false;
   const calibration = useMicrophoneCalibration({
-    level: microphoneLevel,
     testing: microphoneTestRunning,
     onStartTest: onStartMicrophoneTest,
   });
@@ -148,7 +144,6 @@ export function CaptureSettingsSection({
             title={t("settings.audio.otherVoice")}
             beforeList={(
               <OtherVoiceLevelSetting
-                level={speakerLevel}
                 enabled={draft.audio.output.mode !== "disabled"}
                 captureRunning={transcriptionRunning}
                 threshold={draft.audio.output.trigger_threshold_dbfs}
@@ -216,7 +211,6 @@ export function CaptureSettingsSection({
             beforeList={(
               <>
                 <MicrophoneLevelSetting
-                  level={microphoneLevel}
                   enabled={draft.audio.microphone.mode !== "disabled"}
                   captureRunning={microphoneRunning}
                   transcriptionRunning={transcriptionRunning}

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useAudioLevel } from "../../core-client/realtime-state";
 import { useMicrophoneCalibration } from "../../settings/hooks/useMicrophoneCalibration";
 import type { Health } from "../../core-client/types";
 import type { Settings } from "../../settings/types";
@@ -24,12 +23,10 @@ export function useOnboardingMicrophone({
   clearMessage: () => void;
   showError: (reason: unknown, fallbackKey?: string) => void;
 }) {
-  const microphoneLevel = useAudioLevel("microphone");
   const [testBusy, setTestBusy] = useState(false);
   const [reviewed, setReviewed] = useState(settings.audio.microphone.mode === "disabled");
   const startedByWizardRef = useRef(false);
   const calibration = useMicrophoneCalibration({
-    level: microphoneLevel,
     testing: health?.microphone_test_running ?? false,
     onStartTest: async () => {
       await onStartMicrophoneTest();
@@ -137,7 +134,6 @@ export function useOnboardingMicrophone({
   };
 
   return {
-    microphoneLevel,
     reviewed,
     setReviewed,
     calibration,

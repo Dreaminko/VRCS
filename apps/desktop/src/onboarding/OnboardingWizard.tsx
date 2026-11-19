@@ -319,7 +319,6 @@ export function OnboardingWizard({
               <MicrophoneStep
                 settings={settings}
                 health={health}
-                microphoneLevel={microphone.microphoneLevel}
                 microphoneOperationBusy={microphone.operationBusy}
                 audioBusy={audio.busy}
                 microphoneReviewed={microphone.reviewed}
