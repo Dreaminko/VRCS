@@ -23,46 +23,92 @@ impl Database {
         if !config.context_enabled {
             return Ok(Vec::new());
         }
-        let mut statement = self.conn.prepare(
-            "SELECT source, text, created_at, speaker FROM (
-                 SELECT source, text, created_at, speaker, 0 AS source_order, id
-                 FROM subtitles
-                 WHERE source IN ('speaker', 'microphone', 'vrchat_chatbox')
-                   AND ((source IN ('speaker', 'vrchat_chatbox') AND ?1) OR (source = 'microphone' AND ?2))
-                   AND (?4 IS NULL OR id != ?4)
-                   AND (?6 IS NULL OR context_scope_id = ?6)
-                 UNION ALL
-                 SELECT 'chatbox' AS source, original AS text, created_at, NULL AS speaker, 1 AS source_order, id
-                 FROM chatbox_messages
-                 WHERE ?3 AND status = 'sent'
-                   AND (?6 IS NULL OR context_scope_id = ?6)
-             )
-             ORDER BY created_at DESC, source_order DESC, id DESC
-             LIMIT ?5",
-        )?;
-        let rows = statement.query_map(
-            params![
-                config.include_speaker,
-                config.include_microphone,
-                config.include_chatbox,
-                exclude_subtitle_id,
-                config.max_messages,
-                scope_id,
-            ],
-            |row| {
-                let speaker_json: Option<String> = row.get(3)?;
-                let speaker = speaker_json
-                    .as_deref()
-                    .and_then(|raw| serde_json::from_str(raw).ok());
-                Ok(TranslationContextEntry {
-                    source: row.get(0)?,
-                    text: row.get(1)?,
-                    created_at: row.get(2)?,
-                    speaker,
-                })
-            },
-        )?;
-        let mut entries = rows.collect::<Result<Vec<_>, _>>()?;
+        let map_row = |row: &rusqlite::Row<'_>| {
+            let speaker_json: Option<String> = row.get(3)?;
+            let speaker = speaker_json
+                .as_deref()
+                .and_then(|raw| serde_json::from_str(raw).ok());
+            Ok(TranslationContextEntry {
+                source: row.get(0)?,
+                text: row.get(1)?,
+                created_at: row.get(2)?,
+                speaker,
+            })
+        };
+        let mut entries = if let Some(scope_id) = scope_id {
+            let mut statement = self.conn.prepare_cached(
+                "SELECT source, text, created_at, speaker FROM (
+                     SELECT * FROM (
+                         SELECT source, text, created_at, speaker, 0 AS source_order, id
+                         FROM subtitles
+                         WHERE context_scope_id = ?6
+                           AND source IN ('speaker', 'microphone', 'vrchat_chatbox')
+                           AND ((source IN ('speaker', 'vrchat_chatbox') AND ?1) OR (source = 'microphone' AND ?2))
+                           AND (?4 IS NULL OR id != ?4)
+                         ORDER BY created_at DESC, id DESC
+                         LIMIT ?5
+                     )
+                     UNION ALL
+                     SELECT * FROM (
+                         SELECT 'chatbox' AS source, original AS text, created_at, NULL AS speaker, 1 AS source_order, id
+                         FROM chatbox_messages
+                         WHERE context_scope_id = ?6
+                           AND ?3 AND status = 'sent'
+                         ORDER BY created_at DESC, id DESC
+                         LIMIT ?5
+                     )
+                 )
+                 ORDER BY created_at DESC, source_order DESC, id DESC
+                 LIMIT ?5",
+            )?;
+            let rows = statement.query_map(
+                params![
+                    config.include_speaker,
+                    config.include_microphone,
+                    config.include_chatbox,
+                    exclude_subtitle_id,
+                    config.max_messages,
+                    scope_id,
+                ],
+                map_row,
+            )?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        } else {
+            let mut statement = self.conn.prepare_cached(
+                "SELECT source, text, created_at, speaker FROM (
+                     SELECT * FROM (
+                         SELECT source, text, created_at, speaker, 0 AS source_order, id
+                         FROM subtitles
+                         WHERE source IN ('speaker', 'microphone', 'vrchat_chatbox')
+                           AND ((source IN ('speaker', 'vrchat_chatbox') AND ?1) OR (source = 'microphone' AND ?2))
+                           AND (?4 IS NULL OR id != ?4)
+                         ORDER BY created_at DESC, id DESC
+                         LIMIT ?5
+                     )
+                     UNION ALL
+                     SELECT * FROM (
+                         SELECT 'chatbox' AS source, original AS text, created_at, NULL AS speaker, 1 AS source_order, id
+                         FROM chatbox_messages
+                         WHERE ?3 AND status = 'sent'
+                         ORDER BY created_at DESC, id DESC
+                         LIMIT ?5
+                     )
+                 )
+                 ORDER BY created_at DESC, source_order DESC, id DESC
+                 LIMIT ?5",
+            )?;
+            let rows = statement.query_map(
+                params![
+                    config.include_speaker,
+                    config.include_microphone,
+                    config.include_chatbox,
+                    exclude_subtitle_id,
+                    config.max_messages,
+                ],
+                map_row,
+            )?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
         entries.reverse();
         Ok(entries)
     }

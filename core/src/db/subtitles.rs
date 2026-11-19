@@ -1,7 +1,7 @@
 use rusqlite::params;
 use serde::Serialize;
 
-use super::conversations::{active_conversation_id, automatic_title};
+use super::conversations::{active_conversation_title_state, automatic_title};
 use super::Database;
 use crate::error::AppResult;
 use crate::models::{Subtitle, SubtitleTranslation};
@@ -89,7 +89,7 @@ impl Database {
     ) -> AppResult<()> {
         self.conn.execute(
             "UPDATE subtitles SET speaker = json_set(speaker, '$.display_name', ?2, '$.user_id', ?3)
-             WHERE json_valid(speaker) AND json_extract(speaker, '$.id') = ?1",
+             WHERE speaker IS NOT NULL AND json_extract(speaker, '$.id') = ?1 AND json_valid(speaker)",
             params![speaker.id, speaker.display_name, speaker.user_id],
         )?;
         Ok(())
@@ -108,12 +108,14 @@ impl Database {
         context_sequence: Option<i64>,
     ) -> AppResult<Subtitle> {
         let transaction = self.conn.unchecked_transaction()?;
-        let conversation_id = active_conversation_id(&transaction)?;
-        let existing_count = transaction.query_row(
-            "SELECT COUNT(*) FROM subtitles WHERE conversation_id = ?1 AND source <> 'world'",
-            [&conversation_id],
-            |row| row.get::<_, u64>(0),
-        )?;
+        let (conversation_id, needs_auto_title) = active_conversation_title_state(&transaction)?;
+        let set_auto_title = needs_auto_title
+            && subtitle.source != "world"
+            && !transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM subtitles WHERE conversation_id = ?1 AND source <> 'world')",
+                [&conversation_id],
+                |row| row.get::<_, bool>(0),
+            )?;
         transaction.execute(
             "INSERT INTO subtitles(
                 conversation_id, text, language, started_at, ended_at, source, created_at, speaker,
@@ -137,7 +139,7 @@ impl Database {
             ],
         )?;
         let id = transaction.last_insert_rowid();
-        if existing_count == 0 && subtitle.source != "world" {
+        if set_auto_title {
             transaction.execute(
                 "UPDATE conversations
                  SET automatic_title = ?1, updated_at = ?2
@@ -155,7 +157,10 @@ impl Database {
             )?;
         }
         transaction.commit()?;
-        if let Err(error) = self.trim_subtitle_history_to_size() {
+        let write_estimate = (subtitle.text.len() as u64)
+            .saturating_mul(4)
+            .saturating_add(4096);
+        if let Err(error) = self.trim_subtitle_history_after_write(write_estimate) {
             tracing::warn!(%error, "subtitle saved but history quota maintenance failed");
         }
 
@@ -340,6 +345,35 @@ impl Database {
         drop(statement);
         subtitle.translations = self.translations_for_subtitle(id)?;
         Ok(Some(subtitle))
+    }
+
+    pub(super) fn subtitles_by_ids(
+        &self,
+        ids: &[i64],
+    ) -> AppResult<std::collections::HashMap<i64, Subtitle>> {
+        let mut subtitles = std::collections::HashMap::with_capacity(ids.len());
+        for chunk in ids.chunks(500) {
+            let placeholders = vec!["?"; chunk.len()].join(", ");
+            let sql = format!(
+                "SELECT s.id, s.conversation_id, s.text, s.language,
+                        s.started_at, s.ended_at, s.source, s.created_at, s.speaker,
+                        t.id, t.text, t.source_language,
+                        t.target_language, t.provider,
+                        t.model, t.created_at, t.source_group
+                 FROM subtitles AS s
+                 LEFT JOIN subtitle_translations AS t
+                   ON t.subtitle_id = s.id
+                 WHERE s.id IN ({placeholders})
+                 ORDER BY s.id ASC, t.id ASC"
+            );
+            let mut statement = self.conn.prepare(&sql)?;
+            for subtitle in collect_subtitles(&mut statement, rusqlite::params_from_iter(chunk))? {
+                if let Some(id) = subtitle.id {
+                    subtitles.insert(id, subtitle);
+                }
+            }
+        }
+        Ok(subtitles)
     }
 }
 

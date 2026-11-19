@@ -50,7 +50,11 @@ impl Database {
         )?;
         }
         transaction.commit()?;
-        match self.trim_subtitle_history_to_size() {
+        let write_estimate = (translation.text.len() as u64)
+            .saturating_mul(subtitle_ids.len() as u64)
+            .saturating_mul(4)
+            .saturating_add(4096);
+        match self.trim_subtitle_history_after_write(write_estimate) {
             Ok(catalog_changed) => Ok(catalog_changed),
             Err(error) => {
                 tracing::warn!(%error, "translation saved but history quota maintenance failed");

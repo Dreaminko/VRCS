@@ -1,6 +1,7 @@
 //! SQLite 存储：连接与 schema 初始化。
 //! 字幕历史和词典仓储实现分别位于同名子模块中。
 
+use std::cell::Cell;
 use std::path::Path;
 
 use rusqlite::{params, Connection};
@@ -24,7 +25,7 @@ const SEED_ENTRIES: [(&str, &str, &str); 4] = [
     ("ありがとう", "ja", "谢谢"),
 ];
 
-const LATEST_SCHEMA_VERSION: u32 = 10;
+const LATEST_SCHEMA_VERSION: u32 = 11;
 
 const MIGRATION_1_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS subtitles (
@@ -132,6 +133,8 @@ CREATE INDEX IF NOT EXISTS learning_capture_keys_item_id_idx
 pub struct Database {
     conn: Connection,
     subtitle_history_max_bytes: u64,
+    cached_subtitle_bytes: Cell<Option<u64>>,
+    pending_subtitle_bytes: Cell<u64>,
 }
 
 impl Database {
@@ -140,10 +143,20 @@ impl Database {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(path)?;
-        conn.pragma_update(None, "foreign_keys", "ON")?;
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;
+             PRAGMA temp_store = MEMORY;
+             PRAGMA cache_size = -32000;
+             PRAGMA mmap_size = 268435456;
+             PRAGMA busy_timeout = 5000;",
+        )?;
         let mut database = Self {
             conn,
             subtitle_history_max_bytes: u64::MAX,
+            cached_subtitle_bytes: Cell::new(None),
+            pending_subtitle_bytes: Cell::new(0),
         };
         database.initialize()?;
         database.remove_staged_dictionary_sources()?;
@@ -255,6 +268,27 @@ impl Database {
             transaction.commit()?;
         }
 
+        let initial_version = version;
+        if version < 11 {
+            let transaction = self.conn.transaction()?;
+            transaction.execute_batch(
+                "CREATE INDEX IF NOT EXISTS dictionary_entries_source_id_idx
+                     ON dictionary_entries(source_id);
+                 CREATE INDEX IF NOT EXISTS idx_subtitles_created_at
+                     ON subtitles(created_at DESC, id DESC);
+                 CREATE INDEX IF NOT EXISTS idx_subtitles_context_scope_created
+                     ON subtitles(context_scope_id, created_at DESC, id DESC);
+                 CREATE INDEX IF NOT EXISTS idx_chatbox_created_at
+                     ON chatbox_messages(created_at DESC, id DESC);
+                 CREATE INDEX IF NOT EXISTS idx_chatbox_context_scope_created
+                     ON chatbox_messages(context_scope_id, created_at DESC, id DESC);
+                 CREATE INDEX IF NOT EXISTS idx_subtitles_speaker_id
+                     ON subtitles(json_extract(speaker, '$.id')) WHERE speaker IS NOT NULL;",
+            )?;
+            transaction.pragma_update(None, "user_version", 11)?;
+            transaction.commit()?;
+        }
+
         self.conn.execute(
             "UPDATE conversations SET title_generation_status = 'failed',
                  title_generation_error_code = 'conversations.title_interrupted',
@@ -262,15 +296,19 @@ impl Database {
              WHERE title_generation_status IN ('pending', 'running')",
             [],
         )?;
-        self.initialize_learning_storage()?;
+        if initial_version < 11 {
+            self.initialize_learning_storage()?;
+        }
         self.initialize_subtitle_search()?;
         conversations::initialize_conversations(&self.conn)?;
+        let seed_tx = self.conn.transaction()?;
         for (term, language, definition) in SEED_ENTRIES {
-            self.conn.execute(
+            seed_tx.execute(
                 "INSERT OR IGNORE INTO dictionary(term, language, definition) VALUES (?, ?, ?)",
                 params![term, language, definition],
             )?;
         }
+        seed_tx.commit()?;
         Ok(())
     }
 

@@ -1,4 +1,4 @@
-use rusqlite::{params, OptionalExtension};
+use rusqlite::params;
 use serde::Serialize;
 
 use super::Database;
@@ -89,23 +89,26 @@ impl Database {
             self.search_fts_subtitle_candidates(query, limit, offset)?
         };
         let has_more = candidates.len() > limit as usize;
-        let mut items = Vec::with_capacity(limit as usize);
-        for (subtitle_id, search_rowid) in candidates.into_iter().take(limit as usize) {
-            let Some(subtitle) = self.subtitle(subtitle_id)? else {
+        let page: Vec<(i64, i64)> = candidates.into_iter().take(limit as usize).collect();
+        let subtitle_ids: Vec<i64> = page.iter().map(|&(subtitle_id, _)| subtitle_id).collect();
+        let mut subtitles = self.subtitles_by_ids(&subtitle_ids)?;
+        let translation_ids: Vec<i64> = page
+            .iter()
+            .filter_map(|&(_, search_rowid)| {
+                (search_rowid % 2 != 0).then_some((search_rowid - 1) / 2)
+            })
+            .collect();
+        let mut translation_texts = self.translation_texts_by_ids(&translation_ids)?;
+        let mut items = Vec::with_capacity(page.len());
+        for (subtitle_id, search_rowid) in page {
+            let Some(subtitle) = subtitles.remove(&subtitle_id) else {
                 continue;
             };
             let (matched_field, matched_text) = if search_rowid % 2 == 0 {
                 ("original", subtitle.text.clone())
             } else {
                 let translation_id = (search_rowid - 1) / 2;
-                let text = self
-                    .conn
-                    .query_row(
-                        "SELECT text FROM subtitle_translations WHERE id = ?1",
-                        [translation_id],
-                        |row| row.get::<_, String>(0),
-                    )
-                    .optional()?;
+                let text = translation_texts.remove(&translation_id);
                 ("translation", text.unwrap_or_else(|| subtitle.text.clone()))
             };
             items.push(SubtitleSearchHit {
@@ -115,6 +118,25 @@ impl Database {
             });
         }
         Ok(SubtitleSearchPage { items, has_more })
+    }
+
+    fn translation_texts_by_ids(
+        &self,
+        ids: &[i64],
+    ) -> AppResult<std::collections::HashMap<i64, String>> {
+        let mut texts = std::collections::HashMap::with_capacity(ids.len());
+        for chunk in ids.chunks(500) {
+            let placeholders = vec!["?"; chunk.len()].join(", ");
+            let sql = format!(
+                "SELECT id, text FROM subtitle_translations WHERE id IN ({placeholders})"
+            );
+            let mut statement = self.conn.prepare(&sql)?;
+            let mut rows = statement.query(rusqlite::params_from_iter(chunk))?;
+            while let Some(row) = rows.next()? {
+                texts.insert(row.get(0)?, row.get(1)?);
+            }
+        }
+        Ok(texts)
     }
 
     fn search_fts_subtitle_candidates(
