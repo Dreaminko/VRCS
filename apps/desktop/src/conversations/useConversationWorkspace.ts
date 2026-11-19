@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Page } from "../app/app-types";
@@ -15,6 +15,7 @@ import { useConversationSearch } from "./useConversationSearch";
 
 const SIDEBAR_OPEN_KEY = "vrcs.conversation-sidebar-open";
 const SIDEBAR_WIDTH_KEY = "vrcs.conversation-sidebar-width";
+const EMPTY_SUBTITLES: Subtitle[] = [];
 
 function initialSidebarWidth(): number {
   return normalizeConversationSidebarWidth(localStorage.getItem(SIDEBAR_WIDTH_KEY));
@@ -72,17 +73,17 @@ export function useConversationWorkspace({
   ) ?? activeConversation;
   const selectedSubtitles = selectedConversation?.id === openedConversationId
     ? subtitles
-    : [];
+    : EMPTY_SUBTITLES;
   const selectedConversationHasOlder = Boolean(
     selectedConversation
     && selectedConversation.id === openedConversationId
     && hasOlderSubtitles,
   );
 
-  const focusSearch = () => {
+  const focusSearch = useCallback(() => {
     setSidebarOpen(true);
     window.requestAnimationFrame(() => searchInputRef.current?.focus());
-  };
+  }, []);
 
   useEffect(() => {
     if (page !== "live") return;
@@ -93,7 +94,7 @@ export function useConversationWorkspace({
     };
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [page]);
+  }, [focusSearch, page]);
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen));
@@ -106,21 +107,27 @@ export function useConversationWorkspace({
     return () => window.clearTimeout(timer);
   }, [sidebarWidth]);
 
-  const renameConversation = (id: string, value: string) => {
+  const renameConversation = useCallback((id: string, value: string) => {
     const title = normalizeConversationTitle(value);
     if (title) void catalogState.updateConversation(id, { custom_title: title });
-  };
+  }, [catalogState.updateConversation]);
 
-  const setConversationIcon = (id: string, icon: ConversationIcon | null) => {
+  const setConversationIcon = useCallback((id: string, icon: ConversationIcon | null) => {
     void catalogState.updateConversation(id, { icon });
-  };
+  }, [catalogState.updateConversation]);
 
-  const resetConversationCustomization = (id: string) => {
+  const resetConversationCustomization = useCallback((id: string) => {
     void catalogState.updateConversation(id, {
       custom_title: null,
       icon: null,
     });
-  };
+  }, [catalogState.updateConversation]);
+
+  const searchState = useMemo(() => ({
+    ...search,
+    inputRef: searchInputRef,
+    focus: focusSearch,
+  }), [focusSearch, search]);
 
   return {
     conversations,
@@ -140,10 +147,6 @@ export function useConversationWorkspace({
     deleteConversation: catalogState.deleteConversation,
     generateTitle: catalogState.generateTitle,
     selectedConversationHasOlder,
-    search: {
-      ...search,
-      inputRef: searchInputRef,
-      focus: focusSearch,
-    },
+    search: searchState,
   };
 }

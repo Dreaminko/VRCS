@@ -12,6 +12,8 @@ const DEFAULT_CONTENT_LOCALES: Readonly<Record<string, string>> = {
   zh: "zh-CN",
 };
 
+const canonicalContentTags = new Map<string, string | undefined>();
+
 export function contentLanguageTag(language: string | null | undefined): string | undefined {
   const normalized = language?.trim().replaceAll("_", "-");
   if (!normalized || normalized.toLowerCase() === "auto") return undefined;
@@ -19,11 +21,16 @@ export function contentLanguageTag(language: string | null | undefined): string 
   const defaultLocale = DEFAULT_CONTENT_LOCALES[normalized.toLowerCase()];
   if (defaultLocale) return defaultLocale;
 
+  if (canonicalContentTags.has(normalized)) return canonicalContentTags.get(normalized);
+  let canonical: string | undefined;
   try {
-    return Intl.getCanonicalLocales(normalized)[0];
+    canonical = Intl.getCanonicalLocales(normalized)[0];
   } catch {
-    return undefined;
+    canonical = undefined;
   }
+  if (canonicalContentTags.size >= 256) canonicalContentTags.clear();
+  canonicalContentTags.set(normalized, canonical);
+  return canonical;
 }
 
 export function isUiLanguagePreference(

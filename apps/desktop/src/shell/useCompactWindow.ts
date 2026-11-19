@@ -70,11 +70,19 @@ export function useCompactWindow({
         }
       }
     };
-    const onResize = () => { void syncHeight(); };
-    onResize();
+    let resizeFrame: number | null = null;
+    const onResize = () => {
+      if (resizeFrame !== null) return;
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = null;
+        void syncHeight();
+      });
+    };
+    void syncHeight();
     window.addEventListener("resize", onResize);
     return () => {
       disposed = true;
+      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
       window.removeEventListener("resize", onResize);
     };
   }, [compact, rememberUserResize, reportError]);

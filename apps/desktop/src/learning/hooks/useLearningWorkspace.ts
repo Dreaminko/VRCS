@@ -16,7 +16,7 @@ export type { LearningBusyAction, LearningStatusFilter } from "./useLearningInbo
 
 export function useLearningWorkspace(active: boolean, ready = active, settings?: Settings | null) {
   const { i18n } = useTranslation();
-  const inbox = useLearningInbox(ready);
+  const inbox = useLearningInbox(active);
   const capture = useLearningCapture(ready, inbox.applyItem);
   const ai = useLearningAiConfiguration(settings);
   const [itemEdits, setItemEdits] = useState<Record<number, LearningItemEdits>>({});

@@ -201,7 +201,6 @@ export const LiveView = memo(function LiveView({
                 subtitle={subtitle}
                 focused={subtitle.id === focusedSubtitleId}
                 selected={selected}
-                selectionActive={selectedIds.size > 0}
                 selection={selected && selectedSubtitles.length > 1 ? selectedSubtitles : null}
                 onClearSelection={clearSelection}
                 onSelect={onSelect}

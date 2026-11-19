@@ -9,6 +9,7 @@ export function WindowChrome() {
   useEffect(() => {
     let disposed = false;
     let stopListening: (() => void) | undefined;
+    let resizeFrame: number | null = null;
 
     const watchMaximizedState = async () => {
       try {
@@ -21,7 +22,11 @@ export function WindowChrome() {
 
         await syncMaximizedState();
         stopListening = await appWindow.onResized(() => {
-          void syncMaximizedState().catch(() => undefined);
+          if (resizeFrame !== null) return;
+          resizeFrame = window.requestAnimationFrame(() => {
+            resizeFrame = null;
+            void syncMaximizedState().catch(() => undefined);
+          });
         });
         if (disposed) stopListening();
       } catch {
@@ -32,6 +37,7 @@ export function WindowChrome() {
     void watchMaximizedState();
     return () => {
       disposed = true;
+      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
       stopListening?.();
     };
   }, []);

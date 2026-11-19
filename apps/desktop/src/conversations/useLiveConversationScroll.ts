@@ -182,6 +182,16 @@ export function useLiveConversationScroll({
     autoScrollLiveViewToBottom,
     followingLiveSubtitles,
     liveAutoScrollActive,
+  ]);
+
+  useEffect(() => {
+    if (!liveAutoScrollActive || !followingLiveSubtitles || selectedConversationUpdatedAt === null) return;
+    const frame = window.requestAnimationFrame(autoScrollLiveViewToBottom);
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    autoScrollLiveViewToBottom,
+    followingLiveSubtitles,
+    liveAutoScrollActive,
     selectedConversationUpdatedAt,
   ]);
 

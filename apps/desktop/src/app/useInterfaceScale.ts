@@ -26,8 +26,19 @@ export function useInterfaceScale(reportError: ReportError) {
   }, [interfaceScale, reportError]);
 
   useEffect(() => {
-    window.addEventListener("resize", syncInterfaceViewportProperties);
-    return () => window.removeEventListener("resize", syncInterfaceViewportProperties);
+    let resizeFrame: number | null = null;
+    const onResize = () => {
+      if (resizeFrame !== null) return;
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = null;
+        syncInterfaceViewportProperties();
+      });
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
+      window.removeEventListener("resize", onResize);
+    };
   }, []);
 
   useEffect(() => {

@@ -43,10 +43,13 @@ export function ControlTooltip() {
         else setTooltip(current => current?.target === element && current.label !== label
           ? { ...current, label } : current);
       });
-      observer.observe(document.body, {
-        subtree: true, childList: true, attributes: true,
+      observer.observe(element, {
+        attributes: true,
         attributeFilter: ["data-tooltip", "aria-haspopup", "aria-expanded"],
       });
+      for (let node = element.parentNode; node; node = node.parentNode) {
+        observer.observe(node, { childList: true });
+      }
     };
     const closest = (node: EventTarget | null) => node instanceof Element
       ? node.closest<HTMLElement>(SELECTOR) : null;

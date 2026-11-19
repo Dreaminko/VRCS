@@ -22,6 +22,9 @@ import { useAppUpdater } from "../updates/useAppUpdater";
 import { useInterfaceScale } from "./useInterfaceScale";
 import { usePlayerHistoryPreferences } from "../subtitles/usePlayerHistoryPreferences";
 import { usesVrchatNetwork } from "../capture/vrchat-network";
+import type { Subtitle } from "../subtitles/types";
+
+const EMPTY_COMPACT_SUBTITLES: Subtitle[] = [];
 
 export function useAppWorkspace({
   page,
@@ -96,6 +99,7 @@ export function useAppWorkspace({
   const chatboxRoute = settings.value?.translation.microphone_targets[0];
   const providerCatalog = useApiProfileViews(
     `${settings.value?.asr.active_profile_id ?? "local"}:${settings.value?.asr.backend ?? ""}:${chatboxRoute?.profile_id ?? ""}`,
+    runtime.ready,
   );
   const translationProfile = providerCatalog.profiles.find(
     (profile) => profile.id === chatboxRoute?.profile_id,
@@ -110,10 +114,11 @@ export function useAppWorkspace({
     subtitles.loadingConversation
     && conversation.selectedConversation?.id === subtitles.openedConversationId,
   );
-  const compactSubtitles = useMemo(() => subtitlesForCompactView(
-    subtitles.items,
-    selection.target?.context,
-  ), [subtitles.items, selection.target?.context]);
+  const compactSubtitles = useMemo(() => (
+    compactWindow.compact
+      ? subtitlesForCompactView(subtitles.items, selection.target?.context)
+      : EMPTY_COMPACT_SUBTITLES
+  ), [compactWindow.compact, subtitles.items, selection.target?.context]);
 
   const openSelectionAiSettings = useCallback(async () => {
     if (compactWindow.compact && !(await compactWindow.exitCompact())) return;

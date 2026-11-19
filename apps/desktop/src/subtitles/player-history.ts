@@ -73,13 +73,23 @@ export function trackVisible(source: string | undefined, speaker: SpeakerIdentit
   return key === null || !hidden.includes(key);
 }
 
+const sourceLanguageKeys = new Map<string, string | null>();
+const UNSPECIFIED_LANGUAGE_TAGS = new Set(["auto", "und", "unknown", "mul", "zxx"]);
+
 export function sourceLanguageKey(value: string | null | undefined): string | null {
   const tag = value?.trim().replaceAll("_", "-");
   if (!tag) return null;
+  if (sourceLanguageKeys.has(tag)) return sourceLanguageKeys.get(tag)!;
+  let result: string | null = null;
   try {
     const language = new Intl.Locale(languageNames.get(tag.toLowerCase()) ?? tag).language;
-    return ["auto", "und", "unknown", "mul", "zxx"].includes(language) ? null : language;
-  } catch { return null; }
+    result = UNSPECIFIED_LANGUAGE_TAGS.has(language) ? null : language;
+  } catch {
+    result = null;
+  }
+  if (sourceLanguageKeys.size >= 256) sourceLanguageKeys.clear();
+  sourceLanguageKeys.set(tag, result);
+  return result;
 }
 
 export function originalSourceLanguage(original: string, explicit?: string | null, translationSources: readonly (string | null | undefined)[] = []): string | null {

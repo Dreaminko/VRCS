@@ -2,8 +2,25 @@ import type { TFunction } from "i18next";
 
 import { ApiError, formatApiErrorMessage } from "../core-client/api-error";
 
+const timeFormatters = new Map<string, Intl.DateTimeFormat>();
+const dateTimeFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function getDateTimeFormatter(
+  cache: Map<string, Intl.DateTimeFormat>,
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+  let formatter = cache.get(locale);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, options);
+    if (cache.size >= 32) cache.clear();
+    cache.set(locale, formatter);
+  }
+  return formatter;
+}
+
 export function timestamp(value: string, locale: string): string {
-  return new Intl.DateTimeFormat(locale, {
+  return getDateTimeFormatter(timeFormatters, locale, {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
@@ -55,7 +72,12 @@ export function conversationTime(
   const sameDay = (left: Date, right: Date) => left.toDateString() === right.toDateString();
   if (sameDay(date, today)) return `${todayLabel} ${timestamp(value, locale)}`;
   if (sameDay(date, yesterday)) return `${yesterdayLabel} ${timestamp(value, locale)}`;
-  return new Intl.DateTimeFormat(locale, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+  return getDateTimeFormatter(dateTimeFormatters, locale, {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 export function contextExcerpt(context: string, term: string): string {

@@ -37,27 +37,32 @@ export function useCoreRuntime({
   const [startupAttempt, setStartupAttempt] = useState(0);
   const [health, setHealth] = useState<Health | null>(null);
   const healthRef = useRef<Health | null>(null);
-  healthRef.current = health;
+  const healthJsonRef = useRef<string | null>(null);
 
-  const replaceHealth = useCallback((next: Health | null) => {
+  const commitHealth = useCallback((next: Health | null) => {
+    const serialized = next ? JSON.stringify(next) : null;
+    if (serialized === healthJsonRef.current) return;
+    healthJsonRef.current = serialized;
     healthRef.current = next;
     setHealth(next);
   }, []);
+
+  const replaceHealth = useCallback((next: Health | null) => {
+    commitHealth(next);
+  }, [commitHealth]);
   const patchHealth = useCallback((update: (current: Health | null) => Health | null) => {
-    healthRef.current = update(healthRef.current);
-    setHealth(healthRef.current);
-  }, []);
+    commitHealth(update(healthRef.current));
+  }, [commitHealth]);
   const getCurrentHealth = useCallback(() => healthRef.current, []);
   const refreshHealthQuietly = useCallback(async () => {
     try {
       const next = await runtimeApi.health();
-      healthRef.current = next;
-      setHealth(next);
-      return next;
+      commitHealth(next);
+      return healthRef.current;
     } catch {
       return null;
     }
-  }, []);
+  }, [commitHealth]);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,12 +110,12 @@ export function useCoreRuntime({
         const next = await runtimeApi.health();
         if (cancelled) return;
         if (next.capture_requested && ["waiting_key", "acquiring_key", "retrying_key"].includes(next.player_audio?.phase ?? "")) interval = 250;
-        setHealth(next);
+        commitHealth(next);
         clearErrorFrom("core");
       } catch (reason) {
         if (cancelled) return;
         if (healthRef.current === null) reportError(reason, "errors.core.connect", "core");
-        else setHealth(null);
+        else commitHealth(null);
       }
       if (!cancelled) timer = window.setTimeout(() => void poll(), interval);
     };
@@ -119,13 +124,13 @@ export function useCoreRuntime({
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [clearErrorFrom, coreConfigured, reportError]);
+  }, [clearErrorFrom, commitHealth, coreConfigured, reportError]);
 
   const retry = useCallback(async () => {
     clearError();
     setCoreConfigured(false);
     setStartupState("starting");
-    setHealth(null);
+    commitHealth(null);
     try {
       await retryCoreStartup();
       setStartupAttempt((attempt) => attempt + 1);
@@ -133,7 +138,7 @@ export function useCoreRuntime({
       setStartupState("failed");
       reportError(reason, "errors.core.initialize", "core");
     }
-  }, [clearError, reportError]);
+  }, [clearError, commitHealth, reportError]);
 
   const healthController: CoreHealthController = {
     value: health,

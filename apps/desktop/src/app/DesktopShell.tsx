@@ -115,6 +115,14 @@ export function DesktopShell({
     void openDesktopVision().catch(() => setVisionOpenError(true));
   };
   const chatboxButtonRef = useRef<HTMLButtonElement | null>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const previewSidebarWidth = useCallback((width: number) => {
+    shellRef.current?.style.setProperty("--conversation-sidebar-width", `${width}px`);
+  }, []);
+  const openTitleSettings = useCallback(() => {
+    setSettingsInitialCategory("api");
+    setPage("settings");
+  }, [setPage, setSettingsInitialCategory]);
 
   useEffect(() => {
     const preloadDeferredPages = () => {
@@ -154,6 +162,7 @@ export function DesktopShell({
 
   return (
     <div
+      ref={shellRef}
       className={[
         "app-shell",
         page === "live" ? "live-shell" : "",
@@ -173,6 +182,7 @@ export function DesktopShell({
             activeId={conversations.activeConversation?.id}
             selectedId={conversations.selectedConversation?.id}
             width={conversations.sidebarWidth}
+            onPreviewWidth={previewSidebarWidth}
             onWidthChange={conversations.setSidebarWidth}
             onResizeStateChange={setSidebarResizing}
             onToggle={toggleConversationSidebar}
@@ -184,10 +194,7 @@ export function DesktopShell({
             onDelete={conversations.deleteConversation}
             onGenerateTitle={conversations.generateTitle}
             titleConfigured={titleConfigured}
-            onOpenTitleSettings={() => {
-              setSettingsInitialCategory("api");
-              setPage("settings");
-            }}
+            onOpenTitleSettings={openTitleSettings}
             onSelectAt={selectConversationAt}
             onFocusSearch={conversations.search.focus}
             search={conversations.search}

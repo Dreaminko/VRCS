@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
 import { Check, Maximize2, MessageSquare, Mic, Square, X } from "lucide-react";
 
 import type { LookupOrigin, SelectionTarget } from "../app/app-types";
@@ -263,22 +263,30 @@ function CompactText({ className, lang, text, streaming = false, height, frozen,
   onMouseUp?: () => void;
 }) {
   const ref = useRef<HTMLParagraphElement>(null);
-  useLayoutEffect(() => {
+  const followTail = useCallback(() => {
     const element = ref.current;
     if (!element || frozen) return;
     if (height === undefined) { element.scrollTop = 0; return; }
-    const followTail = () => {
-      const selection = window.getSelection();
-      if (selection && !selection.isCollapsed
-        && (element.contains(selection.anchorNode) || element.contains(selection.focusNode))) return;
-      element.scrollTop = element.scrollHeight;
-      element.scrollLeft = 0;
-    };
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed
+      && (element.contains(selection.anchorNode) || element.contains(selection.focusNode))) return;
+    element.scrollTop = element.scrollHeight;
+    element.scrollLeft = 0;
+  }, [height, frozen]);
+  const followTailRef = useRef(followTail);
+  followTailRef.current = followTail;
+
+  useLayoutEffect(() => {
     followTail();
-    const observer = new ResizeObserver(followTail);
+  }, [text, streaming, followTail]);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || frozen || height === undefined) return;
+    const observer = new ResizeObserver(() => followTailRef.current());
     observer.observe(element);
     return () => observer.disconnect();
-  }, [text, streaming, height, frozen]);
+  }, [height !== undefined, frozen]);
 
   return (
     <p ref={ref} className={className} lang={lang} onMouseUp={onMouseUp} style={height === undefined ? undefined : { height }}>

@@ -54,7 +54,7 @@ export function useLearningInbox(ready: boolean) {
     setSelectedId(null);
   }, []);
 
-  const loadItems = useCallback(async (append = false) => {
+  const loadItems = useCallback(async (append = false, reset = false) => {
     const requestId = ++listRequestRef.current;
     if (append) setLoadingMore(true);
     else setLoading(true);
@@ -69,9 +69,9 @@ export function useLearningInbox(ready: boolean) {
       pageCursorRef.current = response.length
         ? Math.min(...response.map((item) => item.id))
         : undefined;
-      setItems((current) => append
-        ? mergeLearningItemPages(current, response)
-        : mergeLearningItemPages([], response));
+      setItems((current) => reset
+        ? mergeLearningItemPages([], response)
+        : mergeLearningItemPages(current, response));
       setHasMore(response.length >= LEARNING_PAGE_SIZE);
     } catch (reason) {
       if (requestId === listRequestRef.current) {
@@ -222,7 +222,7 @@ export function useLearningInbox(ready: boolean) {
     loading,
     loadingMore,
     hasMore,
-    reload: () => loadItems(false),
+    reload: () => loadItems(false, true),
     loadMore: () => loadItems(true),
     error,
     clearError: () => setError(""),

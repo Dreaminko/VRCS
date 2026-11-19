@@ -29,7 +29,6 @@ export const SubtitleBubble = memo(function SubtitleBubble({
   subtitle,
   focused,
   selected,
-  selectionActive,
   selection,
   onClearSelection,
   onSelect,
@@ -51,7 +50,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
   subtitle: Subtitle;
   focused: boolean;
   selected: boolean;
-  selectionActive: boolean;
+  selectionActive?: boolean;
   selection: Subtitle[] | null;
   onClearSelection: () => void;
   onSelect: (context: string, origin?: LookupOrigin) => Promise<void>;
@@ -180,7 +179,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
   };
 
   const openContextMenu = (clientX: number, clientY: number) => {
-    if (selectionActive && !selected) onClearSelection();
+    if (!selected) onClearSelection();
     setAnalysisPopoverOpen(false);
     setSelectedText(selectedTextWithin(articleRef.current));
     setMenuPosition(subtitleContextMenuPosition(clientX, clientY));

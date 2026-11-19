@@ -222,58 +222,76 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
     };
   }, [freezeSelection]);
 
+  const layoutInputsRef = useRef({ groups, fontSize, preset, frozen, selectionTarget, transparentBackground, perPlayer });
+  layoutInputsRef.current = { groups, fontSize, preset, frozen, selectionTarget, transparentBackground, perPlayer };
+
+  const reflow = useCallback(() => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+    const viewport = contentRef.current;
+    const measure = measureRef.current;
+    if (!viewport || !measure) return;
+    const {
+      groups: currentGroups,
+      fontSize: currentFontSize,
+      preset: currentPreset,
+      frozen: currentFrozen,
+      selectionTarget: currentSelectionTarget,
+      transparentBackground: currentTransparentBackground,
+      perPlayer: currentPerPlayer,
+    } = layoutInputsRef.current;
+    const width = viewport.clientWidth;
+    const height = viewport.clientHeight;
+    setAvailableHeight((previous) => previous === height ? previous : height);
+    if (!width || !height) return;
+    const geometry = `${width}:${height}:${currentFontSize}:${currentTransparentBackground}`;
+    if ((currentFrozen || freezeRef.current) && geometryRef.current === geometry
+      && measuredSelectionRef.current === currentSelectionTarget) return;
+    const rows = Array.from(measure.children) as HTMLElement[];
+    if (rows.length !== currentGroups.length) return;
+    const chatboxStart = currentGroups.findIndex(group => group.source === "chatbox");
+    const scrollable = !currentFrozen && chatboxStart >= 0;
+    geometryRef.current = geometry;
+    measuredSelectionRef.current = currentSelectionTarget;
+    if (!currentFrozen && currentPerPlayer && chatboxStart !== 0 && currentGroups.length > 1) {
+      const budget = { original: currentPreset.originalLine, translation: currentPreset.translationLine };
+      setLayout(previous => sameGroups(previous.groups, currentGroups) && previous.parallel === true && previous.scrollable === scrollable
+        && previous.latestBudget?.original === budget.original && previous.latestBudget?.translation === budget.translation
+        ? previous : { groups: currentGroups, latestBudget: budget, parallel: true, scrollable });
+      return;
+    }
+    const heights = rows.map((row) => row.getBoundingClientRect().height);
+    let count = fitRecentGroups(heights, height);
+    let latestBudget: CompactTextBudget | undefined;
+    if (!count && currentGroups.length) {
+      const latest = rows.at(-1)!;
+      const original = latest.querySelector<HTMLElement>(".compact-original");
+      const translation = latest.querySelector<HTMLElement>(".compact-translation");
+      latestBudget = allocateLatestLines({
+        original: original?.getBoundingClientRect().height ?? 0,
+        translation: translation?.getBoundingClientRect().height ?? 0,
+      }, Math.max(0, height - (latest.querySelector<HTMLElement>(".compact-speaker")?.getBoundingClientRect().height ?? 0) - 4), currentFontSize);
+      count = 1;
+    }
+    // Keep bounded Chatbox history in the scroll viewport, even when only part
+    // of the previous message fits above the newest one.
+    const nextGroups = scrollable ? currentGroups : count ? currentGroups.slice(-count) : [];
+    setLayout((previous) => sameGroups(previous.groups, nextGroups) && !previous.parallel
+      && previous.scrollable === scrollable
+      && previous.latestBudget?.original === latestBudget?.original
+      && previous.latestBudget?.translation === latestBudget?.translation
+      ? previous : { groups: nextGroups, latestBudget, scrollable });
+  }, []);
+
+  const scheduleReflow = useCallback(() => {
+    if (frameRef.current === null) frameRef.current = requestAnimationFrame(reflow);
+  }, [reflow]);
+
   useLayoutEffect(() => {
     const viewport = contentRef.current;
     const measure = measureRef.current;
     if (!viewport || !measure) return;
-    const reflow = () => {
-      frameRef.current = null;
-      const width = viewport.clientWidth;
-      const height = viewport.clientHeight;
-      setAvailableHeight((previous) => previous === height ? previous : height);
-      if (!width || !height) return;
-      const geometry = `${width}:${height}:${fontSize}:${transparentBackground}`;
-      if ((frozen || freezeRef.current) && geometryRef.current === geometry
-        && measuredSelectionRef.current === selectionTarget) return;
-      const rows = Array.from(measure.children) as HTMLElement[];
-      if (rows.length !== groups.length) return;
-      const chatboxStart = groups.findIndex(group => group.source === "chatbox");
-      const scrollable = !frozen && chatboxStart >= 0;
-      geometryRef.current = geometry;
-      measuredSelectionRef.current = selectionTarget;
-      if (!frozen && perPlayer && chatboxStart !== 0 && groups.length > 1) {
-        const budget = { original: preset.originalLine, translation: preset.translationLine };
-        setLayout(previous => sameGroups(previous.groups, groups) && previous.parallel === true && previous.scrollable === scrollable
-          && previous.latestBudget?.original === budget.original && previous.latestBudget?.translation === budget.translation
-          ? previous : { groups, latestBudget: budget, parallel: true, scrollable });
-        return;
-      }
-      const heights = rows.map((row) => row.getBoundingClientRect().height);
-      let count = fitRecentGroups(heights, height);
-      let latestBudget: CompactTextBudget | undefined;
-      if (!count && groups.length) {
-        const latest = rows.at(-1)!;
-        const original = latest.querySelector<HTMLElement>(".compact-original");
-        const translation = latest.querySelector<HTMLElement>(".compact-translation");
-        latestBudget = allocateLatestLines({
-          original: original?.getBoundingClientRect().height ?? 0,
-          translation: translation?.getBoundingClientRect().height ?? 0,
-        }, Math.max(0, height - (latest.querySelector<HTMLElement>(".compact-speaker")?.getBoundingClientRect().height ?? 0) - 4), fontSize);
-        count = 1;
-      }
-      // Keep bounded Chatbox history in the scroll viewport, even when only part
-      // of the previous message fits above the newest one.
-      const nextGroups = scrollable ? groups : count ? groups.slice(-count) : [];
-      setLayout((previous) => sameGroups(previous.groups, nextGroups) && !previous.parallel
-        && previous.scrollable === scrollable
-        && previous.latestBudget?.original === latestBudget?.original
-        && previous.latestBudget?.translation === latestBudget?.translation
-        ? previous : { groups: nextGroups, latestBudget, scrollable });
-    };
-    const schedule = () => {
-      if (frameRef.current === null) frameRef.current = requestAnimationFrame(reflow);
-    };
-    const observer = new ResizeObserver(schedule);
+    const observer = new ResizeObserver(scheduleReflow);
     observer.observe(viewport);
     observer.observe(measure);
     let disposed = false;
@@ -281,14 +299,10 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
     const fontsChanged = () => {
       if (disposed) return;
       geometryRef.current = "";
-      schedule();
+      scheduleReflow();
     };
     void document.fonts.ready.then(fontsChanged);
     document.fonts.addEventListener("loadingdone", fontsChanged);
-    // Commit the selected group before paint, even when native resizing has not
-    // changed the viewport yet. A frozen list must never hide the lookup target.
-    if (measuredSelectionRef.current !== selectionTarget) reflow();
-    else schedule();
     return () => {
       disposed = true;
       observer.disconnect();
@@ -296,7 +310,14 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
     };
-  }, [groups, fontSize, frozen, selectionTarget, transparentBackground, perPlayer]);
+  }, [scheduleReflow]);
+
+  useLayoutEffect(() => {
+    // Commit the selected group before paint, even when native resizing has not
+    // changed the viewport yet. A frozen list must never hide the lookup target.
+    if (measuredSelectionRef.current !== selectionTarget) reflow();
+    else scheduleReflow();
+  }, [groups, fontSize, frozen, selectionTarget, transparentBackground, perPlayer, reflow, scheduleReflow]);
 
   return {
     contentRef, measureRef, measurementGroups: groups,
