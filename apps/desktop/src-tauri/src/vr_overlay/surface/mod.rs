@@ -53,18 +53,13 @@ use super::wrist_labels::WristLabels;
 #[cfg(all(test, windows))]
 use crate::vr_overlay::surface_protocol::Region;
 
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
 fn menu_progress_changed(a: &SurfaceView, b: &SurfaceView) -> bool {
     matches!(
         (a, b),
         (SurfaceView::Menu { hold_progress: a, .. }, SurfaceView::Menu { hold_progress: b, .. })
             if a != b
     )
-}
-
-#[cfg(linux_vr)]
-fn menu_progress_changed(_: &SurfaceView, _: &SurfaceView) -> bool {
-    false
 }
 
 struct Entry {
@@ -1164,17 +1159,13 @@ impl SurfaceRenderer {
             self.requested = true;
             feedback.and_then(|(hovered, pressed, progress)| {
                 let state = entry.state.as_mut()?;
-                #[cfg_attr(linux_vr, allow(unused_mut))]
                 let mut changed = state.hovered != hovered || state.pressed != pressed;
                 state.hovered = hovered;
                 state.pressed = pressed;
-                #[cfg(windows)]
                 if let SurfaceView::Menu { hold_progress, .. } = &mut state.view {
                     changed |= *hold_progress != progress;
                     *hold_progress = progress;
                 }
-                #[cfg(linux_vr)]
-                let _ = progress;
                 changed.then(|| state.clone())
             })
         };

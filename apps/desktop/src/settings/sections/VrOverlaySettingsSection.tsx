@@ -10,6 +10,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import type {
+  VrOverlayBackend,
   VrOverlayHeadsetSettings,
   VrOverlayResourceState,
   VrOverlayRuntimeState,
@@ -119,10 +120,12 @@ function OverlayStatusBadge({
 
 export function VrOverlaySettingsSection({
   draft,
+  os,
   saveState,
   applySettings,
 }: {
   draft: Settings;
+  os?: string;
   saveState: SaveState;
   applySettings: ApplySettings;
 }) {
@@ -255,6 +258,21 @@ export function VrOverlaySettingsSection({
           </button>}
         </div>
         <SettingsDisclosure open={draft.vr_overlay.enabled}>
+          {os === "linux" && (
+            <Select
+              label={t("settings.vrOverlay.backend")}
+              value={draft.vr_overlay.backend}
+              options={[
+                { value: "auto", label: t("settings.vrOverlay.backends.auto") },
+                { value: "openxr", label: t("settings.vrOverlay.backends.openxr") },
+                { value: "openvr", label: t("settings.vrOverlay.backends.openvr") },
+              ]}
+              disabled={overlayDisabled}
+              onChange={(value) => applySettings((current) => patchVrOverlay(current, {
+                backend: value as VrOverlayBackend,
+              }))}
+            />
+          )}
           <Select
             label={t("settings.vrOverlay.translationDisplay")}
             value={draft.vr_overlay.translation_display}

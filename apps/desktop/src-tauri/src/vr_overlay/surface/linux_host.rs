@@ -99,8 +99,26 @@ struct HostState {
 
 struct Host {
     web: webkit2gtk::WebView,
-    _window: gtk::OffscreenWindow,
+    manager: webkit2gtk::UserContentManager,
+    window: gtk::OffscreenWindow,
+    pending_snapshot: Option<gio::Cancellable>,
     state: Rc<RefCell<HostState>>,
+}
+
+impl Drop for Host {
+    fn drop(&mut self) {
+        if let Some(cancellable) = self.pending_snapshot.take() {
+            cancellable.cancel();
+        }
+        self.web.stop_loading();
+        self.manager
+            .unregister_script_message_handler("vrcsSurface");
+        self.window.remove(&self.web);
+        // SAFETY: all Rust handlers and pending snapshot callbacks were detached above.
+        unsafe {
+            self.window.destroy();
+        }
+    }
 }
 
 struct Dispatcher {
@@ -195,12 +213,35 @@ impl Dispatcher {
             }
             Command::Activity(id, activity) => {
                 if let Some(host) = self.hosts.get_mut(&(id.surface, id.host_epoch)) {
-                    let mut state = host.state.borrow_mut();
-                    if state.activity.is_none_or(|previous| previous != activity) {
-                        state.activity = Some(activity);
-                        if let Some(session) = state.session.clone() {
-                            post_event(&host.web, &session, SurfaceEvent::Activity(activity));
+                    let (waking, session) = {
+                        let mut state = host.state.borrow_mut();
+                        let waking = activity.active
+                            && state.activity.is_none_or(|previous| {
+                                !previous.active || previous.request != activity.request
+                            });
+                        if state.activity.is_none_or(|previous| previous != activity) {
+                            state.activity = Some(activity);
+                            if let Some(session) = state.session.as_ref() {
+                                post_event(&host.web, session, SurfaceEvent::Activity(activity));
+                            }
                         }
+                        (waking, state.session.clone())
+                    };
+                    let view = {
+                        let hub = self.app.state::<SurfaceHub>();
+                        let mut entries = hub.0.lock().unwrap_or_else(|error| error.into_inner());
+                        let entry = &mut entries[id.surface.index()];
+                        if entry.host_epoch == id.host_epoch
+                            && entry.activity_request == activity.request
+                        {
+                            entry.host_awake = activity.active;
+                        }
+                        (waking && entry.ready)
+                            .then(|| entry.state.clone())
+                            .flatten()
+                    };
+                    if let (Some(view), Some(session)) = (view, session) {
+                        post_event(&host.web, &session, SurfaceEvent::View(Box::new(view)));
                     }
                 }
             }
@@ -471,7 +512,9 @@ impl Dispatcher {
         Ok((
             Host {
                 web,
-                _window: window,
+                manager,
+                window,
+                pending_snapshot: None,
                 state,
             },
             slot,
@@ -480,7 +523,7 @@ impl Dispatcher {
 
     fn snapshot(&mut self, request: SnapshotRequest) {
         let key = (request.id.surface, request.id.host_epoch);
-        let Some(host) = self.hosts.get(&key) else {
+        let Some(host) = self.hosts.get_mut(&key) else {
             let _ = request
                 .reply
                 .send(Err("Surface host is not running".into()));
@@ -492,7 +535,11 @@ impl Dispatcher {
             let _ = request.reply.send(Err("Invalid surface crop".into()));
             return;
         }
+        if let Some(previous) = host.pending_snapshot.take() {
+            previous.cancel();
+        }
         let cancellation = gio::Cancellable::new();
+        host.pending_snapshot = Some(cancellation.clone());
         let reply = request.reply;
         host.web.snapshot(
             webkit2gtk::SnapshotRegion::Visible,
@@ -512,10 +559,10 @@ impl Dispatcher {
                             image.height()
                         ));
                     }
-                    let rgba = rgba(&image)?;
+                    let rgba_raw = rgba(&image)?;
                     let width = image.width() as usize;
                     let (generation, revision, paint) =
-                        marker(&rgba, width, logical_height as usize, scale)
+                        marker(&rgba_raw, width, logical_height as usize, scale)
                             .ok_or_else(|| "snapshot marker not painted".to_string())?;
                     let px = |value: usize| ((value as f32) * scale).round() as usize;
                     let (xs, ys) = (px(left as usize), px(top as usize));
@@ -523,15 +570,36 @@ impl Dispatcher {
                     if xe <= xs || ye <= ys || xe > width || ye > image.height() as usize {
                         return Err("snapshot crop is outside the surface".into());
                     }
-                    let mut pixels = Vec::with_capacity((xe - xs) * (ye - ys) * 4);
-                    for row in ys..ye {
-                        let start = (row * width + xs) * 4;
-                        pixels.extend_from_slice(&rgba[start..start + (xe - xs) * 4]);
-                    }
+                    let crop_w = right - left;
+                    let crop_h = bottom - top;
+                    let (pixels, out_width, out_height) = if scale > 1.01 {
+                        let scaled = cairo::ImageSurface::create(
+                            cairo::Format::ARgb32,
+                            crop_w as i32,
+                            crop_h as i32,
+                        )
+                        .map_err(|error| error.to_string())?;
+                        let ctx =
+                            cairo::Context::new(&scaled).map_err(|error| error.to_string())?;
+                        ctx.scale(1.0 / f64::from(scale), 1.0 / f64::from(scale));
+                        ctx.set_source_surface(&image, -(xs as f64), -(ys as f64))
+                            .map_err(|error| error.to_string())?;
+                        ctx.paint().map_err(|error| error.to_string())?;
+                        drop(ctx);
+                        scaled.flush();
+                        (rgba(&scaled)?, crop_w, crop_h)
+                    } else {
+                        let mut pixels = Vec::with_capacity((xe - xs) * (ye - ys) * 4);
+                        for row in ys..ye {
+                            let start = (row * width + xs) * 4;
+                            pixels.extend_from_slice(&rgba_raw[start..start + (xe - xs) * 4]);
+                        }
+                        (pixels, (xe - xs) as u32, (ye - ys) as u32)
+                    };
                     Ok(Snapshot {
                         pixels,
-                        width: (xe - xs) as u32,
-                        height: (ye - ys) as u32,
+                        width: out_width,
+                        height: out_height,
                         generation,
                         revision,
                         paint,

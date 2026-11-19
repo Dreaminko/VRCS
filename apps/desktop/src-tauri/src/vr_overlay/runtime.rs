@@ -754,8 +754,20 @@ fn worker_loop(
                     if !config.enabled || !config.wrist.enabled {
                         state.wrist_sample = false;
                     }
+                    let backend_changed = state.config.backend != config.backend;
                     state.config = config;
-                    if state.backend.is_none() {
+                    if backend_changed || state.backend.is_none() {
+                        if backend_changed {
+                            if let Some(mut backend) = state.backend.take() {
+                                backend.hide_all();
+                            }
+                            #[cfg(any(windows, linux_vr))]
+                            state.reset_ui();
+                            state.reset_headset();
+                            state.reset_dashboard();
+                            state.next_reconnect = Instant::now();
+                            state.next_probe = Instant::now();
+                        }
                         state.selected_backend = None;
                     }
                     state.ocr_config = ocr_config;
@@ -821,7 +833,7 @@ fn worker_loop(
                     state.headset_sample = visible;
                 }
                 if let Some(visible) = control.wrist_sample {
-                    #[cfg(windows)]
+                    #[cfg(any(windows, linux_vr))]
                     if state.wrist_sample != visible {
                         state.dialogue_policy += 1;
                     }
@@ -942,7 +954,7 @@ fn worker_loop(
         }
         if xr_driving {
             let accepted = match state.backend.as_mut().map(Backend::end_frame) {
-                Some(Ok(())) => true,
+                Some(Ok(submitted)) => submitted,
                 Some(Err(error)) => {
                     tracing::warn!(%error, "OpenXR frame submission failed");
                     let _ = state.backend.take();
@@ -1158,9 +1170,10 @@ fn tick(
                 state.selected_backend = Some(backend.kind());
                 state.backend = Some(backend);
                 if openxr {
+                    status.runtime_installed = true;
                     status.hmd_present = true;
                 }
-                #[cfg(windows)]
+                #[cfg(any(windows, linux_vr))]
                 state.reset_ui();
                 status.state = RuntimeState::Ready;
                 status.last_connected_at = Some(unix_timestamp());
@@ -1288,7 +1301,7 @@ fn tick(
         update_headset(app, state, status, &mut backend);
         update_wrist(app, state, status, &mut backend);
     } else {
-        #[cfg(windows)]
+        #[cfg(any(windows, linux_vr))]
         {
             match state
                 .headset_surface
@@ -1327,8 +1340,6 @@ fn tick(
             }
             refresh_wrist(app, state, status, &mut backend);
         }
-        #[cfg(linux_vr)]
-        refresh_wrist(app, state, status, &mut backend);
     }
     update_dashboard(app, state, status, &mut backend, business);
     let headset_failed =
@@ -1501,7 +1512,7 @@ fn update_dashboard(
                             }
                         }
                         if dismiss {
-                            backend.hide(OverlayKind::Dashboard);
+                            backend.close_dashboard();
                             state.dashboard.clear_pointer();
                             state.dashboard_pressed_key = None;
                             hub.point(app, SurfaceId::Dashboard, None)?;

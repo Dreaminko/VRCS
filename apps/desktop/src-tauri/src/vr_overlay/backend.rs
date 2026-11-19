@@ -1330,6 +1330,10 @@ mod platform {
             self.hide(OverlayKind::OcrResult);
         }
 
+        pub fn close_dashboard(&mut self) {
+            self.hide(OverlayKind::Dashboard);
+        }
+
         pub fn reset(&mut self, kind: OverlayKind) {
             if kind == OverlayKind::Dashboard {
                 // Surface recovery must not unregister the SteamVR dashboard tab.
@@ -3091,6 +3095,11 @@ mod platform {
         }
 
         pub fn hide(&mut self, kind: OverlayKind) {
+            if self.cursor.target.is_some()
+                && self.cursor.target == self.handle(kind).map(|handle| handle.0)
+            {
+                let _ = self.cursor.hide(unsafe { &*self.raw_overlay });
+            }
             if !self.states[kind as usize].visible {
                 return;
             }
@@ -3101,7 +3110,12 @@ mod platform {
             }
         }
 
+        pub fn close_dashboard(&mut self) {
+            self.hide(OverlayKind::Dashboard);
+        }
+
         pub fn hide_all(&mut self) {
+            let _ = self.cursor.hide(unsafe { &*self.raw_overlay });
             for kind in [
                 OverlayKind::Headset,
                 OverlayKind::Wrist,
@@ -3313,6 +3327,7 @@ mod platform {
                     }
                 }
             }
+            self.cursor.destroy(unsafe { &*self.raw_overlay });
             self.dashboard.destroy(unsafe { &*self.raw_overlay });
             unsafe { self.context.shutdown() };
         }
@@ -3464,6 +3479,10 @@ impl Backend {
         backend_mut!(self, hide(kind));
     }
 
+    pub fn close_dashboard(&mut self) {
+        backend_mut!(self, close_dashboard());
+    }
+
     pub fn hide_all(&mut self) {
         backend_mut!(self, hide_all());
     }
@@ -3482,9 +3501,9 @@ impl Backend {
         }
     }
 
-    pub fn end_frame(&mut self) -> Result<(), String> {
+    pub fn end_frame(&mut self) -> Result<bool, String> {
         match &mut self.inner {
-            Inner::Vr(_) => Ok(()),
+            Inner::Vr(_) => Ok(true),
             #[cfg(all(linux_vr, target_arch = "x86_64"))]
             Inner::Xr(xr) => xr.end_frame(),
         }

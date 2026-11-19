@@ -138,40 +138,67 @@ fn xr_pose(pose: Pose) -> xr::Posef {
     let m = pose;
     let trace = m[0][0] + m[1][1] + m[2][2];
     let (x, y, z, w) = if trace > 0.0 {
-        let s = (trace + 1.0).sqrt() * 2.0;
-        (
-            (m[2][1] - m[1][2]) / s,
-            (m[0][2] - m[2][0]) / s,
-            (m[1][0] - m[0][1]) / s,
-            0.25 * s,
-        )
+        let s = (trace + 1.0).max(0.0).sqrt() * 2.0;
+        if s > 1e-6 {
+            (
+                (m[2][1] - m[1][2]) / s,
+                (m[0][2] - m[2][0]) / s,
+                (m[1][0] - m[0][1]) / s,
+                0.25 * s,
+            )
+        } else {
+            (0.0, 0.0, 0.0, 1.0)
+        }
     } else if m[0][0] > m[1][1] && m[0][0] > m[2][2] {
-        let s = (1.0 + m[0][0] - m[1][1] - m[2][2]).sqrt() * 2.0;
-        (
-            0.25 * s,
-            (m[0][1] + m[1][0]) / s,
-            (m[0][2] + m[2][0]) / s,
-            (m[2][1] - m[1][2]) / s,
-        )
+        let s = (1.0 + m[0][0] - m[1][1] - m[2][2]).max(0.0).sqrt() * 2.0;
+        if s > 1e-6 {
+            (
+                0.25 * s,
+                (m[0][1] + m[1][0]) / s,
+                (m[0][2] + m[2][0]) / s,
+                (m[2][1] - m[1][2]) / s,
+            )
+        } else {
+            (0.0, 0.0, 0.0, 1.0)
+        }
     } else if m[1][1] > m[2][2] {
-        let s = (1.0 + m[1][1] - m[0][0] - m[2][2]).sqrt() * 2.0;
-        (
-            (m[0][1] + m[1][0]) / s,
-            0.25 * s,
-            (m[1][2] + m[2][1]) / s,
-            (m[0][2] - m[2][0]) / s,
-        )
+        let s = (1.0 + m[1][1] - m[0][0] - m[2][2]).max(0.0).sqrt() * 2.0;
+        if s > 1e-6 {
+            (
+                (m[0][1] + m[1][0]) / s,
+                0.25 * s,
+                (m[1][2] + m[2][1]) / s,
+                (m[0][2] - m[2][0]) / s,
+            )
+        } else {
+            (0.0, 0.0, 0.0, 1.0)
+        }
     } else {
-        let s = (1.0 + m[2][2] - m[0][0] - m[1][1]).sqrt() * 2.0;
-        (
-            (m[0][2] + m[2][0]) / s,
-            (m[1][2] + m[2][1]) / s,
-            0.25 * s,
-            (m[1][0] - m[0][1]) / s,
-        )
+        let s = (1.0 + m[2][2] - m[0][0] - m[1][1]).max(0.0).sqrt() * 2.0;
+        if s > 1e-6 {
+            (
+                (m[0][2] + m[2][0]) / s,
+                (m[1][2] + m[2][1]) / s,
+                0.25 * s,
+                (m[1][0] - m[0][1]) / s,
+            )
+        } else {
+            (0.0, 0.0, 0.0, 1.0)
+        }
+    };
+    let norm = (x * x + y * y + z * z + w * w).sqrt();
+    let orientation = if norm.is_finite() && norm > 1e-6 {
+        xr::Quaternionf {
+            x: x / norm,
+            y: y / norm,
+            z: z / norm,
+            w: w / norm,
+        }
+    } else {
+        xr::Quaternionf::IDENTITY
     };
     xr::Posef {
-        orientation: xr::Quaternionf { x, y, z, w },
+        orientation,
         position: xr::Vector3f {
             x: m[0][3],
             y: m[1][3],
@@ -242,7 +269,7 @@ impl OpenXrBackend {
         self.runtime.begin_frame()
     }
 
-    pub fn end_frame(&mut self) -> Result<(), String> {
+    pub fn end_frame(&mut self) -> Result<bool, String> {
         self.runtime.end_frame()
     }
 
@@ -376,7 +403,7 @@ impl OpenXrBackend {
         let local = transform::compose(transform::inverse(world), ray.pose);
         let origin = [local[0][3], local[1][3], local[2][3]];
         let direction = [-local[0][2], -local[1][2], -local[2][2]];
-        if direction[2].abs() <= 1e-5 {
+        if direction[2] >= -1e-5 {
             return None;
         }
         let distance = -origin[2] / direction[2];
@@ -423,7 +450,12 @@ impl OpenXrBackend {
             self.runtime.set_visible(PanelId::Cursor, false);
             return Ok(());
         };
-        let size = info.size.width * CURSOR_PX as f32 / texture_width.max(1) as f32;
+        let diameter_px = if kind == OverlayKind::WristMenu {
+            30
+        } else {
+            24
+        };
+        let size = info.size.width * diameter_px as f32 / texture_width.max(1) as f32;
         let Some(world) = self
             .world_panel(&info)
             .filter(|_| info.visible && position.iter().all(|v| v.is_finite()))
@@ -676,15 +708,21 @@ impl OpenXrBackend {
     pub fn hide(&mut self, kind: OverlayKind) {
         self.runtime.set_visible(panel(kind), false);
         if kind == OverlayKind::Dashboard {
-            self.set_dashboard_open(false);
             self.dashboard_placeholder = None;
         }
+    }
+
+    pub fn close_dashboard(&mut self) {
+        self.set_dashboard_open(false);
+        self.runtime.set_visible(PanelId::Dashboard, false);
+        self.dashboard_placeholder = None;
     }
 
     pub fn hide_all(&mut self) {
         for kind in ALL_KINDS {
             self.hide(kind);
         }
+        self.set_dashboard_open(false);
         self.runtime.set_visible(PanelId::Cursor, false);
     }
 

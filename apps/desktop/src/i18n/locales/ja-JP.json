@@ -1108,6 +1108,11 @@
         "enableWrist": "手首の会話表示を有効にする",
         "runtimeInstalled": "SteamVR のインストール",
         "backend": "バックエンド",
+        "backends": {
+          "auto": "自動",
+          "openxr": "OpenXR",
+          "openvr": "OpenVR (SteamVR)"
+        },
         "hmdPresent": "ヘッドセットの検出",
         "reconnectAttempt": "再接続 {{count}} 回目",
         "runtimeStates": {

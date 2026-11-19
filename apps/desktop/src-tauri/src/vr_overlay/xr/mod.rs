@@ -159,6 +159,7 @@ struct Handles {
     // the instance the runtime destroys last.
     panels: [Panel; PANEL_COUNT],
     format: u32,
+    bgra: bool,
     actions: Actions,
     view: xr::Space,
     stage: xr::Space,
@@ -198,6 +199,9 @@ pub fn probe() -> Result<(), String> {
             &(),
         )
         .map_err(|error| format!("OpenXR runtime unavailable: {error:?}"))?;
+    instance
+        .system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)
+        .map_err(|_| "vr.openxr_headset_unavailable".to_string())?;
     drop(instance);
     Ok(())
 }
@@ -285,14 +289,21 @@ impl XrRuntime {
         // vkGetInstanceProcAddr.
         let get_proc: xr::sys::platform::VkGetInstanceProcAddr =
             unsafe { std::mem::transmute(ash_entry.static_fn().get_instance_proc_addr) };
+        let min_api = vk::make_api_version(
+            0,
+            u32::from(requirements.min_api_version_supported.major()),
+            u32::from(requirements.min_api_version_supported.minor()),
+            0,
+        );
+        let max_api = vk::make_api_version(
+            0,
+            u32::from(requirements.max_api_version_supported.major()),
+            u32::from(requirements.max_api_version_supported.minor()),
+            0,
+        );
         let app_info = vk::ApplicationInfo::default()
             .application_name(c"vrcs")
-            .api_version(vk::make_api_version(
-                0,
-                u32::from(requirements.max_api_version_supported.major()),
-                u32::from(requirements.max_api_version_supported.minor()),
-                0,
-            ));
+            .api_version(max_api.min(vk::API_VERSION_1_1).max(min_api));
         let instance_info = vk::InstanceCreateInfo::default().application_info(&app_info);
         let raw_instance = unsafe {
             instance.create_vulkan_instance(
@@ -358,21 +369,21 @@ impl XrRuntime {
         let view = session
             .create_reference_space(xr::ReferenceSpaceType::VIEW, xr::Posef::IDENTITY)
             .map_err(|error| format!("View space creation failed: {error:?}"))?;
-        let actions = Actions::new(&instance, &session, &stage)
+        let actions = Actions::new(&instance, &session, &stage, enabled.ext_hand_interaction)
             .map_err(|error| format!("Action setup failed: {error:?}"))?;
 
         let formats = session
             .enumerate_swapchain_formats()
             .map_err(|error| format!("Swapchain format query failed: {error:?}"))?;
-        let format = formats
-            .iter()
-            .copied()
-            .find(|format| {
-                *format == vk::Format::R8G8B8A8_SRGB.as_raw() as u32
-                    || *format == vk::Format::B8G8R8A8_SRGB.as_raw() as u32
-            })
-            .or_else(|| formats.first().copied())
-            .ok_or("Runtime exposes no swapchain format")?;
+        let rgba = vk::Format::R8G8B8A8_SRGB.as_raw() as u32;
+        let bgra = vk::Format::B8G8R8A8_SRGB.as_raw() as u32;
+        let format = if formats.contains(&rgba) {
+            rgba
+        } else if formats.contains(&bgra) {
+            bgra
+        } else {
+            return Err("Runtime exposes no supported 8-bit sRGB swapchain format".into());
+        };
         let command = unsafe {
             device.allocate_command_buffers(
                 &vk::CommandBufferAllocateInfo::default()
@@ -399,6 +410,7 @@ impl XrRuntime {
                     Panel::new(index == panel_index(PanelId::Headset))
                 }),
                 format,
+                bgra: format == bgra,
             }),
             device,
             vk_instance,
@@ -559,14 +571,16 @@ impl XrRuntime {
 
     /// Submit staged panels when the runtime asked for a frame; otherwise end
     /// the frame without layers.
-    pub fn end_frame(&mut self) -> Result<(), String> {
+    pub fn end_frame(&mut self) -> Result<bool, String> {
         let Some((time, render)) = self.frame.take() else {
-            return Ok(());
+            return Ok(false);
         };
         if render {
-            self.submit(time)
+            self.submit(time)?;
+            Ok(true)
         } else {
-            self.skip(time)
+            self.skip(time)?;
+            Ok(false)
         }
     }
 
@@ -602,7 +616,8 @@ impl XrRuntime {
                 .session
                 .create_swapchain(&xr::SwapchainCreateInfo {
                     create_flags: xr::SwapchainCreateFlags::EMPTY,
-                    usage_flags: xr::SwapchainUsageFlags::COLOR_ATTACHMENT
+                    usage_flags: xr::SwapchainUsageFlags::SAMPLED
+                        | xr::SwapchainUsageFlags::COLOR_ATTACHMENT
                         | xr::SwapchainUsageFlags::TRANSFER_DST,
                     format,
                     sample_count: 1,
@@ -638,11 +653,14 @@ impl XrRuntime {
                 pixels.len() as u64,
             )?);
         }
-        let opacity = self.handles.as_ref().ok_or("XR session closed")?.panels[index].opacity;
+        let (opacity, bgra) = {
+            let handles = self.handles.as_ref().ok_or("XR session closed")?;
+            (handles.panels[index].opacity, handles.bgra)
+        };
         staging
             .as_mut()
             .expect("staging buffer exists")
-            .write_scaled(pixels, opacity);
+            .write_scaled(pixels, opacity, bgra);
         let panel = &mut self.handles.as_mut().ok_or("XR session closed")?.panels[index];
         panel.pixels.clear();
         panel.pixels.extend_from_slice(pixels);
@@ -663,6 +681,7 @@ impl XrRuntime {
             self.handles.as_mut().ok_or("XR session closed")?.panels[index].opacity = opacity;
             return Ok(());
         }
+        let bgra = self.handles.as_ref().ok_or("XR session closed")?.bgra;
         let panel = &mut self.handles.as_mut().ok_or("XR session closed")?.panels[index];
         if panel.opacity == opacity {
             return Ok(());
@@ -675,7 +694,7 @@ impl XrRuntime {
         self.stagings[index]
             .as_mut()
             .expect("staging buffer exists")
-            .write_scaled(&pixels, opacity);
+            .write_scaled(&pixels, opacity, bgra);
         self.handles.as_mut().ok_or("XR session closed")?.panels[index].pixels = pixels;
         self.handles.as_mut().ok_or("XR session closed")?.panels[index].pending = true;
         Ok(())
@@ -874,7 +893,13 @@ impl XrRuntime {
                     .state(&handles.session, xr::Path::NULL)
                     .ok()
                     .filter(|state| state.is_active && focused)
-                    .map(|state| state.current_state.y)
+                    .map(|state| {
+                        if state.current_state.y.abs() < 0.20 {
+                            0.0
+                        } else {
+                            state.current_state.y
+                        }
+                    })
                     .unwrap_or(0.0);
                 PointerInput {
                     pointer: PointerId::new(DeviceId(hand as u32), hand as u64),
@@ -973,6 +998,9 @@ impl XrRuntime {
 
 impl Drop for XrRuntime {
     fn drop(&mut self) {
+        if self.frame.is_some() {
+            let _ = self.end_frame();
+        }
         self.end_session();
         let Some(handles) = self.handles.take() else {
             return;
@@ -1095,6 +1123,7 @@ impl Actions {
         instance: &xr::Instance,
         session: &xr::Session<xr::Vulkan>,
         stage: &xr::Space,
+        hand_interaction_enabled: bool,
     ) -> xr::Result<Self> {
         let set = instance.create_action_set("vrcs_probe", "VRCS probe", 0)?;
         let sides = [
@@ -1134,7 +1163,7 @@ impl Actions {
         let profiles: [(&str, &[&str]); 5] = [
             (
                 "/interaction_profiles/khr/simple_controller",
-                &["select/click", "menu/click"],
+                &["aim/pose", "select/click", "menu/click"],
             ),
             (
                 "/interaction_profiles/ext/hand_interaction_ext",
@@ -1165,6 +1194,7 @@ impl Actions {
             (
                 "/interaction_profiles/htc/vive_controller",
                 &[
+                    "aim/pose",
                     "grip/pose",
                     "trigger/value",
                     "squeeze/click",
@@ -1173,8 +1203,13 @@ impl Actions {
                 ],
             ),
         ];
-        for (profile, inputs) in profiles {
-            let profile = instance.string_to_path(profile)?;
+        for (profile_name, inputs) in profiles {
+            if !hand_interaction_enabled
+                && profile_name == "/interaction_profiles/ext/hand_interaction_ext"
+            {
+                continue;
+            }
+            let profile = instance.string_to_path(profile_name)?;
             let mut bindings = Vec::new();
             for (side, index) in [("left", 0), ("right", 1)] {
                 for input in inputs {
@@ -1204,7 +1239,16 @@ impl Actions {
                     bindings.push(action);
                 }
             }
-            instance.suggest_interaction_profile_bindings(profile, &bindings)?;
+            match instance.suggest_interaction_profile_bindings(profile, &bindings) {
+                Ok(()) => {}
+                Err(xr::sys::Result::ERROR_PATH_UNSUPPORTED) => {
+                    tracing::debug!(
+                        profile = profile_name,
+                        "Skipping unsupported OpenXR interaction profile"
+                    );
+                }
+                Err(error) => return Err(error),
+            }
         }
         session.attach_action_sets(&[&set])?;
         let _ = stage;
@@ -1432,7 +1476,10 @@ fn upload_image(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    let barrier = |old: vk::ImageLayout, new: vk::ImageLayout| {
+    let barrier = |old: vk::ImageLayout,
+                   new: vk::ImageLayout,
+                   src_access: vk::AccessFlags,
+                   dst_access: vk::AccessFlags| {
         vk::ImageMemoryBarrier::default()
             .old_layout(old)
             .new_layout(new)
@@ -1443,8 +1490,8 @@ fn upload_image(
                     .level_count(1)
                     .layer_count(1),
             )
-            .src_access_mask(vk::AccessFlags::MEMORY_WRITE)
-            .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+            .src_access_mask(src_access)
+            .dst_access_mask(dst_access)
     };
     let region = [vk::BufferImageCopy::default()
         .buffer_row_length(0)
@@ -1472,7 +1519,7 @@ fn upload_image(
             .map_err(|error| format!("Command buffer begin failed: {error}"))?;
         device.cmd_pipeline_barrier(
             command,
-            vk::PipelineStageFlags::ALL_COMMANDS,
+            vk::PipelineStageFlags::TOP_OF_PIPE,
             vk::PipelineStageFlags::TRANSFER,
             vk::DependencyFlags::empty(),
             &[],
@@ -1480,6 +1527,8 @@ fn upload_image(
             &[barrier(
                 vk::ImageLayout::UNDEFINED,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                vk::AccessFlags::empty(),
+                vk::AccessFlags::TRANSFER_WRITE,
             )],
         );
         device.cmd_copy_buffer_to_image(
@@ -1499,6 +1548,8 @@ fn upload_image(
             &[barrier(
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                 vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::AccessFlags::TRANSFER_WRITE,
+                vk::AccessFlags::empty(),
             )],
         );
         device
@@ -1580,9 +1631,9 @@ impl Staging {
         })
     }
 
-    fn write_scaled(&mut self, pixels: &[u8], opacity: f32) {
+    fn write_scaled(&mut self, pixels: &[u8], opacity: f32, bgra: bool) {
         assert!(pixels.len() <= self.len);
-        if opacity >= 1.0 {
+        if opacity >= 1.0 && !bgra {
             unsafe { std::ptr::copy_nonoverlapping(pixels.as_ptr(), self.mapped, pixels.len()) };
             return;
         }
@@ -1594,8 +1645,14 @@ impl Staging {
             .iter_mut()
             .zip(pixels.as_chunks::<4>().0)
         {
-            for channel in 0..4 {
-                target[channel] = (f32::from(source[channel]) * scale).round() as u8;
+            let [r, g, b, a] = *source;
+            let ordered = if bgra { [b, g, r, a] } else { [r, g, b, a] };
+            for (slot, channel) in target.iter_mut().zip(ordered) {
+                *slot = if opacity >= 1.0 {
+                    channel
+                } else {
+                    (f32::from(channel) * scale).round() as u8
+                };
             }
         }
     }

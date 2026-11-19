@@ -69,7 +69,7 @@ function Menu({ state, view }: { state: SurfaceState; view: Extract<SurfaceView,
           </svg>}
         </SurfaceButton>;
       })}
-      {view.controls.labels.settings_available && <SurfaceButton state={state} id={33}
+      {view.controls.labels.settings_available && <SurfaceButton state={state} id={31}
         label={view.controls.labels.settings || "Settings"} menu="dashboard"><Settings2 /></SurfaceButton>}
     </nav>
   </>;

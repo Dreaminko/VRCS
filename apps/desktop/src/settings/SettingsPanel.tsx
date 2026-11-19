@@ -323,6 +323,7 @@ export function SettingsPanel({
         <CapabilitySection capability={capabilities.desktop?.vr.subtitles}>
         <VrOverlaySettingsSection
           draft={draft}
+          os={capabilities.desktop?.os}
           saveState={saveState}
           applySettings={applySettings}
         />

@@ -1108,6 +1108,11 @@
         "enableWrist": "啟用手腕對話",
         "runtimeInstalled": "已安裝 SteamVR",
         "backend": "後端",
+        "backends": {
+          "auto": "自動",
+          "openxr": "OpenXR",
+          "openvr": "OpenVR (SteamVR)"
+        },
         "hmdPresent": "已偵測到頭戴裝置",
         "reconnectAttempt": "第 {{count}} 次重新連線",
         "runtimeStates": {
