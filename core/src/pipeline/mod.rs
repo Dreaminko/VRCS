@@ -175,7 +175,10 @@ impl TranscriptionPipeline {
         })
         .await
         .map_err(|error| {
-            AudioError::with_code("vad.init_failed", format!("VAD initialization failed: {error}"))
+            AudioError::with_code(
+                "vad.init_failed",
+                format!("VAD initialization failed: {error}"),
+            )
         })?;
         let vad_ms = vad_started.elapsed().as_millis();
         let segmenter = if smart_turn.is_some() {

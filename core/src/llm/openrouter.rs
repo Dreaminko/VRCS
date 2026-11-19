@@ -33,10 +33,12 @@ impl CatalogCache {
                 }
             }
         }
-        let result = fetch_catalog(http, profile, api_key).await.map(|mut catalog| {
-            super::models_dev::supplement(profile, &mut catalog);
-            Arc::new(catalog)
-        });
+        let result = fetch_catalog(http, profile, api_key)
+            .await
+            .map(|mut catalog| {
+                super::models_dev::supplement(profile, &mut catalog);
+                Arc::new(catalog)
+            });
         self.0.lock().await.insert(
             profile.id.clone(),
             (profile.clone(), Instant::now(), result.clone()),

@@ -1111,7 +1111,9 @@ async fn record_automatic_message(record: AutomaticMessageRecord<'_>) {
     let message_id = message.message_id.clone();
     let db = Arc::clone(db);
     let result = tokio::task::spawn_blocking(move || {
-        let database = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let database = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
         database
             .add_chatbox_message(&record)
             .map_err(|error| error.to_string())

@@ -180,8 +180,7 @@ impl WhisperFeatures {
                 fft_buffer[index] =
                     Complex64::new(f64::from(padded[start + index]) * self.hann[index], 0.0);
             }
-            self.fft
-                .process_with_scratch(&mut fft_buffer, &mut scratch);
+            self.fft.process_with_scratch(&mut fft_buffer, &mut scratch);
             for (bin, value) in fft_buffer[..=N_FFT / 2].iter().enumerate() {
                 power[bin] = value.norm_sqr();
             }

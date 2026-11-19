@@ -157,7 +157,9 @@ impl DomainEventHub {
     }
 
     pub fn asr_reset(&self, source: &str) {
-        self.publish_ui_and_external(|| DomainEvent::new("asr.reset", "session", source, json!({})));
+        self.publish_ui_and_external(|| {
+            DomainEvent::new("asr.reset", "session", source, json!({}))
+        });
     }
 
     pub fn asr_failed(&self, message_id: Option<&str>, source: &str, code: &str, detail: &str) {

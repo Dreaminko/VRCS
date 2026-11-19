@@ -343,8 +343,9 @@ enum LoadError {
 
 impl SileroVad {
     fn shared_session(model_path: &Path) -> Result<Arc<Mutex<Session>>, LoadError> {
-        let metadata = std::fs::metadata(model_path)
-            .map_err(|error| LoadError::ValidationError(format!("Failed to inspect Silero model: {error}")))?;
+        let metadata = std::fs::metadata(model_path).map_err(|error| {
+            LoadError::ValidationError(format!("Failed to inspect Silero model: {error}"))
+        })?;
         let bytes = metadata.len();
         let modified = modified_nanos(&metadata);
         let cache = SHARED_SILERO.get_or_init(|| Mutex::new(None));
@@ -537,11 +538,7 @@ impl SpeechSegmenter {
                 (max_speech_seconds + max_extension_seconds).min(SMART_TURN_ABSOLUTE_MAX_SECONDS),
             ),
             smart_endpointing,
-            smart_window_samples: if smart_endpointing {
-                samples(8.0)
-            } else {
-                0
-            },
+            smart_window_samples: if smart_endpointing { samples(8.0) } else { 0 },
             active: false,
             smart_audio: VecDeque::new(),
             buffered_samples: 0,

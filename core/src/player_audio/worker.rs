@@ -1406,12 +1406,7 @@ impl Engine {
         }
         self.status.lock().expect("player status").players = players;
     }
-    fn publish_spatial_state(
-        &mut self,
-        now: Instant,
-        voice_enabled: bool,
-        update_proximity: bool,
-    ) {
+    fn publish_spatial_state(&mut self, now: Instant, voice_enabled: bool, update_proximity: bool) {
         let (enabled, local_view, visible, valid_until) = self.proximity.visibility(
             self.view_priority_config.enabled && voice_enabled,
             self.view_priority_config.horizontal_fov_deg,

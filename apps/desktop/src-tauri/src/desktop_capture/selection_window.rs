@@ -590,15 +590,7 @@ unsafe fn paint_cached_dirty(dc: HDC, picker: &mut Picker, dirty: RECT) -> bool 
         RestoreDC(buf_dc, saved);
     }
     BitBlt(
-        dc,
-        dirty.left,
-        dirty.top,
-        dirty_w,
-        dirty_h,
-        buf_dc,
-        dirty.left,
-        dirty.top,
-        SRCCOPY,
+        dc, dirty.left, dirty.top, dirty_w, dirty_h, buf_dc, dirty.left, dirty.top, SRCCOPY,
     );
     true
 }

@@ -320,11 +320,21 @@ impl Device {
             };
             let dst = &mut pixels[row * row_bytes..(row + 1) * row_bytes];
             if bgra {
-                for (pixel, out) in data.as_chunks::<4>().0.iter().zip(dst.as_chunks_mut::<4>().0) {
+                for (pixel, out) in data
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(dst.as_chunks_mut::<4>().0)
+                {
                     *out = [pixel[2], pixel[1], pixel[0], 255];
                 }
             } else {
-                for (pixel, out) in data.as_chunks::<4>().0.iter().zip(dst.as_chunks_mut::<4>().0) {
+                for (pixel, out) in data
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(dst.as_chunks_mut::<4>().0)
+                {
                     *out = [pixel[0], pixel[1], pixel[2], 255];
                 }
             }

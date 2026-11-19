@@ -156,11 +156,7 @@ impl WorldWatcher {
             self.world_name = None;
         }
         if length > self.offset {
-            let bytes = read_range(
-                file,
-                self.offset,
-                (length - self.offset).min(READ_CHUNK),
-            )?;
+            let bytes = read_range(file, self.offset, (length - self.offset).min(READ_CHUNK))?;
             self.offset += bytes.len() as u64;
             self.partial.extend(bytes);
             if let Some(end) = self.partial.iter().rposition(|byte| *byte == b'\n') {

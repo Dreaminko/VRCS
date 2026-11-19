@@ -127,9 +127,8 @@ impl Database {
         let mut texts = std::collections::HashMap::with_capacity(ids.len());
         for chunk in ids.chunks(500) {
             let placeholders = vec!["?"; chunk.len()].join(", ");
-            let sql = format!(
-                "SELECT id, text FROM subtitle_translations WHERE id IN ({placeholders})"
-            );
+            let sql =
+                format!("SELECT id, text FROM subtitle_translations WHERE id IN ({placeholders})");
             let mut statement = self.conn.prepare(&sql)?;
             let mut rows = statement.query(rusqlite::params_from_iter(chunk))?;
             while let Some(row) = rows.next()? {
