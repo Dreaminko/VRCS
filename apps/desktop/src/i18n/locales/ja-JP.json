@@ -843,6 +843,12 @@
       },
       "features": {
         "title": "機能の選択",
+        "mode": "機能モード",
+        "modes": {
+          "translation_only": "翻訳のみ",
+          "full": "全機能",
+          "custom": "カスタム"
+        },
         "glossary": "用語集",
         "learning": "辞書と学習",
         "anki": "Anki",

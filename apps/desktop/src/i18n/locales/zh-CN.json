@@ -843,6 +843,12 @@
       },
       "features": {
         "title": "功能选项",
+        "mode": "功能模式",
+        "modes": {
+          "translation_only": "仅翻译",
+          "full": "全功能",
+          "custom": "自定义"
+        },
         "glossary": "术语表",
         "learning": "词典与学习",
         "anki": "Anki",

@@ -843,6 +843,12 @@
       },
       "features": {
         "title": "Features",
+        "mode": "Feature preset",
+        "modes": {
+          "translation_only": "Translation only",
+          "full": "All features",
+          "custom": "Custom"
+        },
         "glossary": "Glossary",
         "learning": "Dictionary and learning",
         "anki": "Anki",
