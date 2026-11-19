@@ -761,6 +761,7 @@
     "settings": {
       "downloads": {
         "source": "Download source",
+        "sourceDescription": "Choose where VRCS downloads local models and runtimes.",
         "auto": "Automatic",
         "official": "Official source",
         "modelscope": "ModelScope mirror"
@@ -2020,7 +2021,21 @@
         "privacyTitle": "Local first",
         "privacyDescription": "VRCS does not save raw audio. Cloud recognition sends only detected speech segments.",
         "realtimeTitle": "Live subtitles",
-        "realtimeDescription": "Capture system output, VRChat process audio, and your microphone."
+        "realtimeDescription": "Capture system output, VRChat process audio, and your microphone.",
+        "featureModeTitle": "Feature mode",
+        "featureModes": {
+          "translation_only": {
+            "summary": "Focus on live captions and translation"
+          },
+          "full": {
+            "summary": "Enable all features"
+          },
+          "custom": {
+            "summary": "Pick individual modules yourself or keep your current setup."
+          }
+        },
+        "featureCustomHint": "Turning a module off hides its pages and actions without deleting saved settings or data.",
+        "featureModeFootnote": "Changes take effect immediately. You can switch modes or toggle individual features anytime under Settings › System › Features."
       },
       "recognition": {
         "description": "Choose cloud recognition or run Qwen locally. Local recognition does not upload speech.",
@@ -2081,7 +2096,10 @@
         "microphone": "Microphone",
         "microphoneSkipped": "Your microphone will not be captured",
         "microphoneReady": "The microphone and trigger threshold are confirmed",
+        "featureMode": "Feature mode",
+        "featureModeValue": "{{mode}} — you can adjust this anytime under Settings › System › Features",
         "nextHint": "Translation, dictionaries, OSC, and Anki can be configured later under Settings.",
+        "nextHintTranslationOnly": "Translation, glossaries, and OSC can be configured later under Settings. You can switch feature modes anytime under System › Features.",
         "finish": "Open main interface"
       },
       "errors": {

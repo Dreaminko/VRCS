@@ -761,6 +761,7 @@
     "settings": {
       "downloads": {
         "source": "下载源",
+        "sourceDescription": "选择下载本地模型和运行时的来源。",
         "auto": "自动选择",
         "official": "官方源",
         "modelscope": "ModelScope 镜像"
@@ -2020,7 +2021,21 @@
         "privacyTitle": "本地优先",
         "privacyDescription": "VRCS 不保存原始音频；使用云端识别时，只发送检测到的语音片段。",
         "realtimeTitle": "实时字幕",
-        "realtimeDescription": "支持系统输出、VRChat 进程音频和自己的麦克风。"
+        "realtimeDescription": "支持系统输出、VRChat 进程音频和自己的麦克风。",
+        "featureModeTitle": "选择功能模式",
+        "featureModes": {
+          "translation_only": {
+            "summary": "专注于实时字幕与翻译"
+          },
+          "full": {
+            "summary": "开启所有功能"
+          },
+          "custom": {
+            "summary": "自由组合所需模块，或保留当前配置。"
+          }
+        },
+        "featureCustomHint": "关闭任意模块只会隐藏其界面与入口，不会删除已保存的配置、词典或学习数据。",
+        "featureModeFootnote": "选择会立即保存；之后可随时在“设置 › 系统 › 功能选项”中切换预设或逐项调整。"
       },
       "recognition": {
         "description": "选择云端识别或在本机运行 Qwen。本地识别不会上传语音。",
@@ -2081,7 +2096,10 @@
         "microphone": "麦克风",
         "microphoneSkipped": "已选择不采集自己的声音",
         "microphoneReady": "麦克风和触发阈值已确认",
+        "featureMode": "功能模式",
+        "featureModeValue": "{{mode}} — 之后可随时在“设置 › 系统 › 功能选项”调整",
         "nextHint": "翻译、词典、OSC 和 Anki 可在设置中继续配置。",
+        "nextHintTranslationOnly": "翻译、术语表和 OSC 可在设置中继续配置；如需启用其他模块，可随时前往“设置 › 系统 › 功能选项”切换。",
         "finish": "进入主界面"
       },
       "errors": {

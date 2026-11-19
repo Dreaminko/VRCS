@@ -13,6 +13,7 @@ export function useOnboardingAudio({
   devices,
   devicesReady,
   onSave,
+  onUpdateSettings,
   clearMessage,
   showError,
 }: {
@@ -20,6 +21,7 @@ export function useOnboardingAudio({
   devices: AudioDevice[];
   devicesReady: boolean;
   onSave: (settings: Settings) => Promise<Settings>;
+  onUpdateSettings?: (update: (current: Settings) => Settings) => Promise<Settings>;
   clearMessage: () => void;
   showError: (reason: unknown, fallbackKey?: string) => void;
 }) {
@@ -37,7 +39,7 @@ export function useOnboardingAudio({
     setBusy(true);
     clearMessage();
     try {
-      await onSave(update(settings));
+      await (onUpdateSettings ? onUpdateSettings(update) : onSave(update(settings)));
     } catch (reason) {
       showError(reason, "errors.settings.apply");
     } finally {

@@ -761,6 +761,7 @@
     "settings": {
       "downloads": {
         "source": "下載來源",
+        "sourceDescription": "選擇下載本機模型與執行階段的來源。",
         "auto": "自動選擇",
         "official": "官方來源",
         "modelscope": "ModelScope 鏡像"
@@ -2020,7 +2021,21 @@
         "privacyTitle": "本機優先",
         "privacyDescription": "VRCS 不儲存原始音訊；使用雲端辨識時，只傳送偵測到的語音片段。",
         "realtimeTitle": "即時字幕",
-        "realtimeDescription": "擷取系統輸出、VRChat 程序音訊和你的麥克風。"
+        "realtimeDescription": "擷取系統輸出、VRChat 程序音訊和你的麥克風。",
+        "featureModeTitle": "選擇功能模式",
+        "featureModes": {
+          "translation_only": {
+            "summary": "專注於即時字幕與翻譯"
+          },
+          "full": {
+            "summary": "開啟所有功能"
+          },
+          "custom": {
+            "summary": "自由組合所需模組，或保留目前設定。"
+          }
+        },
+        "featureCustomHint": "關閉任意模組只會隱藏其頁面與入口，不會刪除已儲存的設定、字典或學習資料。",
+        "featureModeFootnote": "選擇會立即儲存；之後可隨時在「設定 › 系統 › 功能選項」切換預設或逐項調整。"
       },
       "recognition": {
         "description": "選擇雲端辨識或在本機執行 Qwen。本機辨識不會上傳語音。",
@@ -2081,7 +2096,10 @@
         "microphone": "麥克風",
         "microphoneSkipped": "不會擷取你的麥克風音訊",
         "microphoneReady": "麥克風和觸發門檻值已確認",
+        "featureMode": "功能模式",
+        "featureModeValue": "{{mode}} — 之後可隨時在「設定 › 系統 › 功能選項」調整",
         "nextHint": "日後可在「設定」中設定翻譯、辭典、OSC 和 Anki。",
+        "nextHintTranslationOnly": "日後可在「設定」中設定翻譯、術語表與 OSC；如需啟用其他模組，可隨時前往「設定 › 系統 › 功能選項」切換。",
         "finish": "進入主介面"
       },
       "errors": {

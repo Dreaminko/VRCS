@@ -761,6 +761,7 @@
     "settings": {
       "downloads": {
         "source": "ダウンロード元",
+        "sourceDescription": "ローカルモデルやランタイムのダウンロード元を選択します。",
         "auto": "自動選択",
         "official": "公式サイト",
         "modelscope": "ModelScope ミラー"
@@ -2020,7 +2021,21 @@
         "privacyTitle": "ローカル優先",
         "privacyDescription": "VRCS は生の音声を保存しません。クラウド認識では、検出された発話区間だけを送信します。",
         "realtimeTitle": "リアルタイム字幕",
-        "realtimeDescription": "システム出力、VRChat のプロセス音声、自分のマイクを取得できます。"
+        "realtimeDescription": "システム出力、VRChat のプロセス音声、自分のマイクを取得できます。",
+        "featureModeTitle": "機能モードの選択",
+        "featureModes": {
+          "translation_only": {
+            "summary": "リアルタイム字幕と翻訳に集中します"
+          },
+          "full": {
+            "summary": "すべての機能を有効にします"
+          },
+          "custom": {
+            "summary": "必要な機能を個別に選ぶか、現在の構成を維持します。"
+          }
+        },
+        "featureCustomHint": "機能をオフにしても関連ページや操作が非表示になるだけで、保存済みの設定やデータは削除されません。",
+        "featureModeFootnote": "選択はすぐに保存されます。後から「設定 › システム › 機能の選択」でいつでも切り替え・調整できます。"
       },
       "recognition": {
         "description": "クラウド認識またはローカル Qwen を選択します。ローカル認識では音声をアップロードしません。",
@@ -2081,7 +2096,10 @@
         "microphone": "マイク",
         "microphoneSkipped": "自分のマイク音声は取得しません",
         "microphoneReady": "マイクとトリガーしきい値を確認済み",
+        "featureMode": "機能モード",
+        "featureModeValue": "{{mode}} — 後から「設定 › システム › 機能の選択」でいつでも調整できます",
         "nextHint": "翻訳、辞書、OSC、Anki は設定画面で後から設定できます。",
+        "nextHintTranslationOnly": "翻訳、用語集、OSC は設定画面で後から設定できます。他の機能が必要な場合は「設定 › システム › 機能の選択」からいつでも切り替えられます。",
         "finish": "メイン画面へ進む"
       },
       "errors": {

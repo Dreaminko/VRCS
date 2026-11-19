@@ -57,6 +57,7 @@ export function OnboardingEntry({
             onStartMicrophoneTest={capture.startMicrophoneTest}
             onStopMicrophoneTest={capture.stopMicrophoneTest}
             onSave={settings.save}
+            onUpdateSettings={settings.update}
             onProgress={onboarding.saveProgress}
             onSkip={onboarding.skip}
             onComplete={onboarding.finish}

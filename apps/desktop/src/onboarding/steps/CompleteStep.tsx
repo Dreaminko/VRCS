@@ -1,16 +1,22 @@
-import { Check, Volume2 } from "lucide-react";
+import { Blocks, Check, Volume2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+
+import { matchFeaturePreset } from "../../settings/feature-presets";
+import type { FeatureSettings } from "../../settings/types";
 
 export function CompleteStep({
   recognitionMode,
   audioReady,
   microphoneDisabled,
+  features,
 }: {
   recognitionMode: "cloud" | "local";
   audioReady: boolean;
   microphoneDisabled: boolean;
+  features?: FeatureSettings;
 }) {
   const { t } = useTranslation();
+  const featureMode = features ? (matchFeaturePreset(features) ?? "custom") : null;
 
   return (
     <div className="onboarding-complete">
@@ -21,8 +27,26 @@ export function CompleteStep({
         <article><Check size={16} /><span><strong>{t("onboarding.complete.recognition")}</strong><small>{recognitionMode === "local" ? t("onboarding.complete.localReady") : t("onboarding.complete.cloudReady")}</small></span></article>
         <article>{audioReady ? <Check size={16} /> : <Volume2 size={16} />}<span><strong>{t("onboarding.complete.audio")}</strong><small>{t(audioReady ? "onboarding.complete.audioReady" : "onboarding.complete.audioNotReady")}</small></span></article>
         <article><Check size={16} /><span><strong>{t("onboarding.complete.microphone")}</strong><small>{microphoneDisabled ? t("onboarding.complete.microphoneSkipped") : t("onboarding.complete.microphoneReady")}</small></span></article>
+        {featureMode && (
+          <article>
+            <Blocks size={16} />
+            <span>
+              <strong>{t("onboarding.complete.featureMode")}</strong>
+              <small>{t("onboarding.complete.featureModeValue", { mode: t(`settings.features.modes.${featureMode}`) })}</small>
+            </span>
+          </article>
+        )}
       </div>
-      <div className="onboarding-next-hints"><span>{t("onboarding.complete.nextHint")}</span><div><span>{t("settings.categories.translation")}</span><span>{t("settings.categories.learning")}</span><span>{t("settings.categories.connections")}</span></div></div>
+      <div className="onboarding-next-hints">
+        <span>{features && !features.learning ? t("onboarding.complete.nextHintTranslationOnly") : t("onboarding.complete.nextHint")}</span>
+        <div>
+          <span>{t("settings.categories.translation")}</span>
+          {features?.glossary && <span>{t("settings.categories.glossary")}</span>}
+          {(!features || features.learning) && <span>{t("settings.categories.learning")}</span>}
+          {features?.vr_overlay && <span>{t("settings.categories.vrOverlay")}</span>}
+          <span>{t("settings.categories.connections")}</span>
+        </div>
+      </div>
     </div>
   );
 }
