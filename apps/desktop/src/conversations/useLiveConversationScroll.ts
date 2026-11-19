@@ -68,11 +68,10 @@ export function useLiveConversationScroll({
 
   useLayoutEffect(() => {
     smoothLiveScrollRef.current = false;
+    previousLiveScrollTopRef.current = 0;
     if (page === "live") return;
     const scrollRegion = liveScrollRef.current;
-    if (!scrollRegion) return;
-    scrollRegion.scrollTop = 0;
-    previousLiveScrollTopRef.current = 0;
+    if (scrollRegion) scrollRegion.scrollTop = 0;
   }, [page]);
 
   useLayoutEffect(() => {
@@ -164,20 +163,13 @@ export function useLiveConversationScroll({
 
   useEffect(() => {
     if (!liveAutoScrollActive || !followingLiveSubtitles) return;
-    let frame = window.requestAnimationFrame(autoScrollLiveViewToBottom);
     // Delta updates grow the preview without changing the saved conversation.
-    const observer = new ResizeObserver(() => {
-      window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(autoScrollLiveViewToBottom);
-    });
+    const observer = new ResizeObserver(autoScrollLiveViewToBottom);
     const scrollRegion = liveScrollRef.current;
     if (scrollRegion) observer.observe(scrollRegion);
     const content = scrollRegion?.firstElementChild;
     if (content) observer.observe(content);
-    return () => {
-      observer.disconnect();
-      window.cancelAnimationFrame(frame);
-    };
+    return () => observer.disconnect();
   }, [
     autoScrollLiveViewToBottom,
     followingLiveSubtitles,

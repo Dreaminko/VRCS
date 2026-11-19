@@ -23,7 +23,7 @@ export function WorkspaceFrame({ page, toolbar, scrollRef, onScroll, children }:
 
   return <div className="workspace-frame" ref={frameRef}>
     {page === "live" && toolbar && <div className="live-toolbar">{toolbar}</div>}
-    <div className="app-scroll-region" ref={scrollRef} onScroll={onScroll}>
+    <div key={page} className="app-scroll-region" ref={scrollRef} onScroll={onScroll}>
       <main className={`workspace workspace-${page}`}>{children}</main>
     </div>
   </div>;

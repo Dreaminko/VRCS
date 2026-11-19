@@ -23,6 +23,8 @@
   max-width: 72%;
   flex-direction: column;
   align-items: flex-start;
+}
+.conversation > .message-group:not(:nth-last-child(-n+20)) {
   content-visibility: auto;
   contain-intrinsic-size: auto 96px;
 }
