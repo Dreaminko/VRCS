@@ -912,7 +912,18 @@ async fn execute_send(
     SendExecution::Completed(outcome, completed_at)
 }
 
-fn execute_osc_effect(
+fn next_tick_deadline(state: &OscWorkerState) -> Option<Instant> {
+    let front = state.queue.front()?;
+    if !state.config.config.enabled || state.config.send_gate != SendGate::Open {
+        return Some(Instant::now());
+    }
+    Some(match state.last_send {
+        Some(sent) => front.ready_at.max(sent + SEND_INTERVAL),
+        None => front.ready_at,
+    })
+}
+
+async fn execute_osc_effect(
     effect: OscEffect,
     status: &Arc<Mutex<OscRuntimeStatus>>,
     db: Option<&Arc<Mutex<Database>>>,
@@ -934,56 +945,50 @@ fn execute_osc_effect(
             mut request,
             outcome,
         } => {
-            let mut runtime = status.lock().expect("OSC status lock");
-            match outcome {
-                OscSendOutcome::Sent { sent_at } => {
-                    runtime.status = "ready".into();
-                    runtime.last_error = None;
-                    runtime.last_sent_at = Some(sent_at.clone());
-                    record_automatic_message(AutomaticMessageRecord {
-                        db,
-                        events,
-                        message: &request.message,
-                        rendered_text: &request.rendered_text,
-                        outcome: AutomaticMessageOutcome {
-                            status: "sent",
-                            error_detail: None,
-                            sent_at: Some(sent_at.clone()),
-                        },
-                        formatting: AutomaticMessageFormatting {
-                            preserve_original_text: request.preserve_original_text,
-                            translation_strategy: &request.translation_strategy,
-                        },
-                    });
-                    if let Some(responder) = request.message.responder.take() {
-                        let _ = responder.send(Ok(sent_at));
+            let responder = request.message.responder.take();
+            let (outcome_status, error_detail, sent_at) = match &outcome {
+                OscSendOutcome::Sent { sent_at } => ("sent", None, Some(sent_at.clone())),
+                OscSendOutcome::Failed(error) => ("failed", Some(error.as_str()), None),
+            };
+            {
+                let mut runtime = status.lock().expect("OSC status lock");
+                match &outcome {
+                    OscSendOutcome::Sent { sent_at } => {
+                        runtime.status = "ready".into();
+                        runtime.last_error = None;
+                        runtime.last_sent_at = Some(sent_at.clone());
+                    }
+                    OscSendOutcome::Failed(error) => {
+                        runtime.status = "error".into();
+                        runtime.last_error = Some(error.clone());
                     }
                 }
-                OscSendOutcome::Failed(error) => {
-                    runtime.status = "error".into();
-                    runtime.last_error = Some(error.clone());
-                    record_automatic_message(AutomaticMessageRecord {
-                        db,
-                        events,
-                        message: &request.message,
-                        rendered_text: &request.rendered_text,
-                        outcome: AutomaticMessageOutcome {
-                            status: "failed",
-                            error_detail: Some(&error),
-                            sent_at: None,
-                        },
-                        formatting: AutomaticMessageFormatting {
-                            preserve_original_text: request.preserve_original_text,
-                            translation_strategy: &request.translation_strategy,
-                        },
-                    });
-                    if let Some(responder) = request.message.responder.take() {
-                        let _ = responder.send(Err(ManualSendError {
-                            code: "osc.send_failed",
-                            detail: error,
-                        }));
-                    }
-                }
+            }
+            record_automatic_message(AutomaticMessageRecord {
+                db,
+                events,
+                message: &request.message,
+                rendered_text: &request.rendered_text,
+                outcome: AutomaticMessageOutcome {
+                    status: outcome_status,
+                    error_detail,
+                    sent_at,
+                },
+                formatting: AutomaticMessageFormatting {
+                    preserve_original_text: request.preserve_original_text,
+                    translation_strategy: &request.translation_strategy,
+                },
+            })
+            .await;
+            if let Some(responder) = responder {
+                let reply = match outcome {
+                    OscSendOutcome::Sent { sent_at } => Ok(sent_at),
+                    OscSendOutcome::Failed(error) => Err(ManualSendError {
+                        code: "osc.send_failed",
+                        detail: error,
+                    }),
+                };
+                let _ = responder.send(reply);
             }
         }
     }
@@ -998,10 +1003,19 @@ async fn run_worker(
 ) {
     let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await;
     let mut state = OscWorkerState::new(config_rx.borrow().clone());
-    let mut tick = tokio::time::interval(Duration::from_millis(50));
-    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     'worker: loop {
+        let tick_sleep = async {
+            match next_tick_deadline(&state) {
+                Some(deadline) => {
+                    let delay = deadline.saturating_duration_since(Instant::now());
+                    if !delay.is_zero() {
+                        tokio::time::sleep(delay).await;
+                    }
+                }
+                None => std::future::pending::<()>().await,
+            }
+        };
         let input = tokio::select! {
             biased;
             changed = config_rx.changed() => {
@@ -1020,12 +1034,12 @@ async fn run_worker(
                     generated_message_id,
                 }
             }
-            _ = tick.tick() => OscWorkerInput::Tick(Instant::now()),
+            _ = tick_sleep => OscWorkerInput::Tick(Instant::now()),
         };
         let mut effects = VecDeque::from(reduce_osc_event(&mut state, input));
         while let Some(effect) = effects.pop_front() {
             let OscEffect::Send(request) = effect else {
-                execute_osc_effect(effect, &status, db.as_ref(), &events);
+                execute_osc_effect(effect, &status, db.as_ref(), &events).await;
                 continue;
             };
             match execute_send(&socket, &mut config_rx, &request).await {
@@ -1049,7 +1063,7 @@ async fn run_worker(
     }
 }
 
-fn record_automatic_message(record: AutomaticMessageRecord<'_>) {
+async fn record_automatic_message(record: AutomaticMessageRecord<'_>) {
     let AutomaticMessageRecord {
         db,
         events,
@@ -1074,6 +1088,7 @@ fn record_automatic_message(record: AutomaticMessageRecord<'_>) {
         (Some(value), false) => ("translation", value.to_owned()),
         (None, _) => ("original", original),
     };
+    let status_is_sent = outcome.status == "sent";
     let record = NewChatboxMessage {
         source: "microphone".into(),
         original: selected_original(message, formatting.translation_strategy).into(),
@@ -1093,14 +1108,20 @@ fn record_automatic_message(record: AutomaticMessageRecord<'_>) {
         created_at: now_iso8601(),
         sent_at: outcome.sent_at,
     };
-    if let Ok(database) = db.lock() {
-        match database.add_chatbox_message(&record) {
-            Ok(saved) if outcome.status == "sent" => {
-                events.chatbox_sent(&message.message_id, &saved)
-            }
-            Ok(_) => {}
-            Err(error) => tracing::warn!("Failed to store automatic Chatbox history: {error}"),
-        }
+    let message_id = message.message_id.clone();
+    let db = Arc::clone(db);
+    let result = tokio::task::spawn_blocking(move || {
+        let database = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+        database
+            .add_chatbox_message(&record)
+            .map_err(|error| error.to_string())
+    })
+    .await;
+    match result {
+        Ok(Ok(saved)) if status_is_sent => events.chatbox_sent(&message_id, &saved),
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => tracing::warn!("Failed to store automatic Chatbox history: {error}"),
+        Err(error) => tracing::warn!("Automatic Chatbox persistence task failed: {error}"),
     }
 }
 

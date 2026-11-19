@@ -42,7 +42,7 @@ pub(super) async fn ws_handler(
 
 pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
     let mut receiver = state.content.subtitle_output.subscribe_subtitles();
-    let mut recognition_receiver = state.integrations.domain_events.subscribe();
+    let mut recognition_receiver = state.integrations.domain_events.subscribe_ui();
     let mut live_receiver = state.capture.live_tx.subscribe();
     let mut catalog_receiver = state.content.conversation_catalog_tx.subscribe();
     let mut translation_receiver = state.content.subtitle_output.subscribe_translations();

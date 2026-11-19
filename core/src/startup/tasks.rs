@@ -1,7 +1,5 @@
 use std::net::SocketAddr;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
 
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -205,23 +203,33 @@ fn spawn_room_marker_recorder(
     mut shutdown: watch::Receiver<bool>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_millis(250));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut log_rx = state.capture.vrchat_log.subscribe();
+        let mut recording_rx = state.capture.subscribe_capture_requested();
         let mut last_name: Option<String> = None;
         let mut was_recording = false;
         loop {
+            let recording = *recording_rx.borrow_and_update();
+            let name = log_rx.borrow_and_update().world_name.clone();
+            let switched = name != last_name;
+            if recording && name.is_some() && (switched || !was_recording) {
+                if let Err(error) =
+                    record_room_marker(&state, name.as_deref().unwrap_or_default()).await
+                {
+                    tracing::warn!(%error, "VRChat room marker could not be stored");
+                }
+            }
+            last_name = name;
+            was_recording = recording;
             tokio::select! {
-                _ = interval.tick() => {
-                    let recording = state.capture.capture_requested.load(Ordering::SeqCst);
-                    let name = state.capture.vrchat_log.snapshot().world_name;
-                    let switched = name != last_name;
-                    if recording && name.is_some() && (switched || !was_recording) {
-                        if let Err(error) = record_room_marker(&state, name.as_deref().unwrap_or_default()).await {
-                            tracing::warn!(%error, "VRChat room marker could not be stored");
-                        }
+                changed = log_rx.changed() => {
+                    if changed.is_err() {
+                        break;
                     }
-                    last_name = name;
-                    was_recording = recording;
+                }
+                changed = recording_rx.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
                 }
                 changed = shutdown.changed() => {
                     if changed.is_err() || *shutdown.borrow() {

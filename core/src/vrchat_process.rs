@@ -67,9 +67,7 @@ pub(crate) fn game() -> Result<Option<(ProcessIdentity, PathBuf)>, String> {
                 .iter()
                 .position(|c| *c == 0)
                 .unwrap_or(entry.szExeFile.len());
-            if String::from_utf16_lossy(&entry.szExeFile[..length])
-                .eq_ignore_ascii_case("VRChat.exe")
-            {
+            if matches_exe_name(&entry.szExeFile[..length], b"VRChat.exe") {
                 if let Ok(owner) = identity(entry.th32ProcessID) {
                     found = Some(owner);
                     break;
@@ -102,4 +100,13 @@ pub(crate) fn game() -> Result<Option<(ProcessIdentity, PathBuf)>, String> {
             PathBuf::from(String::from_utf16_lossy(&path[..length as usize])),
         )))
     }
+}
+
+#[cfg(windows)]
+fn matches_exe_name(units: &[u16], expected: &[u8]) -> bool {
+    units.len() == expected.len()
+        && units
+            .iter()
+            .zip(expected)
+            .all(|(&unit, &byte)| unit <= 0x7f && (unit as u8).eq_ignore_ascii_case(&byte))
 }

@@ -822,10 +822,7 @@ pub(super) async fn capture_start(
             return Err(error);
         }
     };
-    state
-        .capture
-        .capture_requested
-        .store(true, Ordering::SeqCst);
+    state.capture.set_capture_requested(true);
     Ok(Json(json!({
         "running": true,
         "device": device,
@@ -838,10 +835,7 @@ pub(super) async fn capture_stop(State(state): State<CaptureContext>) -> Json<Va
         tracing::warn!(%error, "could not cancel Qwen ASR startup");
     }
     let _control = state.capture.capture_control.lock().await;
-    state
-        .capture
-        .capture_requested
-        .store(false, Ordering::SeqCst);
+    state.capture.set_capture_requested(false);
     stop_pipelines(&state, CaptureReloadPlan::all()).await;
     if let Err(error) = state.capture.qwen_runtime.stop().await {
         tracing::warn!(%error, "could not stop managed Qwen ASR runtime after capture");

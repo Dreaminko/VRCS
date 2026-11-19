@@ -54,6 +54,7 @@ impl DomainEvent {
 #[derive(Clone)]
 pub struct DomainEventHub {
     sender: broadcast::Sender<DomainEvent>,
+    ui_sender: broadcast::Sender<DomainEvent>,
 }
 
 impl Default for DomainEventHub {
@@ -65,52 +66,65 @@ impl Default for DomainEventHub {
 impl DomainEventHub {
     pub fn new() -> Self {
         let (sender, _) = broadcast::channel(256);
-        Self { sender }
+        let (ui_sender, _) = broadcast::channel(256);
+        Self { sender, ui_sender }
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<DomainEvent> {
         self.sender.subscribe()
     }
 
+    pub fn subscribe_ui(&self) -> broadcast::Receiver<DomainEvent> {
+        self.ui_sender.subscribe()
+    }
+
     pub fn live_translation(&self, source: &str, snapshot: &crate::models::LiveTranslation) {
-        self.publish(DomainEvent::new(
-            "translation.live_updated",
-            &snapshot.utterance_id,
-            source,
-            json!(snapshot),
-        ));
+        self.publish_ui_and_external(|| {
+            DomainEvent::new(
+                "translation.live_updated",
+                &snapshot.utterance_id,
+                source,
+                json!(snapshot),
+            )
+        });
     }
 
     pub fn asr_partial(&self, message_id: &str, source: &str, text: &str, language: Option<&str>) {
-        self.publish(DomainEvent::new(
-            "asr.partial",
-            message_id,
-            source,
-            json!({ "text": text, "language": language }),
-        ));
+        self.publish_ui_and_external(|| {
+            DomainEvent::new(
+                "asr.partial",
+                message_id,
+                source,
+                json!({ "text": text, "language": language }),
+            )
+        });
     }
 
     pub fn speaker_updated(&self, speaker: &crate::models::SpeakerIdentity) {
-        self.publish(DomainEvent::new(
-            "asr.speaker_updated",
-            &speaker.id,
-            "speaker",
-            json!({ "speaker": speaker }),
-        ));
+        self.publish_ui_and_external(|| {
+            DomainEvent::new(
+                "asr.speaker_updated",
+                &speaker.id,
+                "speaker",
+                json!({ "speaker": speaker }),
+            )
+        });
     }
 
     pub fn asr_final(&self, message_id: &str, subtitle: &Subtitle) {
-        self.publish(DomainEvent::new(
-            "asr.final",
-            message_id,
-            &subtitle.source,
-            json!({
-                "subtitle_id": subtitle.id,
-                "text": subtitle.text,
-                "language": subtitle.language,
-                "subtitle": subtitle,
-            }),
-        ));
+        self.publish_ui_and_external(|| {
+            DomainEvent::new(
+                "asr.final",
+                message_id,
+                &subtitle.source,
+                json!({
+                    "subtitle_id": subtitle.id,
+                    "text": subtitle.text,
+                    "language": subtitle.language,
+                    "subtitle": subtitle,
+                }),
+            )
+        });
     }
 
     pub fn asr_player_partial(
@@ -121,34 +135,40 @@ impl DomainEventHub {
         language: Option<&str>,
         speaker: &crate::models::SpeakerIdentity,
     ) {
-        self.publish(DomainEvent::new(
-            "asr.partial",
-            message_id,
-            source,
-            json!({ "text": text, "language": language, "speaker": speaker }),
-        ));
+        self.publish_ui_and_external(|| {
+            DomainEvent::new(
+                "asr.partial",
+                message_id,
+                source,
+                json!({ "text": text, "language": language, "speaker": speaker }),
+            )
+        });
     }
 
     pub fn asr_cancelled(&self, message_id: &str, source: &str, reason: &str) {
-        self.publish(DomainEvent::new(
-            "asr.cancelled",
-            message_id,
-            source,
-            json!({ "reason": reason }),
-        ));
+        self.publish_ui_and_external(|| {
+            DomainEvent::new(
+                "asr.cancelled",
+                message_id,
+                source,
+                json!({ "reason": reason }),
+            )
+        });
     }
 
     pub fn asr_reset(&self, source: &str) {
-        self.publish(DomainEvent::new("asr.reset", "session", source, json!({})));
+        self.publish_ui_and_external(|| DomainEvent::new("asr.reset", "session", source, json!({})));
     }
 
     pub fn asr_failed(&self, message_id: Option<&str>, source: &str, code: &str, detail: &str) {
-        self.publish(DomainEvent::new(
-            "asr.failed",
-            message_id.unwrap_or("session"),
-            source,
-            json!({ "utterance_id": message_id, "code": code, "detail": detail }),
-        ));
+        self.publish_ui_and_external(|| {
+            DomainEvent::new(
+                "asr.failed",
+                message_id.unwrap_or("session"),
+                source,
+                json!({ "utterance_id": message_id, "code": code, "detail": detail }),
+            )
+        });
     }
 
     pub fn translation_started(
@@ -158,12 +178,14 @@ impl DomainEventHub {
         subtitle_id: i64,
         target_language: &str,
     ) {
-        self.publish(DomainEvent::new(
-            "translation.started",
-            message_id,
-            source,
-            json!({ "subtitle_id": subtitle_id, "target_language": target_language }),
-        ));
+        self.publish_external(|| {
+            DomainEvent::new(
+                "translation.started",
+                message_id,
+                source,
+                json!({ "subtitle_id": subtitle_id, "target_language": target_language }),
+            )
+        });
     }
 
     pub fn translation_partial(
@@ -174,16 +196,18 @@ impl DomainEventHub {
         text: &str,
         target_language: &str,
     ) {
-        self.publish(DomainEvent::new(
-            "translation.partial",
-            message_id,
-            source,
-            json!({
-                "subtitle_id": subtitle_id,
-                "text": text,
-                "target_language": target_language,
-            }),
-        ));
+        self.publish_external(|| {
+            DomainEvent::new(
+                "translation.partial",
+                message_id,
+                source,
+                json!({
+                    "subtitle_id": subtitle_id,
+                    "text": text,
+                    "target_language": target_language,
+                }),
+            )
+        });
     }
 
     pub fn translation_completed(
@@ -193,12 +217,14 @@ impl DomainEventHub {
         subtitle_id: i64,
         translation: &SubtitleTranslation,
     ) {
-        self.publish(DomainEvent::new(
-            "translation.completed",
-            message_id,
-            source,
-            json!({ "subtitle_id": subtitle_id, "translation": translation }),
-        ));
+        self.publish_external(|| {
+            DomainEvent::new(
+                "translation.completed",
+                message_id,
+                source,
+                json!({ "subtitle_id": subtitle_id, "translation": translation }),
+            )
+        });
     }
 
     pub fn translation_failed(
@@ -210,30 +236,55 @@ impl DomainEventHub {
         code: &str,
         detail: &str,
     ) {
-        self.publish(DomainEvent::new(
-            "translation.failed",
-            message_id,
-            source,
-            json!({
-                "subtitle_id": subtitle_id,
-                "target_language": target_language,
-                "code": code,
-                "detail": detail,
-            }),
-        ));
+        self.publish_external(|| {
+            DomainEvent::new(
+                "translation.failed",
+                message_id,
+                source,
+                json!({
+                    "subtitle_id": subtitle_id,
+                    "target_language": target_language,
+                    "code": code,
+                    "detail": detail,
+                }),
+            )
+        });
     }
 
     pub fn chatbox_sent(&self, message_id: &str, message: &ChatboxMessage) {
-        self.publish(DomainEvent::new(
-            "chatbox.sent",
-            message_id,
-            "chatbox",
-            json!({ "message": message }),
-        ));
+        self.publish_external(|| {
+            DomainEvent::new(
+                "chatbox.sent",
+                message_id,
+                "chatbox",
+                json!({ "message": message }),
+            )
+        });
     }
 
-    fn publish(&self, event: DomainEvent) {
-        let _ = self.sender.send(event);
+    fn publish_external(&self, build: impl FnOnce() -> DomainEvent) {
+        if self.sender.receiver_count() > 0 {
+            let _ = self.sender.send(build());
+        }
+    }
+
+    fn publish_ui_and_external(&self, build: impl FnOnce() -> DomainEvent) {
+        let external = self.sender.receiver_count() > 0;
+        let ui = self.ui_sender.receiver_count() > 0;
+        match (external, ui) {
+            (false, false) => {}
+            (true, false) => {
+                let _ = self.sender.send(build());
+            }
+            (false, true) => {
+                let _ = self.ui_sender.send(build());
+            }
+            (true, true) => {
+                let event = build();
+                let _ = self.ui_sender.send(event.clone());
+                let _ = self.sender.send(event);
+            }
+        }
     }
 }
 

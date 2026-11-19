@@ -13,6 +13,8 @@ const LINE_LIMIT: usize = 4096;
 pub(super) struct WorldWatcher {
     directory: PathBuf,
     started: SystemTime,
+    file: Option<File>,
+    dir_modified: Option<SystemTime>,
     path: Option<PathBuf>,
     offset: u64,
     search_end: Option<u64>,
@@ -43,6 +45,8 @@ impl WorldWatcher {
         Self {
             directory,
             started,
+            file: None,
+            dir_modified: None,
             path: None,
             offset: 0,
             search_end: None,
@@ -59,6 +63,8 @@ impl WorldWatcher {
     pub fn poll(&mut self) -> bool {
         if self.refresh().is_err() {
             self.ready = false;
+            self.file = None;
+            self.dir_modified = None;
         }
         self.ready && self.caught_up
     }
@@ -89,43 +95,57 @@ impl WorldWatcher {
     }
 
     fn refresh(&mut self) -> std::io::Result<()> {
-        let earliest = self
-            .started
-            .checked_sub(Duration::from_secs(2))
-            .unwrap_or(self.started);
-        let newest = fs::read_dir(&self.directory)?
-            .filter_map(Result::ok)
-            .filter_map(|entry| {
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
-                if !name.starts_with("output_log_") || !name.ends_with(".txt") {
-                    return None;
+        let dir_modified = fs::metadata(&self.directory)?.modified().ok();
+        let mut path_changed = false;
+        if self.file.is_none() || dir_modified.is_none() || dir_modified != self.dir_modified {
+            let earliest = self
+                .started
+                .checked_sub(Duration::from_secs(2))
+                .unwrap_or(self.started);
+            let newest = fs::read_dir(&self.directory)?
+                .filter_map(Result::ok)
+                .filter_map(|entry| {
+                    let name = entry.file_name();
+                    let name = name.to_string_lossy();
+                    if !name.starts_with("output_log_") || !name.ends_with(".txt") {
+                        return None;
+                    }
+                    let metadata = entry.metadata().ok()?;
+                    let created = metadata.created().or_else(|_| metadata.modified()).ok()?;
+                    (metadata.is_file() && created >= earliest).then(|| (created, entry.path()))
+                })
+                .max_by_key(|(created, _)| *created)
+                .map(|(_, path)| path);
+            let Some(path) = newest else {
+                self.file = None;
+                self.path = None;
+                self.dir_modified = dir_modified;
+                self.ready = false;
+                self.identity_stamp = None;
+                self.world_stamp = None;
+                self.world_name = None;
+                self.name_search_end = None;
+                return Ok(());
+            };
+            path_changed = self.path.as_ref() != Some(&path);
+            if path_changed || self.file.is_none() {
+                let mut options = OpenOptions::new();
+                options.read(true);
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::OpenOptionsExt;
+                    options.share_mode(7);
                 }
-                let metadata = entry.metadata().ok()?;
-                let created = metadata.created().or_else(|_| metadata.modified()).ok()?;
-                (metadata.is_file() && created >= earliest).then(|| (created, entry.path()))
-            })
-            .max_by_key(|(created, _)| *created)
-            .map(|(_, path)| path);
-        let Some(path) = newest else {
-            self.ready = false;
-            self.identity_stamp = None;
-            self.world_stamp = None;
-            self.world_name = None;
-            self.name_search_end = None;
-            return Ok(());
-        };
-        let mut options = OpenOptions::new();
-        options.read(true);
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::OpenOptionsExt;
-            options.share_mode(7);
+                self.file = Some(options.open(&path)?);
+                self.path = Some(path);
+            }
+            self.dir_modified = dir_modified;
         }
-        let mut file = options.open(&path)?;
+        let file = self.file.as_mut().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, "VRChat log file missing")
+        })?;
         let length = file.metadata()?.len();
-        if self.path.as_ref() != Some(&path) || length < self.offset {
-            self.path = Some(path);
+        if path_changed || length < self.offset {
             self.identity_stamp = None;
             self.world_stamp = None;
             self.offset = length;
@@ -137,7 +157,7 @@ impl WorldWatcher {
         }
         if length > self.offset {
             let bytes = read_range(
-                &mut file,
+                file,
                 self.offset,
                 (length - self.offset).min(READ_CHUNK),
             )?;
@@ -162,11 +182,12 @@ impl WorldWatcher {
                 self.partial.clear();
             }
         }
+        let mut reused_chunk: Option<(u64, Vec<u8>)> = None;
         if let Some(end) = self.search_end {
             let begin = end.saturating_sub(READ_CHUNK);
             // Overlap covers a marker line split across backwards read blocks.
             let overlap = begin.saturating_sub(LINE_LIMIT as u64);
-            let bytes = read_range(&mut file, overlap, end - overlap)?;
+            let bytes = read_range(file, overlap, end - overlap)?;
             keep_latest_stamp(
                 &mut self.identity_stamp,
                 identity_marker(&bytes, overlap, true),
@@ -190,13 +211,21 @@ impl WorldWatcher {
                     self.partial.extend_from_slice(&bytes);
                 }
             }
+            reused_chunk = Some((end, bytes));
         }
         if let Some(end) = self.name_search_end {
             let begin = end.saturating_sub(READ_CHUNK);
-            // Overlap covers a name line split across backwards read blocks.
-            let overlap = begin.saturating_sub(LINE_LIMIT as u64);
-            let bytes = read_range(&mut file, overlap, end - overlap)?;
-            if let Some(update) = latest_name_update(&bytes) {
+            let fetched;
+            let bytes = match &reused_chunk {
+                Some((cached_end, bytes)) if *cached_end == end => bytes.as_slice(),
+                _ => {
+                    // Overlap covers a name line split across backwards read blocks.
+                    let overlap = begin.saturating_sub(LINE_LIMIT as u64);
+                    fetched = read_range(file, overlap, end - overlap)?;
+                    fetched.as_slice()
+                }
+            };
+            if let Some(update) = latest_name_update(bytes) {
                 self.world_name = update.into_name();
                 self.name_search_end = None;
             } else {
