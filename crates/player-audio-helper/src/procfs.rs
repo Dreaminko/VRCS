@@ -352,10 +352,18 @@ mod tests {
         let address = socket.local_addr().unwrap();
         let port = address.port();
         let cached = super::udp_endpoints(pid);
-        let inode = super::flow_inode(&cached, [127, 0, 0, 1], port, [192, 0, 2, 1], 27002)
-            .unwrap();
+        let inode =
+            super::flow_inode(&cached, [127, 0, 0, 1], port, [192, 0, 2, 1], 27002).unwrap();
         let confirmed = || {
-            super::confirms_flow(pid, starttime, inode, [127, 0, 0, 1], port, [192, 0, 2, 1], 27002)
+            super::confirms_flow(
+                pid,
+                starttime,
+                inode,
+                [127, 0, 0, 1],
+                port,
+                [192, 0, 2, 1],
+                27002,
+            )
         };
         assert!(confirmed());
         // IPv6 loopback does not overlap this IPv4 binding, but procfs cannot

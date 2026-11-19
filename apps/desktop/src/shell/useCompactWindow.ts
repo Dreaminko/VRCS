@@ -179,6 +179,8 @@ export function useCompactWindow({
       );
       const appWindow = getCurrentWindow();
       if (next) {
+        const capabilities = await runtimeApi.platformCapabilities();
+        if (capabilities?.always_on_top.available) await invoke("set_compact_window_topmost", { enabled: true });
         panelStateRef.current = false;
         requestedPanelStateRef.current = false;
         const compactSize = compactWindowSize(
@@ -190,8 +192,6 @@ export function useCompactWindow({
         await appWindow.setSize(new LogicalSize(compactSize.width, compactSize.height));
         nativeHeightRef.current = compactSize.height;
         await appWindow.setResizable(true);
-        const capabilities = await runtimeApi.platformCapabilities();
-        if (capabilities?.always_on_top.available) await invoke("set_compact_window_topmost", { enabled: true });
         setHeight(compactSize.height);
       } else {
         const capabilities = await runtimeApi.platformCapabilities();

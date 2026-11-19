@@ -175,6 +175,7 @@ jobs:
       - name: Check native CPU and Vulkan backends and test CPU
         run: |
           for manifest in core/Cargo.toml apps/desktop/src-tauri/Cargo.toml crates/player-audio-scan/Cargo.toml crates/player-audio-helper/Cargo.toml; do
+            cargo fmt --manifest-path "$manifest" -- --check
             cargo clippy --locked --manifest-path "$manifest" --all-targets -- -D warnings
             dbus-run-session -- xvfb-run -a cargo test --locked --manifest-path "$manifest"
             if [ "$manifest" = core/Cargo.toml ] || [ "$manifest" = apps/desktop/src-tauri/Cargo.toml ]; then

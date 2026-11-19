@@ -68,7 +68,12 @@ pub struct ChatboxCapabilities {
 }
 
 pub(crate) const fn managed_inference_supported() -> bool {
-    cfg!(all(windows, target_arch = "x86_64")) || cfg!(all(target_os = "linux", target_env = "gnu", any(target_arch = "x86_64", target_arch = "aarch64")))
+    cfg!(all(windows, target_arch = "x86_64"))
+        || cfg!(all(
+            target_os = "linux",
+            target_env = "gnu",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))
 }
 
 pub(crate) const fn qwen_vulkan_supported() -> bool {

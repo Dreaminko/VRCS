@@ -32,8 +32,10 @@ pub(crate) async fn snapshot(state: &AppState) -> PlatformCapabilities {
     let plamo = state.content.plamo_runtime.snapshot().await;
     let ocr = state.config.local_ocr.execution_status();
     let managed = platform::managed_inference_supported();
-    let (credentials_available, credentials_reason) = tokio::task::spawn_blocking(crate::credentials::storage_capability)
-        .await.unwrap_or((false, Some("credentials.no_service")));
+    let (credentials_available, credentials_reason) =
+        tokio::task::spawn_blocking(crate::credentials::storage_capability)
+            .await
+            .unwrap_or((false, Some("credentials.no_service")));
     let qwen_installed = if managed {
         let manager = Arc::clone(&state.capture.model_manager);
         let package = state
@@ -73,7 +75,11 @@ pub(crate) async fn snapshot(state: &AppState) -> PlatformCapabilities {
         os: std::env::consts::OS,
         arch: std::env::consts::ARCH,
         audio: AudioCapabilities {
-            microphone: Capability::runtime(cfg!(any(windows, target_os = "linux")), microphone, audio_reason),
+            microphone: Capability::runtime(
+                cfg!(any(windows, target_os = "linux")),
+                microphone,
+                audio_reason,
+            ),
             system_output: Capability::runtime(
                 cfg!(any(windows, target_os = "linux")),
                 system_output,
@@ -200,8 +206,14 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(capabilities["inference"]["vad_cpu"]["available"], false);
-        assert_eq!(capabilities["inference"]["local_translation"]["supported"], crate::platform_capabilities::local_translation_supported());
-        assert_eq!(capabilities["inference"]["local_translation"]["available"], false);
+        assert_eq!(
+            capabilities["inference"]["local_translation"]["supported"],
+            crate::platform_capabilities::local_translation_supported()
+        );
+        assert_eq!(
+            capabilities["inference"]["local_translation"]["available"],
+            false
+        );
         assert_eq!(capabilities["chatbox"]["osc_send"]["supported"], true);
         assert_eq!(
             capabilities["audio"]["player_audio"]["supported"],
@@ -242,12 +254,20 @@ mod tests {
         );
         let preview: Value = request(reqwest::Method::POST, "/api/translations/preview")
             .json(&json!({"text": "hello", "source_language": "en", "target_language": "ja"}))
-            .send().await.unwrap().json().await.unwrap();
-        assert_eq!(preview["code"], if crate::platform_capabilities::local_translation_supported() {
-            "translation.local_model_missing"
-        } else {
-            "platform.local_translation_unavailable"
-        });
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            preview["code"],
+            if crate::platform_capabilities::local_translation_supported() {
+                "translation.local_model_missing"
+            } else {
+                "platform.local_translation_unavailable"
+            }
+        );
         let mut selection = before.clone();
         selection["audio"]["output"]["player_audio"]["proximity"]["radius_m"] = json!(5.0);
         let saved: Value = request(reqwest::Method::PUT, "/api/settings")

@@ -241,7 +241,8 @@ impl TranslationService {
             ));
         }
         let api_key = if profile.requires_api_key() {
-            credentials::read_credential_async(&profile.id, &profile.provider).await
+            credentials::read_credential_async(&profile.id, &profile.provider)
+                .await
                 .map_err(|detail| error("translation.credential_failed", detail, false))?
                 .ok_or_else(|| {
                     error(

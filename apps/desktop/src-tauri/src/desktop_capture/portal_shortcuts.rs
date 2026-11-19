@@ -76,8 +76,10 @@ fn trigger(shortcut: &str) -> Result<String, String> {
 
 fn configured_bindings(app: &AppHandle) -> (Option<String>, Option<String>) {
     (
-        app.state::<crate::desktop_ocr::Manager>().shortcut_binding(),
-        app.state::<crate::desktop_vision::Manager>().shortcut_binding(),
+        app.state::<crate::desktop_ocr::Manager>()
+            .shortcut_binding(),
+        app.state::<crate::desktop_vision::Manager>()
+            .shortcut_binding(),
     )
 }
 
@@ -111,10 +113,6 @@ pub async fn desktop_capture_register_shortcuts(
     }
     if shortcuts.is_empty() {
         return Err("capture.shortcuts_disabled".into());
-    }
-    let previous = app.state::<Manager>().task.lock().unwrap().take();
-    if let Some(previous) = previous {
-        previous.close().await;
     }
     let proxy = GlobalShortcuts::new()
         .await
@@ -180,8 +178,20 @@ pub async fn desktop_capture_register_shortcuts(
         task.abort();
         return Err("capture.shortcuts_changed".into());
     }
-    *app.state::<Manager>().task.lock().unwrap() = Some(Registration {
-        stop, task, session: guard, config, bindings,
-    });
+    let previous = app
+        .state::<Manager>()
+        .task
+        .lock()
+        .unwrap()
+        .replace(Registration {
+            stop,
+            task,
+            session: guard,
+            config,
+            bindings,
+        });
+    if let Some(previous) = previous {
+        previous.close().await;
+    }
     Ok(())
 }

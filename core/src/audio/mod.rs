@@ -214,9 +214,14 @@ impl AudioCapture {
                 validate_device_key(Some(key), self.source)?;
                 Some(key.to_owned())
             }
-            None => device_id.map(|id| platform::resolve_device_id(id, self.source)).transpose()?,
+            None => device_id
+                .map(|id| platform::resolve_device_id(id, self.source))
+                .transpose()?,
         };
-        let target = platform::CaptureTarget::Device { backend_id, direction };
+        let target = platform::CaptureTarget::Device {
+            backend_id,
+            direction,
+        };
         self.start_session(target)
     }
 
@@ -302,7 +307,9 @@ impl AudioCapture {
         }
         match session.rx.recv().await {
             Some(frame) => Ok(frame),
-            None => Err(session.status.as_ref()
+            None => Err(session
+                .status
+                .as_ref()
                 .and_then(|status| status.try_iter().find_map(Result::err))
                 .unwrap_or_else(|| AudioError::new("Audio capture has stopped"))),
         }
@@ -392,14 +399,25 @@ pub fn list_devices() -> Result<Vec<AudioDevice>, AudioError> {
 }
 
 /// Explicit device identities must resolve within the selected backend and direction.
-pub(crate) fn validate_device_key(key: Option<&str>, source: CaptureSource) -> Result<(), AudioError> {
+pub(crate) fn validate_device_key(
+    key: Option<&str>,
+    source: CaptureSource,
+) -> Result<(), AudioError> {
     #[cfg(target_os = "linux")]
     if let Some(key) = key {
         let loopback = source == CaptureSource::Speaker;
-        return list_devices()?.into_iter()
-            .find(|device| device.is_loopback == loopback && device.device_key.as_deref() == Some(key))
+        return list_devices()?
+            .into_iter()
+            .find(|device| {
+                device.is_loopback == loopback && device.device_key.as_deref() == Some(key)
+            })
             .map(|_| ())
-            .ok_or_else(|| AudioError::with_code("audio.device_unavailable", "The selected PipeWire device is no longer available"));
+            .ok_or_else(|| {
+                AudioError::with_code(
+                    "audio.device_unavailable",
+                    "The selected PipeWire device is no longer available",
+                )
+            });
     }
     let _ = source;
     if key.is_some() {
@@ -419,25 +437,28 @@ pub fn validate_device_id(
     #[cfg(target_os = "linux")]
     {
         let _ = (device_id, source);
-        Err(AudioError::with_code(crate::platform_capabilities::DEVICE_KEY_UNSUPPORTED, "Linux audio devices require a PipeWire device key; select the device again"))
+        Err(AudioError::with_code(
+            crate::platform_capabilities::DEVICE_KEY_UNSUPPORTED,
+            "Linux audio devices require a PipeWire device key; select the device again",
+        ))
     }
     #[cfg(not(target_os = "linux"))]
     {
-    let expected_loopback = source == CaptureSource::Speaker;
-    platform::list_devices()?
-        .into_iter()
-        .find(|item| item.id == device_id && item.is_loopback == expected_loopback)
-        .ok_or_else(|| {
-            let label = if expected_loopback {
-                "system output"
-            } else {
-                "microphone"
-            };
-            AudioError::with_code(
-                "audio.device_unavailable",
-                format!("The selected {label} device is no longer available"),
-            )
-        })
+        let expected_loopback = source == CaptureSource::Speaker;
+        platform::list_devices()?
+            .into_iter()
+            .find(|item| item.id == device_id && item.is_loopback == expected_loopback)
+            .ok_or_else(|| {
+                let label = if expected_loopback {
+                    "system output"
+                } else {
+                    "microphone"
+                };
+                AudioError::with_code(
+                    "audio.device_unavailable",
+                    format!("The selected {label} device is no longer available"),
+                )
+            })
     }
 }
 
@@ -562,12 +583,23 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires tests/pipewire-smoke.conf in a disposable runtime with WirePlumber; never the user's audio session"]
     async fn isolated_pipewire_captures_both_sources_and_stops_without_audio() {
-        assert_eq!(std::env::var("PIPEWIRE_REMOTE").as_deref(), Ok("vrcs-test-pipewire"));
+        assert_eq!(
+            std::env::var("PIPEWIRE_REMOTE").as_deref(),
+            Ok("vrcs-test-pipewire")
+        );
         let source = "pipewire:Audio/Source:vrcs-test-source";
         let sink = "pipewire:Audio/Sink:vrcs-test-sink";
         for graph_rate in [48_000, 44_100] {
             let status = std::process::Command::new("pw-metadata")
-                .args(["-n", "settings", "0", "clock.force-rate", &graph_rate.to_string()]).status().unwrap();
+                .args([
+                    "-n",
+                    "settings",
+                    "0",
+                    "clock.force-rate",
+                    &graph_rate.to_string(),
+                ])
+                .status()
+                .unwrap();
             assert!(status.success());
             let mut microphone = AudioCapture::new(16_000, CaptureSource::Microphone);
             let mut output = AudioCapture::new(16_000, CaptureSource::Speaker);
@@ -585,21 +617,50 @@ mod tests {
                 let output = output.expect("sink monitor PCM deadline");
                 let microphone = microphone.unwrap();
                 let output = output.unwrap();
-                assert_eq!((microphone.len(), output.len()), (CHUNK_FRAMES, CHUNK_FRAMES));
-                assert!(microphone.iter().chain(&output).all(|sample| sample.is_finite()));
-                microphone_energy += microphone.iter().map(|&sample| f64::from(sample).powi(2)).sum::<f64>();
-                output_energy += output.iter().map(|&sample| f64::from(sample).powi(2)).sum::<f64>();
+                assert_eq!(
+                    (microphone.len(), output.len()),
+                    (CHUNK_FRAMES, CHUNK_FRAMES)
+                );
+                assert!(microphone
+                    .iter()
+                    .chain(&output)
+                    .all(|sample| sample.is_finite()));
+                microphone_energy += microphone
+                    .iter()
+                    .map(|&sample| f64::from(sample).powi(2))
+                    .sum::<f64>();
+                output_energy += output
+                    .iter()
+                    .map(|&sample| f64::from(sample).powi(2))
+                    .sum::<f64>();
             }
-            assert!(microphone_energy > 1.0 && output_energy > 1.0, "virtual source/monitor tone missing");
+            assert!(
+                microphone_energy > 1.0 && output_energy > 1.0,
+                "virtual source/monitor tone missing"
+            );
             let stop = std::time::Instant::now();
             microphone.shutdown().await;
             output.shutdown().await;
             assert!(stop.elapsed() < std::time::Duration::from_secs(1));
-            eprintln!("PipeWire graph={graph_rate} mono16k samples={} capture_ms={} stop_ms={}", 24 * CHUNK_FRAMES, started.elapsed().as_millis(), stop.elapsed().as_millis());
+            eprintln!(
+                "PipeWire graph={graph_rate} mono16k samples={} capture_ms={} stop_ms={}",
+                24 * CHUNK_FRAMES,
+                started.elapsed().as_millis(),
+                stop.elapsed().as_millis()
+            );
         }
         let mut missing = AudioCapture::new(16_000, CaptureSource::Microphone);
-        assert_eq!(missing.start(None, Some("pipewire:Audio/Source:missing-source"), None).unwrap_err().code(), "audio.device_unavailable");
-        assert_eq!(missing.start(Some(1), None, None).unwrap_err().code(), "audio.device_reselection_required");
+        assert_eq!(
+            missing
+                .start(None, Some("pipewire:Audio/Source:missing-source"), None)
+                .unwrap_err()
+                .code(),
+            "audio.device_unavailable"
+        );
+        assert_eq!(
+            missing.start(Some(1), None, None).unwrap_err().code(),
+            "audio.device_reselection_required"
+        );
         let mut disconnected = AudioCapture::new(16_000, CaptureSource::Microphone);
         disconnected.start(None, Some(source), None).unwrap();
         let mut default_microphone = AudioCapture::new(16_000, CaptureSource::Microphone);
@@ -609,18 +670,41 @@ mod tests {
         let dump = std::process::Command::new("pw-dump").output().unwrap();
         assert!(dump.status.success());
         let graph: serde_json::Value = serde_json::from_slice(&dump.stdout).unwrap();
-        let id = graph.as_array().unwrap().iter().find(|node| node["info"]["props"]["node.name"] == "vrcs-test-source").unwrap()["id"].as_u64().unwrap();
-        assert!(std::process::Command::new("pw-cli").args(["destroy", &id.to_string()]).status().unwrap().success());
+        let id = graph
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|node| node["info"]["props"]["node.name"] == "vrcs-test-source")
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        assert!(std::process::Command::new("pw-cli")
+            .args(["destroy", &id.to_string()])
+            .status()
+            .unwrap()
+            .success());
         let failure = tokio::time::timeout(std::time::Duration::from_secs(3), async {
-            loop { if let Err(error) = disconnected.read().await { break error; } }
-        }).await.unwrap();
+            loop {
+                if let Err(error) = disconnected.read().await {
+                    break error;
+                }
+            }
+        })
+        .await
+        .unwrap();
         assert_eq!(failure.code(), "audio.device_unavailable");
         disconnected.shutdown().await;
         // A missing default must leave PCM open, while the explicit selection
         // above must fail instead of moving to another device.
-        assert!(tokio::time::timeout(std::time::Duration::from_millis(400), async {
-            loop { default_microphone.read().await.unwrap(); }
-        }).await.is_err());
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(400), async {
+                loop {
+                    default_microphone.read().await.unwrap();
+                }
+            })
+            .await
+            .is_err()
+        );
         assert!(std::process::Command::new("pw-cli").args(["create-node", "adapter",
             r#"{ factory.name = audiotestsrc node.name = vrcs-test-source node.group = test-clock media.class = Audio/Source node.driver = false object.linger = true audio.format = F32LE audio.rate = 48000 audio.channels = 2 audio.position = [ FL FR ] node.param.Props = { live = false wave = sine freq = 440 volume = 0.25 } }"#,
         ]).status().unwrap().success());
@@ -628,40 +712,91 @@ mod tests {
         for channel in ["FL", "FR"] {
             loop {
                 let status = std::process::Command::new("pw-link")
-                    .args([format!("vrcs-test-source:capture_{channel}"), format!("vrcs-test-sink:playback_{channel}")])
-                    .stderr(std::process::Stdio::null()).status().unwrap();
-                if status.success() { break; }
-                assert!(std::time::Instant::now() < deadline, "restored source ports did not appear");
+                    .args([
+                        format!("vrcs-test-source:capture_{channel}"),
+                        format!("vrcs-test-sink:playback_{channel}"),
+                    ])
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .unwrap();
+                if status.success() {
+                    break;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "restored source ports did not appear"
+                );
                 tokio::time::sleep(std::time::Duration::from_millis(25)).await;
             }
         }
-        let samples = tokio::time::timeout(std::time::Duration::from_secs(5), default_microphone.read()).await.unwrap().unwrap();
+        let samples =
+            tokio::time::timeout(std::time::Duration::from_secs(5), default_microphone.read())
+                .await
+                .unwrap()
+                .unwrap();
         assert!(samples.iter().all(|sample| sample.is_finite()));
-        assert!(samples.iter().any(|sample| sample.abs() > 0.01), "restored microphone has no tone");
-        eprintln!("PipeWire default source restored; checking sustained microphone and monitor capture");
+        assert!(
+            samples.iter().any(|sample| sample.abs() > 0.01),
+            "restored microphone has no tone"
+        );
+        eprintln!(
+            "PipeWire default source restored; checking sustained microphone and monitor capture"
+        );
         let mut energy = [0.0f64; 2];
         for _ in 0..48 {
             let (microphone, output) = tokio::join!(
                 tokio::time::timeout(std::time::Duration::from_secs(5), default_microphone.read()),
                 tokio::time::timeout(std::time::Duration::from_secs(5), default_output.read()),
             );
-            for (channel, samples) in [microphone.unwrap().unwrap(), output.unwrap().unwrap()].into_iter().enumerate() {
+            for (channel, samples) in [microphone.unwrap().unwrap(), output.unwrap().unwrap()]
+                .into_iter()
+                .enumerate()
+            {
                 assert_eq!(samples.len(), CHUNK_FRAMES);
                 assert!(samples.iter().all(|sample| sample.is_finite()));
-                energy[channel] += samples.iter().map(|&sample| f64::from(sample).powi(2)).sum::<f64>();
+                energy[channel] += samples
+                    .iter()
+                    .map(|&sample| f64::from(sample).powi(2))
+                    .sum::<f64>();
             }
         }
-        assert!(energy.iter().all(|energy| *energy > 1.0), "restored microphone/monitor tone missing");
+        assert!(
+            energy.iter().all(|energy| *energy > 1.0),
+            "restored microphone/monitor tone missing"
+        );
         // Both directions must also stop promptly while no default exists.
-        let graph: serde_json::Value = serde_json::from_slice(&std::process::Command::new("pw-dump").output().unwrap().stdout).unwrap();
+        let graph: serde_json::Value = serde_json::from_slice(
+            &std::process::Command::new("pw-dump")
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap();
         for name in ["vrcs-test-source", "vrcs-test-sink"] {
-            let id = graph.as_array().unwrap().iter().find(|node| node["info"]["props"]["node.name"] == name).unwrap()["id"].as_u64().unwrap();
-            assert!(std::process::Command::new("pw-cli").args(["destroy", &id.to_string()]).status().unwrap().success());
+            let id = graph
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|node| node["info"]["props"]["node.name"] == name)
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap();
+            assert!(std::process::Command::new("pw-cli")
+                .args(["destroy", &id.to_string()])
+                .status()
+                .unwrap()
+                .success());
         }
         for capture in [&mut default_microphone, &mut default_output] {
-            assert!(tokio::time::timeout(std::time::Duration::from_millis(400), async {
-                loop { capture.read().await.unwrap(); }
-            }).await.is_err());
+            assert!(
+                tokio::time::timeout(std::time::Duration::from_millis(400), async {
+                    loop {
+                        capture.read().await.unwrap();
+                    }
+                })
+                .await
+                .is_err()
+            );
             let stop = std::time::Instant::now();
             capture.shutdown().await;
             assert!(stop.elapsed() < std::time::Duration::from_secs(1));

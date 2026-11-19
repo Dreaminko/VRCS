@@ -343,7 +343,8 @@ pub(crate) async fn validate_capture_config(
         }
     } else {
         let asr = config.asr.clone();
-        crate::credentials::blocking(move || crate::asr::validate_cloud_connection(&asr)).await
+        crate::credentials::blocking(move || crate::asr::validate_cloud_connection(&asr))
+            .await
             .map_err(|error| api_error(StatusCode::CONFLICT, "asr.cloud_profile_invalid", error))?;
     }
     Ok(())
@@ -463,42 +464,44 @@ async fn start_speaker_pipeline(
         #[cfg(not(any(windows, target_os = "linux")))]
         {
             let _ = voice;
-            return Err(platform_error(crate::platform_capabilities::NETWORK_CAPTURE_UNSUPPORTED));
+            return Err(platform_error(
+                crate::platform_capabilities::NETWORK_CAPTURE_UNSUPPORTED,
+            ));
         }
         #[cfg(any(windows, target_os = "linux"))]
         {
-        let events = voice.ok_or_else(|| {
-            api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "capture.network_subscription_missing",
-                "The player audio subscription is unavailable",
-            )
-        })?;
-        let status = state.capture.network_session.lock().await.shared_status();
-        return state
-            .capture
-            .speaker_pipeline
-            .lock()
-            .await
-            .start_players(
-                &output.player_audio,
-                events,
-                status,
-                output.trigger_threshold_dbfs,
-                &config.vad,
-                asr,
-                echo_guard,
-                pipeline_dependencies(state),
-            )
-            .await
-            .map(Some)
-            .map_err(|error| {
+            let events = voice.ok_or_else(|| {
                 api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
-                    error.code(),
-                    error.to_string(),
+                    "capture.network_subscription_missing",
+                    "The player audio subscription is unavailable",
                 )
-            });
+            })?;
+            let status = state.capture.network_session.lock().await.shared_status();
+            return state
+                .capture
+                .speaker_pipeline
+                .lock()
+                .await
+                .start_players(
+                    &output.player_audio,
+                    events,
+                    status,
+                    output.trigger_threshold_dbfs,
+                    &config.vad,
+                    asr,
+                    echo_guard,
+                    pipeline_dependencies(state),
+                )
+                .await
+                .map(Some)
+                .map_err(|error| {
+                    api_error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        error.code(),
+                        error.to_string(),
+                    )
+                });
         }
     }
     state
@@ -831,10 +834,25 @@ pub(super) async fn capture_start(
     validate_platform_capture(&global)?;
     if has_audio_sources(&config) && config.asr.backend != QWEN_MANAGED_BACKEND {
         if let Some(profile) = active_asr_profile(&config.asr).cloned() {
-            tokio::task::spawn_blocking(move || crate::credentials::read_credential_for_use(&profile.id, &profile.provider))
-                .await.map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, "credentials.read_failed", error.to_string()))?
-                .map_err(|error| api_error(StatusCode::SERVICE_UNAVAILABLE,
-                    crate::credentials::error_reason_code(&error).unwrap_or("credentials.read_failed"), error))?;
+            tokio::task::spawn_blocking(move || {
+                crate::credentials::read_credential_for_use(&profile.id, &profile.provider)
+            })
+            .await
+            .map_err(|error| {
+                api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "credentials.read_failed",
+                    error.to_string(),
+                )
+            })?
+            .map_err(|error| {
+                api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    crate::credentials::error_reason_code(&error)
+                        .unwrap_or("credentials.read_failed"),
+                    error,
+                )
+            })?;
         }
     }
     validate_capture_config(&state, &config).await?;

@@ -174,7 +174,8 @@ impl TranscriptionPipeline {
         let device_key = device_key.map(str::to_owned);
         let (mut capture, device) = tokio::task::spawn_blocking(move || {
             let mut capture = AudioCapture::new(sample_rate, source_kind);
-            let device = capture.start(device_id, device_key.as_deref(), process_name.as_deref())?;
+            let device =
+                capture.start(device_id, device_key.as_deref(), process_name.as_deref())?;
             Ok::<_, AudioError>((capture, device))
         })
         .await

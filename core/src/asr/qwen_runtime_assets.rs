@@ -30,16 +30,38 @@ pub(in crate::asr) struct RuntimeAsset {
 }
 
 const WINDOWS_FILES: &[&str] = &[
-    "llama-server.exe", "llama-server-impl.dll", "llama.dll", "llama-common.dll",
-    "mtmd.dll", "ggml.dll", "ggml-base.dll", "ggml-vulkan.dll", "ggml-cpu-x64.dll",
-    "libomp.dll", "LICENSE", "LICENSE-LLVM-OpenMP",
+    "llama-server.exe",
+    "llama-server-impl.dll",
+    "llama.dll",
+    "llama-common.dll",
+    "mtmd.dll",
+    "ggml.dll",
+    "ggml-base.dll",
+    "ggml-vulkan.dll",
+    "ggml-cpu-x64.dll",
+    "libomp.dll",
+    "LICENSE",
+    "LICENSE-LLVM-OpenMP",
 ];
 const LINUX_FILES: &[&str] = &[
-    "llama-server", "libllama-server-impl.so", "libllama.so", "libllama.so.0",
-    "libllama.so.0.6.0", "libllama-common.so", "libllama-common.so.0",
-    "libllama-common.so.0.6.0", "libmtmd.so", "libmtmd.so.0", "libmtmd.so.0.6.0",
-    "libggml.so", "libggml.so.0", "libggml.so.0.26.0", "libggml-base.so",
-    "libggml-base.so.0", "libggml-base.so.0.26.0", "LICENSE",
+    "llama-server",
+    "libllama-server-impl.so",
+    "libllama.so",
+    "libllama.so.0",
+    "libllama.so.0.6.0",
+    "libllama-common.so",
+    "libllama-common.so.0",
+    "libllama-common.so.0.6.0",
+    "libmtmd.so",
+    "libmtmd.so.0",
+    "libmtmd.so.0.6.0",
+    "libggml.so",
+    "libggml.so.0",
+    "libggml.so.0.26.0",
+    "libggml-base.so",
+    "libggml-base.so.0",
+    "libggml-base.so.0.26.0",
+    "LICENSE",
 ];
 
 pub(in crate::asr) const WINDOWS: RuntimeAsset = RuntimeAsset {
@@ -102,7 +124,11 @@ pub(in crate::asr) const LINUX_VULKAN_ARM64: RuntimeAsset = RuntimeAsset {
     ..LINUX_ARM64
 };
 
-pub(in crate::asr) fn select(os: &str, arch: &str, backend: &str) -> Result<&'static RuntimeAsset, String> {
+pub(in crate::asr) fn select(
+    os: &str,
+    arch: &str,
+    backend: &str,
+) -> Result<&'static RuntimeAsset, String> {
     match (os, arch, backend) {
         ("windows", "x86_64", "vulkan") => Ok(&WINDOWS),
         ("linux", "x86_64", "cpu") => Ok(&LINUX_X64),
@@ -117,8 +143,15 @@ pub(in crate::asr) fn current() -> Result<&'static RuntimeAsset, String> {
     if cfg!(target_os = "linux") && !cfg!(target_env = "gnu") {
         return Err("Managed Linux Qwen runtime requires glibc".into());
     }
-    select(std::env::consts::OS, std::env::consts::ARCH,
-        if cfg!(windows) || cfg!(feature = "vulkan") { "vulkan" } else { "cpu" })
+    select(
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        if cfg!(windows) || cfg!(feature = "vulkan") {
+            "vulkan"
+        } else {
+            "cpu"
+        },
+    )
 }
 
 impl RuntimeAsset {
@@ -127,25 +160,54 @@ impl RuntimeAsset {
         if self.os == "windows" {
             root.join(self.version)
         } else {
-            root.join(self.os).join(self.arch).join(self.backend).join(self.version)
+            root.join(self.os)
+                .join(self.arch)
+                .join(self.backend)
+                .join(self.version)
         }
     }
 
     pub(in crate::asr) fn runtime_file(&self, name: &str) -> bool {
-        if self.required_files().any(|file| file == name) { return true; }
-        if name.contains(['/', '\\']) { return false; }
+        if self.required_files().any(|file| file == name) {
+            return true;
+        }
+        if name.contains(['/', '\\']) {
+            return false;
+        }
         if self.os == "windows" {
             (name.starts_with("ggml-cpu-") && name.ends_with(".dll")) || name == "ggml-rpc.dll"
         } else {
             let variants: &[&str] = match self.arch {
-                "x86_64" => &["x64", "sse42", "sandybridge", "ivybridge", "haswell", "skylakex",
-                    "cascadelake", "cannonlake", "icelake", "cooperlake", "alderlake",
-                    "sapphirerapids", "piledriver", "zen4"],
-                "aarch64" => &["armv8.0_1", "armv8.2_1", "armv8.2_2", "armv8.2_3",
-                    "armv8.6_1", "armv8.6_2", "armv9.2_1", "armv9.2_2"],
+                "x86_64" => &[
+                    "x64",
+                    "sse42",
+                    "sandybridge",
+                    "ivybridge",
+                    "haswell",
+                    "skylakex",
+                    "cascadelake",
+                    "cannonlake",
+                    "icelake",
+                    "cooperlake",
+                    "alderlake",
+                    "sapphirerapids",
+                    "piledriver",
+                    "zen4",
+                ],
+                "aarch64" => &[
+                    "armv8.0_1",
+                    "armv8.2_1",
+                    "armv8.2_2",
+                    "armv8.2_3",
+                    "armv8.6_1",
+                    "armv8.6_2",
+                    "armv9.2_1",
+                    "armv9.2_2",
+                ],
                 _ => return false,
             };
-            name.strip_prefix("libggml-cpu-").and_then(|n| n.strip_suffix(".so"))
+            name.strip_prefix("libggml-cpu-")
+                .and_then(|n| n.strip_suffix(".so"))
                 .is_some_and(|variant| variants.contains(&variant))
         }
     }
@@ -156,8 +218,8 @@ impl RuntimeAsset {
             ("linux", "aarch64") => Some("libggml-cpu-armv8.0_1.so"),
             _ => None,
         };
-        let vulkan = (self.os == "linux" && self.backend == "vulkan")
-            .then_some("libggml-vulkan.so");
+        let vulkan =
+            (self.os == "linux" && self.backend == "vulkan").then_some("libggml-vulkan.so");
         self.required_files.iter().copied().chain(cpu).chain(vulkan)
     }
 }

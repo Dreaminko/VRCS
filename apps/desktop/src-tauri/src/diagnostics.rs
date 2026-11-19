@@ -231,18 +231,7 @@ pub(crate) fn report_frontend_error(
 
 fn open_directory(path: &Path) -> Result<(), String> {
     std::fs::create_dir_all(path).map_err(|error| error.to_string())?;
-
-    #[cfg(target_os = "windows")]
-    let mut command = std::process::Command::new("explorer.exe");
-    #[cfg(target_os = "macos")]
-    let mut command = std::process::Command::new("open");
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let mut command = std::process::Command::new("xdg-open");
-
-    command
-        .arg(path)
-        .spawn()
-        .map(|_| ())
+    crate::open_external(path.as_os_str())
         .map_err(|error| format!("Failed to open log directory: {error}"))
 }
 

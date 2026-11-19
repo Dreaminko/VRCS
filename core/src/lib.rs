@@ -244,7 +244,9 @@ pub struct LoggingGuard {
 
 #[cfg(target_os = "linux")]
 pub fn linux_log_directory() -> PathBuf {
-    let state = std::env::var_os("XDG_STATE_HOME").map(PathBuf::from).filter(|path| path.is_absolute())
+    let state = std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))
         .expect("Linux requires HOME or an absolute XDG_STATE_HOME for persistent logs");
     state.join("vrcs/logs")
@@ -259,7 +261,10 @@ pub fn init_tracing(log_dir: Option<&Path>) -> Result<LoggingGuard, String> {
         #[cfg(target_os = "linux")]
         {
             use std::os::unix::fs::DirBuilderExt;
-            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(log_dir)
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(log_dir)
                 .map_err(|error| format!("Failed to create private log directory: {error}"))?;
         }
         #[cfg(not(target_os = "linux"))]

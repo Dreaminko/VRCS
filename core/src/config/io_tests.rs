@@ -12,8 +12,14 @@ fn config_and_existing_backups_are_private() {
     let path = parent.join("config.json");
     let config = AppConfig::default();
     super::save_config(&path, &config).unwrap();
-    assert_eq!(fs::metadata(&parent).unwrap().permissions().mode() & 0o777, 0o700);
-    assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(
+        fs::metadata(&parent).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
 
     let backup = path.with_extension("v41.backup.json");
     fs::copy(&path, &backup).unwrap();
@@ -22,7 +28,10 @@ fn config_and_existing_backups_are_private() {
     }
     assert_eq!(load_config(&path).unwrap(), config);
     for file in [&path, &backup] {
-        assert_eq!(fs::metadata(file).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            fs::metadata(file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
     assert_eq!(fs::read(&backup).unwrap(), fs::read(&path).unwrap());
 }

@@ -262,7 +262,9 @@ mod tests {
         binding.shortcut = Some("Shift+Ctrl+V".into());
         assert!(binding.registration().is_none());
         binding.paused = false;
-        assert_eq!(binding.registration().unwrap().unwrap(), Some((6, 86)));
+        let expected = super::shortcut::Shortcut::parse("Shift+Ctrl+V").unwrap();
+        assert_eq!(binding.registration().unwrap().unwrap(), Some(expected));
+        assert_eq!(expected.windows_registration(), (6, 86));
     }
 
     #[test]

@@ -123,7 +123,6 @@ impl Network {
         }
         Ok(())
     }
-
 }
 
 impl Drop for Network {

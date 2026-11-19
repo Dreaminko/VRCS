@@ -231,7 +231,8 @@ async fn test_recognition_service(
                 .map_err(|error| {
                     api_error(
                         StatusCode::SERVICE_UNAVAILABLE,
-                        crate::credentials::error_reason_code(&error).unwrap_or("asr.cloud_test_failed"),
+                        crate::credentials::error_reason_code(&error)
+                            .unwrap_or("asr.cloud_test_failed"),
                         error,
                     )
                 })?;
@@ -242,7 +243,8 @@ async fn test_recognition_service(
                 .map_err(|error| {
                     api_error(
                         StatusCode::SERVICE_UNAVAILABLE,
-                        crate::credentials::error_reason_code(&error).unwrap_or("asr.cloud_test_failed"),
+                        crate::credentials::error_reason_code(&error)
+                            .unwrap_or("asr.cloud_test_failed"),
                         error,
                     )
                 })?;

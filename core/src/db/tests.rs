@@ -21,12 +21,21 @@ fn database_is_private_on_creation_and_reopen() {
     let path = directory.path().join("history.db");
     let database = Database::open(&path).unwrap();
     database.add_subtitle(&subtitle("saved history")).unwrap();
-    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
     drop(database);
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
     let database = Database::open(&path).unwrap();
-    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
-    assert_eq!(database.subtitle_history(1).unwrap()[0].text, "saved history");
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        database.subtitle_history(1).unwrap()[0].text,
+        "saved history"
+    );
 }
 
 fn subtitle(text: &str) -> Subtitle {

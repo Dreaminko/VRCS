@@ -79,14 +79,18 @@ impl SettingsChangePlan {
         let credential_error = |detail: String| {
             api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                crate::credentials::error_reason_code(&detail).unwrap_or("profile.credential_store_failed"),
+                crate::credentials::error_reason_code(&detail)
+                    .unwrap_or("profile.credential_store_failed"),
                 detail,
             )
         };
-        let previous = crate::credentials::read_profile_stored_for_use_async(&profile.id, &profile.provider)
-            .await.map_err(credential_error)?;
+        let previous =
+            crate::credentials::read_profile_stored_for_use_async(&profile.id, &profile.provider)
+                .await
+                .map_err(credential_error)?;
         crate::credentials::write_credential_async(&profile.id, &profile.provider, api_key)
-            .await.map_err(credential_error)?;
+            .await
+            .map_err(credential_error)?;
         match Self::build(state, candidate, current, Some(&profile.id)).await {
             Ok(mut plan) => {
                 plan.credential = Some((profile.clone(), previous));

@@ -325,12 +325,16 @@ async fn managed_qwen_readiness_checks_the_session_token() {
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     let origin = format!("http://{address}");
 
-    assert!(probe_ready(&client, &origin, "secret", "vrcs-qwen", "Qwen ASR")
-        .await
-        .unwrap());
-    assert!(probe_ready(&client, &origin, "wrong", "vrcs-qwen", "Qwen ASR")
-        .await
-        .is_err());
+    assert!(
+        probe_ready(&client, &origin, "secret", "vrcs-qwen", "Qwen ASR")
+            .await
+            .unwrap()
+    );
+    assert!(
+        probe_ready(&client, &origin, "wrong", "vrcs-qwen", "Qwen ASR")
+            .await
+            .is_err()
+    );
     server.abort();
 }
 

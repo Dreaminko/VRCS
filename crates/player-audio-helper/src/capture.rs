@@ -265,7 +265,11 @@ struct Candidate<'a> {
     payload: &'a [u8],
 }
 
-fn parse<'a>(frame: &'a [u8], outgoing: bool, endpoints: &[procfs::Endpoint]) -> Option<Candidate<'a>> {
+fn parse<'a>(
+    frame: &'a [u8],
+    outgoing: bool,
+    endpoints: &[procfs::Endpoint],
+) -> Option<Candidate<'a>> {
     let (bytes, offset) = frame_layout(frame)?;
     let bytes = bytes.get(offset..)?;
     let datagram = packet::ipv4_udp(bytes)?;

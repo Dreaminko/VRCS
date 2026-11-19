@@ -109,7 +109,9 @@ pub fn save_config(path: &Path, config: &AppConfig) -> Result<(), String> {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file = options.open(&temporary).map_err(|error| error.to_string())?;
+        let mut file = options
+            .open(&temporary)
+            .map_err(|error| error.to_string())?;
         file.write_all(payload.as_bytes())
             .map_err(|error| error.to_string())?;
         file.sync_all().map_err(|error| error.to_string())?;

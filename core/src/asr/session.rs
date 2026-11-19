@@ -296,7 +296,8 @@ async fn credential_async(profile: &ApiProfile) -> Result<String, String> {
     if !profile.requires_api_key() {
         return Ok(String::new());
     }
-    crate::credentials::read_credential_async(&profile.id, &profile.provider).await?
+    crate::credentials::read_credential_async(&profile.id, &profile.provider)
+        .await?
         .ok_or_else(|| format!("API key is not configured for {}", profile.name))
 }
 

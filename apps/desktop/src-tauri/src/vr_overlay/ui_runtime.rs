@@ -640,21 +640,23 @@ impl UiRuntime {
         let samples: Vec<_> = inputs
             .into_iter()
             .map(|input| {
-                let hit = pointer.filter(|p| p.device == input.device.0).and_then(|p| {
-                    let region = match p.key.surface {
-                        Surface::Menu => {
-                            active_slider.or_else(|| menu_layout.as_ref()?.hit(p.point))?
-                        }
-                        Surface::Dialogue => dialogue_layout.as_ref()?.hit(p.point)?,
-                        Surface::Reader => reader_layout.as_ref()?.hit(p.point)?,
-                    };
-                    Some(Hit {
-                        key: p.key,
-                        region,
-                        point: p.point,
-                        distance: p.distance,
-                    })
-                });
+                let hit = pointer
+                    .filter(|p| p.device == input.device.0)
+                    .and_then(|p| {
+                        let region = match p.key.surface {
+                            Surface::Menu => {
+                                active_slider.or_else(|| menu_layout.as_ref()?.hit(p.point))?
+                            }
+                            Surface::Dialogue => dialogue_layout.as_ref()?.hit(p.point)?,
+                            Surface::Reader => reader_layout.as_ref()?.hit(p.point)?,
+                        };
+                        Some(Hit {
+                            key: p.key,
+                            region,
+                            point: p.point,
+                            distance: p.distance,
+                        })
+                    });
                 Sample {
                     device: input.device.0,
                     trigger: input.trigger,

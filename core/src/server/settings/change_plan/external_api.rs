@@ -25,13 +25,16 @@ impl ExternalApiChange {
             return Ok(());
         }
         let token = if candidate.external_api.enabled && candidate.external_api.require_token {
-            credentials::blocking(credentials::read_external_api_token).await.map_err(|error| {
-                api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    credentials::error_reason_code(&error).unwrap_or("external_api.token_status_failed"),
-                    error,
-                )
-            })?
+            credentials::blocking(credentials::read_external_api_token)
+                .await
+                .map_err(|error| {
+                    api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        credentials::error_reason_code(&error)
+                            .unwrap_or("external_api.token_status_failed"),
+                        error,
+                    )
+                })?
         } else {
             None
         };

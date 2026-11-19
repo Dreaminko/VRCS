@@ -52,7 +52,9 @@ impl MicrophoneMonitor {
             let mut capture = AudioCapture::new(sample_rate, CaptureSource::Microphone);
             let device = capture.start(device_id, device_key.as_deref(), None)?;
             Ok::<_, AudioError>((capture, device))
-        }).await.map_err(|error| AudioError::with_code("audio.start_task_failed", error.to_string()))??;
+        })
+        .await
+        .map_err(|error| AudioError::with_code("audio.start_task_failed", error.to_string()))??;
         let (stop_tx, mut stop_rx) = watch::channel(false);
         self.device = Some(device.clone());
         self.stop = Some(stop_tx);

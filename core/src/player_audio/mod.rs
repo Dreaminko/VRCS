@@ -9,15 +9,21 @@ mod chatbox;
 #[cfg(any(windows, target_os = "linux"))]
 pub(crate) use cache::SessionCache;
 #[cfg(any(windows, target_os = "linux", test))]
+mod connection;
+#[cfg(any(windows, target_os = "linux", test))]
 mod crypto;
 #[cfg(any(windows, test))]
 mod key;
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(any(windows, target_os = "linux", test))]
 mod names;
 #[cfg(any(windows, test))]
 mod ntfs;
 #[cfg(any(windows, target_os = "linux", test))]
 mod opus;
+#[cfg(any(windows, target_os = "linux"))]
+mod platform;
 mod priority;
 #[cfg(any(windows, target_os = "linux", test))]
 mod protocol;
@@ -25,12 +31,6 @@ mod protocol;
 mod proximity;
 #[cfg(test)]
 mod replay_tests;
-#[cfg(any(windows, target_os = "linux", test))]
-mod connection;
-#[cfg(target_os = "linux")]
-mod linux;
-#[cfg(any(windows, target_os = "linux"))]
-mod platform;
 
 #[cfg(any(windows, target_os = "linux"))]
 pub(crate) use priority::replace as publish_view_priority;

@@ -108,6 +108,19 @@ async fn freeze_inner(cancelled: Arc<AtomicBool>) -> Result<Option<Image>, Strin
     }
 }
 
+struct EnteredLoop(pipewire::main_loop::MainLoopRc);
+impl EnteredLoop {
+    fn new(mainloop: &pipewire::main_loop::MainLoopRc) -> Self {
+        unsafe { mainloop.loop_().enter() };
+        Self(mainloop.clone())
+    }
+}
+impl Drop for EnteredLoop {
+    fn drop(&mut self) {
+        unsafe { self.0.loop_().leave() };
+    }
+}
+
 fn receive_frame(
     fd: OwnedFd,
     node: u32,
@@ -120,6 +133,7 @@ fn receive_frame(
     };
     pw::init();
     let mainloop = pw::main_loop::MainLoopRc::new(None).map_err(|e| e.to_string())?;
+    let _entered = EnteredLoop::new(&mainloop);
     let context = pw::context::ContextRc::new(&mainloop, None).map_err(|e| e.to_string())?;
     let core = context.connect_fd_rc(fd, None).map_err(|e| e.to_string())?;
     let stream = pw::stream::StreamBox::new(&core, "VRCS authorized image", properties! {
@@ -137,15 +151,15 @@ fn receive_frame(
         })
         .state_changed(|_, data, _, state| {
             if let pw::stream::StreamState::Error(error) = state {
-                *data.result.borrow_mut() = Some(Err(
-                    if error.contains("no more input formats")
-                        || error.contains("no more output formats")
-                    {
-                        "capture.unsupported_format".into()
-                    } else {
-                        format!("capture.pipewire_failed: {error}")
-                    },
-                ));
+                let code = if error.contains("no more input formats")
+                    || error.contains("no more output formats")
+                {
+                    "capture.unsupported_format"
+                } else {
+                    tracing::warn!(%error, "PipeWire screen capture stream error");
+                    "capture.pipewire_failed"
+                };
+                *data.result.borrow_mut() = Some(Err(code.into()));
             }
         })
         .param_changed(|stream, data, id, param| {
@@ -293,7 +307,9 @@ fn receive_frame(
                 return;
             }
             let plane = &mut planes[0];
-            if plane.as_raw().chunk.is_null() || plane.chunk().size() == 0 {
+            if plane.as_raw().chunk.is_null()
+                || (plane.type_() != spa::buffer::DataType::DmaBuf && plane.chunk().size() == 0)
+            {
                 return;
             }
             if plane
@@ -403,9 +419,14 @@ fn receive_frame(
         if Instant::now() >= deadline {
             return Err("capture.frame_timeout".into());
         }
-        mainloop
-            .loop_()
-            .iterate(pw::loop_::Timeout::Finite(Duration::from_millis(40)));
+        if unsafe {
+            mainloop
+                .loop_()
+                .iterate_unguarded(pw::loop_::Timeout::Finite(Duration::from_millis(40)))
+        } < 0
+        {
+            return Err("capture.pipewire_failed".into());
+        }
     }
 }
 

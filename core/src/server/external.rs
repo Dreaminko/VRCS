@@ -13,12 +13,14 @@ pub(super) struct TokenInput {
 }
 
 pub(super) async fn token_status() -> ApiResult<Json<credentials::CredentialStatus>> {
-    credentials::blocking(credentials::external_api_token_status).await
+    credentials::blocking(credentials::external_api_token_status)
+        .await
         .map(Json)
         .map_err(|error| {
             api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                credentials::error_reason_code(&error).unwrap_or("external_api.token_status_failed"),
+                credentials::error_reason_code(&error)
+                    .unwrap_or("external_api.token_status_failed"),
                 error,
             )
         })
@@ -43,13 +45,16 @@ pub(super) async fn token_write(
 ) -> ApiResult<Json<credentials::CredentialStatus>> {
     credentials::finish_mutation(async move {
         let _config_control = state.config.config_control.lock().await;
-        let current = credentials::blocking(credentials::external_api_token_status).await.map_err(|error| {
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                credentials::error_reason_code(&error).unwrap_or("external_api.token_status_failed"),
-                error,
-            )
-        })?;
+        let current = credentials::blocking(credentials::external_api_token_status)
+            .await
+            .map_err(|error| {
+                api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    credentials::error_reason_code(&error)
+                        .unwrap_or("external_api.token_status_failed"),
+                    error,
+                )
+            })?;
         if current.environment_override {
             return Err(api_error(
                 StatusCode::CONFLICT,
@@ -57,22 +62,27 @@ pub(super) async fn token_write(
                 "VRCS_EXTERNAL_API_TOKEN overrides stored credentials",
             ));
         }
-        let previous = credentials::blocking(credentials::read_stored_external_api_token_for_use).await.map_err(|error| {
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                credentials::error_reason_code(&error).unwrap_or("external_api.token_status_failed"),
-                error,
-            )
-        })?;
+        let previous = credentials::blocking(credentials::read_stored_external_api_token_for_use)
+            .await
+            .map_err(|error| {
+                api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    credentials::error_reason_code(&error)
+                        .unwrap_or("external_api.token_status_failed"),
+                    error,
+                )
+            })?;
         let token = input.token.trim().to_string();
         let stored_token = token.clone();
-        credentials::blocking(move || credentials::write_external_api_token(&stored_token)).await.map_err(|error| {
-            api_error(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                credentials::error_reason_code(&error).unwrap_or("external_api.token_invalid"),
-                error,
-            )
-        })?;
+        credentials::blocking(move || credentials::write_external_api_token(&stored_token))
+            .await
+            .map_err(|error| {
+                api_error(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    credentials::error_reason_code(&error).unwrap_or("external_api.token_invalid"),
+                    error,
+                )
+            })?;
 
         let config =
             crate::config::apply_feature_gates(&state.config.config.read().expect("config lock"))
@@ -96,7 +106,15 @@ pub(super) async fn token_write(
             }
         }
         token_status().await
-    }).await.map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, "credentials.task_failed", error))?
+    })
+    .await
+    .map_err(|error| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "credentials.task_failed",
+            error,
+        )
+    })?
 }
 
 pub(super) async fn token_delete(
@@ -117,13 +135,16 @@ pub(super) async fn token_delete(
                 "Disable token authentication or the External API before deleting its token",
             ));
         }
-        let current = credentials::blocking(credentials::external_api_token_status).await.map_err(|error| {
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                credentials::error_reason_code(&error).unwrap_or("external_api.token_status_failed"),
-                error,
-            )
-        })?;
+        let current = credentials::blocking(credentials::external_api_token_status)
+            .await
+            .map_err(|error| {
+                api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    credentials::error_reason_code(&error)
+                        .unwrap_or("external_api.token_status_failed"),
+                    error,
+                )
+            })?;
         if current.environment_override {
             return Err(api_error(
                 StatusCode::CONFLICT,
@@ -131,20 +152,32 @@ pub(super) async fn token_delete(
                 "VRCS_EXTERNAL_API_TOKEN overrides stored credentials",
             ));
         }
-        credentials::blocking(credentials::delete_external_api_token).await.map_err(|error| {
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                credentials::error_reason_code(&error).unwrap_or("external_api.token_delete_failed"),
-                error,
-            )
-        })?;
+        credentials::blocking(credentials::delete_external_api_token)
+            .await
+            .map_err(|error| {
+                api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    credentials::error_reason_code(&error)
+                        .unwrap_or("external_api.token_delete_failed"),
+                    error,
+                )
+            })?;
         token_status().await
-    }).await.map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, "credentials.task_failed", error))?
+    })
+    .await
+    .map_err(|error| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "credentials.task_failed",
+            error,
+        )
+    })?
 }
 
 async fn restore_token(previous: Option<String>) -> Result<(), String> {
     credentials::blocking(move || match previous {
         Some(token) => credentials::write_external_api_token(&token),
         None => credentials::delete_external_api_token(),
-    }).await
+    })
+    .await
 }

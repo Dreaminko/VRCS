@@ -268,7 +268,9 @@ impl VisionService {
         let Ok(profile) = vision_profile(snapshot) else {
             return false;
         };
-        credential_async(profile).await.is_ok_and(|current| current == api_key)
+        credential_async(profile)
+            .await
+            .is_ok_and(|current| current == api_key)
     }
 
     async fn check_request(
@@ -461,7 +463,8 @@ impl VisionSession {
             );
         }
         self.service
-            .check_request(self.mode, &self.snapshot, &self.api_key).await
+            .check_request(self.mode, &self.snapshot, &self.api_key)
+            .await
     }
 }
 
@@ -536,7 +539,8 @@ async fn credential_async(profile: &ApiProfile) -> Result<String, String> {
     if !profile.requires_api_key() {
         return Ok(String::new());
     }
-    crate::credentials::read_credential_async(&profile.id, &profile.provider).await?
+    crate::credentials::read_credential_async(&profile.id, &profile.provider)
+        .await?
         .ok_or_else(|| "The image-input API credential is not configured".into())
 }
 
@@ -607,12 +611,16 @@ mod tests {
         tap: &MicrophoneTap,
         runtime: &tokio::runtime::Handle,
     ) -> Result<VisionSession, String> {
-        service.begin_with_capture(VisionMode::Vr, runtime, |device, _, seconds, _, microphone| {
-            assert_eq!(device, None);
-            let window = tap.begin_capture(seconds)?;
-            tap.started();
-            Ok(capture::QuestionCapture::from_window(window).with_microphone(microphone))
-        })
+        service.begin_with_capture(
+            VisionMode::Vr,
+            runtime,
+            |device, _, seconds, _, microphone| {
+                assert_eq!(device, None);
+                let window = tap.begin_capture(seconds)?;
+                tap.started();
+                Ok(capture::QuestionCapture::from_window(window).with_microphone(microphone))
+            },
+        )
     }
 
     #[tokio::test]

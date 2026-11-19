@@ -121,12 +121,11 @@ impl Manager {
 
     #[cfg(target_os = "linux")]
     pub fn shortcut_binding(&self) -> Option<String> {
-        self.state
-            .lock()
-            .unwrap()
-            .binding
-            .as_ref()
-            .and_then(|binding| binding.0.clone())
+        let state = self.state.lock().unwrap();
+        state
+            .status
+            .available
+            .then(|| state.status.shortcut.clone())
     }
 
     pub fn start(

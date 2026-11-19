@@ -172,7 +172,7 @@ fn open_project_link(target: String) -> Result<(), String> {
     open_browser(&project_link(&target)?)
 }
 
-fn open_browser(url: &str) -> Result<(), String> {
+pub(crate) fn open_external(target: &std::ffi::OsStr) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     let mut command = std::process::Command::new("explorer.exe");
     #[cfg(target_os = "macos")]
@@ -180,11 +180,28 @@ fn open_browser(url: &str) -> Result<(), String> {
     #[cfg(all(unix, not(target_os = "macos")))]
     let mut command = std::process::Command::new("xdg-open");
 
-    command
-        .arg(url)
+    #[cfg(all(unix, not(target_os = "macos")))]
+    if std::env::var_os("APPIMAGE").is_some() {
+        command
+            .env_remove("LD_LIBRARY_PATH")
+            .env_remove("LD_PRELOAD");
+    }
+
+    let mut child = command
+        .arg(target)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("Failed to open browser: {error}"))
+        .map_err(|error| error.to_string())?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
+fn open_browser(url: &str) -> Result<(), String> {
+    open_external(url.as_ref()).map_err(|error| format!("Failed to open browser: {error}"))
 }
 
 fn launch_core(app: &tauri::AppHandle) -> Result<(), String> {
@@ -358,15 +375,6 @@ fn apply_compact_topmost(
     #[cfg(windows)]
     apply_native_topmost(window, enabled)?;
 
-    #[cfg(not(windows))]
-    if window
-        .is_always_on_top()
-        .map_err(|error| error.to_string())?
-        != enabled
-    {
-        return Err("The compact subtitle window did not retain its requested Z-order".into());
-    }
-
     tracing::debug!(enabled, reason, "compact window topmost state applied");
     Ok(())
 }
@@ -377,7 +385,7 @@ fn set_compact_window_topmost(
     enabled: bool,
     native_ui: State<'_, NativeUiState>,
 ) -> Result<(), String> {
-    if enabled && platform_capabilities::session_type() == "wayland" {
+    if enabled && cfg!(target_os = "linux") && platform_capabilities::session_type() != "x11" {
         return Err("platform.window_stacking_unavailable".into());
     }
     apply_compact_topmost(&window, enabled, "mode_change")?;

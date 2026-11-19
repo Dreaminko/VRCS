@@ -836,7 +836,8 @@ async fn resolve_generation_profile<'a>(
         ));
     }
     let api_key = if profile.requires_api_key() {
-        credentials::read_credential_async(&profile.id, &profile.provider).await
+        credentials::read_credential_async(&profile.id, &profile.provider)
+            .await
             .map_err(|detail| learning_error("learning.credential_failed", detail, false))?
             .ok_or_else(|| {
                 learning_error(

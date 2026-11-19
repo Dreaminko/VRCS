@@ -13,7 +13,9 @@ pub(crate) async fn blocking<T: Send + 'static>(
 ) -> Result<T, String> {
     tokio::task::spawn_blocking(operation)
         .await
-        .map_err(|error| format!("credentials.task_failed: Credential task exited unexpectedly: {error}"))?
+        .map_err(|error| {
+            format!("credentials.task_failed: Credential task exited unexpectedly: {error}")
+        })?
 }
 
 /// Keep mutation locks and recovery alive if an HTTP request is dropped while
@@ -21,37 +23,57 @@ pub(crate) async fn blocking<T: Send + 'static>(
 pub(crate) async fn finish_mutation<T: Send + 'static>(
     operation: impl Future<Output = T> + Send + 'static,
 ) -> Result<T, String> {
-    tokio::spawn(operation)
-        .await
-        .map_err(|error| format!("credentials.task_failed: Credential mutation exited unexpectedly: {error}"))
+    tokio::spawn(operation).await.map_err(|error| {
+        format!("credentials.task_failed: Credential mutation exited unexpectedly: {error}")
+    })
 }
 
-pub(crate) async fn credential_status_async(profile_id: &str, provider: &str) -> Result<CredentialStatus, String> {
+pub(crate) async fn credential_status_async(
+    profile_id: &str,
+    provider: &str,
+) -> Result<CredentialStatus, String> {
     let (profile_id, provider) = (profile_id.to_owned(), provider.to_owned());
     blocking(move || credential_status(&profile_id, &provider)).await
 }
 
-pub(crate) async fn read_credential_async(profile_id: &str, provider: &str) -> Result<Option<String>, String> {
+pub(crate) async fn read_credential_async(
+    profile_id: &str,
+    provider: &str,
+) -> Result<Option<String>, String> {
     let (profile_id, provider) = (profile_id.to_owned(), provider.to_owned());
     blocking(move || read_credential(&profile_id, &provider)).await
 }
 
-pub(crate) async fn read_credential_for_use_async(profile_id: &str, provider: &str) -> Result<Option<String>, String> {
+pub(crate) async fn read_credential_for_use_async(
+    profile_id: &str,
+    provider: &str,
+) -> Result<Option<String>, String> {
     let (profile_id, provider) = (profile_id.to_owned(), provider.to_owned());
     blocking(move || read_credential_for_use(&profile_id, &provider)).await
 }
 
-pub(crate) async fn read_profile_stored_for_use_async(profile_id: &str, provider: &str) -> Result<Option<String>, String> {
+pub(crate) async fn read_profile_stored_for_use_async(
+    profile_id: &str,
+    provider: &str,
+) -> Result<Option<String>, String> {
     let (profile_id, provider) = (profile_id.to_owned(), provider.to_owned());
     blocking(move || read_profile_stored_for_use(&profile_id, &provider)).await
 }
 
-pub(crate) async fn write_credential_async(profile_id: &str, provider: &str, value: &str) -> Result<(), String> {
-    let (profile_id, provider, value) = (profile_id.to_owned(), provider.to_owned(), value.to_owned());
+pub(crate) async fn write_credential_async(
+    profile_id: &str,
+    provider: &str,
+    value: &str,
+) -> Result<(), String> {
+    let (profile_id, provider, value) =
+        (profile_id.to_owned(), provider.to_owned(), value.to_owned());
     blocking(move || write_credential(&profile_id, &provider, &value)).await
 }
 
-pub(crate) async fn delete_credential_async(profile_id: &str, provider: &str) -> Result<(), String> {
+pub(crate) async fn delete_credential_async(
+    profile_id: &str,
+    provider: &str,
+) -> Result<(), String> {
     let (profile_id, provider) = (profile_id.to_owned(), provider.to_owned());
     blocking(move || delete_credential(&profile_id, &provider)).await
 }
@@ -318,7 +340,12 @@ pub fn error_reason_code(error: &str) -> Option<&'static str> {
         "credentials.unsupported",
     ]
     .into_iter()
-    .find(|code| error == *code || error.strip_prefix(*code).is_some_and(|tail| tail.starts_with(':')))
+    .find(|code| {
+        error == *code
+            || error
+                .strip_prefix(*code)
+                .is_some_and(|tail| tail.starts_with(':'))
+    })
 }
 
 /// Probe only: never creates a collection, unlocks it or displays a prompt.
@@ -339,13 +366,21 @@ fn stored_status(targets: &[String]) -> StoredStatus {
         let (available, reason_code) = storage_capability();
         for target in targets {
             match read_stored(target) {
-                Ok(Some(_)) => return StoredStatus { configured: true, available, reason_code },
+                Ok(Some(_)) => {
+                    return StoredStatus {
+                        configured: true,
+                        available,
+                        reason_code,
+                    }
+                }
                 Ok(None) => (),
-                Err(_) => return StoredStatus {
-                    configured: false,
-                    available: false,
-                    reason_code: Some("credentials.read_failed"),
-                },
+                Err(_) => {
+                    return StoredStatus {
+                        configured: false,
+                        available: false,
+                        reason_code: Some("credentials.read_failed"),
+                    }
+                }
             }
         }
         StoredStatus {
@@ -501,7 +536,8 @@ mod tests {
                 let _ = started.send(());
                 wait.recv_timeout(std::time::Duration::from_secs(5))
                     .map_err(|error| error.to_string())
-            }).await;
+            })
+            .await;
             let _ = done.send(result);
         }));
         ready.await.unwrap();

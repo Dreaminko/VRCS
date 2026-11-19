@@ -87,10 +87,13 @@ pub(crate) async fn platform_capabilities(
             #[cfg(target_os = "linux")]
             {
                 use tauri::Manager as _;
-                _app.state::<crate::desktop_capture::portal_shortcuts::Manager>().bindings(&_app)
+                _app.state::<crate::desktop_capture::portal_shortcuts::Manager>()
+                    .bindings(&_app)
             }
             #[cfg(not(target_os = "linux"))]
-            { None }
+            {
+                None
+            }
         },
         vr: VrCapabilities {
             subtitles: Capability::runtime(vr_supported, vr_available, vr_reason),

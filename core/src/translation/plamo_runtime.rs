@@ -504,7 +504,10 @@ mod tests {
         assert!(!arguments.iter().any(|argument| argument.contains("mmproj")));
     }
 
-    #[cfg(all(target_arch = "x86_64", any(windows, all(target_os = "linux", target_env = "gnu"))))]
+    #[cfg(all(
+        target_arch = "x86_64",
+        any(windows, all(target_os = "linux", target_env = "gnu"))
+    ))]
     #[tokio::test]
     async fn an_unchanged_ready_runtime_is_not_restarted() {
         let model = std::fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"))
@@ -674,12 +677,16 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
-        assert!(probe_ready(&client, &origin, "secret", MODEL_ID, "local PLaMo")
-            .await
-            .unwrap());
-        assert!(probe_ready(&client, &origin, "wrong", MODEL_ID, "local PLaMo")
-            .await
-            .is_err());
+        assert!(
+            probe_ready(&client, &origin, "secret", MODEL_ID, "local PLaMo")
+                .await
+                .unwrap()
+        );
+        assert!(
+            probe_ready(&client, &origin, "wrong", MODEL_ID, "local PLaMo")
+                .await
+                .is_err()
+        );
         server.abort();
     }
 

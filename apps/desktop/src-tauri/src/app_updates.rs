@@ -146,8 +146,15 @@ fn target() -> String {
 }
 
 pub(crate) fn updater_available() -> bool {
-    let supported = cfg!(windows) || (cfg!(target_os = "linux") && package_channel() == "appimage");
+    let supported = cfg!(windows)
+        || (cfg!(target_os = "linux")
+            && package_channel() == "appimage"
+            && std::env::var_os("APPIMAGE").is_some());
     supported && UPDATER_PUBLIC_KEY.is_some_and(|key| !key.trim().is_empty())
+}
+
+fn nightly_supported() -> bool {
+    cfg!(windows)
 }
 
 fn package_channel() -> &'static str {
@@ -236,15 +243,16 @@ pub(crate) async fn check_for_update(
     }
     let _busy = acquire_busy(&state)?;
     *state.pending.lock().map_err(|_| UpdateError::Failed)? = None;
-    let receive_nightly = app
-        .store("preferences.json")
-        .map_err(|error| {
-            tracing::warn!(%error, "could not read update preferences");
-            UpdateError::Failed
-        })?
-        .get(NIGHTLY_PREFERENCE)
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
+    let receive_nightly = nightly_supported()
+        && app
+            .store("preferences.json")
+            .map_err(|error| {
+                tracing::warn!(%error, "could not read update preferences");
+                UpdateError::Failed
+            })?
+            .get(NIGHTLY_PREFERENCE)
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
 
     let stable = check_channel(&app, UpdateChannel::Stable).await;
     let nightly = if receive_nightly {
@@ -309,6 +317,7 @@ pub(crate) fn set_receive_nightly_updates(
 
 #[tauri::command]
 pub(crate) async fn download_and_install_update(
+    app: AppHandle,
     state: State<'_, UpdateState>,
     version: String,
     on_event: Channel<DownloadEvent>,
@@ -341,7 +350,19 @@ pub(crate) async fn download_and_install_update(
         .map_err(|error| {
             tracing::error!(%error, "application update installation failed");
             UpdateError::Failed
+        })?;
+    #[cfg(target_os = "linux")]
+    {
+        let restart_app = app.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            crate::prepare_for_exit(&restart_app);
+            restart_app.restart();
         })
+        .await;
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = app;
+    Ok(())
 }
 
 #[cfg(test)]

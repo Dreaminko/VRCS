@@ -53,13 +53,15 @@ export function SoftwareUpdateSettings({ updater }: { updater: AppUpdaterState }
         disabled={!updater.buildInfo?.updaterAvailable || !updater.preferenceReady || busy}
         onChange={(enabled) => void updater.setAutomaticChecks(enabled)}
       />
-      <PreferenceToggle
-        title={t("updates.receiveNightlyUpdates")}
-        description={t("updates.nightlyDescription")}
-        checked={updater.receiveNightlyUpdates}
-        disabled={!updater.buildInfo?.updaterAvailable || !updater.preferenceReady || busy}
-        onChange={(enabled) => void updater.setReceiveNightlyUpdates(enabled)}
-      />
+      {updater.buildInfo?.os !== "linux" && (
+        <PreferenceToggle
+          title={t("updates.receiveNightlyUpdates")}
+          description={t("updates.nightlyDescription")}
+          checked={updater.receiveNightlyUpdates}
+          disabled={!updater.buildInfo?.updaterAvailable || !updater.preferenceReady || busy}
+          onChange={(enabled) => void updater.setReceiveNightlyUpdates(enabled)}
+        />
+      )}
     </section>
   );
 }

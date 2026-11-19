@@ -4,8 +4,8 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::credentials;
 use crate::config::{ApiAuthMode, ApiProfile, HttpHeaderConfig, DEFAULT_PROFILE_TIMEOUT_MS};
+use crate::credentials;
 use crate::providers::{
     self, BaseUrlPolicy, ProviderCategory, ProviderDefinition, ProviderServiceDefinition,
     ServiceAdapter, ALIBABA_PROVIDER, CAPABILITY_IMAGE_UNDERSTANDING, CAPABILITY_SPEECH_TO_TEXT,
@@ -222,7 +222,10 @@ fn adapter_id(adapter: ServiceAdapter) -> &'static str {
     }
 }
 
-async fn profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Result<Value, String> {
+async fn profile_value(
+    profile: &ApiProfile,
+    config: &crate::config::AppConfig,
+) -> Result<Value, String> {
     let status = credentials::credential_status_async(&profile.id, &profile.provider).await?;
     let provider = providers::definition(&profile.provider)
         .ok_or_else(|| format!("Unsupported API provider: {}", profile.provider))?;
@@ -472,8 +475,11 @@ async fn profile_list_response(state: &SettingsContext) -> ApiResult<Json<Value>
     let config = state.config.config.read().expect("config lock").clone();
     let mut profiles = Vec::with_capacity(config.asr.api_profiles.len());
     for profile in &config.asr.api_profiles {
-        profiles.push(profile_value(profile, &config).await
-            .unwrap_or_else(|_| unavailable_profile_value(profile, &config)));
+        profiles.push(
+            profile_value(profile, &config)
+                .await
+                .unwrap_or_else(|_| unavailable_profile_value(profile, &config)),
+        );
     }
     Ok(Json(json!({ "profiles": profiles })))
 }
@@ -526,7 +532,9 @@ pub(super) async fn profile_create(
             .api_key
             .filter(|value| profile.requires_api_key() && !value.trim().is_empty())
         {
-            if let Err(error) = credentials::write_credential_async(&profile.id, &profile.provider, &api_key).await {
+            if let Err(error) =
+                credentials::write_credential_async(&profile.id, &profile.provider, &api_key).await
+            {
                 let mut rollback = state.config.config.read().expect("config lock").clone();
                 rollback
                     .asr
@@ -536,7 +544,10 @@ pub(super) async fn profile_create(
                     return Err(api_error(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "settings.rollback_failed",
-                        format!("{error}; configuration rollback failed: {}", api_detail(&recovery)),
+                        format!(
+                            "{error}; configuration rollback failed: {}",
+                            api_detail(&recovery)
+                        ),
                     ));
                 }
                 return Err(credential_error(error));
@@ -544,9 +555,13 @@ pub(super) async fn profile_create(
         }
         let config = state.config.config.read().expect("config lock").clone();
         Ok(Json(
-            profile_value(&profile, &config).await.map_err(credential_error)?,
+            profile_value(&profile, &config)
+                .await
+                .map_err(credential_error)?,
         ))
-    }).await.map_err(credential_error)?
+    })
+    .await
+    .map_err(credential_error)?
 }
 
 pub(super) async fn profile_update(
@@ -611,7 +626,8 @@ pub(super) async fn profile_update(
             .find(|profile| profile.id == profile_id)
             .expect("profile exists");
         let status = credentials::credential_status_async(&profile_id, &updated.provider)
-            .await.map_err(credential_error)?;
+            .await
+            .map_err(credential_error)?;
         if credential_reconfirmation_required(
             previous,
             &updated,
@@ -630,8 +646,7 @@ pub(super) async fn profile_update(
                     providers::ProfileValidationError::new("api_key", "API key length is invalid"),
                 ));
             }
-            if status.environment_override
-            {
+            if status.environment_override {
                 return Err(api_error(
                     StatusCode::CONFLICT,
                     "profile.credential_environment_managed",
@@ -652,10 +667,14 @@ pub(super) async fn profile_update(
             commit_profile_config(&state, candidate).await?;
         }
         let config = state.config.config.read().expect("config lock").clone();
-        let mut response = profile_value(&updated, &config).await.map_err(credential_error)?;
+        let mut response = profile_value(&updated, &config)
+            .await
+            .map_err(credential_error)?;
         response["side_effects"] = json!(side_effects);
         Ok(Json(response))
-    }).await.map_err(credential_error)?
+    })
+    .await
+    .map_err(credential_error)?
 }
 
 pub(super) async fn profile_delete(
@@ -695,10 +714,14 @@ pub(super) async fn profile_delete(
             ));
         }
         #[cfg(not(target_os = "linux"))]
-        let previous_credential = credentials::read_profile_stored_for_use_async(&profile.id, &profile.provider)
-            .await.map_err(credential_error)?;
+        let previous_credential =
+            credentials::read_profile_stored_for_use_async(&profile.id, &profile.provider)
+                .await
+                .map_err(credential_error)?;
         commit_profile_config(&state, candidate).await?;
-        if let Err(error) = credentials::delete_credential_async(&profile.id, &profile.provider).await {
+        if let Err(error) =
+            credentials::delete_credential_async(&profile.id, &profile.provider).await
+        {
             let mut recovery_errors = Vec::new();
             // Linux restores every original item itself; rewriting one selected
             // value here would corrupt distinct duplicate/legacy snapshots.
@@ -721,7 +744,9 @@ pub(super) async fn profile_delete(
         Ok(Json(
             json!({ "deleted": true, "side_effects": profile_usages(&current, &profile_id) }),
         ))
-    }).await.map_err(credential_error)?
+    })
+    .await
+    .map_err(credential_error)?
 }
 
 pub(super) async fn credential_write(
@@ -748,14 +773,21 @@ pub(super) async fn credential_write(
             profile_invalid(format!("Unsupported API provider: {}", profile.provider))
         })?;
         let previous =
-            credentials::read_profile_stored_for_use_async(&profile.id, &profile.provider).await.map_err(credential_error)?;
+            credentials::read_profile_stored_for_use_async(&profile.id, &profile.provider)
+                .await
+                .map_err(credential_error)?;
         credentials::write_credential_async(&profile.id, &profile.provider, &input.api_key)
-            .await.map_err(credential_error)?;
+            .await
+            .map_err(credential_error)?;
         reload_after_credential_change(&state, &config, &profile, previous).await?;
         Ok(Json(
-            profile_value(&profile, &config).await.map_err(credential_error)?,
+            profile_value(&profile, &config)
+                .await
+                .map_err(credential_error)?,
         ))
-    }).await.map_err(credential_error)?
+    })
+    .await
+    .map_err(credential_error)?
 }
 
 pub(super) async fn credential_delete(
@@ -773,7 +805,8 @@ pub(super) async fn credential_delete(
             .cloned()
             .ok_or_else(profile_not_found)?;
         if credentials::credential_status_async(&profile.id, &profile.provider)
-            .await.map_err(credential_error)?
+            .await
+            .map_err(credential_error)?
             .environment_override
         {
             return Err(api_error(
@@ -783,13 +816,21 @@ pub(super) async fn credential_delete(
             ));
         }
         let previous =
-            credentials::read_profile_stored_for_use_async(&profile.id, &profile.provider).await.map_err(credential_error)?;
-        credentials::delete_credential_async(&profile.id, &profile.provider).await.map_err(credential_error)?;
+            credentials::read_profile_stored_for_use_async(&profile.id, &profile.provider)
+                .await
+                .map_err(credential_error)?;
+        credentials::delete_credential_async(&profile.id, &profile.provider)
+            .await
+            .map_err(credential_error)?;
         reload_after_credential_change(&state, &config, &profile, previous).await?;
         Ok(Json(
-            profile_value(&profile, &config).await.map_err(credential_error)?,
+            profile_value(&profile, &config)
+                .await
+                .map_err(credential_error)?,
         ))
-    }).await.map_err(credential_error)?
+    })
+    .await
+    .map_err(credential_error)?
 }
 
 pub(super) async fn profile_activate(
@@ -805,8 +846,8 @@ pub(super) async fn profile_activate(
             .iter()
             .find(|profile| profile.id == input.profile_id)
             .ok_or_else(profile_not_found)?;
-        let resolved =
-            providers::resolve_profile_service(profile, &input.service_id).map_err(profile_invalid)?;
+        let resolved = providers::resolve_profile_service(profile, &input.service_id)
+            .map_err(profile_invalid)?;
         if !resolved
             .service
             .capabilities
@@ -819,10 +860,12 @@ pub(super) async fn profile_activate(
         }
         if profile.requires_api_key() {
             credentials::read_credential_for_use_async(&profile.id, &profile.provider)
-                .await.map_err(credential_error)?;
+                .await
+                .map_err(credential_error)?;
         }
-        let status =
-            credentials::credential_status_async(&profile.id, &profile.provider).await.map_err(credential_error)?;
+        let status = credentials::credential_status_async(&profile.id, &profile.provider)
+            .await
+            .map_err(credential_error)?;
         if profile.requires_api_key() && !status.configured {
             return Err(api_error(
                 StatusCode::CONFLICT,
@@ -854,7 +897,9 @@ pub(super) async fn profile_activate(
         }
         commit_profile_config(&state, candidate).await?;
         profile_list_response(&state).await
-    }).await.map_err(credential_error)?
+    })
+    .await
+    .map_err(credential_error)?
 }
 
 pub(super) async fn profile_models(
@@ -1014,7 +1059,8 @@ pub(super) async fn profile_api_key(profile: &ApiProfile) -> ApiResult<String> {
         return Ok(String::new());
     }
     credentials::read_credential_for_use_async(&profile.id, &profile.provider)
-        .await.map_err(credential_error)?
+        .await
+        .map_err(credential_error)?
         .ok_or_else(|| {
             api_error(
                 StatusCode::CONFLICT,
@@ -1059,16 +1105,18 @@ async fn reload_after_credential_change(
         return Ok(());
     }
     if let Err(error) = super::capture::validate_capture_config(state, config).await {
-        restore_credential(profile, previous).await.map_err(|recovery| {
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "settings.rollback_failed",
-                format!(
-                    "{}; credential rollback failed: {recovery}",
-                    api_detail(&error)
-                ),
-            )
-        })?;
+        restore_credential(profile, previous)
+            .await
+            .map_err(|recovery| {
+                api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "settings.rollback_failed",
+                    format!(
+                        "{}; credential rollback failed: {recovery}",
+                        api_detail(&error)
+                    ),
+                )
+            })?;
         return Err(error);
     }
 
@@ -1101,7 +1149,9 @@ pub(crate) async fn restore_credential(
     previous: Option<String>,
 ) -> Result<(), String> {
     match previous {
-        Some(api_key) => credentials::write_credential_async(&profile.id, &profile.provider, &api_key).await,
+        Some(api_key) => {
+            credentials::write_credential_async(&profile.id, &profile.provider, &api_key).await
+        }
         None => credentials::delete_credential_async(&profile.id, &profile.provider).await,
     }
 }

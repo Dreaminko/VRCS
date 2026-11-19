@@ -100,7 +100,9 @@ impl Outputs {
     pub(super) fn network_closed(&self) -> bool {
         self.voice.is_none()
             && self.chatbox.is_none()
-            && self.keepalive_until.is_none_or(|until| Instant::now() >= until)
+            && self
+                .keepalive_until
+                .is_none_or(|until| Instant::now() >= until)
     }
 
     #[cfg(any(windows, target_os = "linux"))]
@@ -605,7 +607,8 @@ mod tests {
         outputs.flush_speakers();
         let event = rx.try_recv().unwrap();
         #[cfg(any(windows, target_os = "linux"))]
-        let ChatboxEvent::Speaker(speaker) = event else {
+        let ChatboxEvent::Speaker(speaker) = event
+        else {
             panic!("metadata")
         };
         #[cfg(not(any(windows, target_os = "linux")))]
@@ -613,7 +616,8 @@ mod tests {
         assert_eq!(speaker.display_name.as_deref(), Some("After"));
         let event = voice_rx.try_recv().unwrap();
         #[cfg(any(windows, target_os = "linux"))]
-        let AudioEvent::Speaker(first) = event else {
+        let AudioEvent::Speaker(first) = event
+        else {
             panic!("voice metadata")
         };
         #[cfg(not(any(windows, target_os = "linux")))]

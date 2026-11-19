@@ -139,7 +139,10 @@ fn read_blocking(target: &str, authorize: bool) -> Result<Option<String>, String
         item
     } else if let Some(item) = items.locked.into_iter().next() {
         if !authorize {
-            return Err("credentials.locked: Unlock the keyring through an explicit save or use action".into());
+            return Err(
+                "credentials.locked: Unlock the keyring through an explicit save or use action"
+                    .into(),
+            );
         }
         item.unlock().map_err(|error| failure(error, READ_FAILED))?;
         item
@@ -150,7 +153,9 @@ fn read_blocking(target: &str, authorize: bool) -> Result<Option<String>, String
     };
     item.ensure_unlocked()
         .map_err(|error| failure(error, READ_FAILED))?;
-    let bytes = item.get_secret().map_err(|error| failure(error, READ_FAILED))?;
+    let bytes = item
+        .get_secret()
+        .map_err(|error| failure(error, READ_FAILED))?;
     String::from_utf8(bytes)
         .map(Some)
         .map_err(|_| "credentials.read_failed: Stored credential is not valid UTF-8".into())
@@ -168,8 +173,10 @@ fn write_blocking(target: &str, value: &str) -> Result<(), String> {
             .iter()
             .map(|item| {
                 Ok((
-                    item.get_secret().map_err(|error| failure(error, WRITE_FAILED))?,
-                    item.get_secret_content_type().map_err(|error| failure(error, WRITE_FAILED))?,
+                    item.get_secret()
+                        .map_err(|error| failure(error, WRITE_FAILED))?,
+                    item.get_secret_content_type()
+                        .map_err(|error| failure(error, WRITE_FAILED))?,
                 ))
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -182,7 +189,9 @@ fn write_blocking(target: &str, value: &str) -> Result<(), String> {
                     .iter()
                     .zip(&previous[..=index])
                     .filter_map(|(item, (secret, content_type))| {
-                        item.set_secret(secret, content_type).err().map(|error| failure(error, WRITE_FAILED))
+                        item.set_secret(secret, content_type)
+                            .err()
+                            .map(|error| failure(error, WRITE_FAILED))
                     })
                     .collect::<Vec<_>>();
                 return Err(mutation_failure(error, recovery));
@@ -197,13 +206,25 @@ fn write_blocking(target: &str, value: &str) -> Result<(), String> {
             .map_err(|error| failure(error, WRITE_FAILED))?,
         Err(error) => return Err(failure(error, WRITE_FAILED)),
     };
-    if collection.is_locked().map_err(|error| failure(error, WRITE_FAILED))? {
-        collection.unlock().map_err(|error| failure(error, WRITE_FAILED))?;
+    if collection
+        .is_locked()
+        .map_err(|error| failure(error, WRITE_FAILED))?
+    {
+        collection
+            .unlock()
+            .map_err(|error| failure(error, WRITE_FAILED))?;
     }
-    collection.ensure_unlocked()
+    collection
+        .ensure_unlocked()
         .map_err(|error| failure(error, WRITE_FAILED))?;
     collection
-        .create_item(target, attributes(target), value.as_bytes(), true, "text/plain; charset=utf-8")
+        .create_item(
+            target,
+            attributes(target),
+            value.as_bytes(),
+            true,
+            "text/plain; charset=utf-8",
+        )
         .map_err(|error| failure(error, WRITE_FAILED))?;
     Ok(())
 }
@@ -211,10 +232,15 @@ fn write_blocking(target: &str, value: &str) -> Result<(), String> {
 fn authorize_items(items: &[Item<'_>]) -> Result<(), String> {
     // Finish all unlock prompts before changing even an already unlocked item.
     for item in items {
-        if item.is_locked().map_err(|error| failure(error, WRITE_FAILED))? {
-            item.unlock().map_err(|error| failure(error, WRITE_FAILED))?;
+        if item
+            .is_locked()
+            .map_err(|error| failure(error, WRITE_FAILED))?
+        {
+            item.unlock()
+                .map_err(|error| failure(error, WRITE_FAILED))?;
         }
-        item.ensure_unlocked().map_err(|error| failure(error, WRITE_FAILED))?;
+        item.ensure_unlocked()
+            .map_err(|error| failure(error, WRITE_FAILED))?;
     }
     Ok(())
 }
@@ -224,7 +250,10 @@ fn mutation_failure(error: Error, recovery: Vec<String>) -> String {
     if recovery.is_empty() {
         error
     } else {
-        format!("credentials.rollback_failed: {error}; credential recovery failed: {}", recovery.join("; "))
+        format!(
+            "credentials.rollback_failed: {error}; credential recovery failed: {}",
+            recovery.join("; ")
+        )
     }
 }
 
@@ -232,7 +261,9 @@ fn delete_blocking(targets: &[String]) -> Result<(), String> {
     let service = connect(WRITE_FAILED)?;
     let mut items = Vec::new();
     for target in targets {
-        let matches = service.search_items(attributes(target)).map_err(|error| failure(error, WRITE_FAILED))?;
+        let matches = service
+            .search_items(attributes(target))
+            .map_err(|error| failure(error, WRITE_FAILED))?;
         items.extend(matches.unlocked);
         items.extend(matches.locked);
     }
@@ -240,13 +271,18 @@ fn delete_blocking(targets: &[String]) -> Result<(), String> {
         return Ok(());
     }
     authorize_items(&items)?;
-    let collections = service.get_all_collections().map_err(|error| failure(error, WRITE_FAILED))?;
+    let collections = service
+        .get_all_collections()
+        .map_err(|error| failure(error, WRITE_FAILED))?;
     // Discover collection membership through the API; item paths need not be
     // children of their collection's object path.
     let mut membership = HashMap::new();
     for (index, collection) in collections.iter().enumerate() {
         for target in targets {
-            for item in collection.search_items(attributes(target)).map_err(|error| failure(error, WRITE_FAILED))? {
+            for item in collection
+                .search_items(attributes(target))
+                .map_err(|error| failure(error, WRITE_FAILED))?
+            {
                 membership.insert(item.item_path, index);
             }
         }
@@ -275,12 +311,28 @@ fn delete_blocking(targets: &[String]) -> Result<(), String> {
                 items[..=index].iter().zip(&previous[..=index])
             {
                 let collection = &collections[*collection];
-                let search_attributes = attributes.iter().map(|(key, value)| (key.as_str(), value.as_str())).collect();
+                let search_attributes = attributes
+                    .iter()
+                    .map(|(key, value)| (key.as_str(), value.as_str()))
+                    .collect();
                 let restore = (|| {
                     // Check the failed call too: a lost reply may hide a deletion.
-                    if !collection.search_items(search_attributes)?.iter().any(|found| found.item_path == item.item_path) {
-                        let restore_attributes = attributes.iter().map(|(key, value)| (key.as_str(), value.as_str())).collect();
-                        collection.create_item(label, restore_attributes, secret, false, content_type)?;
+                    if !collection
+                        .search_items(search_attributes)?
+                        .iter()
+                        .any(|found| found.item_path == item.item_path)
+                    {
+                        let restore_attributes = attributes
+                            .iter()
+                            .map(|(key, value)| (key.as_str(), value.as_str()))
+                            .collect();
+                        collection.create_item(
+                            label,
+                            restore_attributes,
+                            secret,
+                            false,
+                            content_type,
+                        )?;
                     }
                     Ok::<_, Error>(())
                 })();
@@ -319,27 +371,55 @@ mod tests {
         let _cleanup = Cleanup([&first, &second]);
 
         assert_eq!(read(&first, false).unwrap(), None);
-        assert_eq!(status(std::slice::from_ref(&first)).reason_code, Some("credentials.not_set"));
+        assert_eq!(
+            status(std::slice::from_ref(&first)).reason_code,
+            Some("credentials.not_set")
+        );
         write(&first, "first-profile-secret").unwrap();
         write(&second, "second-profile-secret").unwrap();
         // Every operation creates a new D-Bus connection; there is no in-process
         // secret cache that could hide a failed persistent read after reconnect.
-        assert_eq!(read(&first, false).unwrap().as_deref(), Some("first-profile-secret"));
-        assert_eq!(read(&second, false).unwrap().as_deref(), Some("second-profile-secret"));
+        assert_eq!(
+            read(&first, false).unwrap().as_deref(),
+            Some("first-profile-secret")
+        );
+        assert_eq!(
+            read(&second, false).unwrap().as_deref(),
+            Some("second-profile-secret")
+        );
         assert!(status(std::slice::from_ref(&first)).configured);
         let service = connect(WRITE_FAILED).unwrap();
         let collection = service.get_default_collection().unwrap();
-        collection.create_item("duplicate profile", attributes(&first), b"stale-secret", false, "text/plain").unwrap();
+        collection
+            .create_item(
+                "duplicate profile",
+                attributes(&first),
+                b"stale-secret",
+                false,
+                "text/plain",
+            )
+            .unwrap();
         write(&first, "updated-profile-secret").unwrap();
         let duplicates = service.search_items(attributes(&first)).unwrap().unlocked;
         assert_eq!(duplicates.len(), 2);
-        assert!(duplicates.iter().all(|item| item.get_secret().unwrap().as_slice() == b"updated-profile-secret"));
-        assert_eq!(read(&first, false).unwrap().as_deref(), Some("updated-profile-secret"));
-        assert_eq!(read(&second, false).unwrap().as_deref(), Some("second-profile-secret"));
+        assert!(duplicates
+            .iter()
+            .all(|item| item.get_secret().unwrap().as_slice() == b"updated-profile-secret"));
+        assert_eq!(
+            read(&first, false).unwrap().as_deref(),
+            Some("updated-profile-secret")
+        );
+        assert_eq!(
+            read(&second, false).unwrap().as_deref(),
+            Some("second-profile-secret")
+        );
         delete(std::slice::from_ref(&first)).unwrap();
         delete(std::slice::from_ref(&first)).unwrap();
         assert_eq!(read(&first, false).unwrap(), None);
-        assert_eq!(read(&second, false).unwrap().as_deref(), Some("second-profile-secret"));
+        assert_eq!(
+            read(&second, false).unwrap().as_deref(),
+            Some("second-profile-secret")
+        );
         delete(std::slice::from_ref(&second)).unwrap();
         assert_eq!(read(&second, false).unwrap(), None);
     }

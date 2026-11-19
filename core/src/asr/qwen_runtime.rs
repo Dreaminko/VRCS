@@ -338,15 +338,7 @@ impl QwenRuntime {
                     ));
                 }
             }
-            match probe_ready(
-                &self.http,
-                &origin,
-                &token,
-                &selection.alias,
-                "Qwen ASR",
-            )
-            .await
-            {
+            match probe_ready(&self.http, &origin, &token, &selection.alias, "Qwen ASR").await {
                 Ok(true) => {
                     let mut state = self.state.lock().await;
                     if state.session != session {
@@ -531,5 +523,3 @@ pub(super) fn launch_args(
     }
     args
 }
-
-

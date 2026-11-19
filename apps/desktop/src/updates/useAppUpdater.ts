@@ -134,9 +134,11 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
           setPhase("installing");
         }
       });
+      setPhase("idle");
     } catch (reason) {
       setErrorCode(updaterErrorCode(reason));
       setPhase("error");
+    } finally {
       busyRef.current = false;
     }
   }, [update]);

@@ -74,7 +74,15 @@ pub(super) async fn update_settings(
             revision_headers(&state, result.revision),
             Json(json!(result.config)),
         ))
-    }).await.map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, "credentials.task_failed", error))?
+    })
+    .await
+    .map_err(|error| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "credentials.task_failed",
+            error,
+        )
+    })?
 }
 
 fn config_from_update(update: SettingsUpdate) -> AppConfig {

@@ -13,9 +13,9 @@ use player_audio_helper::{
     procfs, read_event, write_command, Command as HelperCommand, Event, ScanResult,
 };
 
-use crate::vrchat_process::ProcessIdentity;
 use super::connection::{Connection, Datagram};
 use super::SharedStatus;
+use crate::vrchat_process::ProcessIdentity;
 
 const HELPER_PATHS: [&str; 2] = [
     "/usr/lib/vrcs/vrcs-network-helper",
@@ -48,7 +48,6 @@ fn trusted_helper(path: &Path) -> bool {
         && parent.uid() == 0
         && parent.mode() & 0o022 == 0
 }
-
 
 struct Waiter {
     request: u64,
@@ -174,20 +173,22 @@ impl Network {
             uuid::Uuid::new_v4().simple(),
             uuid::Uuid::new_v4().simple()
         );
-        let mut child = HelperChild::spawn(Command::new("/usr/bin/pkexec")
-            .arg("--disable-internal-agent")
-            .arg(&helper)
-            .arg("--socket")
-            .arg(&socket_path)
-            .arg("--pid")
-            .arg(owner.pid.to_string())
-            .arg("--starttime")
-            .arg(owner.created.to_string())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            // Keep helper and pkexec diagnostics visible in the terminal that
-            // launched `npm run dev`; successful capture writes nothing here.
-            .stderr(Stdio::inherit()))?;
+        let mut child = HelperChild::spawn(
+            Command::new("/usr/bin/pkexec")
+                .arg("--disable-internal-agent")
+                .arg(&helper)
+                .arg("--socket")
+                .arg(&socket_path)
+                .arg("--pid")
+                .arg(owner.pid.to_string())
+                .arg("--starttime")
+                .arg(owner.created.to_string())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                // Keep helper and pkexec diagnostics visible in the terminal that
+                // launched `npm run dev`; successful capture writes nothing here.
+                .stderr(Stdio::inherit()),
+        )?;
         if let Some(mut stdin) = child.process().stdin.take() {
             use std::io::Write;
             stdin
@@ -205,7 +206,11 @@ impl Network {
             match listener.accept() {
                 Ok((stream, _)) => break stream,
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    if let Some(state) = child.process().try_wait().map_err(|error| error.to_string())? {
+                    if let Some(state) = child
+                        .process()
+                        .try_wait()
+                        .map_err(|error| error.to_string())?
+                    {
                         return Err(pkexec_failure(state.code()));
                     }
                     if Instant::now() >= deadline {
@@ -515,7 +520,10 @@ mod tests {
         while status.exists() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
-        assert!(!status.exists(), "helper must be killed and reaped on startup failure");
+        assert!(
+            !status.exists(),
+            "helper must be killed and reaped on startup failure"
+        );
     }
 
     #[test]

@@ -85,7 +85,7 @@ impl Shortcut {
             }
         }
         match self.key {
-            Key::Char(key) => trigger.push(key),
+            Key::Char(key) => trigger.push(key.to_ascii_lowercase()),
             Key::Function(number) => trigger.push_str(&format!("F{number}")),
         }
         trigger
@@ -101,7 +101,7 @@ mod tests {
         let shortcut = Shortcut::parse("Ctrl+Alt+O").unwrap();
         assert_eq!(shortcut.key, Key::Char('O'));
         assert_eq!(shortcut.windows_registration(), (3, 79));
-        assert_eq!(shortcut.portal_trigger(), "CTRL+ALT+O");
+        assert_eq!(shortcut.portal_trigger(), "CTRL+ALT+o");
         assert_eq!(
             Shortcut::parse(" shift + ctrl + f8 ")
                 .unwrap()

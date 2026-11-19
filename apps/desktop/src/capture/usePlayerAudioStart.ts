@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 
+import { runtimeApi } from "../core-client/runtime-api";
 import { PLAYER_AUDIO_READING_MS, type PlayerAudioPreparation } from "./player-audio-vr";
 export { PLAYER_AUDIO_READING_MS } from "./player-audio-vr";
 
@@ -126,7 +127,8 @@ export function usePlayerAudioStart(options?: { beforeMemoryChange: () => Promis
     if (!isTauri()) return true;
     // Linux has no Windows pagefile/MMAgent prerequisite; Core requests the
     // network helper through polkit only after a VRChat process is found.
-    if (navigator.userAgent.includes("Linux")) return true;
+    const capabilities = await runtimeApi.platformCapabilities().catch(() => null);
+    if (capabilities?.os === "linux") return true;
     setPreparation({ stage: "memory", detail: null });
     try {
       const status = await refreshMemory();

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, RwLock};
 #[cfg(any(windows, target_os = "linux", test))]
 use std::sync::Weak;
+use std::sync::{Arc, Mutex, RwLock};
 
 use tokio::sync::broadcast;
 
