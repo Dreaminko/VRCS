@@ -107,6 +107,8 @@ jobs:
           workspaces: |
             core -> ../.build
             apps/desktop/src-tauri -> ../../../.build
+            crates/player-audio-helper -> ../../.build
+            crates/player-audio-scan -> ../../.build
       - run: npm ci
       - name: Collect native runtime and load ONNX session
         run: node scripts/build-linux-release.mjs --preview

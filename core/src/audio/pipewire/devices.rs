@@ -167,7 +167,10 @@ pub(super) struct Session {
 }
 
 impl Session {
-    pub fn connect(stop: Option<&std::sync::atomic::AtomicBool>) -> Result<Self, AudioError> {
+    pub fn connect(
+        stop: Option<&std::sync::atomic::AtomicBool>,
+        bind_nodes: bool,
+    ) -> Result<Self, AudioError> {
         pw::init();
         let main_loop = pw::main_loop::MainLoopRc::new(None).map_err(error)?;
         let entered = EnteredLoop::new(&main_loop);
@@ -186,8 +189,8 @@ impl Session {
         let core_listener = core
             .add_listener_local()
             .error(move |id, _, result, detail| {
-                let denied = result == -libc::EACCES || result == -libc::EPERM;
-                if id == pw::core::PW_ID_CORE || denied {
+                if id == pw::core::PW_ID_CORE {
+                    let denied = result == -libc::EACCES || result == -libc::EPERM;
                     core_inventory.borrow_mut().failure = Some(AudioError::with_code(
                         if denied {
                             "audio.permission_denied"
@@ -196,6 +199,8 @@ impl Session {
                         },
                         format!("PipeWire error {result}: {detail}"),
                     ));
+                } else {
+                    tracing::debug!(object_id = id, result, %detail, "PipeWire non-core object error");
                 }
             })
             .register();
@@ -217,6 +222,9 @@ impl Session {
                         return;
                     };
                     reg_inventory.borrow_mut().nodes.insert(object.id, node);
+                    if !bind_nodes {
+                        return;
+                    }
                     // Registry globals only advertise routing identity. Device
                     // format properties are generally delivered by Node::info.
                     let Some(registry) = weak_registry.upgrade() else {
@@ -225,7 +233,7 @@ impl Session {
                     let proxy: pw::node::Node = match registry.bind(object) {
                         Ok(proxy) => proxy,
                         Err(detail) => {
-                            reg_inventory.borrow_mut().failure = Some(error(detail));
+                            tracing::debug!(object_id = object.id, %detail, "PipeWire node bind skipped");
                             return;
                         }
                     };
@@ -378,7 +386,7 @@ impl Session {
 }
 
 pub(crate) fn list_devices() -> Result<Vec<AudioDevice>, AudioError> {
-    let session = Session::connect(None)?;
+    let session = Session::connect(None, true)?;
     let inventory = session.inventory.borrow();
     let mut devices: Vec<_> = inventory
         .nodes

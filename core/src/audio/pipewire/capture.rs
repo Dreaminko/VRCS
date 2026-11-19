@@ -30,6 +30,7 @@ struct Packet {
     samples: [f32; CHUNK_FRAMES],
     start: Instant,
     end: Instant,
+    discontinuity: bool,
 }
 
 struct CaptureData {
@@ -109,6 +110,7 @@ impl CaptureData {
                         samples,
                         start,
                         end,
+                        discontinuity: std::mem::take(&mut self.discontinuity),
                     });
                 }
                 self.pending_len = 0;
@@ -324,12 +326,6 @@ fn connect_stream(
 }
 
 fn publish(state: &mut CaptureData, tx: &mpsc::Sender<Vec<f32>>, tap: Option<&MicrophoneTap>) {
-    if std::mem::take(&mut state.discontinuity) {
-        state.tap.reset();
-        if let Some(tap) = tap {
-            tap.discontinuity("PipeWire audio was interrupted or dropped");
-        }
-    }
     let dropped = std::mem::take(&mut state.dropped);
     if dropped != 0 {
         tracing::warn!(
@@ -339,6 +335,12 @@ fn publish(state: &mut CaptureData, tx: &mpsc::Sender<Vec<f32>>, tap: Option<&Mi
     }
     let mut channel_dropped = 0u64;
     while let Some(packet) = state.queue.pop_front() {
+        if packet.discontinuity {
+            state.tap.reset();
+            if let Some(tap) = tap {
+                tap.discontinuity("PipeWire audio was interrupted or dropped");
+            }
+        }
         if let Some(tap) = tap {
             if state.rate == TAP_RATE {
                 tap.push(&packet.samples, packet.start, packet.end);
@@ -354,6 +356,12 @@ fn publish(state: &mut CaptureData, tx: &mpsc::Sender<Vec<f32>>, tap: Option<&Mi
             Ok(permit) => permit.send(packet.samples.to_vec()),
             Err(mpsc::error::TrySendError::Full(_)) => channel_dropped += 1,
             Err(mpsc::error::TrySendError::Closed(_)) => {}
+        }
+    }
+    if std::mem::take(&mut state.discontinuity) {
+        state.tap.reset();
+        if let Some(tap) = tap {
+            tap.discontinuity("PipeWire audio was interrupted or dropped");
         }
     }
     if channel_dropped != 0 {
@@ -400,7 +408,7 @@ fn run(
             "Selected device key is not a Linux PipeWire identity; select it again",
         ));
     }
-    let session = Session::connect(Some(stop))?;
+    let session = Session::connect(Some(stop), false)?;
     // Timer wakes even an idle/no-signal graph so stop never waits for audio.
     let timer = session.main_loop.loop_().add_timer(|_| {});
     timer

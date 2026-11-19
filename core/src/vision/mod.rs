@@ -37,6 +37,7 @@ pub struct VisionSession {
     mode: VisionMode,
     audio: capture::QuestionCapture,
     api_key: String,
+    credential_revision: u64,
     draft: crate::asr::QuestionDraft,
     error: Arc<Mutex<Option<String>>>,
     recognition: tokio::task::JoinHandle<Result<String, String>>,
@@ -148,6 +149,7 @@ impl VisionService {
             return Err("Visual questions are disabled".into());
         }
         let profile = vision_profile(&snapshot)?;
+        let credential_revision = crate::credentials::revision();
         let api_key = credential(profile)?;
         let question_asr = snapshot.asr.clone();
         crate::asr::validate_question_backend(&question_asr)?;
@@ -204,7 +206,8 @@ impl VisionService {
                     _ = tick.tick() => {
                         status.check()?;
                         if !service.matches_session_for(mode, &task_snapshot)
-                            || !service.matches_credential_async(&task_snapshot, &task_api_key).await {
+                            || (crate::credentials::revision() != credential_revision
+                                && !service.matches_credential_async(&task_snapshot, &task_api_key).await) {
                             return Err("The speech recognition or visual question settings changed. Ask again.".into());
                         }
                         if let Some(released) = status.released_at() {
@@ -229,6 +232,7 @@ impl VisionService {
             mode,
             audio,
             api_key,
+            credential_revision,
             draft,
             error,
             recognition,
@@ -319,13 +323,21 @@ impl VisionService {
         validate_question(question)?;
         validate_image(image, &snapshot.vision)?;
         self.check_request(mode, snapshot, api_key).await?;
+        let credential_revision = crate::credentials::revision();
         let work = self.generate(snapshot, api_key, question, image);
         tokio::pin!(work);
         let mut tick = tokio::time::interval(Duration::from_millis(50));
         loop {
             tokio::select! {
                 biased;
-                _ = tick.tick() => self.check_request(mode, snapshot, api_key).await?,
+                _ = tick.tick() => {
+                    if !self.matches_request(mode, snapshot) {
+                        return Err("The visual question settings changed. Ask again.".into());
+                    }
+                    if crate::credentials::revision() != credential_revision {
+                        self.check_request(mode, snapshot, api_key).await?;
+                    }
+                }
                 result = &mut work => {
                     self.check_request(mode, snapshot, api_key).await?;
                     return result;
@@ -397,9 +409,10 @@ impl VisionSession {
     /// Poll from the VR tick; this method does not need a Tokio context.
     pub fn draft(&self) -> String {
         if !self.service.matches_session_for(self.mode, &self.snapshot)
-            || !self
-                .service
-                .matches_credential(&self.snapshot, &self.api_key)
+            || (crate::credentials::revision() != self.credential_revision
+                && !self
+                    .service
+                    .matches_credential(&self.snapshot, &self.api_key))
         {
             return String::new();
         }

@@ -244,17 +244,32 @@ fn linux_log_directory(
             .map(|value| PathBuf::from(std::ffi::OsStr::from_bytes(value)))
             .filter(|path| path.is_absolute())
     };
+    let flatpak_id = environment
+        .split(|byte| *byte == 0)
+        .find_map(|value| value.strip_prefix(b"FLATPAK_ID="))
+        .and_then(|value| std::str::from_utf8(value).ok())
+        .filter(|id| !id.is_empty() && !id.contains('/') && !id.contains(".."));
     let prefix = variable(b"WINEPREFIX=")
         .or_else(|| variable(b"STEAM_COMPAT_DATA_PATH=").map(|path| path.join("pfx")))
         .or_else(|| {
             variable(b"STEAM_COMPAT_INSTALL_PATH=")
                 .and_then(|path| Some(path.parent()?.parent()?.join("compatdata/438100/pfx")))
         });
-    let prefixes = prefix.map(|path| vec![path]).unwrap_or_else(|| vec![
-        home.join(".steam/steam/steamapps/compatdata/438100/pfx"),
-        home.join(".local/share/Steam/steamapps/compatdata/438100/pfx"),
-        home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/compatdata/438100/pfx"),
-    ]);
+    let prefixes = if let Some(prefix) = prefix {
+        let mut candidates = vec![prefix.clone()];
+        if let (Some(app_id), Ok(relative)) = (flatpak_id, prefix.strip_prefix(home)) {
+            candidates.push(home.join(".var/app").join(app_id).join(relative));
+        }
+        candidates
+    } else {
+        vec![
+            home.join(".steam/steam/steamapps/compatdata/438100/pfx"),
+            home.join(".local/share/Steam/steamapps/compatdata/438100/pfx"),
+            home.join(
+                ".var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/compatdata/438100/pfx",
+            ),
+        ]
+    };
     prefixes
         .iter()
         .flat_map(|prefix| {
@@ -599,5 +614,25 @@ mod tests {
             latest_name_update(line("[Behaviour] Entering Room: ").as_bytes()),
             Some(NameUpdate::Clear)
         ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn resolves_flatpak_steam_compat_data_log_directory() {
+        let home = tempfile::tempdir().unwrap();
+        let compat = home
+            .path()
+            .join(".local/share/Steam/steamapps/compatdata/438100");
+        let translated = home
+            .path()
+            .join(".var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/compatdata/438100/pfx/drive_c/users/steamuser/AppData/LocalLow/VRChat/VRChat");
+        fs::create_dir_all(&translated).unwrap();
+        fs::write(translated.join("output_log_2026-01-01.txt"), "ok\n").unwrap();
+        let env = format!(
+            "FLATPAK_ID=com.valvesoftware.Steam\0STEAM_COMPAT_DATA_PATH={}\0",
+            compat.display()
+        );
+        let found = linux_log_directory(env.as_bytes(), home.path(), SystemTime::UNIX_EPOCH);
+        assert_eq!(found, Some(translated));
     }
 }

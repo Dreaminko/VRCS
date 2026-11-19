@@ -1,5 +1,12 @@
 #!/bin/sh
 set -e
-if [ -f /usr/lib/vrcs/vrcs-network-helper ]; then
-  chmod 0755 /usr/lib/vrcs/vrcs-network-helper
+if [ "$1" = "configure" ]; then
+  if [ -d /usr/lib/vrcs ]; then
+    chown root:root /usr/lib/vrcs
+    chmod 0755 /usr/lib/vrcs
+  fi
+  if [ -f /usr/lib/vrcs/vrcs-network-helper ]; then
+    chown root:root /usr/lib/vrcs/vrcs-network-helper
+    chmod 0755 /usr/lib/vrcs/vrcs-network-helper
+  fi
 fi

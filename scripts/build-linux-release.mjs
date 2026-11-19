@@ -1,4 +1,4 @@
-import { cpSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -64,10 +64,24 @@ function collectRuntime(binary, destination) {
   }
   // ort's CPU builds can statically link ONNX; provider DSOs, when present,
   // are dlopened and do not appear in ldd. Only collect the active build profile.
-  for (const path of readdirSync(binaryRoot).filter((name) => /^libonnxruntime.*\.so(?:\.|$)/.test(name))) {
-    const output = join(destination, path);
-    copyFileSync(realpathSync(join(binaryRoot, path)), output);
-    run("patchelf", ["--set-rpath", "$ORIGIN", output]);
+  const copiedOrt = new Map();
+  const ortEntries = readdirSync(binaryRoot).filter((name) => /^libonnxruntime.*\.so(?:\.|$)/.test(name));
+  for (const entry of ortEntries) {
+    const full = join(binaryRoot, entry);
+    const resolved = realpathSync(full);
+    if (!copiedOrt.has(resolved)) {
+      const targetName = basename(resolved);
+      const output = join(destination, targetName);
+      copyFileSync(resolved, output);
+      run("patchelf", ["--set-rpath", "$ORIGIN", output]);
+      copiedOrt.set(resolved, targetName);
+    }
+  }
+  for (const entry of ortEntries) {
+    const targetName = copiedOrt.get(realpathSync(join(binaryRoot, entry)));
+    if (entry !== targetName) {
+      symlinkSync(targetName, join(destination, entry));
+    }
   }
   for (const path of files(destination)) dependencies(path);
   return initial.text;

@@ -130,11 +130,49 @@ fn status_blocking(targets: &[String]) -> StoredStatus {
     })
 }
 
+fn unlock_default_if_locked(
+    service: &SecretService<'_>,
+    authorize: bool,
+    operation: &'static str,
+) -> Result<bool, String> {
+    let collection = match service.get_default_collection() {
+        Ok(collection) => collection,
+        Err(Error::NoResult) => return Ok(false),
+        Err(error) => return Err(failure(error, operation)),
+    };
+    if !collection
+        .is_locked()
+        .map_err(|error| failure(error, operation))?
+    {
+        return Ok(false);
+    }
+    if !authorize {
+        return Err(
+            "credentials.locked: Unlock the keyring through an explicit save or use action".into(),
+        );
+    }
+    collection
+        .unlock()
+        .map_err(|error| failure(error, operation))?;
+    collection
+        .ensure_unlocked()
+        .map_err(|error| failure(error, operation))?;
+    Ok(true)
+}
+
 fn read_blocking(target: &str, authorize: bool) -> Result<Option<String>, String> {
     let service = connect(READ_FAILED)?;
-    let items = service
+    let mut items = service
         .search_items(attributes(target))
         .map_err(|error| failure(error, READ_FAILED))?;
+    if items.unlocked.is_empty()
+        && items.locked.is_empty()
+        && unlock_default_if_locked(&service, authorize, READ_FAILED)?
+    {
+        items = service
+            .search_items(attributes(target))
+            .map_err(|error| failure(error, READ_FAILED))?;
+    }
     let item = if let Some(item) = items.unlocked.into_iter().next() {
         item
     } else if let Some(item) = items.locked.into_iter().next() {
@@ -147,8 +185,6 @@ fn read_blocking(target: &str, authorize: bool) -> Result<Option<String>, String
         item.unlock().map_err(|error| failure(error, READ_FAILED))?;
         item
     } else {
-        // Searching does not unlock or prompt. A missing entry is distinct from an
-        // unavailable service, even when no collection has been created yet.
         return Ok(None);
     };
     item.ensure_unlocked()
@@ -163,13 +199,24 @@ fn read_blocking(target: &str, authorize: bool) -> Result<Option<String>, String
 
 fn write_blocking(target: &str, value: &str) -> Result<(), String> {
     let service = connect(WRITE_FAILED)?;
+    unlock_default_if_locked(&service, true, WRITE_FAILED)?;
     let items = service
         .search_items(attributes(target))
         .map_err(|error| failure(error, WRITE_FAILED))?;
-    if !items.unlocked.is_empty() || !items.locked.is_empty() {
-        let items: Vec<_> = items.unlocked.into_iter().chain(items.locked).collect();
-        authorize_items(&items)?;
-        let previous = items
+    let persistent: Vec<_> = items
+        .unlocked
+        .into_iter()
+        .chain(items.locked)
+        .filter(|item| {
+            !item
+                .item_path
+                .as_str()
+                .starts_with("/org/freedesktop/secrets/collection/session/")
+        })
+        .collect();
+    if !persistent.is_empty() {
+        authorize_items(&persistent)?;
+        let previous = persistent
             .iter()
             .map(|item| {
                 Ok((
@@ -183,9 +230,9 @@ fn write_blocking(target: &str, value: &str) -> Result<(), String> {
         // Secret Service has no transaction or compare-and-swap. Restore every
         // attempted write on failure, including an ambiguously acknowledged call.
         // Another process can still change or lock these items during recovery.
-        for (index, item) in items.iter().enumerate() {
+        for (index, item) in persistent.iter().enumerate() {
             if let Err(error) = item.set_secret(value.as_bytes(), "text/plain; charset=utf-8") {
-                let recovery = items[..=index]
+                let recovery = persistent[..=index]
                     .iter()
                     .zip(&previous[..=index])
                     .filter_map(|(item, (secret, content_type))| {
@@ -267,6 +314,15 @@ fn delete_blocking(targets: &[String]) -> Result<(), String> {
         items.extend(matches.unlocked);
         items.extend(matches.locked);
     }
+    if items.is_empty() && unlock_default_if_locked(&service, true, WRITE_FAILED)? {
+        for target in targets {
+            let matches = service
+                .search_items(attributes(target))
+                .map_err(|error| failure(error, WRITE_FAILED))?;
+            items.extend(matches.unlocked);
+            items.extend(matches.locked);
+        }
+    }
     if items.is_empty() {
         return Ok(());
     }
@@ -278,11 +334,14 @@ fn delete_blocking(targets: &[String]) -> Result<(), String> {
     // children of their collection's object path.
     let mut membership = HashMap::new();
     for (index, collection) in collections.iter().enumerate() {
+        if collection.is_locked().unwrap_or(true) {
+            continue;
+        }
         for target in targets {
-            for item in collection
-                .search_items(attributes(target))
-                .map_err(|error| failure(error, WRITE_FAILED))?
-            {
+            let Ok(found) = collection.search_items(attributes(target)) else {
+                continue;
+            };
+            for item in found {
                 membership.insert(item.item_path, index);
             }
         }

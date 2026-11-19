@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Serialize;
 
@@ -6,6 +7,16 @@ use crate::providers::{self, ALIBABA_PROVIDER, OPENAI_PROVIDER};
 
 #[cfg(target_os = "linux")]
 mod linux;
+
+static REVISION: AtomicU64 = AtomicU64::new(0);
+
+pub(crate) fn revision() -> u64 {
+    REVISION.load(Ordering::Acquire)
+}
+
+fn bump_revision() {
+    REVISION.fetch_add(1, Ordering::Release);
+}
 
 /// Run the complete synchronous keyring operation away from Tokio workers.
 pub(crate) async fn blocking<T: Send + 'static>(
@@ -119,11 +130,15 @@ pub fn write_external_api_token(value: &str) -> Result<(), String> {
     if value.is_empty() || value.len() > 4096 {
         return Err("External API token length is invalid".into());
     }
-    write_stored(EXTERNAL_API_TARGET, value)
+    write_stored(EXTERNAL_API_TARGET, value)?;
+    bump_revision();
+    Ok(())
 }
 
 pub fn delete_external_api_token() -> Result<(), String> {
-    delete_stored(EXTERNAL_API_TARGET)
+    delete_stored(EXTERNAL_API_TARGET)?;
+    bump_revision();
+    Ok(())
 }
 
 pub fn vrcx_token_status() -> Result<CredentialStatus, String> {
@@ -152,11 +167,15 @@ pub fn write_vrcx_token(value: &str) -> Result<(), String> {
     if value.is_empty() || value.len() > 4096 {
         return Err("VRCX-0 token length is invalid".into());
     }
-    write_stored(VRCX_TARGET, value)
+    write_stored(VRCX_TARGET, value)?;
+    bump_revision();
+    Ok(())
 }
 
 pub fn delete_vrcx_token() -> Result<(), String> {
-    delete_stored(VRCX_TARGET)
+    delete_stored(VRCX_TARGET)?;
+    bump_revision();
+    Ok(())
 }
 
 fn environment_variables(
@@ -260,12 +279,18 @@ pub fn write_credential(profile_id: &str, provider: &str, value: &str) -> Result
     if value.is_empty() || value.len() > 4096 {
         return Err("API key length is invalid".into());
     }
-    write_stored(&target(profile_id), value)
+    write_stored(&target(profile_id), value)?;
+    bump_revision();
+    Ok(())
 }
 
 pub fn delete_credential(profile_id: &str, provider: &str) -> Result<(), String> {
     #[cfg(target_os = "linux")]
-    return linux::delete(&profile_targets(profile_id, provider));
+    {
+        linux::delete(&profile_targets(profile_id, provider))?;
+        bump_revision();
+        Ok(())
+    }
     #[cfg(not(target_os = "linux"))]
     {
         delete_stored(&target(profile_id))?;
@@ -273,6 +298,7 @@ pub fn delete_credential(profile_id: &str, provider: &str) -> Result<(), String>
         if let Some(target) = legacy_target(profile_id, provider) {
             delete_stored(&target)?;
         }
+        bump_revision();
         Ok(())
     }
 }

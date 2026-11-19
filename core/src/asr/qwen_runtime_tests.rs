@@ -6,10 +6,7 @@ use super::{launch_args, probe_ready, QwenRuntime};
 #[tokio::test]
 async fn managed_qwen_explicit_gpu_is_rejected_without_the_vulkan_feature() {
     let runtime = QwenRuntime::new(std::path::PathBuf::new());
-    runtime
-        .devices
-        .set(vec!["Vulkan0: test GPU".into()])
-        .unwrap();
+    *runtime.devices.lock().await = Some(vec!["Vulkan0: test GPU".into()]);
     let selection = super::Selection {
         executable: "unused.exe".into(),
         model: "unused.gguf".into(),
@@ -32,7 +29,6 @@ fn managed_qwen_gpu_arguments_respect_the_vulkan_feature() {
         Path::new("mmproj.gguf"),
         43210,
         "vrcs-qwen",
-        "session-token",
         "gpu",
     )
     .iter()
@@ -237,7 +233,6 @@ fn managed_qwen_command_binds_loopback_and_uses_both_assets() {
         Path::new("C:/models/mmproj.gguf"),
         43210,
         "vrcs-qwen",
-        "session-token",
         "cpu",
     )
     .iter()
@@ -253,9 +248,9 @@ fn managed_qwen_command_binds_loopback_and_uses_both_assets() {
         .windows(2)
         .any(|pair| pair == ["--host", "127.0.0.1"]));
     assert!(arguments.windows(2).any(|pair| pair == ["--port", "43210"]));
-    assert!(arguments
-        .windows(2)
-        .any(|pair| pair == ["--api-key", "session-token"]));
+    assert!(!arguments
+        .iter()
+        .any(|argument| argument == "--api-key" || argument == "session-token"));
     assert!(arguments.contains(&"--no-webui".into()));
     assert!(arguments
         .windows(2)

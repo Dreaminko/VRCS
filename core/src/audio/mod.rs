@@ -405,19 +405,29 @@ pub(crate) fn validate_device_key(
 ) -> Result<(), AudioError> {
     #[cfg(target_os = "linux")]
     if let Some(key) = key {
+        if !key.starts_with("pipewire:") {
+            return Err(AudioError::with_code(
+                "audio.device_reselection_required",
+                "Selected device key is not a Linux PipeWire identity; select it again",
+            ));
+        }
         let loopback = source == CaptureSource::Speaker;
-        return list_devices()?
-            .into_iter()
-            .find(|device| {
-                device.is_loopback == loopback && device.device_key.as_deref() == Some(key)
-            })
-            .map(|_| ())
-            .ok_or_else(|| {
-                AudioError::with_code(
-                    "audio.device_unavailable",
-                    "The selected PipeWire device is no longer available",
-                )
-            });
+        let mut matches = list_devices()?.into_iter().filter(|device| {
+            device.is_loopback == loopback && device.device_key.as_deref() == Some(key)
+        });
+        if matches.next().is_none() {
+            return Err(AudioError::with_code(
+                "audio.device_unavailable",
+                "The selected PipeWire device is no longer available",
+            ));
+        }
+        if matches.next().is_some() {
+            return Err(AudioError::with_code(
+                "audio.device_ambiguous",
+                "Multiple PipeWire devices have the selected identity; select a uniquely named device",
+            ));
+        }
+        return Ok(());
     }
     let _ = source;
     if key.is_some() {

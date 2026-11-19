@@ -69,7 +69,7 @@ export function validatePackage(path, target) {
       execFileSync("unsquashfs", ["-no-progress", "-o", String(offset), "-d", extracted, path], { stdio: "pipe" });
       elfArchitecture(readFileSync(join(extracted, "usr", "bin", "vrcs-desktop")), target.arch);
       const helper = join(extracted, "usr", "lib", "vrcs", "vrcs-network-helper");
-      if (existsSync(helper)) elfArchitecture(readFileSync(helper), target.arch);
+      if (existsSync(helper)) throw new Error("AppImage must not contain vrcs-network-helper");
       for (const file of walk(extracted).filter((file) => /\.so(?:\.|$)/.test(file))) elfArchitecture(readFileSync(file), target.arch);
     } finally { rmSync(directory, { recursive: true, force: true }); }
   } else if (target.channel === "deb") {

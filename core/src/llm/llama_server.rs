@@ -78,12 +78,19 @@ pub(crate) async fn probe_ready(
     if health.status != "ok" {
         return Ok(false);
     }
-    let models = http
+    let models = match http
         .get(format!("{origin}/v1/models"))
         .bearer_auth(token)
         .send()
         .await
-        .map_err(|error| format!("{label} model check failed: {error}"))?;
+    {
+        Ok(response) => response,
+        Err(error) if error.is_connect() || error.is_timeout() => return Ok(false),
+        Err(error) => return Err(format!("{label} model check failed: {error}")),
+    };
+    if models.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+        return Ok(false);
+    }
     if !models.status().is_success() {
         return Err(format!("{label} model check returned {}", models.status()));
     }

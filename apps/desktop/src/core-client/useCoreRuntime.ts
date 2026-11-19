@@ -40,6 +40,7 @@ export function useCoreRuntime({
   const [capabilities, setCapabilities] = useState<PlatformState>({ core: null, desktop: null });
   const healthRef = useRef<Health | null>(null);
   healthRef.current = health;
+  const capabilitiesUpdatedAtRef = useRef(0);
 
   const replaceHealth = useCallback((next: Health | null) => {
     healthRef.current = next;
@@ -104,13 +105,25 @@ export function useCoreRuntime({
     const poll = async () => {
       let interval = 2500;
       try {
-        const [next, core, desktop] = await Promise.all([
-          runtimeApi.health(), runtimeApi.capabilities(), runtimeApi.platformCapabilities(),
-        ]);
-        if (cancelled) return;
-        if (next.capture_requested && ["waiting_key", "acquiring_key", "retrying_key"].includes(next.player_audio?.phase ?? "")) interval = 250;
-        setHealth(next);
-        setCapabilities({ core, desktop });
+        const refreshCapabilities =
+          healthRef.current === null || Date.now() - capabilitiesUpdatedAtRef.current >= 15_000;
+        if (refreshCapabilities) {
+          const [next, core, desktop] = await Promise.all([
+            runtimeApi.health(),
+            runtimeApi.capabilities(),
+            runtimeApi.platformCapabilities(),
+          ]);
+          if (cancelled) return;
+          capabilitiesUpdatedAtRef.current = Date.now();
+          if (next.capture_requested && ["waiting_key", "acquiring_key", "retrying_key"].includes(next.player_audio?.phase ?? "")) interval = 250;
+          setHealth(next);
+          setCapabilities({ core, desktop });
+        } else {
+          const next = await runtimeApi.health();
+          if (cancelled) return;
+          if (next.capture_requested && ["waiting_key", "acquiring_key", "retrying_key"].includes(next.player_audio?.phase ?? "")) interval = 250;
+          setHealth(next);
+        }
         clearErrorFrom("core");
       } catch (reason) {
         if (cancelled) return;
@@ -131,6 +144,7 @@ export function useCoreRuntime({
     setCoreConfigured(false);
     setStartupState("starting");
     setHealth(null);
+    capabilitiesUpdatedAtRef.current = 0;
     setCapabilities({ core: null, desktop: null });
     try {
       await retryCoreStartup();

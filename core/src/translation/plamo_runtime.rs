@@ -62,7 +62,7 @@ pub(crate) struct PlamoRuntimeStatus {
 
 pub(crate) struct PlamoRuntime {
     runtime_directory: PathBuf,
-    state: Mutex<RuntimeState>,
+    state: Arc<Mutex<RuntimeState>>,
     startup: Mutex<()>,
     slots: Gate,
     http: reqwest::Client,
@@ -72,7 +72,7 @@ impl PlamoRuntime {
     pub(crate) fn new(runtime_directory: PathBuf) -> Self {
         Self {
             runtime_directory,
-            state: Mutex::new(RuntimeState::default()),
+            state: Arc::new(Mutex::new(RuntimeState::default())),
             startup: Mutex::new(()),
             slots: Gate::new(2, MAX_WAITING_REQUESTS),
             http: reqwest::Client::builder()
@@ -103,11 +103,17 @@ impl PlamoRuntime {
             state.generation = state.generation.wrapping_add(1);
             state.generation
         };
+        let mut guard = StartupGuard {
+            state: Arc::clone(&self.state),
+            generation,
+            armed: true,
+        };
         let executable = match crate::asr::llama_server_executable_path(&self.runtime_directory) {
             Ok(path) => path,
             Err(detail) => {
                 let error = local_error("translation.local_runtime_unavailable", detail, false);
                 self.fail_startup(generation, &error.detail).await?;
+                guard.armed = false;
                 return Err(error);
             }
         };
@@ -115,6 +121,7 @@ impl PlamoRuntime {
         if let Err(error) = &result {
             self.fail_startup(generation, &error.detail).await?;
         }
+        guard.armed = false;
         result
     }
 
@@ -241,7 +248,8 @@ impl PlamoRuntime {
             .unwrap_or(1);
         let mut command = runtime_command(executable);
         command
-            .args(launch_args(model, port, &token, threads))
+            .args(launch_args(model, port, threads))
+            .env("LLAMA_API_KEY", &token)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -434,12 +442,40 @@ fn check_child(state: &mut RuntimeState) -> Result<(), TranslationError> {
     Ok(())
 }
 
+struct StartupGuard {
+    state: Arc<Mutex<RuntimeState>>,
+    generation: u64,
+    armed: bool,
+}
+
+impl Drop for StartupGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let state = Arc::clone(&self.state);
+        let generation = self.generation;
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                let mut state = state.lock().await;
+                if state.generation == generation && state.connection.is_none() {
+                    state.model = None;
+                    state.status = "not_loaded";
+                    state.error = None;
+                    state.generation = state.generation.wrapping_add(1);
+                    let _ = stop_child(&mut state).await;
+                }
+            });
+        }
+    }
+}
+
 async fn stop_child(state: &mut RuntimeState) -> Result<(), String> {
     state.connection = None;
     stop_managed(&mut state.child, "the local PLaMo").await
 }
 
-fn launch_args(model: &Path, port: u16, token: &str, threads: usize) -> Vec<OsString> {
+fn launch_args(model: &Path, port: u16, threads: usize) -> Vec<OsString> {
     vec![
         "--model".into(),
         model.as_os_str().into(),
@@ -449,8 +485,6 @@ fn launch_args(model: &Path, port: u16, token: &str, threads: usize) -> Vec<OsSt
         port.to_string().into(),
         "--alias".into(),
         MODEL_ID.into(),
-        "--api-key".into(),
-        token.into(),
         "--no-webui".into(),
         "--cors-origins".into(),
         "localhost".into(),
@@ -478,7 +512,7 @@ mod tests {
 
     #[test]
     fn launch_arguments_isolate_plamo_from_the_asr_runtime() {
-        let arguments = launch_args(Path::new("plamo.gguf"), 43210, "secret", 3)
+        let arguments = launch_args(Path::new("plamo.gguf"), 43210, 3)
             .iter()
             .map(|argument| argument.to_string_lossy().into_owned())
             .collect::<Vec<_>>();
@@ -488,7 +522,6 @@ mod tests {
             ["--host", "127.0.0.1"],
             ["--port", "43210"],
             ["--alias", MODEL_ID],
-            ["--api-key", "secret"],
             ["--ctx-size", "8192"],
             ["--parallel", "2"],
             ["--device", "none"],
@@ -499,6 +532,9 @@ mod tests {
                 "missing arguments {pair:?}"
             );
         }
+        assert!(!arguments
+            .iter()
+            .any(|argument| argument == "--api-key" || argument == "secret"));
         assert!(arguments.contains(&"--no-webui".into()));
         assert!(arguments.contains(&"--no-op-offload".into()));
         assert!(!arguments.iter().any(|argument| argument.contains("mmproj")));

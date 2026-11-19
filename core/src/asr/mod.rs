@@ -53,7 +53,7 @@ pub(crate) fn share_audio(samples: Vec<f32>) -> SharedAudio {
 pub(crate) fn llama_server_executable_path(
     runtime_directory: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
-    QwenRuntime::new(runtime_directory.to_path_buf()).executable_path()
+    qwen_runtime::executable_path_in(&qwen_runtime_download::runtime_directory(runtime_directory))
 }
 
 #[cfg(test)]

@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Child;
-use tokio::sync::{Mutex, OnceCell};
+use tokio::sync::Mutex;
 
 use crate::llm::llama_server::{
     probe_ready, runtime_command, stop_child as stop_managed, with_diagnostics,
@@ -72,9 +72,9 @@ impl Default for RuntimeState {
 
 pub(crate) struct QwenRuntime {
     pub(super) directory: PathBuf,
-    state: Mutex<RuntimeState>,
+    state: Arc<Mutex<RuntimeState>>,
     startup: Mutex<()>,
-    devices: OnceCell<Vec<String>>,
+    devices: Mutex<Option<Vec<String>>>,
     http: reqwest::Client,
     pub(crate) requests: crate::work_priority::Gate,
 }
@@ -82,9 +82,9 @@ impl QwenRuntime {
     pub(crate) fn new(directory: PathBuf) -> Self {
         Self {
             directory: super::qwen_runtime_download::runtime_directory(&directory),
-            state: Mutex::new(RuntimeState::default()),
+            state: Arc::new(Mutex::new(RuntimeState::default())),
             startup: Mutex::new(()),
-            devices: OnceCell::new(),
+            devices: Mutex::new(None),
             requests: crate::work_priority::Gate::new(2, 32),
             http: reqwest::Client::builder()
                 .no_proxy()
@@ -103,33 +103,29 @@ impl QwenRuntime {
         let Ok(executable) = self.executable_path().and_then(|path| checked_file(&path)) else {
             return Vec::new();
         };
-        self.devices
-            .get_or_init(|| async {
-                let mut command = runtime_command(&executable);
-                command.arg("--list-devices").kill_on_drop(true);
-                let Ok(Ok(output)) =
-                    tokio::time::timeout(Duration::from_secs(5), command.output()).await
-                else {
-                    return Vec::new();
-                };
-                String::from_utf8_lossy(&output.stdout)
-                    .lines()
-                    .filter(|line| line.trim_start().starts_with("Vulkan"))
-                    .map(|line| line.trim().to_owned())
-                    .collect()
-            })
-            .await
-            .clone()
+        if let Some(cached) = self.devices.lock().await.as_ref() {
+            return cached.clone();
+        }
+        let mut command = runtime_command(&executable);
+        command.arg("--list-devices").kill_on_drop(true);
+        let Ok(Ok(output)) = tokio::time::timeout(Duration::from_secs(5), command.output()).await
+        else {
+            return Vec::new();
+        };
+        if !output.status.success() {
+            return Vec::new();
+        }
+        let devices: Vec<String> = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter(|line| line.trim_start().starts_with("Vulkan"))
+            .map(|line| line.trim().to_owned())
+            .collect();
+        *self.devices.lock().await = Some(devices.clone());
+        devices
     }
 
     pub(crate) fn executable_path(&self) -> Result<PathBuf, String> {
-        let asset = super::qwen_runtime_download::assets::current()?;
-        if std::env::var_os("VRCS_LLAMA_SERVER").is_none()
-            && super::qwen_runtime_download::installed(&self.directory)
-        {
-            return Ok(self.directory.join(asset.executable));
-        }
-        executable_path()
+        executable_path_in(&self.directory)
     }
 
     pub(crate) async fn ensure_started(
@@ -174,7 +170,14 @@ impl QwenRuntime {
             state.fallback = None;
             state.session
         };
-        self.start_selection(selection, session, timeout).await
+        let mut guard = StartupGuard {
+            state: Arc::clone(&self.state),
+            session,
+            armed: true,
+        };
+        let result = self.start_selection(selection, session, timeout).await;
+        guard.armed = false;
+        result
     }
 
     // Stopped or replaced captures must not be resurrected by old workers.
@@ -200,8 +203,16 @@ impl QwenRuntime {
             state.error = None;
             selection
         };
-        self.start_selection(selection, previous.session, Duration::from_secs(120))
-            .await
+        let mut guard = StartupGuard {
+            state: Arc::clone(&self.state),
+            session: previous.session,
+            armed: true,
+        };
+        let result = self
+            .start_selection(selection, previous.session, Duration::from_secs(120))
+            .await;
+        guard.armed = false;
+        result
     }
 
     async fn start_selection(
@@ -280,9 +291,9 @@ impl QwenRuntime {
                 &selection.mmproj,
                 port,
                 &selection.alias,
-                &token,
                 device,
             ))
+            .env("LLAMA_API_KEY", &token)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -408,6 +419,16 @@ impl QwenRuntime {
     }
 }
 
+pub(super) fn executable_path_in(directory: &Path) -> Result<PathBuf, String> {
+    let asset = super::qwen_runtime_download::assets::current()?;
+    if std::env::var_os("VRCS_LLAMA_SERVER").is_none()
+        && super::qwen_runtime_download::installed(directory)
+    {
+        return Ok(directory.join(asset.executable));
+    }
+    executable_path()
+}
+
 pub(crate) fn executable_path() -> Result<PathBuf, String> {
     super::qwen_runtime_download::assets::current()?;
     if let Some(path) = std::env::var_os("VRCS_LLAMA_SERVER") {
@@ -468,6 +489,30 @@ fn check_child(state: &mut RuntimeState) -> Result<(), String> {
     }
     Ok(())
 }
+struct StartupGuard {
+    state: Arc<Mutex<RuntimeState>>,
+    session: u64,
+    armed: bool,
+}
+
+impl Drop for StartupGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let state = Arc::clone(&self.state);
+        let session = self.session;
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                let mut state = state.lock().await;
+                if state.session == session && state.connection.is_none() {
+                    let _ = stop_session(&mut state).await;
+                }
+            });
+        }
+    }
+}
+
 async fn stop_child(state: &mut RuntimeState) -> Result<(), String> {
     state.connection = None;
     stop_managed(&mut state.child, "Qwen ASR").await
@@ -485,7 +530,6 @@ pub(super) fn launch_args(
     mmproj: &Path,
     port: u16,
     alias: &str,
-    token: &str,
     device: &str,
 ) -> Vec<OsString> {
     let mut args = vec![
@@ -499,8 +543,6 @@ pub(super) fn launch_args(
         port.to_string().into(),
         "--alias".into(),
         alias.into(),
-        "--api-key".into(),
-        token.into(),
         "--no-webui".into(),
         "--cors-origins".into(),
         "localhost".into(),
