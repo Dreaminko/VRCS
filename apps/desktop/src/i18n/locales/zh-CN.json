@@ -1962,6 +1962,24 @@
             "streaming": "正在接收 VRChat Chatbox",
             "failed": "Chatbox 接收因错误停止"
           }
+        },
+        "roomContext": {
+          "title": "VRChat 房间上下文",
+          "description": "使用当前 VRChat 世界名与房间成员名称提升语音识别和翻译准确度。未开启网络采集时可通过本地日志获取世界名与房间历史隔离，开启网络采集后可进一步获取成员名单与发言人。",
+          "asr": "加入语音识别（ASR）上下文",
+          "asrDescription": "在支持上下文或热词的识别服务中注入当前世界名与玩家名。",
+          "translation": "加入翻译模型上下文",
+          "translationDescription": "按房间隔离翻译历史，并向翻译模型提供当前世界与成员参考信息。",
+          "worldName": "包含世界名",
+          "worldNameDescription": "启用房间上下文时附带当前所在 VRChat 世界名。",
+          "statusUnavailable": "等待进入 VRChat 房间。",
+          "worldUnknown": "未知世界",
+          "tier": {
+            "none": "当前未在 VRChat 房间中",
+            "log_only": "仅日志模式 · 世界：{{world}}",
+            "network_chatbox": "网络 Chatbox 模式 · 世界：{{world}} · {{count}} 位成员",
+            "network_player_audio": "网络分玩家音频模式 · 世界：{{world}} · {{count}} 位成员"
+          }
         }
       },
       "modelAssignments": {

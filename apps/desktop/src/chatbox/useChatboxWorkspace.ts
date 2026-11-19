@@ -23,11 +23,13 @@ import type {
 } from "./types";
 import type { Settings } from "../settings/types";
 
-export function useChatboxWorkspace(settings: Settings | null) {
+export function useChatboxWorkspace(settings: Settings | null, roomScopeId: string | null = null) {
   const { t } = useTranslation();
   const available = settings !== null;
   const availableRef = useRef(available);
   availableRef.current = available;
+  const roomScopeRef = useRef(roomScopeId);
+  roomScopeRef.current = roomScopeId;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<ChatboxComposeInput>(() => createChatboxDraft());
   const draftRef = useRef(draft);
@@ -35,6 +37,7 @@ export function useChatboxWorkspace(settings: Settings | null) {
   const [translationBasis, setTranslationBasis] = useState<{
     original: string;
     targetLanguage: string | null;
+    roomScopeId: string | null;
   } | null>(null);
   const [preview, setPreview] = useState<ChatboxPreview>(() => previewChatboxLocally(draft));
   const [busy, setBusy] = useState<"translate" | "send" | null>(null);
@@ -44,7 +47,8 @@ export function useChatboxWorkspace(settings: Settings | null) {
   const preferencesChanged = useRef(false);
   const translationFresh = Boolean(draft.translation?.trim())
     && translationBasis?.original === draft.original
-    && translationBasis.targetLanguage === draft.target_language;
+    && translationBasis.targetLanguage === draft.target_language
+    && translationBasis.roomScopeId === roomScopeId;
 
   useEffect(() => {
     if (!settings || preferencesLoaded.current) return;
@@ -76,7 +80,11 @@ export function useChatboxWorkspace(settings: Settings | null) {
     const current = draftRef.current;
     if (next.translation !== current.translation) {
       setTranslationBasis(next.translation?.trim()
-        ? { original: next.original, targetLanguage: next.target_language }
+        ? {
+            original: next.original,
+            targetLanguage: next.target_language,
+            roomScopeId: roomScopeRef.current,
+          }
         : null);
     }
     const currentPreferences = chatboxPreferencesFromDraft(current);
@@ -140,6 +148,7 @@ export function useChatboxWorkspace(settings: Settings | null) {
     setTranslationBasis({
       original: input.original,
       targetLanguage: input.target_language,
+      roomScopeId: roomScopeRef.current,
     });
   }, []);
 

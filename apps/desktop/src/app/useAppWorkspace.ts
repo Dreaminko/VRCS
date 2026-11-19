@@ -61,7 +61,10 @@ export function useAppWorkspace({
     clearLookup: selection.clear,
     openLearningPage,
   });
-  const chatbox = useChatboxWorkspace(settings.value);
+  const chatbox = useChatboxWorkspace(
+    settings.value,
+    runtime.health?.room_context?.scope_id ?? null,
+  );
   const conversation = useConversationWorkspace({
     coreReady: runtime.ready,
     openedConversationId: subtitles.openedConversationId,

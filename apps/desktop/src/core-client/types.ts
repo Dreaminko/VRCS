@@ -27,9 +27,20 @@ export interface Health {
   /** Current network player identities, independent of the voice subscription. */
   network_players?: { speaker: SpeakerIdentity; selected: boolean; active: boolean; distance_m?: number }[];
   vrchat_chatbox?: ChatboxStatus | null;
+  room_context?: RoomContextStatus | null;
   osc?: OscRuntimeStatus;
   vrchat_mute_sync: VrchatMuteStatus;
   language_session?: ActiveLanguageSession;
+}
+
+export interface RoomContextStatus {
+  availability: "unavailable" | "degraded_log_only" | "ready";
+  tier: "none" | "log_only" | "network_chatbox" | "network_player_audio";
+  revision: number;
+  scope_id: string | null;
+  world_name: string | null;
+  member_count: number;
+  active_member_count: number;
 }
 
 export interface ChatboxStatus {
