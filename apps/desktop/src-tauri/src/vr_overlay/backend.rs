@@ -433,20 +433,6 @@ mod platform {
             ))
         }
 
-        pub fn capture_ocr(
-            &mut self,
-            config: &vrcs_core::VrOcrConfig,
-            selection: Option<&crate::vr_overlay::ocr_selection::Selection>,
-        ) -> Result<StereoCapture, String> {
-            self.begin_ocr_capture(config, selection)?;
-            loop {
-                if let Some(capture) = self.poll_ocr_capture()? {
-                    return Ok(capture);
-                }
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
-        }
-
         pub fn cancel_ocr_capture(&mut self) {
             self.capture_resources.pending = None;
         }
@@ -1170,14 +1156,6 @@ mod platform {
             self.state(kind).visible
         }
 
-        pub fn controller_device(&self, config: &VrOverlayWristConfig) -> Option<u32> {
-            let device = self
-                .system
-                .tracked_device_index_for_controller_role(controller_role(config).1)?;
-            self.controller_pose(device.0)?;
-            Some(device.0)
-        }
-
         pub fn wrist_pose(&self, config: &VrOverlayWristConfig) -> Option<[[f32; 4]; 3]> {
             let device = self
                 .system
@@ -1186,22 +1164,37 @@ mod platform {
             Some(transform::compose(controller, transform::wrist(config)))
         }
 
-        pub fn wrist_angle(&self, config: &VrOverlayWristConfig) -> Option<f32> {
-            let panel = self.wrist_pose(config)?;
-            let (head, _, _) = self.ocr_tracking().ok()?;
-            let toward: [f32; 3] = std::array::from_fn(|i| head[i][3] - panel[i][3]);
-            let length = toward.iter().map(|v| v * v).sum::<f32>().sqrt();
-            (length > 0.001).then(|| {
-                (toward
-                    .iter()
-                    .enumerate()
-                    .map(|(i, v)| v * panel[i][2])
-                    .sum::<f32>()
-                    / length)
-                    .clamp(-1., 1.)
-                    .acos()
-                    .to_degrees()
-            })
+        pub fn wrist_device_and_angle(
+            &self,
+            config: &VrOverlayWristConfig,
+            head: Option<[[f32; 4]; 3]>,
+        ) -> (Option<u32>, Option<f32>) {
+            let Some(device) = self
+                .system
+                .tracked_device_index_for_controller_role(controller_role(config).1)
+            else {
+                return (None, None);
+            };
+            let Some((controller, _)) = self.controller_pose(device.0) else {
+                return (None, None);
+            };
+            let angle = head.and_then(|head| {
+                let panel = transform::compose(controller, transform::wrist(config));
+                let toward: [f32; 3] = std::array::from_fn(|i| head[i][3] - panel[i][3]);
+                let length = toward.iter().map(|v| v * v).sum::<f32>().sqrt();
+                (length > 0.001).then(|| {
+                    (toward
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| v * panel[i][2])
+                        .sum::<f32>()
+                        / length)
+                        .clamp(-1., 1.)
+                        .acos()
+                        .to_degrees()
+                })
+            });
+            (Some(device.0), angle)
         }
 
         pub fn ensure_wrist_menu(&mut self, hand: &str) -> Result<(), String> {

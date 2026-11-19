@@ -109,6 +109,45 @@ pub fn dispatch_placement(
     }
 }
 
+#[derive(Default)]
+struct UiContext {
+    initialized: bool,
+    menu_hand: String,
+    wrist_hand: String,
+    dominant_hand: String,
+    owner_epoch: u32,
+    owner_active: bool,
+    wrist_enabled: bool,
+    menu_enabled: bool,
+}
+
+impl UiContext {
+    fn matches(&self, config: &VrOverlayConfig, owner_epoch: u32, owner_active: bool) -> bool {
+        self.initialized
+            && self.menu_hand == config.wrist_menu.hand
+            && self.wrist_hand == config.wrist.hand
+            && self.dominant_hand == config.wrist.dominant_hand
+            && self.owner_epoch == owner_epoch
+            && self.owner_active == owner_active
+            && self.wrist_enabled == (config.enabled && config.wrist.enabled)
+            && self.menu_enabled == config.wrist_menu.enabled
+    }
+
+    fn update(&mut self, config: &VrOverlayConfig, owner_epoch: u32, owner_active: bool) {
+        self.initialized = true;
+        self.menu_hand.clear();
+        self.menu_hand.push_str(&config.wrist_menu.hand);
+        self.wrist_hand.clear();
+        self.wrist_hand.push_str(&config.wrist.hand);
+        self.dominant_hand.clear();
+        self.dominant_hand.push_str(&config.wrist.dominant_hand);
+        self.owner_epoch = owner_epoch;
+        self.owner_active = owner_active;
+        self.wrist_enabled = config.enabled && config.wrist.enabled;
+        self.menu_enabled = config.wrist_menu.enabled;
+    }
+}
+
 pub struct UiRuntime {
     pub placement: Arc<Mutex<Placement>>,
     router: Router,
@@ -128,8 +167,9 @@ pub struct UiRuntime {
     pub dialogue_visible: bool,
     pub dialogue_revision: Option<u64>,
     pub generation: u64,
-    context: (String, String, u32, bool, bool, bool),
+    context: UiContext,
     origin: Option<i32>,
+    current_origin: Option<i32>,
     pressed: Option<u8>,
     menu_error: Option<String>,
     last_input: Instant,
@@ -139,6 +179,7 @@ pub struct UiRuntime {
     cursor_error: Option<String>,
     menu_surface: SurfaceRenderer,
     pub dialogue_surface: SurfaceRenderer,
+    snapshot_version: Option<u64>,
     snapshot: Arc<(
         super::control_protocol::ControlSnapshot,
         super::player_display::View,
@@ -170,6 +211,7 @@ impl UiRuntime {
             generation: 1,
             context: Default::default(),
             origin: None,
+            current_origin: None,
             pressed: None,
             menu_error: None,
             last_input: Instant::now(),
@@ -179,8 +221,13 @@ impl UiRuntime {
             cursor_error: None,
             menu_surface: SurfaceRenderer::new(SurfaceId::Menu),
             dialogue_surface: SurfaceRenderer::new(SurfaceId::Dialogue),
+            snapshot_version: None,
             snapshot: Default::default(),
         }
+    }
+
+    pub fn current_origin(&self) -> Option<i32> {
+        self.current_origin
     }
 
     pub fn finish_surfaces(&mut self, app: &AppHandle, mut backend: Option<&mut OpenVrBackend>) {
@@ -245,6 +292,8 @@ impl UiRuntime {
         self.last_input = Instant::now();
         self.generation += 1;
         self.origin = None;
+        self.current_origin = None;
+        self.snapshot_version = None;
         self.menu_frame = None;
         self.menu_ui = Default::default();
         self.menu_surface.reset();
@@ -464,19 +513,21 @@ impl UiRuntime {
         } = tick;
         let now = Instant::now();
         if business {
-            self.snapshot = Arc::new(
-                controls
-                    .lock()
-                    .map(|hub| {
-                        (
-                            hub.snapshot(),
-                            hub.player_display().clone(),
-                            hub.player_display_revision(),
-                            hub.active(),
-                        )
-                    })
-                    .unwrap_or_default(),
-            );
+            if let Ok(hub) = controls.lock() {
+                let version = hub.ui_version();
+                if self.snapshot_version != Some(version) {
+                    self.snapshot = Arc::new((
+                        hub.snapshot(),
+                        hub.player_display().clone(),
+                        hub.player_display_revision(),
+                        hub.active(),
+                    ));
+                    self.snapshot_version = Some(version);
+                }
+            } else {
+                self.snapshot = Default::default();
+                self.snapshot_version = None;
+            }
         }
         let snapshot = self.snapshot.clone();
         let (view, players, players_revision, owner_active) = snapshot.as_ref();
@@ -487,14 +538,7 @@ impl UiRuntime {
                     .lock()
                     .is_ok_and(|hub| hub.owns_epoch(view.owner_epoch)),
         );
-        let context = (
-            config.wrist_menu.hand.clone(),
-            format!("{}:{}", config.wrist.hand, config.wrist.dominant_hand),
-            view.owner_epoch,
-            owner_active,
-            config.enabled && config.wrist.enabled,
-            config.wrist_menu.enabled,
-        );
+        let context_changed = !self.context.matches(config, view.owner_epoch, owner_active);
         let tracking = backend.ocr_tracking().ok();
         let origin = tracking.as_ref().map(|t| t.2);
         if backend.tracking_reset()
@@ -502,11 +546,12 @@ impl UiRuntime {
         {
             self.reset();
         }
+        self.current_origin = origin;
         self.origin = origin.or(self.origin);
         let dashboard = backend.system_dashboard_visible();
-        if context != self.context || dashboard || content_owns_input {
+        if context_changed || dashboard || content_owns_input {
             self.suspend_input();
-            if context != self.context {
+            if context_changed {
                 self.menu_fade.reset();
                 self.reset_dialogue_visibility();
                 self.lift = Default::default();
@@ -516,8 +561,8 @@ impl UiRuntime {
                     p.cancel();
                 }
                 self.generation += 1;
+                self.context.update(config, view.owner_epoch, owner_active);
             }
-            self.context = context;
         }
         let mut placement = self.placement.lock().unwrap_or_else(|e| e.into_inner());
         if let Some((head, _, _)) = tracking {
@@ -535,10 +580,10 @@ impl UiRuntime {
                 placement.cancel_drag();
             }
         }
+        let head = tracking.map(|t| t.0);
         let menu_config = menu_config(&config.wrist_menu.hand);
-        let menu_angle = backend
-            .wrist_angle(&menu_config)
-            .filter(|angle| angle.is_finite());
+        let (menu_device, menu_angle) = backend.wrist_device_and_angle(&menu_config, head);
+        let menu_angle = menu_angle.filter(|angle| angle.is_finite());
         if menu_angle.is_none() || !config.wrist_menu.enabled {
             self.menu_ui = Default::default();
             self.menu_fade.reset();
@@ -547,9 +592,8 @@ impl UiRuntime {
         self.menu_ui.clamp(players);
         self.menu_visible =
             config.wrist_menu.enabled && self.lift.update(menu_angle, self.pressed.is_some(), now);
-        let dialogue_angle = backend
-            .wrist_angle(&config.wrist)
-            .filter(|angle| angle.is_finite());
+        let (dialogue_device, dialogue_angle) = backend.wrist_device_and_angle(&config.wrist, head);
+        let dialogue_angle = dialogue_angle.filter(|angle| angle.is_finite());
         self.dialogue_available = match placement.display_mode() {
             Mode::World => placement.absolute_pose().is_some() && tracking.is_some(),
             Mode::Wrist => dialogue_angle.is_some(),
@@ -640,19 +684,13 @@ impl UiRuntime {
             backend.visible(OverlayKind::OcrWrist),
         ];
         self.pointer_targets = [
-            (
-                OverlayKind::WristMenu,
-                menu_key,
-                backend.controller_device(&menu_config),
-            ),
+            (OverlayKind::WristMenu, menu_key, menu_device),
             (
                 OverlayKind::Wrist,
                 dialogue_key,
-                if placement.display_mode() == Mode::Wrist {
-                    backend.controller_device(&config.wrist)
-                } else {
-                    None
-                },
+                (placement.display_mode() == Mode::Wrist)
+                    .then_some(dialogue_device)
+                    .flatten(),
             ),
             (OverlayKind::OcrWrist, reader_key, None),
         ]

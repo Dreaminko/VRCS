@@ -180,6 +180,8 @@ struct Slot {
     texture: ID3D11Texture2D,
     // A legacy DXGI shared handle belongs to its texture, not CloseHandle.
     handle: usize,
+    width: u32,
+    height: u32,
 }
 
 struct Pending {
@@ -355,13 +357,10 @@ impl Capture {
             return Err("Invalid capture crop".into());
         }
         let slot = &mut self.slots[self.next_slot];
-        if slot.as_ref().is_none_or(|slot| {
-            let mut desc = D3D11_TEXTURE2D_DESC::default();
-            unsafe {
-                slot.texture.GetDesc(&mut desc);
-            }
-            desc.Width != r - l || desc.Height != b - t
-        }) {
+        if slot
+            .as_ref()
+            .is_none_or(|slot| slot.width != r - l || slot.height != b - t)
+        {
             // Only next_slot may be resized; OpenVR still owns the other output.
             *slot = Some(create_slot(&self.device.device, r - l, b - t)?);
         }
@@ -762,6 +761,8 @@ fn create_slot(device: &ID3D11Device, width: u32, height: u32) -> Result<Slot, C
     Ok(Slot {
         texture,
         handle: handle.0 as usize,
+        width,
+        height,
     })
 }
 

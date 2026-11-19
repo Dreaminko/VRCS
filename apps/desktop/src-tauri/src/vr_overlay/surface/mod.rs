@@ -1148,6 +1148,13 @@ impl Entry {
 pub struct SurfaceHub(Mutex<[Entry; 10]>);
 
 impl SurfaceHub {
+    pub(super) fn needs_surface_maintenance(&self) -> bool {
+        let entries = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        entries
+            .iter()
+            .any(|entry| entry.active || entry.endpoint.is_some())
+    }
+
     pub(super) fn needs_fast_tick(&self) -> bool {
         let entries = self.0.lock().unwrap_or_else(|error| error.into_inner());
         let progress = &entries[SurfaceId::OcrProgress.index()];
@@ -1472,15 +1479,45 @@ impl SurfaceRenderer {
             self.visible_frame = false;
             self.capture_fault = None;
             self.pending_action = None;
-            if let Err(error) = hub.set_active(app, self.surface, false) {
-                tracing::warn!(surface = self.surface.name(), %error, "Surface sleep failed");
-            }
-            let (cold, release_host) = {
-                let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
-                let entry = &entries[self.surface.index()];
-                let cold = entry.cold(self.surface, Instant::now());
-                (cold, cold && entry.endpoint.is_some())
+            let now = Instant::now();
+            let (activity_request, cold, release_host) = {
+                let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                let entry = &mut entries[self.surface.index()];
+                let activity_request = entry
+                    .set_active(false, now)
+                    .then_some((entry.host_epoch, entry.activity()));
+                let cold = entry.cold(self.surface, now);
+                let release_host = cold && entry.endpoint.is_some();
+                if activity_request.is_none() && !release_host && (!cold || self.capture.is_none())
+                {
+                    let state = if entry.endpoint.is_some() {
+                        "warm_hidden"
+                    } else {
+                        "dormant"
+                    };
+                    entry.metrics.report(
+                        self.surface.name(),
+                        state,
+                        entry.endpoint.is_some(),
+                        self.capture
+                            .as_ref()
+                            .is_some_and(|capture| capture.borrow().active()),
+                    );
+                    return;
+                }
+                (activity_request, cold, release_host)
             };
+            if let Some((epoch, activity)) = activity_request {
+                if let Err(error) = app.state::<NativeHostManager>().set_activity(
+                    HostId {
+                        surface: self.surface,
+                        host_epoch: epoch,
+                    },
+                    activity,
+                ) {
+                    tracing::warn!(surface = self.surface.name(), %error, "Surface sleep failed");
+                }
+            }
             if cold && self.capture.is_some() {
                 // Keep textures alive if OpenVR refuses to detach its reference.
                 let detached =
@@ -1624,6 +1661,10 @@ impl SurfaceRenderer {
         self.published_key.is_some()
             && self.published_key == self.retained_key
             && self.fade_frame_ready(&entries[self.surface.index()])
+    }
+
+    pub fn has_published_key(&self) -> bool {
+        self.published_key.is_some()
     }
 
     pub fn hold_for_fade(

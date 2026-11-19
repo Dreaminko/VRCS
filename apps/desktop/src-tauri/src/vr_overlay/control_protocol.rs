@@ -90,6 +90,7 @@ pub struct ControlSnapshot {
 pub struct ControlHub {
     active: bool,
     snapshot: ControlSnapshot,
+    version: u64,
     sequence: u32,
     pending: [Option<ControlRequest>; 5],
     failures: [Option<String>; 5],
@@ -104,6 +105,10 @@ pub struct ControlHub {
 }
 
 impl ControlHub {
+    pub fn ui_version(&self) -> u64 {
+        self.version
+    }
+
     pub fn player_display(&self) -> &super::player_display::View {
         &self.player_display
     }
@@ -130,6 +135,7 @@ impl ControlHub {
         }
         self.player_display_revision = revision;
         self.player_display = view;
+        self.version = self.version.wrapping_add(1);
         true
     }
 
@@ -159,6 +165,7 @@ impl ControlHub {
         self.player_display_failure = None;
         self.player_display_pending
             .insert(request.request_id, request.clone());
+        self.version = self.version.wrapping_add(1);
         Some(request)
     }
 
@@ -174,6 +181,7 @@ impl ControlHub {
         self.player_display.busy = !self.player_display_pending.is_empty();
         self.player_display_failure = error.clone();
         self.player_display.error = error;
+        self.version = self.version.wrapping_add(1);
         true
     }
 
@@ -183,6 +191,7 @@ impl ControlHub {
         self.player_display_sequence = 0;
         self.player_display_pending.clear();
         self.player_display_failure = None;
+        self.version = self.version.wrapping_add(1);
     }
 
     pub fn player_audio(&self) -> &super::player_audio_ui::View {
@@ -244,7 +253,11 @@ impl ControlHub {
     }
 
     pub fn set_overlay_effective(&mut self, wrist: bool, headset: bool) {
-        self.overlay_effective = Some([wrist, headset]);
+        let next = Some([wrist, headset]);
+        if self.overlay_effective != next {
+            self.overlay_effective = next;
+            self.version = self.version.wrapping_add(1);
+        }
     }
 
     pub fn register(&mut self, mut view: ControlSnapshot) -> Result<ControlSnapshot, String> {
@@ -262,6 +275,7 @@ impl ControlHub {
         self.player_audio_revision = 0;
         self.reset_player_display();
         self.active = true;
+        self.version = self.version.wrapping_add(1);
         Ok(self.snapshot())
     }
 
@@ -274,6 +288,7 @@ impl ControlHub {
             item.available = false;
             item.busy = false;
         }
+        self.version = self.version.wrapping_add(1);
     }
 
     pub fn update(
@@ -301,6 +316,7 @@ impl ControlHub {
                 .checked_add(1)
                 .ok_or("Control revision exhausted")?;
             self.snapshot = view;
+            self.version = self.version.wrapping_add(1);
         }
         Ok(self.snapshot())
     }
@@ -327,6 +343,7 @@ impl ControlHub {
         item.reason = None;
         self.failures[index] = None;
         self.pending[index] = Some(request.clone());
+        self.version = self.version.wrapping_add(1);
         Some(request)
     }
 
@@ -339,6 +356,7 @@ impl ControlHub {
         self.snapshot.items[index].busy = false;
         self.failures[index] = error.clone();
         self.snapshot.items[index].reason = error;
+        self.version = self.version.wrapping_add(1);
         true
     }
 }

@@ -408,13 +408,71 @@ struct WireEvent<'a, T> {
     payload: Option<T>,
 }
 
+#[derive(serde::Serialize)]
+struct WireWelcome<'a> {
+    version: u8,
+    op: &'static str,
+    host: &'a HostId,
+    nonce: &'a str,
+}
+
+#[derive(serde::Serialize)]
+struct WireReply<'a> {
+    version: u8,
+    op: &'static str,
+    nonce: &'a str,
+    request_id: u64,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value: Option<super::bridge::PageReply>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<&'static str>,
+}
+
 fn post_json(webview: &ICoreWebView2, json: &str) -> windows::core::Result<()> {
     let json = CoTaskMemPWSTR::from(json);
     unsafe { webview.PostWebMessageAsJson(*json.as_ref().as_pcwstr()) }
 }
 
-fn post(webview: &ICoreWebView2, message: serde_json::Value) -> windows::core::Result<()> {
-    post_json(webview, &message.to_string())
+fn post_welcome(webview: &ICoreWebView2, document: &DocumentSession) -> windows::core::Result<()> {
+    let json = serde_json::to_string(&WireWelcome {
+        version: 1,
+        op: "welcome",
+        host: &document.host,
+        nonce: &document.nonce,
+    })
+    .expect("welcome message is serializable");
+    post_json(webview, &json)
+}
+
+fn post_reply(
+    webview: &ICoreWebView2,
+    nonce: &str,
+    request_id: u64,
+    result: Result<super::bridge::PageReply, super::bridge::BridgeError>,
+) -> windows::core::Result<()> {
+    let message = match result {
+        Ok(value) => WireReply {
+            version: 1,
+            op: "reply",
+            nonce,
+            request_id,
+            ok: true,
+            value: Some(value),
+            error: None,
+        },
+        Err(error) => WireReply {
+            version: 1,
+            op: "reply",
+            nonce,
+            request_id,
+            ok: false,
+            value: None,
+            error: Some(error.code()),
+        },
+    };
+    let json = serde_json::to_string(&message).expect("surface reply is serializable");
+    post_json(webview, &json)
 }
 
 fn post_wire<T: serde::Serialize>(
@@ -1197,59 +1255,108 @@ impl NativeHost {
             let session = self.session.clone();
             let expected = source.clone();
             let intent = connecting.clone();
-            self.webview.add_NavigationCompleted(&NavigationCompletedEventHandler::create(Box::new(move |sender, args| {
-                let (Some(sender), Some(args)) = (sender, args) else { return Ok(()); };
-                if shared.current(id).is_none() { return Ok(()); }
-                let mut navigation = 0;
-                args.NavigationId(&mut navigation)?;
-                {
-                    let hub = app.state::<SurfaceHub>();
-                    let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
-                    let entry = &entries[id.surface.index()];
-                    // Rejected external and superseded navigations must not fault this document.
-                    if entry.host_epoch != id.host_epoch || entry.navigation_id != navigation { return Ok(()); }
-                }
-                let mut success = BOOL(0);
-                args.IsSuccess(&mut success)?;
-                if !success.as_bool() { host_error(&app, id, "surface_navigation_failed".into()); return Ok(()); }
-                if let Some(document) = app.state::<SurfaceHub>().document_loaded(id, navigation, expected.clone()) {
-                    *session.borrow_mut() = Some(document.clone());
-                    if intent.get() { post(&sender, serde_json::json!({ "version": 1, "op": "welcome", "host": document.host, "nonce": document.nonce }))?; }
-                }
-                Ok(())
-            })), &mut self.tokens[1])?;
+            self.webview.add_NavigationCompleted(
+                &NavigationCompletedEventHandler::create(Box::new(move |sender, args| {
+                    let (Some(sender), Some(args)) = (sender, args) else {
+                        return Ok(());
+                    };
+                    if shared.current(id).is_none() {
+                        return Ok(());
+                    }
+                    let mut navigation = 0;
+                    args.NavigationId(&mut navigation)?;
+                    {
+                        let hub = app.state::<SurfaceHub>();
+                        let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                        let entry = &entries[id.surface.index()];
+                        // Rejected external and superseded navigations must not fault this document.
+                        if entry.host_epoch != id.host_epoch || entry.navigation_id != navigation {
+                            return Ok(());
+                        }
+                    }
+                    let mut success = BOOL(0);
+                    args.IsSuccess(&mut success)?;
+                    if !success.as_bool() {
+                        host_error(&app, id, "surface_navigation_failed".into());
+                        return Ok(());
+                    }
+                    if let Some(document) =
+                        app.state::<SurfaceHub>()
+                            .document_loaded(id, navigation, expected.clone())
+                    {
+                        *session.borrow_mut() = Some(document.clone());
+                        if intent.get() {
+                            post_welcome(&sender, &document)?;
+                        }
+                    }
+                    Ok(())
+                })),
+                &mut self.tokens[1],
+            )?;
 
             let app = state.app.clone();
             let shared = state.shared.clone();
             let session = self.session.clone();
             let expected = source;
             let snapshot = self.snapshot.clone();
-            self.webview.add_WebMessageReceived(&WebMessageReceivedEventHandler::create(Box::new(move |sender, args| {
-                let (Some(sender), Some(args)) = (sender, args) else { return Ok(()); };
-                if shared.current(id).is_none() { return Ok(()); }
-                let source = read_string(|out| args.Source(out))?;
-                if source != expected { return Ok(()); }
-                let message = read_string(|out| args.WebMessageAsJson(out))?;
-                let Ok(request) = super::bridge::decode_request(&message) else { return Ok(()); };
-                if matches!(request, PageRequest::Connect) {
-                    connecting.set(true);
-                    if let Some(document) = session.borrow().as_ref() { post(&sender, serde_json::json!({ "version": 1, "op": "welcome", "host": document.host, "nonce": document.nonce }))?; }
-                    return Ok(());
-                }
-                let Some(document) = session.borrow().clone() else { return Ok(()); };
-                if document.authorize(&source, &request).is_err() { return Ok(()); }
-                let PageRequest::Call { request_id, ref operation, .. } = request else { return Ok(()); };
-                let sleeping = if let Operation::Snapshot { activity_request, .. } = operation { Some(*activity_request) } else { None };
-                let result = app.state::<SurfaceHub>().handle_page_request(&document, request);
-                if matches!(&result, Ok(super::bridge::PageReply::Accepted(true))) {
-                    if let Some(request) = sleeping { snapshot.set(Some(request)); shared.wake(); }
-                }
-                let reply = match result {
-                    Ok(value) => serde_json::json!({ "version": 1, "op": "reply", "nonce": document.nonce, "request_id": request_id, "ok": true, "value": value }),
-                    Err(error) => serde_json::json!({ "version": 1, "op": "reply", "nonce": document.nonce, "request_id": request_id, "ok": false, "error": error.code() }),
-                };
-                post(&sender, reply)
-            })), &mut self.tokens[2])?;
+            self.webview.add_WebMessageReceived(
+                &WebMessageReceivedEventHandler::create(Box::new(move |sender, args| {
+                    let (Some(sender), Some(args)) = (sender, args) else {
+                        return Ok(());
+                    };
+                    if shared.current(id).is_none() {
+                        return Ok(());
+                    }
+                    let source = read_string(|out| args.Source(out))?;
+                    if source != expected {
+                        return Ok(());
+                    }
+                    let message = read_string(|out| args.WebMessageAsJson(out))?;
+                    let Ok(request) = super::bridge::decode_request(&message) else {
+                        return Ok(());
+                    };
+                    if matches!(request, PageRequest::Connect) {
+                        connecting.set(true);
+                        if let Some(document) = session.borrow().as_ref() {
+                            post_welcome(&sender, document)?;
+                        }
+                        return Ok(());
+                    }
+                    let Some(document) = session.borrow().clone() else {
+                        return Ok(());
+                    };
+                    if document.authorize(&source, &request).is_err() {
+                        return Ok(());
+                    }
+                    let PageRequest::Call {
+                        request_id,
+                        ref operation,
+                        ..
+                    } = request
+                    else {
+                        return Ok(());
+                    };
+                    let sleeping = if let Operation::Snapshot {
+                        activity_request, ..
+                    } = operation
+                    {
+                        Some(*activity_request)
+                    } else {
+                        None
+                    };
+                    let result = app
+                        .state::<SurfaceHub>()
+                        .handle_page_request(&document, request);
+                    if matches!(&result, Ok(super::bridge::PageReply::Accepted(true))) {
+                        if let Some(request) = sleeping {
+                            snapshot.set(Some(request));
+                            shared.wake();
+                        }
+                    }
+                    post_reply(&sender, &document.nonce, request_id, result)
+                })),
+                &mut self.tokens[2],
+            )?;
 
             let app = state.app.clone();
             let environment = state.environment.as_ref().unwrap().clone();

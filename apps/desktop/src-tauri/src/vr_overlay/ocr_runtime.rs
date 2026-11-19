@@ -358,9 +358,10 @@ impl OcrRuntime {
         player_progress: Option<&super::ocr_progress::ProgressView>,
         business: bool,
     ) {
-        if self.pending_capture.is_none() {
+        if self.pending_capture.is_none() && !self.vision.capturing() {
             backend.cancel_ocr_capture();
         }
+        self.vision.poll_capture(backend);
         if business {
             self.vision.tick();
         }
@@ -481,7 +482,7 @@ impl OcrRuntime {
             backend.reset(OverlayKind::OcrProgress);
             self.status.progress_error = Some(error);
         }
-        if self.pending_capture.is_none() {
+        if self.pending_capture.is_none() && !self.vision.capturing() {
             backend.cancel_ocr_capture();
         }
     }
