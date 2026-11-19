@@ -840,10 +840,6 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
             .and_then(serde_json::Value::as_object_mut)
         {
             let osc_disabled = features.remove("osc_chatbox") == Some(false.into());
-            // Keep existing speaker management available when upgrading its first release.
-            features
-                .entry("microphone_speaker_filter")
-                .or_insert((version >= 35).into());
             if osc_disabled {
                 if let Some(osc) = normalized
                     .get_mut("osc")
@@ -853,6 +849,19 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
                 }
             }
         }
+    }
+    if let Some(features) = normalized
+        .get_mut("features")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        features.remove("microphone_speaker_filter");
+    }
+    if let Some(microphone) = normalized
+        .get_mut("audio")
+        .and_then(|audio| audio.get_mut("microphone"))
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        microphone.remove("speaker_filter_enabled");
     }
     let legacy_ocr = normalized
         .get_mut("vr_overlay")
@@ -886,7 +895,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
-        26..=43 => serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?,
+        26..=44 => serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?,
         23..=25 => deserialize_v24(raw.clone())?,
         22 => migrate_v22(raw)?,
         21 => migrate_v21(raw)?,

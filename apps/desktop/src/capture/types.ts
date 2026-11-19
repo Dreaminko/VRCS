@@ -73,7 +73,6 @@ export interface PlayerViewPrioritySettings {
 }
 
 export interface MicrophoneSettings {
-  speaker_filter_enabled?: boolean;
   mode: "default" | "device" | "disabled";
   device_id: number | null;
   device_key?: string | null;

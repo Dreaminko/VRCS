@@ -8,7 +8,6 @@ pub struct FeatureConfig {
     pub glossary: bool,
     pub learning: bool,
     pub anki: bool,
-    pub microphone_speaker_filter: bool,
     pub vrcx: bool,
     pub ocr: bool,
     pub visual_question_answering: bool,
@@ -22,7 +21,6 @@ impl Default for FeatureConfig {
             glossary: true,
             learning: true,
             anki: true,
-            microphone_speaker_filter: false,
             vrcx: true,
             ocr: true,
             visual_question_answering: false,
@@ -37,7 +35,6 @@ pub enum FeatureKey {
     Glossary,
     Learning,
     Anki,
-    MicrophoneSpeakerFilter,
     Vrcx,
     Ocr,
     VisualQuestionAnswering,
@@ -51,7 +48,6 @@ impl FeatureKey {
             Self::Glossary => "glossary",
             Self::Learning => "learning",
             Self::Anki => "anki",
-            Self::MicrophoneSpeakerFilter => "microphone_speaker_filter",
             Self::Vrcx => "vrcx",
             Self::Ocr => "ocr",
             Self::VisualQuestionAnswering => "visual_question_answering",
@@ -65,7 +61,6 @@ impl FeatureKey {
             Self::Glossary => features.glossary,
             Self::Learning => features.learning,
             Self::Anki => features.anki,
-            Self::MicrophoneSpeakerFilter => features.microphone_speaker_filter,
             Self::Vrcx => features.vrcx,
             Self::Ocr => features.ocr,
             Self::VisualQuestionAnswering => features.visual_question_answering,
@@ -92,7 +87,6 @@ pub fn apply_feature_gates(config: &AppConfig) -> AppConfig {
     }
     effective.dictionary.selection_lookup_enabled &= features.learning;
     effective.anki.enabled &= features.anki;
-    effective.audio.microphone.speaker_filter_enabled &= features.microphone_speaker_filter;
     effective.vrchat_chatbox.enabled &= config.audio.output.player_audio.enabled;
     if !config.audio.output.player_audio.enabled && effective.audio.output.mode == "vrchat_players"
     {
@@ -148,24 +142,6 @@ mod tests {
             assert!(!effective.vrchat_chatbox.enabled);
             assert_eq!(effective.audio, config.audio);
         }
-    }
-
-    #[test]
-    fn speaker_filter_feature_gates_only_microphone_filtering() {
-        let mut config = AppConfig::default();
-        config.audio.microphone.speaker_filter_enabled = true;
-        config.osc.enabled = true;
-        let disabled = apply_feature_gates(&config);
-        assert!(!disabled.audio.microphone.speaker_filter_enabled);
-        assert!(disabled.osc.enabled);
-        config.features.microphone_speaker_filter = true;
-        assert!(
-            apply_feature_gates(&config)
-                .audio
-                .microphone
-                .speaker_filter_enabled
-        );
-        assert!(config.audio.microphone.speaker_filter_enabled);
     }
 
     #[test]

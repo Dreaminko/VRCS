@@ -5,7 +5,6 @@ import { playerUserId } from "../capture/player-selection.ts";
 import { sourceLanguageKey, type PlayerHistoryPreferences } from "../subtitles/player-history.ts";
 import { applyPlayerProximity, applyPlayerSourceAction, applyPlayerSourceMode, applyPlayerViewPriority, applyPlayerVisibilityAction, isPlayerProximityAction, isPlayerSourceAction, isPlayerSourceModeAction, isPlayerViewPriorityAction, sourceMode, type PlayerDisplayAction } from "../subtitles/player-controls.ts";
 import type { ControlAction, ControlSource } from "./protocol";
-import type { MicrophoneSpeakerAction, MicrophoneSpeakerSnapshot } from "../capture/microphone-speakers";
 
 export type { PlayerDisplayAction } from "../subtitles/player-controls.ts";
 
@@ -36,9 +35,6 @@ export interface PlayerDisplayView {
     horizontal_fov_deg: number;
     local_view: boolean;
   };
-  microphone?: Omit<MicrophoneSpeakerSnapshot, "snapshot_sequence" | "speakers"> & {
-    speakers: Array<{ id: string; index: number; decision: "allow" | "block"; name: string; last_active: string }>;
-  };
   languages: Array<{ code: string; label: string; hidden: boolean }>;
   follow_default: boolean;
   default_languages: string[];
@@ -48,11 +44,10 @@ export interface PlayerDisplayView {
 }
 
 export interface WristMenuUi {
-  page: "home" | "players" | "languages" | "microphone";
+  page: "home" | "players" | "rules" | "languages";
   group: "current" | "history";
   player_page: number;
   language_page: number;
-  microphone_page?: number;
 }
 
 export interface SliderCommand {
@@ -68,7 +63,6 @@ export type WristMenuCommand =
   | { group: WristMenuUi["group"] }
   | { player_page: number }
   | { language_page: number }
-  | { microphone_page: number }
   | { slider: SliderCommand }
   | { display: PlayerDisplayAction }
   | "dashboard";
@@ -146,7 +140,6 @@ export function createPlayerDisplayExecutor(options: {
   getState: () => PlayerDisplayExecutionState;
   updateSettings: (apply: (settings: Settings) => Settings) => Promise<Settings>;
   updatePreferences: (apply: (preferences: PlayerHistoryPreferences) => PlayerHistoryPreferences) => void;
-  updateMicrophone?: (action: MicrophoneSpeakerAction) => Promise<void>;
 }) {
   const state = () => {
     const current = options.getState();
@@ -155,11 +148,6 @@ export function createPlayerDisplayExecutor(options: {
   };
   return async (action: PlayerDisplayAction): Promise<void> => {
     state();
-    if ("set_microphone_filter" in action || "set_microphone_speaker" in action) {
-      if (!options.updateMicrophone) throw new Error("Microphone speaker controls are unavailable");
-      await options.updateMicrophone(action);
-      return;
-    }
     if (isPlayerProximityAction(action)) {
       if (!Number.isFinite(action.set_proximity_radius)) throw new Error("Distance limit is invalid");
       const radius_m = Math.round(action.set_proximity_radius * 10) / 10;

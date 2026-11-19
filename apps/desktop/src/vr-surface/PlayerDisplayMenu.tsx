@@ -1,24 +1,24 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Check, ChevronLeft, ChevronRight, Eye, Languages, MessageSquare, MessageSquareOff, Mic, UsersRound, Volume2, VolumeX, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Eye, Languages, MessageSquare, MessageSquareOff, SlidersHorizontal, UsersRound, Volume2, VolumeX, X } from "lucide-react";
 import type { PlayerDisplayView, SliderCommand, WristMenuCommand, WristMenuUi } from "../vr-controls/player-display-protocol";
 import type { SurfaceState } from "./protocol";
 
 export const DEFAULT_WRIST_MENU_UI: WristMenuUi = { page: "home", group: "current", player_page: 0, language_page: 0 };
 
 const PROXIMITY_SLIDER = { action: "proximity_radius", min: 0, max: 10, step: 0.1 } as const;
-const VIEW_ANGLE_SLIDER = { action: "view_horizontal_fov", min: 30, max: 180, step: 1 } as const;
+const VIEW_ANGLE_SLIDER = { action: "view_horizontal_fov", min: 30, max: 180, step: 5 } as const;
 
 const unavailableView: PlayerDisplayView = {
   available: false, processing_available: false, player_mode: false, source_mode: "allowlist",
   players: [], languages: [], follow_default: false, default_languages: [], labels: {}, busy: false, error: null,
 };
 
-function MenuButton({ state, id, command, children, label, active = false, disabled = false, className = "" }: {
+function MenuButton({ state, id, command, children, label, active = false, pressed, disabled = false, className = "" }: {
   state: SurfaceState; id: number; command: WristMenuCommand; children: ReactNode; label?: string;
-  active?: boolean; disabled?: boolean; className?: string;
+  active?: boolean; pressed?: boolean; disabled?: boolean; className?: string;
 }) {
   return <button type="button" tabIndex={-1} data-vr-region={id} data-vr-menu={JSON.stringify(command)}
-    disabled={disabled} aria-label={label} aria-pressed={active}
+    disabled={disabled} aria-label={label} aria-pressed={pressed ?? active}
     className={`vr-menu-button${active ? " active" : ""}${state.hovered === id ? " hovered" : ""}${state.pressed === id ? " pressed" : ""}${className ? ` ${className}` : ""}`}>
     {children}
   </button>;
@@ -84,7 +84,7 @@ function pageSlice<T>(items: readonly T[], requested: number, size: number) {
 export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_WRIST_MENU_UI }: {
   state: SurfaceState; view?: PlayerDisplayView; ui?: WristMenuUi;
 }) {
-  const page = ui.page === "microphone" && !view.microphone ? "players" : ui.page;
+  const page = ui.page;
   if (page === "home") return null;
   const proximity = view.proximity;
   const viewPriority = view.view_priority;
@@ -92,23 +92,24 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
   const named = (key: string, fallback: string, name: string) => label(key, fallback).replaceAll("{{name}}", name);
   const locked = !view.available;
   const current = view.players.filter(player => player.current);
-  const players = pageSlice(ui.group === "current" ? current : view.players.filter(player => !player.current), ui.player_page, 5);
+  const history = view.players.filter(player => !player.current);
+  const players = pageSlice(ui.group === "current" ? current : history, ui.player_page, 5);
   const languages = pageSlice(view.languages, ui.language_page, 12);
-  const mic = view.microphone;
-  const microphones = pageSlice(mic?.speakers ?? [], ui.microphone_page ?? 0, 5);
-  const micReady = !!mic?.supported && mic.running && !!mic.generation;
-  const micStatus = !mic ? label("mic_unavailable", "Waiting for microphone status")
-    : !mic.running ? null
-    : !mic.supported ? label("mic_unsupported", "Requires Qwen Live Translate with speaker detection")
-    : !mic.generation ? label("mic_connecting", "Waiting for recognition connection")
-    : label("mic_sessionOnly", "Blocks apply to this connection; block speakers again after reconnecting");
-  const activePage = page === "players" ? players : page === "microphone" ? microphones : languages;
-  const paging = (index: number): WristMenuCommand => page === "players" ? { player_page: index } : page === "microphone" ? { microphone_page: index } : { language_page: index };
-  const message = view.error || (!view.available ? label("unavailable", "Player settings are unavailable")
-    : page === "players" && (!view.processing_available || !view.player_mode)
-      ? label("processingUnavailable", "Distance filtering requires per-player audio and a connected Core")
-      : page === "players" && viewPriority?.enabled && !viewPriority.local_view
-        ? label("viewWaiting", "Waiting for view data; players currently run at normal priority.") : "");
+  const hiddenLanguageCount = view.languages.filter(language => language.hidden).length;
+  const activePage = page === "players" ? players : languages;
+  const paging = (index: number): WristMenuCommand => page === "players" ? { player_page: index } : { language_page: index };
+  const message = view.error || (!view.available ? label("unavailable", "Player settings are unavailable") : "");
+  const ruleSummary = [
+    proximity && `${label("proximityRadius", "Recognition distance")} ${proximity.enabled ? `${proximity.radius_m.toFixed(1)} m` : label("proximityOff", "Off")}`,
+    viewPriority && `${label("viewAngle", "Horizontal view")} ${viewPriority.enabled ? `${viewPriority.horizontal_fov_deg}°` : label("proximityOff", "Off")}`,
+  ].filter(Boolean).join(" · ");
+  const sourceModeButtons = <div className="vr-menu-segments vr-menu-source-segments" role="group" aria-label={label("sourceMode", "Player sources")}>
+    {(["everyone", "allowlist"] as const).map((mode, index) => <MenuButton key={mode} state={state} id={48 + index}
+      command={{ display: { set_source_mode: mode } }} active={view.source_mode === mode} disabled={locked}
+      label={label(mode === "everyone" ? "sourceModeEveryone" : "sourceModeAllowlist", mode === "everyone" ? "Everyone" : "Allowlist")}>
+      {label(mode === "everyone" ? "sourceModeEveryone" : "sourceModeAllowlist", mode === "everyone" ? "Everyone" : "Allowlist")}
+    </MenuButton>)}
+  </div>;
   const pagination = <div className="vr-menu-pagination">
     <MenuButton state={state} id={15} command={paging(Math.max(0, activePage.page - 1))} label={label("previous", "Previous page")} disabled={activePage.page === 0}><ChevronLeft /></MenuButton>
     <span>{activePage.page + 1} / {activePage.count}</span>
@@ -124,77 +125,82 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
     </header>
     <nav className="vr-menu-tabs">
       <MenuButton state={state} id={6} command={{ page: "players" }} active={page === "players"}><UsersRound /><span>{label("playersTab", "People")}</span></MenuButton>
-      <MenuButton state={state} id={7} command={{ page: "languages" }} active={page === "languages"}><Languages /><span>{label("languages", "Hidden original languages")}</span></MenuButton>
-      {mic && <MenuButton state={state} id={29} command={{ page: "microphone" }} active={page === "microphone"}><Mic /><span>{label("mic_title", "Microphone speakers")}</span></MenuButton>}
+      <MenuButton state={state} id={52} command={{ page: "rules" }} active={page === "rules"}><SlidersHorizontal /><span>{label("rulesTab", "Rules")}</span></MenuButton>
+      <MenuButton state={state} id={7} command={{ page: "languages" }} active={page === "languages"}><Languages /><span>{label("languagesTab", "Languages")}</span>{hiddenLanguageCount > 0 && <small className="vr-menu-count">{hiddenLanguageCount}</small>}</MenuButton>
     </nav>
     {page === "players" ? <>
-      {proximity && <section className="vr-menu-proximity" aria-label={label("proximityRadius", "Recognition distance")}>
-        <MenuSlider state={state} id={32} value={proximity.enabled ? proximity.radius_m : 0}
-          disabled={locked || !view.player_mode} command={PROXIMITY_SLIDER} scale={["0", "10 m"]}
-          label={label("proximityRadius", "Recognition distance")}
-          formatValue={radius => radius > 0 ? `${radius.toFixed(1)} m` : label("proximityOff", "Off")} error={view.error} />
-      </section>}
-      <nav className="vr-menu-player-groups">
-        {pagination}
-        <MenuButton state={state} id={12} command={{ group: "current" }} active={ui.group === "current"}>{label("current", "Current world")}</MenuButton>
-        <MenuButton state={state} id={13} command={{ group: "history" }} active={ui.group === "history"}>{label("historySaved", "History")}</MenuButton>
-      </nav>
-      <nav className="vr-menu-source-mode" aria-label={label("sourceMode", "Player sources")}>
-        {(["everyone", "allowlist"] as const).map((mode, index) => <MenuButton key={mode} state={state} id={48 + index}
-          command={{ display: { set_source_mode: mode } }} active={view.source_mode === mode} disabled={locked}
-          label={label(mode === "everyone" ? "sourceModeEveryone" : "sourceModeAllowlist", mode === "everyone" ? "Everyone" : "Allowlist")}>
-          {label(mode === "everyone" ? "sourceModeEveryone" : "sourceModeAllowlist", mode === "everyone" ? "Everyone" : "Allowlist")}
-        </MenuButton>)}
-      </nav>
-      {viewPriority && <section className="vr-menu-view-priority" aria-label={label("viewPriority", "Prioritize players in view")}>
-        <MenuButton state={state} id={50} active={viewPriority.enabled} disabled={locked || !view.player_mode}
-          command={{ display: { set_view_priority: { enabled: !viewPriority.enabled, horizontal_fov_deg: viewPriority.horizontal_fov_deg } } }}
-          label={label("viewPriority", "Prioritize players in view")}>
-          <Eye /><span>{label("viewPriority", "Prioritize players in view")}</span>
-        </MenuButton>
-        <MenuSlider state={state} id={51} value={viewPriority.horizontal_fov_deg}
-          disabled={locked || !view.player_mode || !viewPriority.enabled} command={VIEW_ANGLE_SLIDER} scale={["30°", "180°"]}
-          label={label("viewAngle", "Horizontal view")} formatValue={degrees => `${degrees}°`} error={view.error} />
-      </section>}
+      <div className="vr-menu-player-toolbar">
+        <div className="vr-menu-segments vr-menu-group-segments" role="group" aria-label={label("groups", "People list")}>
+          <MenuButton state={state} id={12} command={{ group: "current" }} active={ui.group === "current"}><span>{label("current", "Current world")}</span><small className="vr-menu-count">{current.length}</small></MenuButton>
+          <MenuButton state={state} id={13} command={{ group: "history" }} active={ui.group === "history"}><span>{label("historySaved", "History")}</span><small className="vr-menu-count">{history.length}</small></MenuButton>
+        </div>
+        {sourceModeButtons}
+      </div>
+      {players.items.length > 0 && <div className="vr-menu-list-columns" aria-hidden="true">
+        <span /><span>{label("chatboxLabel", "Chatbox")}</span><span>{label("voiceLabel", "Voice")}</span>
+      </div>}
       <div className="vr-menu-player-list">
         {players.items.length ? players.items.map((player, index) => <div className={`vr-menu-player-row vr-menu-track-row${player.hidden ? " is-hidden" : ""}`} key={`${player.track_id ?? "saved"}:${player.user_id ?? "unknown"}`}>
-          <div className="vr-menu-player-name"><strong>{player.name}</strong><small>{!player.user_id ? label("userIdPending", "Waiting for player user ID before selection") : player.detail}</small></div>
+          <div className="vr-menu-player-name"><strong>{player.name}</strong><small>{!player.user_id ? label("userIdPending", "Waiting for player user ID before selection") : player.voice_locked ? `${player.detail} · ${label("voiceLocked", "Hidden record · voice locked")}` : player.detail}</small></div>
           {([["vrchat_chatbox", player.chatbox_disabled, "Chatbox"], ["speaker", player.voice_disabled, "Voice"]] as const).map(([source, disabled, icon], offset) =>
             <MenuButton key={source} state={state} id={33 + index * 3 + offset}
               command={{ display: { set_user_source_disabled: { user_id: player.user_id ?? "", source, disabled: !disabled } } }}
-              disabled={locked || !player.user_id || (source === "speaker" && player.voice_locked)} active={disabled} className="vr-menu-row-icon-button"
+              disabled={locked || !player.user_id || (source === "speaker" && player.voice_locked)}
+              active={!disabled} pressed={disabled}
+              className={`vr-menu-row-icon-button${disabled ? " is-muted" : ""}`}
               label={named(disabled ? `enable${icon}` : `disable${icon}`,
                 disabled ? `Resume ${icon.toLowerCase()} capture for {{name}}` : `Stop ${icon.toLowerCase()} capture for {{name}}`, player.name)}>
               {source === "vrchat_chatbox"
                 ? disabled ? <MessageSquareOff /> : <MessageSquare />
                 : disabled ? <VolumeX /> : <Volume2 />}
             </MenuButton>)}
-        </div>) : <p className="vr-surface-empty">{label("empty", "Waiting for tracks or loading history.")}</p>}
+        </div>) : <p className="vr-surface-empty">{ui.group === "current" ? label("currentEmpty", label("empty", "Waiting for tracks or loading history.")) : label("historyEmpty", label("empty", "Waiting for tracks or loading history."))}</p>}
       </div>
-    </> : page === "microphone" ? <>
-      <div className="vr-menu-processing">
-        <MenuButton state={state} id={8} command={{ display: { set_microphone_filter: !mic?.enabled } }} active={mic?.enabled}
-          disabled={locked || !mic}>
-          <span className="vr-menu-check" aria-hidden="true">{mic?.enabled && <Check />}</span>{label("mic_enable", "Filter microphone speakers")}
-        </MenuButton>
+      <footer className="vr-menu-footer">
+        {ruleSummary && <MenuButton state={state} id={53} command={{ page: "rules" }} className="vr-menu-summary-button" label={label("rulesTab", "Rules")}>
+          <SlidersHorizontal /><span>{ruleSummary}</span><ChevronRight />
+        </MenuButton>}
         {pagination}
-      </div>
-      {micStatus && <p className="vr-menu-status" role="status">{micStatus}</p>}
-      <div className="vr-menu-player-list">
-        {microphones.items.map((speaker, index) => <div className="vr-menu-player-row" key={speaker.id}>
-          <div className="vr-menu-player-name"><strong>{speaker.name}</strong><small>{label(`mic_${speaker.decision}`, speaker.decision)} · {speaker.last_active}</small></div>
-          {(["allow", "block"] as const).map((decision, offset) => <MenuButton state={state} id={17 + index * 2 + offset} key={decision}
-            command={{ display: { set_microphone_speaker: { generation: mic!.generation, revision: mic!.revision, id: speaker.id, decision } } }}
-            active={speaker.decision === decision} disabled={locked || !micReady || !mic?.enabled || speaker.decision === decision}>
-            {label(decision === "allow" ? "mic_allowAction" : "mic_blockAction", decision === "allow" ? "Allow" : "Block")}
-          </MenuButton>)}
-        </div>)}
-        {micReady && !microphones.items.length && <p className="vr-surface-empty">{label("mic_empty", "Speak to discover speakers")}</p>}
+      </footer>
+    </> : page === "rules" ? <>
+      {view.available && (!view.processing_available || !view.player_mode) && <p className="vr-menu-status" role="status">{label("processingUnavailable", "Distance filtering requires per-player audio and a connected Core")}</p>}
+      <div className="vr-menu-rules">
+        <section className="vr-menu-card" aria-label={label("sourceMode", "Player sources")}>
+          <div className="vr-menu-card-head"><h2>{label("sourceMode", "Player sources")}</h2></div>
+          {sourceModeButtons}
+        </section>
+        {proximity && <section className="vr-menu-card" aria-label={label("proximityRadius", "Recognition distance")}>
+          <div className="vr-menu-card-head">
+            <h2>{label("proximityRadius", "Recognition distance")}</h2>
+            <MenuButton state={state} id={54} command={{ display: { set_proximity_radius: 0 } }}
+              disabled={locked || !view.player_mode || !proximity.enabled} active={!proximity.enabled} className="vr-menu-card-action">
+              {label("proximityOff", "Off")}
+            </MenuButton>
+          </div>
+          <MenuSlider state={state} id={32} value={proximity.enabled ? proximity.radius_m : 0}
+            disabled={locked || !view.player_mode} command={PROXIMITY_SLIDER} scale={["0", "10 m"]}
+            label={label("proximityRadius", "Recognition distance")}
+            formatValue={radius => radius > 0 ? `${radius.toFixed(1)} m` : label("proximityOff", "Off")} error={view.error} />
+        </section>}
+        {viewPriority && <section className="vr-menu-card" aria-label={label("viewPriority", "Prioritize players in view")}>
+          <div className="vr-menu-card-head">
+            <h2><Eye /><span>{label("viewPriority", "Prioritize players in view")}</span></h2>
+            <MenuButton state={state} id={50} active={viewPriority.enabled} disabled={locked || !view.player_mode}
+              command={{ display: { set_view_priority: { enabled: !viewPriority.enabled, horizontal_fov_deg: viewPriority.horizontal_fov_deg } } }}
+              label={label("viewPriority", "Prioritize players in view")} className="vr-menu-switch-button">
+              <span className="vr-menu-toggle" aria-hidden="true"><i /></span>
+            </MenuButton>
+          </div>
+          <div className="vr-menu-slider-row">
+            <span className="vr-menu-slider-label">{label("viewAngle", "Horizontal view")}</span>
+            <MenuSlider state={state} id={51} value={viewPriority.horizontal_fov_deg}
+              disabled={locked || !view.player_mode || !viewPriority.enabled} command={VIEW_ANGLE_SLIDER} scale={["30°", "180°"]}
+              label={label("viewAngle", "Horizontal view")} formatValue={degrees => `${degrees}°`} error={view.error} />
+          </div>
+          {viewPriority.enabled && !viewPriority.local_view && <p className="vr-menu-card-note" role="status">{label("viewWaiting", "Waiting for view data; players currently run at normal priority.")}</p>}
+        </section>}
       </div>
     </> : <>
-      <div className="vr-menu-language-actions">
-        <MenuButton state={state} id={9} command={{ display: { clear_hidden_languages: null } }} disabled={locked}>{label("noHiddenLanguages", "No languages hidden")}</MenuButton>
-      </div>
       <div className="vr-menu-language-list">
         {languages.items.map((language, index) => <MenuButton state={state} id={17 + index} key={language.code} className="vr-menu-language-option"
           command={{ display: { set_source_language_hidden: { language: language.code, hidden: !language.hidden } } }} active={language.hidden} disabled={locked}>
@@ -202,7 +208,13 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
         </MenuButton>)}
         {!languages.items.length && <p className="vr-surface-empty">{label("noHiddenLanguages", "No languages hidden")}</p>}
       </div>
-      <footer className="vr-menu-language-footer">{pagination}</footer>
+      <footer className="vr-menu-footer">
+        <div className="vr-menu-footer-actions">
+          <MenuButton state={state} id={9} command={{ display: { clear_hidden_languages: null } }} disabled={locked || hiddenLanguageCount === 0}>{label("noHiddenLanguages", "No languages hidden")}</MenuButton>
+          {hiddenLanguageCount > 0 && <span className="vr-menu-footer-note">{label("hiddenLanguagesCount", "{{count}} hidden").replaceAll("{{count}}", String(hiddenLanguageCount))}</span>}
+        </div>
+        {pagination}
+      </footer>
     </>}
   </section>;
 }

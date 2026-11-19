@@ -64,10 +64,6 @@ impl CaptureReloadPlan {
             targets.first().map(|t| t.target_language.clone())
         };
         let sample_rate_changed = current.audio.sample_rate != candidate.audio.sample_rate;
-        let mut current_microphone = current.audio.microphone.clone();
-        let mut candidate_microphone = candidate.audio.microphone.clone();
-        current_microphone.speaker_filter_enabled = false;
-        candidate_microphone.speaker_filter_enabled = false;
         Self {
             speaker: shared
                 || live_mode_changed
@@ -85,7 +81,7 @@ impl CaptureReloadPlan {
                     && target(&current.translation.microphone_targets)
                         != target(&candidate.translation.microphone_targets))
                 || sample_rate_changed
-                || current_microphone != candidate_microphone,
+                || current.audio.microphone != candidate.audio.microphone,
             chatbox: current.vrchat_chatbox.enabled != candidate.vrchat_chatbox.enabled,
             network_restart,
         }
@@ -545,10 +541,6 @@ async fn start_microphone_pipeline(
         .then_some(config.audio.microphone.device_id)
         .flatten();
     let (asr, echo_guard) = effective_asr_config(state, config, "microphone");
-    let speakers = state.content.subtitle_output.microphone_speakers();
-    speakers.set_enabled(config.audio.microphone.speaker_filter_enabled);
-    speakers
-        .start(asr.backend == crate::providers::SERVICE_QWEN_LIVE_TRANSLATE && !asr.single_speaker);
     state
         .capture
         .microphone_pipeline
@@ -568,7 +560,6 @@ async fn start_microphone_pipeline(
         .await
         .map(Some)
         .map_err(|error| {
-            speakers.stop();
             api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 error.code(),
@@ -1365,14 +1356,6 @@ mod tests {
                 ..CaptureReloadPlan::default()
             }
         );
-    }
-
-    #[test]
-    fn microphone_speakers_toggle_does_not_restart_capture() {
-        let current = AppConfig::default();
-        let mut candidate = current.clone();
-        candidate.audio.microphone.speaker_filter_enabled = true;
-        assert!(CaptureReloadPlan::between(&current, &candidate).is_empty());
     }
 
     #[test]

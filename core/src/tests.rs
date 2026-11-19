@@ -374,11 +374,6 @@ async fn feature_switches_project_runtime_and_block_business_routes() {
         ("POST", "/api/learning/selection-query", "learning"),
         ("GET", "/api/anki/status", "anki"),
         ("POST", "/api/learning/items/1/export", "learning"),
-        (
-            "PATCH",
-            "/api/capture/microphone/speakers",
-            "microphone_speaker_filter",
-        ),
         ("POST", "/api/vrcx/test", "vrcx"),
         ("POST", "/api/glossaries/test/refresh", "glossary"),
         ("POST", "/api/ocr/models/download", "ocr"),

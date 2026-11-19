@@ -53,7 +53,6 @@ pub struct OscChatboxDispatcher {
     sender: mpsc::Sender<OscEvent>,
     config: watch::Sender<OscConfigState>,
     status: Arc<Mutex<OscRuntimeStatus>>,
-    pub(crate) microphone_speakers: crate::microphone_speakers::MicrophoneSpeakers,
 }
 
 enum OscEvent {
@@ -150,14 +149,6 @@ struct PendingMessage {
 }
 
 impl PendingMessage {
-    fn is_manual(&self) -> bool {
-        self.responder.is_some()
-    }
-    fn speaker_allowed(&self, speakers: &crate::microphone_speakers::MicrophoneSpeakers) -> bool {
-        self.subtitle_id.is_none()
-            || self.is_manual()
-            || speakers.allows("microphone", &self.message_id)
-    }
     fn automatic_snapshot(&self) -> Self {
         Self {
             message_id: self.message_id.clone(),
@@ -226,20 +217,17 @@ impl OscChatboxDispatcher {
             config_revision: 0,
             automatic_revision: 0,
         });
-        let microphone_speakers = crate::microphone_speakers::MicrophoneSpeakers::default();
         tokio::spawn(run_worker(
             receiver,
             config_rx,
             Arc::clone(&status),
             db,
             events,
-            microphone_speakers.clone(),
         ));
         Self {
             sender,
             config,
             status,
-            microphone_speakers,
         }
     }
 
@@ -886,7 +874,6 @@ fn discard_automatic_pending(queue: &mut VecDeque<PendingMessage>) -> Vec<OscEff
 
 enum SendExecution {
     Completed(OscSendOutcome, Instant),
-    Filtered,
     ConfigChanged(OscConfigState),
     ConfigClosed,
 }
@@ -895,11 +882,10 @@ async fn execute_send(
     socket: &Result<UdpSocket, std::io::Error>,
     config_rx: &mut watch::Receiver<OscConfigState>,
     request: &OscSendRequest,
-    speakers: &crate::microphone_speakers::MicrophoneSpeakers,
 ) -> SendExecution {
     let result = match socket {
         Ok(socket) if request.is_manual() => {
-            Some(send_chatbox(socket, request.port, &request.rendered_text).await)
+            send_chatbox(socket, request.port, &request.rendered_text).await
         }
         Ok(socket) => {
             tokio::select! {
@@ -911,24 +897,10 @@ async fn execute_send(
                         SendExecution::ConfigChanged(config_rx.borrow().clone())
                     };
                 }
-                result = async {
-                    loop {
-                        if let Err(error) = socket.writable().await { return Some(Err(error.to_string())); }
-                        let send = || transport::try_send_chatbox(socket, request.port, &request.rendered_text);
-                        let result = if request.message.subtitle_id.is_none() { Some(send()) }
-                            else { speakers.with_allowed("microphone", &request.message.message_id, send) };
-                        match result {
-                            Some(Err(error)) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
-                            result => return result.map(|result| result.map_err(|error| error.to_string())),
-                        }
-                    }
-                } => result,
+                result = send_chatbox(socket, request.port, &request.rendered_text) => result,
             }
         }
-        Err(error) => Some(Err(error.to_string())),
-    };
-    let Some(result) = result else {
-        return SendExecution::Filtered;
+        Err(error) => Err(error.to_string()),
     };
     let completed_at = Instant::now();
     let outcome = match result {
@@ -1023,7 +995,6 @@ async fn run_worker(
     status: Arc<Mutex<OscRuntimeStatus>>,
     db: Option<Arc<Mutex<Database>>>,
     events: DomainEventHub,
-    speakers: crate::microphone_speakers::MicrophoneSpeakers,
 ) {
     let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await;
     let mut state = OscWorkerState::new(config_rx.borrow().clone());
@@ -1051,17 +1022,13 @@ async fn run_worker(
             }
             _ = tick.tick() => OscWorkerInput::Tick(Instant::now()),
         };
-        filter_microphone_pending(&mut state, &speakers);
         let mut effects = VecDeque::from(reduce_osc_event(&mut state, input));
         while let Some(effect) = effects.pop_front() {
             let OscEffect::Send(request) = effect else {
                 execute_osc_effect(effect, &status, db.as_ref(), &events);
                 continue;
             };
-            if !request.message.speaker_allowed(&speakers) {
-                continue;
-            }
-            match execute_send(&socket, &mut config_rx, &request, &speakers).await {
+            match execute_send(&socket, &mut config_rx, &request).await {
                 SendExecution::Completed(outcome, completed_at) => {
                     effects.extend(reduce_osc_event(
                         &mut state,
@@ -1077,25 +1044,8 @@ async fn run_worker(
                     OscWorkerInput::SendCancelledByConfig(next),
                 )),
                 SendExecution::ConfigClosed => break 'worker,
-                SendExecution::Filtered => {}
             }
         }
-    }
-}
-
-fn filter_microphone_pending(
-    state: &mut OscWorkerState,
-    speakers: &crate::microphone_speakers::MicrophoneSpeakers,
-) {
-    state
-        .queue
-        .retain(|message| message.speaker_allowed(speakers));
-    if state
-        .current_sent
-        .as_ref()
-        .is_some_and(|sent| !sent.message.speaker_allowed(speakers))
-    {
-        state.current_sent = None;
     }
 }
 
@@ -1335,57 +1285,6 @@ mod tests {
             ready_at: Instant::now(),
             responder: None,
         }
-    }
-
-    #[tokio::test]
-    async fn microphone_speakers_drop_automatic_backlog_and_preserve_manual_send() {
-        let speakers = crate::microphone_speakers::MicrophoneSpeakers::default();
-        speakers.set_enabled(true);
-        let mut state = OscWorkerState::new(config_state());
-        state.current_sent = Some(SentMessage {
-            message: pending_message(&[]),
-            sent_at: Instant::now(),
-        });
-        state.queue.push_back(pending_message(&[]));
-        state
-            .queue
-            .push_back(manual_message("manual", Instant::now()));
-        filter_microphone_pending(&mut state, &speakers);
-        assert!(state.current_sent.is_none());
-        assert_eq!(state.queue.len(), 1);
-        assert!(state.queue[0].is_manual());
-
-        let receiver = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-        let port = receiver.local_addr().unwrap().port();
-        let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await;
-        let (_config_tx, mut config_rx) = watch::channel(config_state());
-        let mut request = OscSendRequest {
-            message: pending_message(&[]),
-            rendered_text: "blocked".into(),
-            port,
-            preserve_original_text: true,
-            translation_strategy: "preferred_only".into(),
-        };
-        assert!(matches!(
-            execute_send(&socket, &mut config_rx, &request, &speakers).await,
-            SendExecution::Filtered
-        ));
-        request.message = state.queue.pop_front().unwrap();
-        request.rendered_text = "manual".into();
-        assert!(matches!(
-            execute_send(&socket, &mut config_rx, &request, &speakers).await,
-            SendExecution::Completed(OscSendOutcome::Sent { .. }, _)
-        ));
-        let mut bytes = [0; 512];
-        let count = tokio::time::timeout(Duration::from_secs(1), receiver.recv(&mut bytes))
-            .await
-            .unwrap()
-            .unwrap();
-        let (_, packet) = rosc::decoder::decode_udp(&bytes[..count]).unwrap();
-        assert!(
-            matches!(packet, OscPacket::Message(message) if message.args[0] == OscType::String("manual".into()))
-        );
-        assert!(receiver.try_recv(&mut bytes).is_err());
     }
 
     fn manual_message(text: &str, ready_at: Instant) -> PendingMessage {

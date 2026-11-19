@@ -63,20 +63,6 @@ const emptyView = (): PlayerDisplayView => ({
   players: [], languages: [], follow_default: true, default_languages: [], labels: {}, busy: false, error: null,
 });
 
-test("microphone controls keep their capture generation and do not alter player selection or visibility", async () => {
-  const actions: unknown[] = [];
-  const execute = createPlayerDisplayExecutor({
-    getState: () => ({ available: true, processingAvailable: false, speakers: [], current: [], hiddenTracks: [], defaultLanguages: [], languages: [] }),
-    updateSettings: async () => { throw new Error("Unexpected player settings change"); },
-    updatePreferences: () => { throw new Error("Unexpected visibility change"); },
-    updateMicrophone: async action => { actions.push(action); },
-  });
-  await execute({ set_microphone_filter: true });
-  const selection = { set_microphone_speaker: { generation: "mic-session", revision: 4, id: "speaker-2", decision: "block" as const } };
-  await execute(selection);
-  assert.deepEqual(actions, [{ set_microphone_filter: true }, selection]);
-});
-
 test("proximity controls update the shared player audio settings and reject invalid ranges", async () => {
   let settings = initialSettings();
   const execute = createPlayerDisplayExecutor({

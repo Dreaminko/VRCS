@@ -13,12 +13,9 @@ import { localizedLanguageName } from "../../translation/translation-languages";
 import { LanguagePicker } from "../../shared/ui/LanguagePicker";
 import { useDismissibleLayer } from "../../shared/hooks/use-dismissible-layer";
 import { useDropdownMenuMotion } from "../../shared/hooks/use-dropdown-menu-motion";
-import { MicrophoneSpeakerControls } from "../../capture/MicrophoneSpeakerControls";
-import type { MicrophoneSpeakerControl } from "../../capture/useMicrophoneSpeakers";
 import { PreferenceToggle, RangeField } from "../../settings/SettingsControls";
 
-export function PlayerHistoryControls({ subtitles, status, roster, enabled, selectedUserNames = {}, sourceOverrides = {}, sourceMode = "allowlist", proximity, viewPriority, defaultLanguages, preferences, onPreferences, onSource, onSourceMode, onProximityChange, onViewPriorityChange, microphone }: {
-  microphone?: MicrophoneSpeakerControl;
+export function PlayerHistoryControls({ subtitles, status, roster, enabled, selectedUserNames = {}, sourceOverrides = {}, sourceMode = "allowlist", proximity, viewPriority, defaultLanguages, preferences, onPreferences, onSource, onSourceMode, onProximityChange, onViewPriorityChange }: {
   subtitles: Subtitle[];
   status?: PlayerAudioStatus | null;
   roster?: PlayerAudioStatus["players"];
@@ -117,7 +114,6 @@ export function PlayerHistoryControls({ subtitles, status, roster, enabled, sele
     {panelMounted && <section className="player-history-panel" ref={menuRef} id={panelId}
       aria-label={t("live.players.title")} aria-hidden={!open} inert={!open}>
     <div className="player-history-body">
-      {microphone && <MicrophoneSpeakerControls control={microphone} />}
       {proximity && <div className="player-history-proximity" role="group" aria-label={t("live.players.proximityRadius")}>
         <RangeField label={t("live.players.proximityRadius")} value={displayedRadius}
           min={0} max={10} step={0.1} disabled={!enabled || !onProximityChange}

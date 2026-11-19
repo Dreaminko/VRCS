@@ -36,7 +36,7 @@ test("VR consent shares the pending start, enforces the reading gate and publish
 
       const resources = Object.fromEntries([en, zh, hant, ja].map(locale => [locale._meta.locale, { translation: locale.translation }]));
       await i18next.use(initReactI18next).init({ lng: 'zh-CN', resources });
-      const settings = { features: { vr_overlay: true, microphone_speaker_filter: false },
+      const settings = { features: { vr_overlay: true },
         vr_overlay: { enabled: true, wrist: { enabled: true }, headset: { enabled: true } },
         osc: { enabled: false }, ocr: { hand_gesture_enabled: false, master_enabled: false },
         audio: { output: { mode: 'vrchat_players' } } };

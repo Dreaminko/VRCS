@@ -43,7 +43,6 @@ test("vision is independently visible and legacy OCR requests resolve to vision"
 test("OSC connections remain available independently of optional features", () => {
   const features = { ...DEFAULT_FEATURE_SETTINGS, anki: false, vrcx: false, external_api: false };
   assert.equal(visibleSettingsCategories(features).includes("connections"), true);
-  assert.equal(DEFAULT_FEATURE_SETTINGS.microphone_speaker_filter, false);
 });
 
 test("desktop OCR settings remain available when VR is disabled", () => {

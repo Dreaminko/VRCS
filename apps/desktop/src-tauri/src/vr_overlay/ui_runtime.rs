@@ -629,24 +629,32 @@ impl UiRuntime {
         drop(placement);
         let inputs = self.sample_pointer(backend, &pointer_layouts);
         let pointer = self.pointer;
+        let active_slider = self.pressed.filter(|&region| {
+            menu_layout.as_ref().is_some_and(|layout| {
+                matches!(
+                    layout.menu_command(region),
+                    Some(wrist_menu::Command::Slider(_))
+                )
+            })
+        });
         let samples: Vec<_> = inputs
             .into_iter()
             .map(|input| {
-                let hit = pointer
-                    .filter(|p| p.device == input.device.0)
-                    .and_then(|p| {
-                        let region = match p.key.surface {
-                            Surface::Menu => menu_layout.as_ref()?.hit(p.point)?,
-                            Surface::Dialogue => dialogue_layout.as_ref()?.hit(p.point)?,
-                            Surface::Reader => reader_layout.as_ref()?.hit(p.point)?,
-                        };
-                        Some(Hit {
-                            key: p.key,
-                            region,
-                            point: p.point,
-                            distance: p.distance,
-                        })
-                    });
+                let hit = pointer.filter(|p| p.device == input.device.0).and_then(|p| {
+                    let region = match p.key.surface {
+                        Surface::Menu => {
+                            active_slider.or_else(|| menu_layout.as_ref()?.hit(p.point))?
+                        }
+                        Surface::Dialogue => dialogue_layout.as_ref()?.hit(p.point)?,
+                        Surface::Reader => reader_layout.as_ref()?.hit(p.point)?,
+                    };
+                    Some(Hit {
+                        key: p.key,
+                        region,
+                        point: p.point,
+                        distance: p.distance,
+                    })
+                });
                 Sample {
                     device: input.device.0,
                     trigger: input.trigger,

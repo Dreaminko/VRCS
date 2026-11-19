@@ -214,7 +214,6 @@ export function DesktopShell({
               providerDefinitions={providers.catalog.providerDefinitions}
               controls={
                 <PlayerHistoryControls
-                  microphone={features?.microphone_speaker_filter ? workspace.microphoneSpeakers : undefined}
                   subtitles={conversations.selectedSubtitles}
                   status={runtime.health?.player_audio}
                   roster={runtime.health?.network_players}
