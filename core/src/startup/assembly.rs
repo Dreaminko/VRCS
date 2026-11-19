@@ -121,12 +121,17 @@ impl RuntimeAssembly {
             }
         };
         vrcx.reconfigure(effective.vrcx.clone(), vrcx_token).await;
-        let translation_dispatcher = translation::TranslationDispatcher::new(
+        let vrchat_log = crate::vrchat_log::VrchatLog::start(shutdown_rx.clone());
+        let room_context = crate::room_context::RoomContextStore::default();
+        room_context.sync_log(&vrchat_log.snapshot());
+        let translation_dispatcher = translation::TranslationDispatcher::new_with_room_context(
             Arc::clone(&translation_service),
             Arc::clone(&db),
             conversation_catalog_tx.clone(),
             subtitle_output.clone(),
             vrcx.clone(),
+            room_context.reader(),
+            Arc::clone(&config_runtime.config),
         );
         let (external_api_server, external_api_status) =
             start_external_api(&plan, domain_events.clone(), shutdown_rx.clone()).await;
@@ -136,7 +141,6 @@ impl RuntimeAssembly {
         );
         let (vr_overlay_config_tx, _) =
             watch::channel((effective.vr_overlay.clone(), effective.ocr.clone()));
-        let vrchat_log = crate::vrchat_log::VrchatLog::start(shutdown_rx.clone());
 
         let capture_runtime = CaptureRuntime::new(CaptureRuntimeInput {
             qwen_runtime_dir,
@@ -146,6 +150,7 @@ impl RuntimeAssembly {
             vad_model_path: plan.vad_model_path,
             shutdown: shutdown_rx.clone(),
             vrchat_log,
+            room_context: room_context.clone(),
         });
         let content_services = ContentServices::new(ContentServicesInput {
             db,
@@ -157,6 +162,7 @@ impl RuntimeAssembly {
             glossary,
             local_translation_models,
             plamo_runtime,
+            room_context: room_context.reader(),
         });
         let integration_runtime = IntegrationRuntime::new(IntegrationRuntimeInput {
             vr_overlay_config_tx,

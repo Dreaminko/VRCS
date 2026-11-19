@@ -24,12 +24,14 @@ impl RuntimeTasks {
         let capture = CaptureContext::from_app(&state);
         let glossary_refresh = spawn_glossary_refresh(capture.clone(), shutdown.clone());
         let mute_coordinator = spawn_mute_coordinator(capture, shutdown.clone());
+        let room_context_sync = spawn_room_context_sync(Arc::clone(&state), shutdown.clone());
         let room_markers = spawn_room_marker_recorder(Arc::clone(&state), shutdown.clone());
         let listener = match tokio::net::TcpListener::bind(requested_address).await {
             Ok(listener) => listener,
             Err(error) => {
                 glossary_refresh.abort();
                 mute_coordinator.abort();
+                room_context_sync.abort();
                 room_markers.abort();
                 return Err(format!("Failed to listen on {requested_address}: {error}"));
             }
@@ -39,6 +41,7 @@ impl RuntimeTasks {
             Err(error) => {
                 glossary_refresh.abort();
                 mute_coordinator.abort();
+                room_context_sync.abort();
                 room_markers.abort();
                 return Err(format!("Failed to read the listen address: {error}"));
             }
@@ -49,7 +52,12 @@ impl RuntimeTasks {
         Ok(Self {
             address,
             server: Some(server),
-            auxiliaries: vec![glossary_refresh, mute_coordinator, room_markers],
+            auxiliaries: vec![
+                glossary_refresh,
+                mute_coordinator,
+                room_context_sync,
+                room_markers,
+            ],
         })
     }
 
@@ -154,6 +162,33 @@ fn spawn_mute_coordinator(
                     if changed.is_err() {
                         break;
                     }
+                }
+                changed = shutdown.changed() => {
+                    if changed.is_err() || *shutdown.borrow() {
+                        break;
+                    }
+                }
+            }
+        }
+    })
+}
+
+fn spawn_room_context_sync(
+    state: Arc<AppState>,
+    mut shutdown: watch::Receiver<bool>,
+) -> JoinHandle<()> {
+    let mut rx = state.capture.vrchat_log.subscribe();
+    tokio::spawn(async move {
+        let initial = rx.borrow_and_update().clone();
+        state.capture.room_context.sync_log(&initial);
+        loop {
+            tokio::select! {
+                changed = rx.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                    let snapshot = rx.borrow_and_update().clone();
+                    state.capture.room_context.sync_log(&snapshot);
                 }
                 changed = shutdown.changed() => {
                     if changed.is_err() || *shutdown.borrow() {

@@ -21,6 +21,7 @@ pub(super) struct WorldWatcher {
     ready: bool,
     caught_up: bool,
     identity_stamp: Option<(u64, u64)>,
+    world_stamp: Option<(u64, u64)>,
     world_name: Option<String>,
 }
 
@@ -50,6 +51,7 @@ impl WorldWatcher {
             ready: false,
             caught_up: false,
             identity_stamp: None,
+            world_stamp: None,
             world_name: None,
         }
     }
@@ -68,12 +70,21 @@ impl WorldWatcher {
     /// Cache identity only while the same process, room and membership remain.
     /// Byte position distinguishes repeated joins with identical timestamp/name.
     pub fn room_token(&self) -> Option<u64> {
+        self.stamp_token(self.identity_stamp)
+    }
+
+    /// Stable across player join/leave events within the same joined world.
+    pub fn world_session_token(&self) -> Option<u64> {
+        self.stamp_token(self.world_stamp)
+    }
+
+    fn stamp_token(&self, stamp: Option<(u64, u64)>) -> Option<u64> {
         if !self.ready || !self.caught_up {
             return None;
         }
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         self.path.as_ref()?.hash(&mut hash);
-        self.identity_stamp?.hash(&mut hash);
+        stamp?.hash(&mut hash);
         Some(hash.finish())
     }
 
@@ -99,6 +110,7 @@ impl WorldWatcher {
         let Some(path) = newest else {
             self.ready = false;
             self.identity_stamp = None;
+            self.world_stamp = None;
             self.world_name = None;
             self.name_search_end = None;
             return Ok(());
@@ -115,6 +127,7 @@ impl WorldWatcher {
         if self.path.as_ref() != Some(&path) || length < self.offset {
             self.path = Some(path);
             self.identity_stamp = None;
+            self.world_stamp = None;
             self.offset = length;
             self.search_end = Some(length);
             self.name_search_end = Some(length);
@@ -131,13 +144,10 @@ impl WorldWatcher {
             self.offset += bytes.len() as u64;
             self.partial.extend(bytes);
             if let Some(end) = self.partial.iter().rposition(|byte| *byte == b'\n') {
-                keep_latest_stamp(
-                    &mut self.identity_stamp,
-                    identity_marker(
-                        &self.partial[..=end],
-                        self.offset - self.partial.len() as u64,
-                    ),
-                );
+                let base = self.offset - self.partial.len() as u64;
+                let slice = &self.partial[..=end];
+                keep_latest_stamp(&mut self.identity_stamp, identity_marker(slice, base, true));
+                keep_latest_stamp(&mut self.world_stamp, identity_marker(slice, base, false));
                 if let Some(ready) = last_marker(&self.partial[..=end]) {
                     self.ready = ready;
                     self.search_end = None;
@@ -157,7 +167,14 @@ impl WorldWatcher {
             // Overlap covers a marker line split across backwards read blocks.
             let overlap = begin.saturating_sub(LINE_LIMIT as u64);
             let bytes = read_range(&mut file, overlap, end - overlap)?;
-            keep_latest_stamp(&mut self.identity_stamp, identity_marker(&bytes, overlap));
+            keep_latest_stamp(
+                &mut self.identity_stamp,
+                identity_marker(&bytes, overlap, true),
+            );
+            keep_latest_stamp(
+                &mut self.world_stamp,
+                identity_marker(&bytes, overlap, false),
+            );
             if let Some(ready) = last_marker(&bytes) {
                 self.ready = ready;
                 self.search_end = None;
@@ -274,20 +291,20 @@ fn keep_latest_stamp(current: &mut Option<(u64, u64)>, next: Option<(u64, u64)>)
         *current = next;
     }
 }
-fn identity_marker(bytes: &[u8], base: u64) -> Option<(u64, u64)> {
+fn identity_marker(bytes: &[u8], base: u64, include_membership: bool) -> Option<(u64, u64)> {
     let end = bytes.iter().rposition(|byte| *byte == b'\n')?;
     let mut offset = end as u64 + base;
     for line in bytes[..end].rsplit(|byte| *byte == b'\n') {
         offset -= line.len() as u64;
         if let Some(message) = log_message(line) {
-            if message.starts_with("[Behaviour] OnPlayerJoined ")
-                || message.starts_with("[Behaviour] OnPlayerLeft ")
-                || message.starts_with("Memory Usage: after world loaded")
+            let is_membership = message.starts_with("[Behaviour] OnPlayerJoined ")
+                || message.starts_with("[Behaviour] OnPlayerLeft ");
+            let is_world_marker = message.starts_with("Memory Usage: after world loaded")
                 || message.starts_with("[Behaviour] Finished entering world")
                 || message.starts_with("[Behaviour] Entering Room:")
                 || message.starts_with("[Behaviour] Joining wrld_")
-                || message == "[Behaviour] OnLeftRoom"
-            {
+                || message == "[Behaviour] OnLeftRoom";
+            if (include_membership && is_membership) || is_world_marker {
                 let mut hash = std::collections::hash_map::DefaultHasher::new();
                 line.hash(&mut hash);
                 return Some((offset, hash.finish()));
@@ -336,6 +353,48 @@ mod tests {
             .unwrap();
         assert!(!restarted.poll());
         assert!(restarted.room_token().is_none());
+    }
+
+    #[test]
+    fn world_session_token_ignores_player_membership_and_rotates_on_rejoin() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("output_log_current.txt");
+        fs::write(
+            &path,
+            format!(
+                "{}{}",
+                line("[Behaviour] Entering Room: Lobby"),
+                line("[Behaviour] Finished entering world."),
+            ),
+        )
+        .unwrap();
+        let mut watcher = WorldWatcher::new(directory.path().into(), SystemTime::UNIX_EPOCH);
+        assert!(watcher.poll());
+        let initial_world = watcher.world_session_token().unwrap();
+        let initial_room = watcher.room_token().unwrap();
+        let mut log = OpenOptions::new().append(true).open(&path).unwrap();
+        log.write_all(line("[Behaviour] OnPlayerJoined Example (usr_test)").as_bytes())
+            .unwrap();
+        log.write_all(line("[Behaviour] OnPlayerLeft Example (usr_test)").as_bytes())
+            .unwrap();
+        assert!(watcher.poll());
+        assert_eq!(watcher.world_session_token(), Some(initial_world));
+        assert_ne!(watcher.room_token(), Some(initial_room));
+        log.write_all(line("[Behaviour] OnLeftRoom").as_bytes())
+            .unwrap();
+        assert!(!watcher.poll());
+        assert!(watcher.world_session_token().is_none());
+        log.write_all(
+            format!(
+                "{}{}",
+                line("[Behaviour] Entering Room: Lobby"),
+                line("[Behaviour] Finished entering world."),
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        assert!(watcher.poll());
+        assert_ne!(watcher.world_session_token(), Some(initial_world));
     }
 
     #[test]

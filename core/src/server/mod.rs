@@ -503,6 +503,7 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
         "player_audio": player_audio,
         "network_players": network_players,
         "vrchat_chatbox": vrchat_chatbox,
+        "room_context": state.capture.room_context.reader().health(),
         "microphone_device": microphone_device,
         "microphone_test_running": microphone_test_running,
         "microphone_test_device": microphone_test_device,

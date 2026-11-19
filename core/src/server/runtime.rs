@@ -79,6 +79,7 @@ pub(crate) struct CaptureRuntime {
     pub(crate) capture_requested: AtomicBool,
     /// Standalone VRChat log watcher; consumers read `snapshot()` here.
     pub(crate) vrchat_log: crate::vrchat_log::VrchatLog,
+    pub(crate) room_context: crate::room_context::RoomContextStore,
     pub(crate) network_session: AsyncMutex<crate::player_audio::session::VrchatNetworkSession>,
     pub(crate) chatbox_task: AsyncMutex<Option<tokio::task::JoinHandle<()>>>,
     pub(crate) speaker_pipeline: AsyncMutex<TranscriptionPipeline>,
@@ -94,6 +95,7 @@ pub(crate) struct CaptureRuntimeInput {
     pub(crate) vad_model_path: PathBuf,
     pub(crate) shutdown: watch::Receiver<bool>,
     pub(crate) vrchat_log: crate::vrchat_log::VrchatLog,
+    pub(crate) room_context: crate::room_context::RoomContextStore,
 }
 
 impl CaptureRuntime {
@@ -113,6 +115,7 @@ impl CaptureRuntime {
             capture_control: AsyncMutex::new(()),
             capture_requested: AtomicBool::new(false),
             vrchat_log: input.vrchat_log,
+            room_context: input.room_context,
             network_session: AsyncMutex::new(Default::default()),
             chatbox_task: AsyncMutex::new(None),
             speaker_pipeline: AsyncMutex::new(TranscriptionPipeline::new(
@@ -147,6 +150,7 @@ pub(crate) struct ContentServices {
     pub(crate) glossary: Arc<crate::glossary::GlossaryStore>,
     pub(crate) local_translation_models: Arc<crate::translation::LocalTranslationModels>,
     pub(crate) plamo_runtime: Arc<crate::translation::PlamoRuntime>,
+    pub(crate) room_context: crate::room_context::RoomContextReader,
 }
 
 pub(crate) struct ContentServicesInput {
@@ -159,6 +163,7 @@ pub(crate) struct ContentServicesInput {
     pub(crate) glossary: Arc<crate::glossary::GlossaryStore>,
     pub(crate) local_translation_models: Arc<crate::translation::LocalTranslationModels>,
     pub(crate) plamo_runtime: Arc<crate::translation::PlamoRuntime>,
+    pub(crate) room_context: crate::room_context::RoomContextReader,
 }
 
 impl ContentServices {
@@ -174,6 +179,7 @@ impl ContentServices {
             glossary: input.glossary,
             local_translation_models: input.local_translation_models,
             plamo_runtime: input.plamo_runtime,
+            room_context: input.room_context,
         }
     }
 }

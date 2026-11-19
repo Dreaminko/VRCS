@@ -247,6 +247,10 @@ fn merge_finals_with_empty(events: Vec<CloudEvent>, allow_empty: bool) -> Result
                 utterance_id, text, ..
             } => (utterance_id, Some(text.trim().to_owned())),
             CloudEvent::Failed { code, detail, .. } => return Err(format!("{code}: {detail}")),
+            CloudEvent::EchoFiltered { utterance_id } => {
+                utterances.retain(|(previous_id, _)| previous_id != &utterance_id);
+                continue;
+            }
             CloudEvent::LiveTranslation { .. } => {
                 return Err(
                     "Question recognition returned translation instead of source text".into(),

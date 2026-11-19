@@ -15,6 +15,7 @@ use crate::config::{
     PlayerAudioConfig, PlayerProximityConfig, PlayerSourceOverride, PlayerViewPriorityConfig,
 };
 use crate::models::SpeakerIdentity;
+use crate::room_context::NetworkCapturePublisher;
 use crate::vrchat_log::VrchatLog;
 use crate::vrchat_process::ProcessIdentity;
 
@@ -25,6 +26,7 @@ pub(super) fn start(
     cache: Arc<SessionCache>,
     settings: Arc<std::sync::RwLock<crate::config::AppConfig>>,
     log: VrchatLog,
+    room_context: NetworkCapturePublisher,
 ) -> Result<Capture, String> {
     let tx = EventSender(outputs);
     let stop = Arc::new(AtomicBool::new(false));
@@ -32,7 +34,16 @@ pub(super) fn start(
     let thread = std::thread::Builder::new()
         .name("vrcs-vrchat-network".into())
         .spawn(move || {
-            let result = supervise(config, tx, &thread_stop, &status, &cache, &settings, log);
+            let result = supervise(
+                config,
+                tx,
+                &thread_stop,
+                &status,
+                &cache,
+                &settings,
+                log,
+                room_context,
+            );
             super::clear_view_priority();
             let mut state = status.lock().expect("player status");
             state.active_players = 0;
@@ -113,6 +124,7 @@ fn wait_cancellable(stop: &AtomicBool, duration: Duration) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn supervise(
     config: PlayerAudioConfig,
     tx: EventSender,
@@ -121,6 +133,7 @@ fn supervise(
     cache: &SessionCache,
     settings: &Arc<std::sync::RwLock<crate::config::AppConfig>>,
     log: VrchatLog,
+    room_context: NetworkCapturePublisher,
 ) -> Result<(), String> {
     while let Some((owner, path)) = wait_for_game(stop, status, crate::vrchat_process::game)? {
         if tx.is_closed() {
@@ -147,6 +160,7 @@ fn supervise(
             cache,
             settings,
             log.clone(),
+            room_context.clone(),
         )?;
         if stop.load(Ordering::Relaxed) {
             break;
@@ -211,9 +225,11 @@ fn run(
     cache: &SessionCache,
     settings: &Arc<std::sync::RwLock<crate::config::AppConfig>>,
     log: VrchatLog,
+    room_context: NetworkCapturePublisher,
 ) -> Result<(), String> {
     let pid = owner.pid;
-    let mut engine = Engine::new(None, config.max_players, tx, Arc::clone(status));
+    let mut engine = Engine::new(None, config.max_players, tx, Arc::clone(status))
+        .with_room_context(room_context.clone());
     let mut packet_buffer = vec![0u8; 65_535];
     let mut pending: VecDeque<Pending> = VecDeque::new();
     let mut pending_bytes = 0usize;
@@ -228,6 +244,7 @@ fn run(
     let mut world_poll = started - Duration::from_secs(1);
     let initial = log.snapshot();
     let mut world_ready = initial.process == Some(owner) && initial.ready;
+    let mut stream_ready_reported = false;
     let mut last_decrypted = started;
     let scan_stop = Arc::new(AtomicBool::new(false));
     let mut retry_at = started;
@@ -285,6 +302,7 @@ fn run(
                     engine.close_tracks_excluded();
                     engine.clear_text();
                     engine.clear_proximity();
+                    engine.invalidate_room_context();
                 }
                 world_poll = Instant::now();
                 if key.is_some() && !room_restored {
@@ -495,6 +513,11 @@ fn run(
                     }
                 }
             }
+            let stream_ready = world_ready && key.is_some();
+            if stream_ready != stream_ready_reported {
+                room_context.set_stream_ready(stream_ready);
+                stream_ready_reported = stream_ready;
+            }
             engine.tick(Instant::now());
             if engine.tx.is_closed() {
                 break;
@@ -511,6 +534,7 @@ fn run(
     engine.clear_text();
     engine.clear_proximity();
     engine.publish_roster(Instant::now());
+    room_context.invalidate_network_room();
     if result.is_ok() && key.is_some() && stop.load(Ordering::Relaxed) {
         let snapshot = log.snapshot();
         if snapshot.process == Some(owner) {
@@ -593,6 +617,7 @@ struct Engine {
     admitted_proximity: HashSet<String>,
     admission_pending: HashSet<String>,
     proximity_status_at: Instant,
+    room_context: Option<NetworkCapturePublisher>,
 }
 
 impl Engine {
@@ -753,6 +778,18 @@ impl Engine {
             admitted_proximity: HashSet::new(),
             admission_pending: HashSet::new(),
             proximity_status_at: Instant::now() - Duration::from_secs(1),
+            room_context: None,
+        }
+    }
+
+    fn with_room_context(mut self, room_context: NetworkCapturePublisher) -> Self {
+        self.room_context = Some(room_context);
+        self
+    }
+
+    fn invalidate_room_context(&self) {
+        if let Some(publisher) = &self.room_context {
+            publisher.invalidate_network_room();
         }
     }
     fn selected(&self, id: &str) -> bool {
@@ -1092,6 +1129,7 @@ impl Engine {
                 self.flows.retain(|_, flow| flow.number == flow_number);
                 self.active_world = Some(world);
                 self.roster_dirty = true;
+                self.invalidate_room_context();
             }
         }
         if changed {
@@ -1358,6 +1396,9 @@ impl Engine {
             })
             .collect();
         players.sort_by_key(|player| player.speaker.index);
+        if let Some(publisher) = &self.room_context {
+            publisher.replace_members(&players);
+        }
         self.status.lock().expect("player status").players = players;
     }
     fn update_proximity_status(&mut self, now: Instant) {
@@ -1499,6 +1540,7 @@ impl Engine {
         self.identities.clear();
         self.active_world = None;
         self.roster_dirty = true;
+        self.invalidate_room_context();
     }
     fn close_tracks(&mut self) {
         // Include idle players whose decoder is gone but recognition may still
@@ -2220,6 +2262,7 @@ mod tests {
                 Arc::clone(&cache),
                 Arc::new(std::sync::RwLock::new(crate::config::AppConfig::default())),
                 VrchatLog::default(),
+                crate::room_context::RoomContextStore::default().network_publisher(),
             )
             .unwrap();
             tokio::time::sleep(Duration::from_millis(30)).await;

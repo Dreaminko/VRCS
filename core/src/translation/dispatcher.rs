@@ -1,16 +1,18 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{broadcast, mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
 
 use crate::config::{
-    ApiProfile, TranslationBackend, TranslationPromptConfig, TranslationTargetConfig,
+    ApiProfile, AppConfig, TranslationBackend, TranslationPromptConfig, TranslationTargetConfig,
+    VrchatContextConfig,
 };
 use crate::db::conversations::{CatalogRefresh, ConversationCatalog};
 use crate::db::Database;
 use crate::models::Subtitle;
+use crate::room_context::{RoomContextReader, RoomContextSnapshot};
 use crate::subtitle_output::{SubtitleLifecyclePublisher, TranslationFailure};
 use crate::vrchat_chatbox::TaskValidity;
 use crate::work_priority::Context;
@@ -80,6 +82,8 @@ mod retry_tests {
                 first_preferred: false,
                 queued_at: Instant::now(),
                 validity: TaskValidity::new(),
+                vrchat_context: VrchatContextConfig::default(),
+                room_snapshot: RoomContextSnapshot::default(),
             },
             _permit: Arc::clone(budget).try_acquire_owned().unwrap(),
         }
@@ -146,6 +150,8 @@ mod retry_tests {
         let dispatcher = TranslationDispatcher {
             sender,
             queue_budget: Arc::new(Semaphore::new(QUEUE_CAPACITY)),
+            room_context: RoomContextReader::default(),
+            config: Arc::new(RwLock::new(AppConfig::default())),
         };
         let subtitle = Subtitle {
             id: Some(1),
@@ -189,6 +195,8 @@ mod retry_tests {
 pub struct TranslationDispatcher {
     sender: mpsc::Sender<QueuedJob>,
     queue_budget: Arc<Semaphore>,
+    room_context: RoomContextReader,
+    config: Arc<RwLock<AppConfig>>,
 }
 
 struct QueuedJob {
@@ -207,6 +215,40 @@ struct TranslationJob {
     first_preferred: bool,
     queued_at: Instant,
     validity: TaskValidity,
+    vrchat_context: VrchatContextConfig,
+    room_snapshot: RoomContextSnapshot,
+}
+
+impl TranslationJob {
+    fn uses_room_validity(&self) -> bool {
+        self.vrchat_context.include_in_translation_context && self.room_snapshot.scope_id.is_some()
+    }
+
+    fn is_valid(&self) -> bool {
+        self.validity.is_current()
+            && (!self.uses_room_validity() || self.room_snapshot.validity.is_current())
+    }
+
+    fn with_valid<T>(&self, action: impl FnOnce() -> T) -> Option<T> {
+        if !self.uses_room_validity() {
+            self.validity.with_current(action)
+        } else {
+            self.validity
+                .with_current(|| self.room_snapshot.validity.with_current(action))
+                .flatten()
+        }
+    }
+
+    async fn cancelled(&self) {
+        if self.uses_room_validity() {
+            tokio::select! {
+                _ = self.validity.cancelled() => {}
+                _ = self.room_snapshot.validity.cancelled() => {}
+            }
+        } else {
+            self.validity.cancelled().await;
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -337,12 +379,33 @@ impl Admission {
 }
 
 impl TranslationDispatcher {
+    #[allow(dead_code)]
     pub fn new(
         service: Arc<TranslationService>,
         database: Arc<Mutex<Database>>,
         conversation_catalog: broadcast::Sender<ConversationCatalog>,
         output: SubtitleLifecyclePublisher,
         vrcx: crate::vrcx::VrcxIntegration,
+    ) -> Self {
+        Self::new_with_room_context(
+            service,
+            database,
+            conversation_catalog,
+            output,
+            vrcx,
+            RoomContextReader::default(),
+            Arc::new(RwLock::new(AppConfig::default())),
+        )
+    }
+
+    pub(crate) fn new_with_room_context(
+        service: Arc<TranslationService>,
+        database: Arc<Mutex<Database>>,
+        conversation_catalog: broadcast::Sender<ConversationCatalog>,
+        output: SubtitleLifecyclePublisher,
+        vrcx: crate::vrcx::VrcxIntegration,
+        room_context: RoomContextReader,
+        config: Arc<RwLock<AppConfig>>,
     ) -> Self {
         let (sender, mut receiver) = mpsc::channel::<QueuedJob>(QUEUE_CAPACITY);
         let queue_budget = Arc::new(Semaphore::new(QUEUE_CAPACITY));
@@ -373,7 +436,7 @@ impl TranslationDispatcher {
                         }
                     }
                 }
-                pending.retain(|queued: &QueuedJob| queued.job.validity.is_current());
+                pending.retain(|queued: &QueuedJob| queued.job.is_valid());
                 if let Some(index) = admission.next_job(
                     &pending,
                     remote.available_permits(),
@@ -441,6 +504,8 @@ impl TranslationDispatcher {
         Self {
             sender,
             queue_budget,
+            room_context,
+            config,
         }
     }
 
@@ -479,24 +544,35 @@ impl TranslationDispatcher {
         first_preferred: bool,
         validity: TaskValidity,
     ) -> Result<(), String> {
-        validity
-            .with_current(|| {
+        let vrchat_context = self
+            .config
+            .read()
+            .expect("config lock")
+            .vrchat_context
+            .clone();
+        let room_snapshot = self.room_context.snapshot();
+        let job = TranslationJob {
+            subtitle,
+            message_id,
+            targets,
+            prompt,
+            profiles,
+            include_vrcx_context,
+            first_preferred,
+            queued_at: Instant::now(),
+            validity: validity.clone(),
+            vrchat_context,
+            room_snapshot,
+        };
+        let enqueue_job = job.clone();
+        enqueue_job
+            .with_valid(|| {
                 let permit = Arc::clone(&self.queue_budget)
                     .try_acquire_owned()
                     .map_err(|_| "Translation queue is full".to_string())?;
                 self.sender
                     .try_send(QueuedJob {
-                        job: TranslationJob {
-                            subtitle,
-                            message_id,
-                            targets,
-                            prompt,
-                            profiles,
-                            include_vrcx_context,
-                            first_preferred,
-                            queued_at: Instant::now(),
-                            validity: validity.clone(),
-                        },
+                        job,
                         _permit: permit,
                     })
                     .map_err(|_| "Translation queue is full".to_string())
@@ -524,10 +600,10 @@ async fn process_job(
     let queue_wait_ms = job.queued_at.elapsed().as_millis() as u64;
     let started = Instant::now();
     let source = job.subtitle.source.clone();
-    if !job.validity.is_current() {
+    if !job.is_valid() {
         return;
     }
-    job.validity.with_current(|| {
+    job.with_valid(|| {
         output.translation_started_with_message(
             subtitle_id,
             &target.target_language,
@@ -540,7 +616,7 @@ async fn process_job(
     let progress_message_id = job.message_id.clone();
     let progress_source = source.clone();
     let target_language = target.target_language.clone();
-    let progress_validity = job.validity.clone();
+    let progress_job = job.clone();
     let last_progress = Mutex::new(Instant::now() - Duration::from_millis(80));
     let progress = move |text: &str| {
         let Ok(mut last) = last_progress.lock() else {
@@ -550,7 +626,7 @@ async fn process_job(
             return;
         }
         *last = Instant::now();
-        progress_validity.with_current(|| {
+        progress_job.with_valid(|| {
             progress_output.translation_partial_with_message(
                 subtitle_id,
                 text.to_owned(),
@@ -562,58 +638,71 @@ async fn process_job(
         });
     };
     // Waiting for the shared database lock must not stall an async worker.
-    let mut context = tokio::task::spawn_blocking({
+    let (context, room_context) = tokio::task::spawn_blocking({
         let database = Arc::clone(&database);
         let prompt = job.prompt.clone();
+        let vrcx = vrcx.clone();
+        let include_vrcx = job.include_vrcx_context;
+        let vrchat_context = job.vrchat_context.clone();
+        let room_snapshot = job.room_snapshot.clone();
+        let speaker = job.subtitle.speaker.clone();
         move || match database.lock() {
-            Ok(database) => database
-                .recent_translation_context(&prompt, Some(subtitle_id))
-                .unwrap_or_else(|error| {
-                    tracing::warn!(%error, "translation context could not be loaded");
-                    Vec::new()
-                }),
+            Ok(database) => super::context::load_translation_context(
+                &database,
+                &prompt,
+                Some(subtitle_id),
+                &vrcx,
+                include_vrcx,
+                &vrchat_context,
+                &room_snapshot,
+                speaker.as_ref(),
+            ),
             Err(_) => {
                 tracing::warn!("translation context database lock is unavailable");
-                Vec::new()
+                (
+                    Vec::new(),
+                    super::context::room_translation_context(
+                        &room_snapshot,
+                        &vrchat_context,
+                        speaker.as_ref(),
+                    ),
+                )
             }
         }
     })
     .await
     .unwrap_or_default();
-    if job.include_vrcx_context {
-        if let Some(entry) = vrcx.translation_context_entry() {
-            context.push(entry);
-        }
-    }
-    if !job.validity.is_current() {
+    if !job.is_valid() {
         return;
     }
     let translation = async {
         let first = service
-            .translate_with_progress(
+            .translate_with_progress_and_room_context(
                 &target,
                 &job.prompt,
                 &job.profiles,
                 &job.subtitle.text,
                 job.subtitle.language.as_deref(),
                 &context,
+                room_context.as_ref(),
                 Some(&progress),
             )
             .await;
         let result = match first {
             Err(error) if retry_delay(&error).is_some() => {
                 tokio::time::sleep(retry_delay(&error).unwrap()).await;
-                if !job.validity.is_current() {
+                if !job.is_valid() {
                     return None;
                 }
                 service
-                    .translate_with_progress(
+                    .translate_with_progress_and_room_context(
                         &target,
                         &job.prompt,
                         &job.profiles,
                         &job.subtitle.text,
                         job.subtitle.language.as_deref(),
                         &context,
+                        room_context.as_ref(),
                         Some(&progress),
                     )
                     .await
@@ -624,11 +713,11 @@ async fn process_job(
     };
     let result = tokio::select! {
         biased;
-        _ = job.validity.cancelled() => return,
+        _ = job.cancelled() => return,
         result = translation => result,
     };
     let Some(result) = result else { return };
-    if !job.validity.is_current() {
+    if !job.is_valid() {
         return;
     }
     tracing::info!(
@@ -644,13 +733,13 @@ async fn process_job(
             let stored = tokio::task::spawn_blocking({
                 let database = Arc::clone(&database);
                 let record = record.clone();
-                let validity = job.validity.clone();
+                let validity_job = job.clone();
                 move || {
                     let database = database
                         .lock()
                         .map_err(|_| "Database lock is unavailable".to_string())?;
-                    validity
-                        .with_current(|| {
+                    validity_job
+                        .with_valid(|| {
                             let catalog_changed = database
                                 .save_translation(subtitle_id, &record)
                                 .map_err(|error| error.to_string())?;
@@ -663,7 +752,7 @@ async fn process_job(
                 }
             })
             .await;
-            let _current = job.validity.with_current(|| match stored {
+            let _current = job.with_valid(|| match stored {
                 Ok(Ok(())) => {
                     output.translation_completed_with_message(
                         subtitle_id,
@@ -698,7 +787,7 @@ async fn process_job(
             });
         }
         Err(error) => {
-            job.validity.with_current(|| {
+            job.with_valid(|| {
                 output.translation_failed_with_message(TranslationFailure {
                     subtitle_id,
                     code: error.code.into(),

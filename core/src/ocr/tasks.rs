@@ -95,6 +95,7 @@ fn group_context(
                     source: "OCR".into(),
                     text: group.source.text.clone(),
                     created_at: String::new(),
+                    speaker: None,
                 },
             ));
         }

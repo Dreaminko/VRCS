@@ -19,6 +19,7 @@ mod translation;
 mod validation;
 mod vr_overlay;
 mod vrchat_chatbox;
+mod vrchat_context;
 
 #[cfg(test)]
 mod io_tests;
@@ -59,5 +60,6 @@ pub use vr_overlay::{
     VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig, VrOverlayWristMenuConfig,
 };
 pub use vrchat_chatbox::VrchatChatboxConfig;
+pub use vrchat_context::VrchatContextConfig;
 
 pub use ocr::{OcrDevice, VisionConfig, VrOcrConfig, VrOcrDisplayMode, VrOcrWristConfig};

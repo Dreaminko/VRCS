@@ -23,6 +23,7 @@ mod osc;
 mod pipeline;
 mod player_audio;
 mod providers;
+mod room_context;
 mod server;
 mod smart_turn;
 mod startup;

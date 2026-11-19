@@ -49,9 +49,27 @@ pub(super) async fn prompt_preview(
             detail,
         )
     })?;
+    let (vrchat_context, include_vrcx) = {
+        let config = state.config.config.read().expect("config lock");
+        (
+            config.vrchat_context.clone(),
+            config.features.vrcx && config.vrcx.enabled && config.vrcx.include_in_llm_context,
+        )
+    };
+    let room_snapshot = state.content.room_context.snapshot();
+    let vrcx = state.integrations.vrcx.clone();
     let prompt_config = input.prompt.clone();
-    let mut context = db_call(Arc::clone(&state.content.db), move |db| {
-        db.recent_translation_context(&prompt_config, None)
+    let (context, room_context) = db_call(Arc::clone(&state.content.db), move |db| {
+        Ok(crate::translation::context::load_translation_context(
+            db,
+            &prompt_config,
+            None,
+            &vrcx,
+            include_vrcx,
+            &vrchat_context,
+            &room_snapshot,
+            None,
+        ))
     })
     .await
     .map_err(|error| {
@@ -61,17 +79,17 @@ pub(super) async fn prompt_preview(
             error.to_string(),
         )
     })?;
-    append_vrcx_context(&state, &mut context);
     let target = input.target_language.as_deref().unwrap_or("zh-Hans");
     let mut prompt = input.prompt;
     prompt.glossary = state.content.glossary.entries_for_llm();
     if input.backend == TranslationBackend::PlamoLocal {
-        let preview = crate::translation::build_plamo_prompt(
+        let preview = crate::translation::build_plamo_prompt_with_room_context(
             "",
             input.source_language.as_deref(),
             target,
             &context,
             &prompt.glossary,
+            room_context.as_ref(),
         )
         .map_err(translation_error)?;
         return Ok(Json(json!({
@@ -82,12 +100,12 @@ pub(super) async fn prompt_preview(
             "context_char_count": context.iter().map(|entry| entry.text.chars().count()).sum::<usize>(),
         })));
     }
-    let preview = TranslationPromptBuilder::new(&prompt).build(
-        input.source_language.as_deref(),
-        target,
-        &context,
-        "",
-    );
+    let builder = TranslationPromptBuilder::new(&prompt);
+    let builder = match room_context.as_ref() {
+        Some(room) => builder.with_room_context(room),
+        None => builder,
+    };
+    let preview = builder.build(input.source_language.as_deref(), target, &context, "");
     Ok(Json(json!({
         "format": "api",
         "instructions": preview.instructions,
@@ -124,8 +142,22 @@ pub(super) async fn translation_preview(
         .expect("language session lock")
         .apply_to(&global);
     let prompt_config = config.translation.prompt.clone();
-    let mut context = db_call(Arc::clone(&state.content.db), move |db| {
-        db.recent_translation_context(&prompt_config, None)
+    let vrchat_context = config.vrchat_context.clone();
+    let include_vrcx =
+        config.features.vrcx && config.vrcx.enabled && config.vrcx.include_in_llm_context;
+    let room_snapshot = state.content.room_context.snapshot();
+    let vrcx = state.integrations.vrcx.clone();
+    let (context, room_context) = db_call(Arc::clone(&state.content.db), move |db| {
+        Ok(crate::translation::context::load_translation_context(
+            db,
+            &prompt_config,
+            None,
+            &vrcx,
+            include_vrcx,
+            &vrchat_context,
+            &room_snapshot,
+            None,
+        ))
     })
     .await
     .map_err(|error| {
@@ -135,7 +167,6 @@ pub(super) async fn translation_preview(
             error.to_string(),
         )
     })?;
-    append_vrcx_context(&state, &mut context);
     let mut target = config
         .translation
         .microphone_targets
@@ -154,13 +185,14 @@ pub(super) async fn translation_preview(
     let result = state
         .content
         .translation_service
-        .translate(
+        .translate_with_room_context(
             &target,
             &config.translation.prompt,
             &config.asr.api_profiles,
             &input.text,
             input.source_language.as_deref(),
             &context,
+            room_context.as_ref(),
         )
         .await
         .map_err(translation_error)?;

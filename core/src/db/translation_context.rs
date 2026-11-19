@@ -11,20 +11,31 @@ impl Database {
         config: &TranslationPromptConfig,
         exclude_subtitle_id: Option<i64>,
     ) -> AppResult<Vec<TranslationContextEntry>> {
+        self.recent_translation_context_scoped(config, exclude_subtitle_id, None)
+    }
+
+    pub(crate) fn recent_translation_context_scoped(
+        &self,
+        config: &TranslationPromptConfig,
+        exclude_subtitle_id: Option<i64>,
+        scope_id: Option<&str>,
+    ) -> AppResult<Vec<TranslationContextEntry>> {
         if !config.context_enabled {
             return Ok(Vec::new());
         }
         let mut statement = self.conn.prepare(
-            "SELECT source, text, created_at FROM (
-                 SELECT source, text, created_at, 0 AS source_order, id
+            "SELECT source, text, created_at, speaker FROM (
+                 SELECT source, text, created_at, speaker, 0 AS source_order, id
                  FROM subtitles
                  WHERE source IN ('speaker', 'microphone', 'vrchat_chatbox')
                    AND ((source IN ('speaker', 'vrchat_chatbox') AND ?1) OR (source = 'microphone' AND ?2))
                    AND (?4 IS NULL OR id != ?4)
+                   AND (?6 IS NULL OR context_scope_id = ?6)
                  UNION ALL
-                 SELECT 'chatbox' AS source, original AS text, created_at, 1 AS source_order, id
+                 SELECT 'chatbox' AS source, original AS text, created_at, NULL AS speaker, 1 AS source_order, id
                  FROM chatbox_messages
                  WHERE ?3 AND status = 'sent'
+                   AND (?6 IS NULL OR context_scope_id = ?6)
              )
              ORDER BY created_at DESC, source_order DESC, id DESC
              LIMIT ?5",
@@ -36,12 +47,18 @@ impl Database {
                 config.include_chatbox,
                 exclude_subtitle_id,
                 config.max_messages,
+                scope_id,
             ],
             |row| {
+                let speaker_json: Option<String> = row.get(3)?;
+                let speaker = speaker_json
+                    .as_deref()
+                    .and_then(|raw| serde_json::from_str(raw).ok());
                 Ok(TranslationContextEntry {
                     source: row.get(0)?,
                     text: row.get(1)?,
                     created_at: row.get(2)?,
+                    speaker,
                 })
             },
         )?;
@@ -221,5 +238,72 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["speaker 1", "speaker 2"]
         );
+    }
+
+    #[test]
+    fn scoped_context_isolates_rooms_and_decodes_speaker_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = Database::open(&directory.path().join("scoped.db")).unwrap();
+        let speaker = crate::models::SpeakerIdentity {
+            id: "track-1".into(),
+            index: 0,
+            display_name: Some("Alice".into()),
+            user_id: Some("usr_11111111-1111-1111-1111-111111111111".into()),
+        };
+        database
+            .add_subtitle_in_scope(
+                &Subtitle {
+                    id: None,
+                    conversation_id: None,
+                    text: "room A line".into(),
+                    speaker: Some(speaker.clone()),
+                    language: None,
+                    started_at: None,
+                    ended_at: None,
+                    source: "speaker".into(),
+                    created_at: "2026-08-14T00:00:01Z".into(),
+                    translations: Vec::new(),
+                },
+                Some("scope-a"),
+                Some(1),
+            )
+            .unwrap();
+        let saved_b = database
+            .add_subtitle_in_scope(
+                &Subtitle {
+                    id: None,
+                    conversation_id: None,
+                    text: "room B line".into(),
+                    speaker: Some(speaker.clone()),
+                    language: None,
+                    started_at: None,
+                    ended_at: None,
+                    source: "speaker".into(),
+                    created_at: "2026-08-14T00:00:02Z".into(),
+                    translations: Vec::new(),
+                },
+                Some("scope-b"),
+                Some(2),
+            )
+            .unwrap();
+        assert_eq!(
+            database.subtitle_context_meta(saved_b.id.unwrap()).unwrap(),
+            (Some("scope-b".into()), Some(2))
+        );
+
+        let config = TranslationPromptConfig {
+            context_enabled: true,
+            include_speaker: true,
+            include_microphone: true,
+            include_chatbox: true,
+            max_messages: 10,
+            ..Default::default()
+        };
+        let scoped_a = database
+            .recent_translation_context_scoped(&config, None, Some("scope-a"))
+            .unwrap();
+        assert_eq!(scoped_a.len(), 1);
+        assert_eq!(scoped_a[0].text, "room A line");
+        assert_eq!(scoped_a[0].speaker, Some(speaker));
     }
 }

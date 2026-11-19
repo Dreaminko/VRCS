@@ -10,8 +10,8 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::asr::{
-    share_audio, spawn_cloud_recognition_session, spawn_managed_qwen_session, CloudEvent,
-    CloudRecognitionSession, SegmentationMode,
+    share_audio, spawn_cloud_recognition_session_with_context, spawn_managed_qwen_session,
+    CloudEvent, CloudRecognitionSession, SegmentationMode,
 };
 use crate::audio::{AudioCapture, AudioError, CaptureSource};
 use crate::config::{AsrConfig, VadConfig};
@@ -27,48 +27,9 @@ const AUDIO_LEVEL_PUBLISH_INTERVAL: Duration = Duration::from_millis(80);
 const PARTIAL_PUBLISH_INTERVAL: Duration = Duration::from_millis(80);
 const SMART_TURN_TIMEOUT: Duration = Duration::from_secs(1);
 
+pub(crate) use crate::asr::AsrEchoGuard;
 pub(crate) use dependencies::PipelineDependencies;
 use recognition_lifecycle::RecognitionLifecycle;
-
-#[derive(Clone, Default)]
-pub(crate) struct AsrEchoGuard {
-    signatures: Vec<String>,
-}
-
-impl AsrEchoGuard {
-    pub(crate) fn new(signatures: Vec<String>) -> Self {
-        let mut signatures = signatures
-            .into_iter()
-            .map(|text| normalize_echo_text(&text))
-            .filter(|text| !text.is_empty())
-            .collect::<Vec<_>>();
-        signatures.sort_unstable();
-        signatures.dedup();
-        Self { signatures }
-    }
-
-    fn is_echo(&self, text: &str) -> bool {
-        let text = normalize_echo_text(text);
-        !text.is_empty() && self.signatures.iter().any(|signature| signature == &text)
-    }
-
-    fn suppresses_partial(&self, text: &str) -> bool {
-        let text = normalize_echo_text(text);
-        text.contains(':')
-            && self
-                .signatures
-                .iter()
-                .any(|signature| signature.starts_with(&text))
-    }
-}
-
-fn normalize_echo_text(text: &str) -> String {
-    text.split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim_end_matches(['.', '。', '!', '！', '?', '？'])
-        .to_lowercase()
-}
 
 pub struct TranscriptionPipeline {
     source: CaptureSource,
@@ -191,7 +152,12 @@ impl TranscriptionPipeline {
                 None => Err("Managed Qwen ASR runtime is unavailable".into()),
             }
         } else {
-            spawn_cloud_recognition_session(asr_config.clone(), vad_config.silence_seconds).await
+            spawn_cloud_recognition_session_with_context(
+                asr_config.clone(),
+                vad_config.silence_seconds,
+                dependencies.asr_context_source(None),
+            )
+            .await
         };
         let cloud = match session {
             Ok(session) => Some(session),
@@ -369,6 +335,7 @@ enum PipelineEffect {
         text: String,
         language: Option<String>,
     },
+    CancelEcho(String),
     PublishFailed {
         utterance_id: Option<String>,
         code: String,
@@ -543,6 +510,12 @@ fn reduce_cloud_event(
             })
             .into_iter()
             .collect(),
+        CloudEvent::EchoFiltered { utterance_id } => state
+            .lifecycle
+            .accept_final(&utterance_id)
+            .then_some(PipelineEffect::CancelEcho(utterance_id))
+            .into_iter()
+            .collect(),
         CloudEvent::Failed {
             utterance_id,
             reset_session,
@@ -708,6 +681,10 @@ impl PipelineEffectRunner<'_> {
                     language,
                 )
                 .await?;
+            }
+            PipelineEffect::CancelEcho(utterance_id) => {
+                self.dependencies
+                    .cancel_recognition(&utterance_id, self.source, "filtered");
             }
             PipelineEffect::PublishFailed {
                 utterance_id,

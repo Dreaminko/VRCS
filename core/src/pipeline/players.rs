@@ -399,6 +399,8 @@ async fn run_player(
         return Ok(());
     }
     let managed_qwen = dependencies.managed_qwen();
+    let asr_context_source =
+        dependencies.asr_context_source(dependencies.player_identity().as_ref());
     let controlled = crate::asr::connection_rate_controlled(&asr);
     let connect_timeout = if asr.backend == crate::config::QWEN_MANAGED_BACKEND {
         Duration::from_secs(120)
@@ -418,7 +420,8 @@ async fn run_player(
             let (runtime, manager) = managed_qwen.ok_or("Managed Qwen runtime is unavailable")?;
             spawn_managed_qwen_session(asr, runtime, manager).await
         } else {
-            spawn_cloud_recognition_session(asr, silence_seconds).await
+            spawn_cloud_recognition_session_with_context(asr, silence_seconds, asr_context_source)
+                .await
         }?;
         Ok::<_, String>((session, smart_turn))
     };

@@ -98,6 +98,15 @@ impl Database {
     /// 写入字幕，并在数据库锁内确定当前 active 会话。
     #[allow(dead_code)]
     pub fn add_subtitle(&self, subtitle: &Subtitle) -> AppResult<Subtitle> {
+        self.add_subtitle_in_scope(subtitle, None, None)
+    }
+
+    pub(crate) fn add_subtitle_in_scope(
+        &self,
+        subtitle: &Subtitle,
+        context_scope_id: Option<&str>,
+        context_sequence: Option<i64>,
+    ) -> AppResult<Subtitle> {
         let transaction = self.conn.unchecked_transaction()?;
         let conversation_id = active_conversation_id(&transaction)?;
         let existing_count = transaction.query_row(
@@ -107,8 +116,9 @@ impl Database {
         )?;
         transaction.execute(
             "INSERT INTO subtitles(
-                conversation_id, text, language, started_at, ended_at, source, created_at, speaker
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                conversation_id, text, language, started_at, ended_at, source, created_at, speaker,
+                context_scope_id, context_sequence
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 conversation_id,
                 subtitle.text,
@@ -122,6 +132,8 @@ impl Database {
                     .as_ref()
                     .map(|speaker| serde_json::to_string(speaker)
                         .expect("serializable speaker identity")),
+                context_scope_id,
+                context_sequence,
             ],
         )?;
         let id = transaction.last_insert_rowid();
@@ -295,6 +307,23 @@ impl Database {
         )?;
         transaction.commit()?;
         Ok(deleted as u64)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn subtitle_context_meta(
+        &self,
+        subtitle_id: i64,
+    ) -> AppResult<(Option<String>, Option<i64>)> {
+        use rusqlite::OptionalExtension;
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT context_scope_id, context_sequence FROM subtitles WHERE id = ?1",
+                params![subtitle_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?
+            .unwrap_or((None, None)))
     }
 
     pub fn subtitle(&self, id: i64) -> AppResult<Option<Subtitle>> {

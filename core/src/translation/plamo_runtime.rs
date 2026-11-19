@@ -813,6 +813,7 @@ mod tests {
                         context: &[],
                         glossary: &[],
                         max_chars: 4_000,
+                        room_context: None,
                     },
                     None,
                 )
@@ -834,6 +835,7 @@ mod tests {
                     context: &[],
                     glossary: &[],
                     max_chars: 4_000,
+                    room_context: None,
                 },
                 None,
             )
@@ -845,6 +847,7 @@ mod tests {
             source: "chatbox".into(),
             text: "The user is talking about a software project.".into(),
             created_at: String::new(),
+            speaker: None,
         }];
         let glossary = [crate::config::GlossaryEntry {
             source: "project".into(),
@@ -861,6 +864,7 @@ mod tests {
                     context: &context,
                     glossary: &glossary,
                     max_chars: 4_000,
+                    room_context: None,
                 },
                 None,
             )
@@ -881,6 +885,7 @@ mod tests {
                             context: &[],
                             glossary: &[],
                             max_chars: 4_000,
+                            room_context: None,
                         },
                         None,
                     )

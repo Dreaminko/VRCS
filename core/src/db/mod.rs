@@ -24,7 +24,7 @@ const SEED_ENTRIES: [(&str, &str, &str); 4] = [
     ("ありがとう", "ja", "谢谢"),
 ];
 
-const LATEST_SCHEMA_VERSION: u32 = 9;
+const LATEST_SCHEMA_VERSION: u32 = 10;
 
 const MIGRATION_1_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS subtitles (
@@ -234,6 +234,27 @@ impl Database {
             transaction.commit()?;
         }
 
+        if version < 10 {
+            let transaction = self.conn.transaction()?;
+            ensure_column(&transaction, "subtitles", "context_scope_id", "TEXT")?;
+            ensure_column(&transaction, "subtitles", "context_sequence", "INTEGER")?;
+            ensure_column(&transaction, "chatbox_messages", "context_scope_id", "TEXT")?;
+            ensure_column(
+                &transaction,
+                "chatbox_messages",
+                "context_sequence",
+                "INTEGER",
+            )?;
+            transaction.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_subtitles_context_scope
+                     ON subtitles(context_scope_id, id DESC);
+                 CREATE INDEX IF NOT EXISTS idx_chatbox_context_scope
+                     ON chatbox_messages(context_scope_id, id DESC);",
+            )?;
+            transaction.pragma_update(None, "user_version", 10)?;
+            transaction.commit()?;
+        }
+
         self.conn.execute(
             "UPDATE conversations SET title_generation_status = 'failed',
                  title_generation_error_code = 'conversations.title_interrupted',
@@ -373,6 +394,25 @@ impl Database {
         transaction.commit()?;
         Ok(())
     }
+}
+
+fn ensure_column(
+    transaction: &rusqlite::Transaction<'_>,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> AppResult<()> {
+    let exists = transaction
+        .prepare(&format!("PRAGMA table_info({table})"))?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .any(|name| name.as_deref() == Ok(column));
+    if !exists {
+        transaction.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+            [],
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

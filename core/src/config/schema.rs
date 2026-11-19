@@ -3,10 +3,10 @@ use serde::{Deserialize, Serialize};
 use super::{
     AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ExternalApiConfig, FeatureConfig,
     GlossaryConfig, LanguagePreset, OscConfig, ServerConfig, StorageConfig, TranslationConfig,
-    VadConfig, VrOcrConfig, VrOverlayConfig, VrchatChatboxConfig, VrcxConfig,
+    VadConfig, VrOcrConfig, VrOverlayConfig, VrchatChatboxConfig, VrchatContextConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 45;
+pub const SCHEMA_VERSION: u32 = 46;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -28,6 +28,8 @@ pub struct AppConfig {
     pub audio: AudioConfig,
     #[serde(default)]
     pub vrchat_chatbox: VrchatChatboxConfig,
+    #[serde(default)]
+    pub vrchat_context: VrchatContextConfig,
     #[serde(default)]
     pub vad: VadConfig,
     #[serde(default)]
@@ -74,6 +76,7 @@ impl Default for AppConfig {
             conversation_titles: super::ConversationTitleConfig::default(),
             audio: AudioConfig::default(),
             vrchat_chatbox: VrchatChatboxConfig::default(),
+            vrchat_context: VrchatContextConfig::default(),
             vad: VadConfig::default(),
             asr: AsrConfig::default(),
             dictionary: DictionaryConfig::default(),
@@ -158,11 +161,20 @@ mod tests {
                 "vision",
                 "vr_overlay",
                 "vrchat_chatbox",
+                "vrchat_context",
                 "vrcx",
             ],
         );
         assert_keys(&value["server"], ["host", "port"]);
         assert_keys(&value["vrchat_chatbox"], ["enabled"]);
+        assert_keys(
+            &value["vrchat_context"],
+            [
+                "include_in_asr_context",
+                "include_in_translation_context",
+                "include_world_name",
+            ],
+        );
         assert_keys(
             &value["storage"],
             [
