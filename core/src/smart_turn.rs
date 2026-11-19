@@ -1,7 +1,7 @@
 //! Smart Turn v3.2 model preparation and native ONNX inference.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use futures_util::StreamExt;
 use ndarray::Array3;
@@ -34,6 +34,7 @@ const MODEL_SHA256: &str = "2bb026316b14a660486a75b1733cd3fbab8c2fd0314dc9af7be4
 pub struct SmartTurnRuntime {
     model_path: Arc<PathBuf>,
     analyzer: Arc<Mutex<Option<SmartTurnAnalyzer>>>,
+    features: Arc<OnceLock<WhisperFeatures>>,
     prepare_lock: Arc<tokio::sync::Mutex<()>>,
     sources: Arc<crate::downloads::DownloadSources>,
 }
@@ -43,6 +44,7 @@ impl SmartTurnRuntime {
         Self {
             model_path: Arc::new(model_path),
             analyzer: Arc::new(Mutex::new(None)),
+            features: Arc::new(OnceLock::new()),
             prepare_lock: Arc::new(tokio::sync::Mutex::new(())),
             sources: Arc::new(crate::downloads::DownloadSources::new(Default::default())),
         }
@@ -76,8 +78,10 @@ impl SmartTurnRuntime {
 
     pub async fn predict(&self, audio: Vec<f32>) -> Result<f32, String> {
         let analyzer = Arc::clone(&self.analyzer);
+        let features = Arc::clone(&self.features);
         let model_path = Arc::clone(&self.model_path);
         tokio::task::spawn_blocking(move || {
+            let input_features = features.get_or_init(WhisperFeatures::new).compute(&audio)?;
             let mut analyzer = analyzer
                 .lock()
                 .map_err(|_| "Smart Turn runtime lock is poisoned".to_string())?;
@@ -87,7 +91,7 @@ impl SmartTurnRuntime {
             analyzer
                 .as_mut()
                 .expect("Smart Turn analyzer initialized")
-                .predict(&audio)
+                .predict_features(input_features)
         })
         .await
         .map_err(|error| format!("Smart Turn inference task failed: {error}"))?
@@ -96,7 +100,6 @@ impl SmartTurnRuntime {
 
 struct SmartTurnAnalyzer {
     session: Session,
-    features: WhisperFeatures,
 }
 
 impl SmartTurnAnalyzer {
@@ -106,17 +109,20 @@ impl SmartTurnAnalyzer {
                 "Smart Turn {MODEL_VERSION} model is missing or invalid"
             ));
         }
-        let session = Session::builder()
-            .and_then(|mut builder| builder.commit_from_file(model_path))
-            .map_err(|error| format!("Failed to initialize Smart Turn: {error}"))?;
-        Ok(Self {
-            session,
-            features: WhisperFeatures::new(),
-        })
+        let session = (|| -> ort::Result<Session> {
+            Ok(Session::builder()?
+                .with_intra_threads(2)?
+                .with_inter_threads(1)?
+                .with_parallel_execution(false)?
+                .with_intra_op_spinning(false)?
+                .with_inter_op_spinning(false)?
+                .commit_from_file(model_path)?)
+        })()
+        .map_err(|error| format!("Failed to initialize Smart Turn: {error}"))?;
+        Ok(Self { session })
     }
 
-    fn predict(&mut self, audio: &[f32]) -> Result<f32, String> {
-        let features = self.features.compute(audio)?;
+    fn predict_features(&mut self, features: Vec<f32>) -> Result<f32, String> {
         let input = Array3::from_shape_vec((1, N_MELS, N_FRAMES), features)
             .map_err(|error| error.to_string())?;
         let input = Value::from_array(input).map_err(|error| error.to_string())?;
@@ -134,10 +140,15 @@ impl SmartTurnAnalyzer {
     }
 }
 
+struct MelFilter {
+    start_bin: usize,
+    weights: Vec<f64>,
+}
+
 struct WhisperFeatures {
     fft: Arc<dyn Fft<f64>>,
     hann: Vec<f64>,
-    mel_filters: Vec<f64>,
+    mel_filters: Vec<MelFilter>,
 }
 
 impl WhisperFeatures {
@@ -160,6 +171,8 @@ impl WhisperFeatures {
         let padded = reflect_pad(&waveform, N_FFT / 2);
         let mut mel = vec![0.0_f64; N_MELS * (N_FRAMES + 1)];
         let mut fft_buffer = vec![Complex64::default(); N_FFT];
+        let mut scratch = vec![Complex64::default(); self.fft.get_inplace_scratch_len()];
+        let mut power = [0.0_f64; N_FFT / 2 + 1];
 
         for frame in 0..=N_FRAMES {
             let start = frame * HOP_LENGTH;
@@ -167,13 +180,16 @@ impl WhisperFeatures {
                 fft_buffer[index] =
                     Complex64::new(f64::from(padded[start + index]) * self.hann[index], 0.0);
             }
-            self.fft.process(&mut fft_buffer);
-            for mel_index in 0..N_MELS {
-                let filter_offset = mel_index * (N_FFT / 2 + 1);
-                let value = fft_buffer[..=N_FFT / 2]
+            self.fft
+                .process_with_scratch(&mut fft_buffer, &mut scratch);
+            for (bin, value) in fft_buffer[..=N_FFT / 2].iter().enumerate() {
+                power[bin] = value.norm_sqr();
+            }
+            for (mel_index, filter) in self.mel_filters.iter().enumerate() {
+                let value = power[filter.start_bin..filter.start_bin + filter.weights.len()]
                     .iter()
-                    .enumerate()
-                    .map(|(bin, value)| value.norm_sqr() * self.mel_filters[filter_offset + bin])
+                    .zip(&filter.weights)
+                    .map(|(p, w)| p * w)
                     .sum::<f64>()
                     .max(f64::from(MEL_FLOOR))
                     .log10();
@@ -248,7 +264,7 @@ fn mel_to_hertz(mel: f64) -> f64 {
     }
 }
 
-fn build_mel_filters() -> Vec<f64> {
+fn build_mel_filters() -> Vec<MelFilter> {
     let mel_min = hertz_to_mel(0.0);
     let mel_max = hertz_to_mel(SAMPLE_RATE as f64 / 2.0);
     let mel_points = (0..N_MELS + 2)
@@ -257,18 +273,38 @@ fn build_mel_filters() -> Vec<f64> {
         })
         .collect::<Vec<_>>();
     let bins = N_FFT / 2 + 1;
-    let mut filters = vec![0.0_f64; N_MELS * bins];
+    let mut filters = Vec::with_capacity(N_MELS);
     for mel_index in 0..N_MELS {
         let left = mel_points[mel_index];
         let center = mel_points[mel_index + 1];
         let right = mel_points[mel_index + 2];
         let normalization = 2.0 / (right - left);
-        for bin in 0..bins {
+        let mut start_bin = None;
+        let mut end_bin = 0;
+        let mut row = vec![0.0_f64; bins];
+        for (bin, weight_slot) in row.iter_mut().enumerate() {
             let frequency = bin as f64 * (SAMPLE_RATE as f64 / 2.0) / (bins - 1) as f64;
             let down = (frequency - left) / (center - left);
             let up = (right - frequency) / (right - center);
-            filters[mel_index * bins + bin] = down.min(up).max(0.0) * normalization;
+            let weight = down.min(up).max(0.0) * normalization;
+            *weight_slot = weight;
+            if weight > 0.0 {
+                if start_bin.is_none() {
+                    start_bin = Some(bin);
+                }
+                end_bin = bin + 1;
+            }
         }
+        filters.push(match start_bin {
+            Some(start) => MelFilter {
+                start_bin: start,
+                weights: row[start..end_bin].to_vec(),
+            },
+            None => MelFilter {
+                start_bin: 0,
+                weights: Vec::new(),
+            },
+        });
     }
     filters
 }

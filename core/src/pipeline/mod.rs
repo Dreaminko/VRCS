@@ -168,8 +168,15 @@ impl TranscriptionPipeline {
         };
         let cloud_ms = cloud_started.elapsed().as_millis();
         let vad_started = Instant::now();
-        let detector =
-            VoiceDetector::load_with_runtime(&self.vad_model_path, self.vad_runtime.clone());
+        let vad_model_path = self.vad_model_path.clone();
+        let vad_runtime = self.vad_runtime.clone();
+        let detector = tokio::task::spawn_blocking(move || {
+            VoiceDetector::load_with_runtime(&vad_model_path, vad_runtime)
+        })
+        .await
+        .map_err(|error| {
+            AudioError::with_code("vad.init_failed", format!("VAD initialization failed: {error}"))
+        })?;
         let vad_ms = vad_started.elapsed().as_millis();
         let segmenter = if smart_turn.is_some() {
             SpeechSegmenter::smart(
@@ -309,7 +316,7 @@ enum PipelineEvent {
         now: Instant,
     },
     SegmentEnded {
-        segment: Option<Vec<f32>>,
+        has_segment: bool,
         backend: RecognitionBackend,
     },
     CloudCommitted(Option<String>),
@@ -386,16 +393,17 @@ fn reduce_pipeline_event(
                 now,
             },
         ),
-        PipelineEvent::SegmentEnded { segment, backend } => {
+        PipelineEvent::SegmentEnded {
+            has_segment,
+            backend,
+        } => {
             state.streaming = matches!(
                 backend,
                 RecognitionBackend::Cloud(SegmentationMode::Continuous)
             );
-            match (backend, segment) {
-                (RecognitionBackend::Cloud(SegmentationMode::LocalCommit), segment) => {
-                    vec![PipelineEffect::CommitCloud {
-                        has_segment: segment.is_some(),
-                    }]
+            match (backend, has_segment) {
+                (RecognitionBackend::Cloud(SegmentationMode::LocalCommit), has_segment) => {
+                    vec![PipelineEffect::CommitCloud { has_segment }]
                 }
                 (
                     RecognitionBackend::Cloud(
@@ -737,7 +745,10 @@ impl PipelineEffectRunner<'_> {
                         RecognitionBackend::Cloud(SegmentationMode::LocalCommit),
                         |session| RecognitionBackend::Cloud(session.segmentation_mode()),
                     );
-                    return Ok(Some(PipelineEvent::SegmentEnded { segment, backend }));
+                    return Ok(Some(PipelineEvent::SegmentEnded {
+                        has_segment: segment.is_some(),
+                        backend,
+                    }));
                 }
                 if let Some((generation, audio)) = self.segmenter.take_candidate() {
                     let runtime = self
@@ -903,7 +914,10 @@ async fn run(
                     RecognitionBackend::Cloud(SegmentationMode::LocalCommit),
                     |session| RecognitionBackend::Cloud(session.segmentation_mode()),
                 );
-                PipelineEvent::SegmentEnded { segment, backend }
+                PipelineEvent::SegmentEnded {
+                    has_segment: segment.is_some(),
+                    backend,
+                }
             }
         };
         let effects = reduce_pipeline_event(&mut state, event, &echo_guard);
@@ -1091,7 +1105,7 @@ mod tests {
         let effects = reduce_pipeline_event(
             &mut state,
             PipelineEvent::SegmentEnded {
-                segment: Some(vec![0.0; 1600]),
+                has_segment: true,
                 backend: RecognitionBackend::Cloud(SegmentationMode::Continuous),
             },
             &AsrEchoGuard::default(),

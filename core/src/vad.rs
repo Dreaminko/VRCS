@@ -1,15 +1,15 @@
 //! Silero ONNX 流式 VAD、能量检测回退与语音分段。
 
-use std::mem::take;
-use std::path::Path;
+use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, UNIX_EPOCH};
 
 use futures_util::StreamExt;
-use ndarray::{Array1, Array2, ArrayD};
+use ndarray::{ArrayD, ArrayView1, ArrayView2};
 use ort::session::Session;
-use ort::value::Value;
+use ort::value::TensorRef;
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 
@@ -76,9 +76,30 @@ enum DetectorBackend {
 
 #[derive(Debug)]
 struct SileroVad {
-    session: Session,
+    session: Arc<Mutex<Session>>,
     state: ArrayD<f32>,
-    context: Array1<f32>,
+    context: [f32; CONTEXT_SAMPLES],
+    input: Vec<f32>,
+    sample_rate: [i64; 1],
+}
+
+#[derive(Clone)]
+struct SharedSileroSession {
+    path: PathBuf,
+    bytes: u64,
+    modified_nanos: i128,
+    session: Arc<Mutex<Session>>,
+}
+
+static SHARED_SILERO: OnceLock<Mutex<Option<SharedSileroSession>>> = OnceLock::new();
+
+fn modified_nanos(metadata: &std::fs::Metadata) -> i128 {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos() as i128)
+        .unwrap_or(0)
 }
 
 impl Default for VoiceDetector {
@@ -101,25 +122,6 @@ impl VoiceDetector {
             );
             return Self::energy(DEFAULT_THRESHOLD, runtime);
         }
-        match model_file_is_valid_sync(model_path) {
-            Ok(true) => {}
-            Ok(false) => {
-                tracing::warn!(
-                    path = %model_path.display(),
-                    version = MODEL_VERSION,
-                    "Silero VAD model validation failed; using energy fallback"
-                );
-                return Self::energy(DEFAULT_THRESHOLD, runtime);
-            }
-            Err(error) => {
-                tracing::warn!(
-                    path = %model_path.display(),
-                    %error,
-                    "Silero VAD model validation failed; using energy fallback"
-                );
-                return Self::energy(DEFAULT_THRESHOLD, runtime);
-            }
-        }
 
         match SileroVad::load(model_path) {
             Ok(model) => {
@@ -131,7 +133,23 @@ impl VoiceDetector {
                     runtime,
                 }
             }
-            Err(error) => {
+            Err(LoadError::ValidationFailed) => {
+                tracing::warn!(
+                    path = %model_path.display(),
+                    version = MODEL_VERSION,
+                    "Silero VAD model validation failed; using energy fallback"
+                );
+                Self::energy(DEFAULT_THRESHOLD, runtime)
+            }
+            Err(LoadError::ValidationError(error)) => {
+                tracing::warn!(
+                    path = %model_path.display(),
+                    %error,
+                    "Silero VAD model validation failed; using energy fallback"
+                );
+                Self::energy(DEFAULT_THRESHOLD, runtime)
+            }
+            Err(LoadError::Init(error)) => {
                 tracing::warn!(
                     path = %model_path.display(),
                     %error,
@@ -317,50 +335,111 @@ fn model_file_is_valid_sync(path: &Path) -> Result<bool, String> {
     Ok(validate_model_metadata(bytes.len() as u64, &digest).is_ok())
 }
 
+enum LoadError {
+    ValidationFailed,
+    ValidationError(String),
+    Init(String),
+}
+
 impl SileroVad {
-    fn load(model_path: &Path) -> Result<Self, String> {
-        let session = Session::builder()
-            .and_then(|mut builder| builder.commit_from_file(model_path))
-            .map_err(|error| error.to_string())?;
+    fn shared_session(model_path: &Path) -> Result<Arc<Mutex<Session>>, LoadError> {
+        let metadata = std::fs::metadata(model_path)
+            .map_err(|error| LoadError::ValidationError(format!("Failed to inspect Silero model: {error}")))?;
+        let bytes = metadata.len();
+        let modified = modified_nanos(&metadata);
+        let cache = SHARED_SILERO.get_or_init(|| Mutex::new(None));
+        let mut guard = cache
+            .lock()
+            .map_err(|_| LoadError::Init("Silero VAD session cache lock poisoned".into()))?;
+        if let Some(entry) = guard.as_ref() {
+            if entry.path == model_path && entry.bytes == bytes && entry.modified_nanos == modified
+            {
+                return Ok(Arc::clone(&entry.session));
+            }
+        }
+        match model_file_is_valid_sync(model_path) {
+            Ok(true) => {}
+            Ok(false) => return Err(LoadError::ValidationFailed),
+            Err(error) => return Err(LoadError::ValidationError(error)),
+        }
+        let session = (|| -> ort::Result<Session> {
+            Ok(Session::builder()?
+                .with_intra_threads(1)?
+                .with_inter_threads(1)?
+                .with_parallel_execution(false)?
+                .with_intra_op_spinning(false)?
+                .with_inter_op_spinning(false)?
+                .commit_from_file(model_path)?)
+        })()
+        .map_err(|error| LoadError::Init(error.to_string()))?;
+        let session = Arc::new(Mutex::new(session));
+        *guard = Some(SharedSileroSession {
+            path: model_path.to_path_buf(),
+            bytes,
+            modified_nanos: modified,
+            session: Arc::clone(&session),
+        });
+        Ok(session)
+    }
+
+    fn load(model_path: &Path) -> Result<Self, LoadError> {
+        let session = Self::shared_session(model_path)?;
         Ok(Self {
             session,
             state: ArrayD::zeros(vec![2, 1, 128]),
-            context: Array1::zeros(CONTEXT_SAMPLES),
+            context: [0.0; CONTEXT_SAMPLES],
+            input: vec![0.0; CONTEXT_SAMPLES + FRAME_SAMPLES],
+            sample_rate: [SAMPLE_RATE],
         })
     }
 
     fn predict(&mut self, samples: &[f32]) -> Result<f32, String> {
-        let mut frame = vec![0.0; FRAME_SAMPLES];
+        self.input[..CONTEXT_SAMPLES].copy_from_slice(&self.context);
         let copied = samples.len().min(FRAME_SAMPLES);
-        frame[..copied].copy_from_slice(&samples[..copied]);
+        self.input[CONTEXT_SAMPLES..CONTEXT_SAMPLES + copied].copy_from_slice(&samples[..copied]);
+        self.input[CONTEXT_SAMPLES + copied..].fill(0.0);
 
-        let mut input = Vec::with_capacity(CONTEXT_SAMPLES + FRAME_SAMPLES);
-        input.extend(self.context.iter().copied());
-        input.extend(frame.iter().copied());
-
-        let input =
-            Array2::from_shape_vec((1, input.len()), input).map_err(|error| error.to_string())?;
-        let input = Value::from_array(input).map_err(|error| error.to_string())?;
-        let state = Value::from_array(take(&mut self.state)).map_err(|error| error.to_string())?;
-        let sample_rate = Value::from_array(Array1::from_vec(vec![SAMPLE_RATE]))
+        let input_view = ArrayView2::from_shape((1, CONTEXT_SAMPLES + FRAME_SAMPLES), &self.input)
+            .map_err(|error| error.to_string())?;
+        let input = TensorRef::from_array_view(input_view).map_err(|error| error.to_string())?;
+        let state =
+            TensorRef::from_array_view(self.state.view()).map_err(|error| error.to_string())?;
+        let sample_rate = TensorRef::from_array_view(ArrayView1::from(&self.sample_rate))
             .map_err(|error| error.to_string())?;
 
-        let outputs = self
+        let mut session = self
             .session
-            .run([(&input).into(), (&state).into(), (&sample_rate).into()])
+            .lock()
+            .map_err(|_| "Silero VAD session lock poisoned".to_string())?;
+        let outputs = session
+            .run([(&*input).into(), (&*state).into(), (&*sample_rate).into()])
             .map_err(|error| error.to_string())?;
         let (state_shape, state_data) = outputs
             .get("stateN")
             .ok_or_else(|| "Silero VAD did not return stateN".to_string())?
             .try_extract_tensor::<f32>()
             .map_err(|error| error.to_string())?;
-        let shape = state_shape
-            .iter()
-            .map(|dimension| *dimension as usize)
-            .collect::<Vec<_>>();
-        self.state = ArrayD::from_shape_vec(shape, state_data.to_vec())
-            .map_err(|error| error.to_string())?;
-        self.context = Array1::from_vec(frame[FRAME_SAMPLES - CONTEXT_SAMPLES..].to_vec());
+        let expected_shape = self.state.shape();
+        if state_shape.len() == expected_shape.len()
+            && state_shape
+                .iter()
+                .zip(expected_shape)
+                .all(|(&got, &want)| got as usize == want)
+        {
+            self.state
+                .as_slice_mut()
+                .expect("contiguous Silero state")
+                .copy_from_slice(state_data);
+        } else {
+            let shape = state_shape
+                .iter()
+                .map(|dimension| *dimension as usize)
+                .collect::<Vec<_>>();
+            self.state = ArrayD::from_shape_vec(shape, state_data.to_vec())
+                .map_err(|error| error.to_string())?;
+        }
+        self.context
+            .copy_from_slice(&self.input[self.input.len() - CONTEXT_SAMPLES..]);
 
         outputs
             .get("output")
@@ -374,7 +453,7 @@ impl SileroVad {
     }
 
     fn reset(&mut self) {
-        self.state = ArrayD::zeros(vec![2, 1, 128]);
+        self.state.fill(0.0);
         self.context.fill(0.0);
     }
 }
@@ -398,7 +477,9 @@ pub struct SpeechSegmenter {
     preferred_boundary_start_samples: usize,
     absolute_max_samples: usize,
     smart_endpointing: bool,
-    chunks: Vec<Vec<f32>>,
+    smart_window_samples: usize,
+    active: bool,
+    smart_audio: VecDeque<f32>,
     buffered_samples: usize,
     speech_samples: usize,
     silence_samples_seen: usize,
@@ -456,7 +537,13 @@ impl SpeechSegmenter {
                 (max_speech_seconds + max_extension_seconds).min(SMART_TURN_ABSOLUTE_MAX_SECONDS),
             ),
             smart_endpointing,
-            chunks: Vec::new(),
+            smart_window_samples: if smart_endpointing {
+                samples(8.0)
+            } else {
+                0
+            },
+            active: false,
+            smart_audio: VecDeque::new(),
             buffered_samples: 0,
             speech_samples: 0,
             silence_samples_seen: 0,
@@ -466,20 +553,39 @@ impl SpeechSegmenter {
         }
     }
 
-    /// 接收一个 PCM 块，并在达到尾部静音、首选边界或硬上限时返回完整语音段。
-    pub fn push(&mut self, chunk: &[f32], speech: bool) -> Option<Vec<f32>> {
+    fn push_smart_audio(&mut self, chunk: &[f32]) {
+        if !self.smart_endpointing || self.smart_window_samples == 0 || chunk.is_empty() {
+            return;
+        }
+        if chunk.len() >= self.smart_window_samples {
+            self.smart_audio.clear();
+            self.smart_audio
+                .extend(&chunk[chunk.len() - self.smart_window_samples..]);
+        } else {
+            let overflow =
+                (self.smart_audio.len() + chunk.len()).saturating_sub(self.smart_window_samples);
+            if overflow > 0 {
+                self.smart_audio.drain(..overflow);
+            }
+            self.smart_audio.extend(chunk);
+        }
+    }
+
+    /// 接收一个 PCM 块，并在达到尾部静音、首选边界或硬上限时返回本次分段样本数。
+    pub fn push(&mut self, chunk: &[f32], speech: bool) -> Option<usize> {
         if speech {
             if self.candidate_pending {
                 self.generation = self.generation.wrapping_add(1);
                 self.candidate_pending = false;
                 self.candidate_ready = false;
             }
-            self.chunks.push(chunk.to_vec());
+            self.active = true;
+            self.push_smart_audio(chunk);
             self.buffered_samples += chunk.len();
             self.speech_samples += chunk.len();
             self.silence_samples_seen = 0;
-        } else if !self.chunks.is_empty() {
-            self.chunks.push(chunk.to_vec());
+        } else if self.active {
+            self.push_smart_audio(chunk);
             self.buffered_samples += chunk.len();
             self.silence_samples_seen += chunk.len();
         }
@@ -529,22 +635,27 @@ impl SpeechSegmenter {
             return None;
         }
         self.candidate_ready = false;
-        Some((self.generation, self.chunks.concat()))
+        let mut audio = Vec::with_capacity(self.smart_audio.len());
+        let (first, second) = self.smart_audio.as_slices();
+        audio.extend_from_slice(first);
+        audio.extend_from_slice(second);
+        Some((self.generation, audio))
     }
 
-    pub fn complete_candidate(&mut self, generation: u64) -> Option<Option<Vec<f32>>> {
+    pub fn complete_candidate(&mut self, generation: u64) -> Option<Option<usize>> {
         (self.candidate_pending && self.generation == generation).then(|| self.finish())
     }
 
     pub fn is_active(&self) -> bool {
-        !self.chunks.is_empty()
+        self.active
     }
 
     pub fn reset(&mut self) {
-        if !self.chunks.is_empty() || self.candidate_pending {
+        if self.active || self.candidate_pending {
             self.generation = self.generation.wrapping_add(1);
         }
-        self.chunks.clear();
+        self.active = false;
+        self.smart_audio.clear();
         self.buffered_samples = 0;
         self.speech_samples = 0;
         self.silence_samples_seen = 0;
@@ -552,11 +663,11 @@ impl SpeechSegmenter {
         self.candidate_pending = false;
     }
 
-    fn finish(&mut self) -> Option<Vec<f32>> {
+    fn finish(&mut self) -> Option<usize> {
         let valid = self.speech_samples >= self.min_speech_samples;
-        let segment = valid.then(|| self.chunks.concat());
+        let segment_len = valid.then_some(self.buffered_samples);
         self.reset();
-        segment
+        segment_len
     }
 }
 
@@ -604,7 +715,7 @@ mod tests {
 
         assert!(segmenter.push(&speech, true).is_none());
         assert!(segmenter.push(&silence, false).is_none());
-        assert_eq!(segmenter.push(&silence, false).unwrap().len(), 30);
+        assert_eq!(segmenter.push(&silence, false).unwrap(), 30);
     }
 
     #[test]
@@ -620,7 +731,7 @@ mod tests {
         for _ in 0..11 {
             assert!(segmenter.push(&[1.0; 100], true).is_none());
         }
-        assert_eq!(segmenter.push(&[1.0; 100], true).unwrap().len(), 1200);
+        assert_eq!(segmenter.push(&[1.0; 100], true).unwrap(), 1200);
     }
 
     #[test]
@@ -628,7 +739,7 @@ mod tests {
         let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.4, 0.1, 1.0, false);
 
         assert!(segmenter.push(&[1.0; 100], true).is_none());
-        assert_eq!(segmenter.push(&[0.0; 10], false).unwrap().len(), 110);
+        assert_eq!(segmenter.push(&[0.0; 10], false).unwrap(), 110);
     }
 
     #[test]
@@ -636,7 +747,7 @@ mod tests {
         let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.4, 0.1, 1.0, false);
 
         assert!(segmenter.push(&[1.0; 60], true).is_none());
-        assert_eq!(segmenter.push(&[0.0; 10], false).unwrap().len(), 70);
+        assert_eq!(segmenter.push(&[0.0; 10], false).unwrap(), 70);
     }
 
     #[test]
@@ -656,11 +767,7 @@ mod tests {
         let (generation, audio) = segmenter.take_candidate().unwrap();
         assert_eq!(audio.len(), 30);
         assert_eq!(
-            segmenter
-                .complete_candidate(generation)
-                .unwrap()
-                .unwrap()
-                .len(),
+            segmenter.complete_candidate(generation).unwrap().unwrap(),
             30
         );
         assert!(!segmenter.is_active());
@@ -682,7 +789,7 @@ mod tests {
         let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.2, 0.1, 6.0, true);
         assert!(segmenter.push(&[1.0; 10], true).is_none());
         assert!(segmenter.push(&[0.0; 20], false).is_none());
-        assert_eq!(segmenter.push(&[0.0; 280], false).unwrap().len(), 310);
+        assert_eq!(segmenter.push(&[0.0; 280], false).unwrap(), 310);
         assert!(!segmenter.is_active());
     }
 
@@ -702,7 +809,7 @@ mod tests {
     #[test]
     fn smart_segmenter_enforces_an_absolute_maximum() {
         let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.4, 0.1, 1.0, true);
-        assert_eq!(segmenter.push(&[1.0; 900], true).unwrap().len(), 900);
+        assert_eq!(segmenter.push(&[1.0; 900], true).unwrap(), 900);
         assert!(!segmenter.is_active());
     }
 
