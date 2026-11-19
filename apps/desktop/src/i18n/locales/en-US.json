@@ -14,6 +14,8 @@
         "cancelled": "The keyring unlock request was cancelled. Save again to retry.",
         "read_failed": "Could not read the system keyring. Check the Secret Service and try again.",
         "write_failed": "Could not save to the system keyring. Unlock it and try again.",
+        "rollback_failed": "The credential operation failed and the original credentials could not be restored. Check the system keyring before retrying.",
+        "task_failed": "The credential operation stopped unexpectedly. Check the system keyring and try again.",
         "unsupported": "Secure credential storage is unsupported on this platform. Use environment-variable credentials; keys are never saved as plain text."
       },
       "audio": {
@@ -1204,6 +1206,7 @@
           "authorize": "Authorize global screenshot shortcuts",
           "busy": "Waiting for authorization…",
           "granted": "Global shortcuts authorized: {{shortcuts}}",
+          "needsAuthorization": "Global shortcuts need authorization. Authorize again after changing shortcuts or ending the session.",
           "unavailable": "This desktop portal cannot register global shortcuts. Use the screenshot buttons instead.",
           "disabled": "Enable desktop OCR or the desktop visual assistant before authorizing shortcuts.",
           "conflict": "The configured shortcuts conflict. Choose different OCR and visual-assistant shortcuts.",
@@ -2281,6 +2284,8 @@
         "cancelled": "The keyring unlock request was cancelled. Save again to retry.",
         "read_failed": "Could not read the system keyring. Check the Secret Service and try again.",
         "write_failed": "Could not save to the system keyring. Unlock it and try again.",
+        "rollback_failed": "The credential operation failed and the original credentials could not be restored. Check the system keyring before retrying.",
+        "task_failed": "The credential operation stopped unexpectedly. Check the system keyring and try again.",
         "unsupported": "Secure credential storage is unsupported on this platform. Use environment-variable credentials; keys are never saved as plain text."
       },
       "audio": {

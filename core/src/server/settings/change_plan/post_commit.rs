@@ -94,7 +94,7 @@ impl PostCommitUpdates {
             .vrchat_mute_sync
             .update_enabled(effective_candidate.osc.mute_sync_enabled);
         if self.vrcx_changed {
-            let token = credentials::read_vrcx_token().unwrap_or_else(|error| {
+            let token = credentials::blocking(credentials::read_vrcx_token).await.unwrap_or_else(|error| {
                 tracing::warn!(%error, "VRCX-0 token could not be read after settings update");
                 None
             });

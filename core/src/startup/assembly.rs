@@ -116,7 +116,7 @@ impl RuntimeAssembly {
             shutdown_rx.clone(),
         );
         let vrcx = vrcx::VrcxIntegration::new(shutdown_rx.clone());
-        let vrcx_token = match credentials::read_vrcx_token() {
+        let vrcx_token = match credentials::blocking(credentials::read_vrcx_token).await {
             Ok(token) => token,
             Err(error) => {
                 tracing::warn!(%error, "VRCX-0 token could not be read");
@@ -244,7 +244,7 @@ async fn start_external_api(
 ) {
     let config = crate::config::apply_feature_gates(&plan.config).external_api;
     let result = if config.enabled {
-        match credentials::read_external_api_token() {
+        match credentials::blocking(credentials::read_external_api_token).await {
             Ok(token) => external_api::start(&config, domain_events, token, shutdown).await,
             Err(error) => Err(format!("Failed to read the External API token: {error}")),
         }

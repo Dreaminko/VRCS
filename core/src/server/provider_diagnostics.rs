@@ -144,7 +144,7 @@ pub(super) async fn credential_test(
         }
         CAPABILITY_IMAGE_UNDERSTANDING => {
             async {
-                let key = profile_api_key(profile)?;
+                let key = profile_api_key(profile).await?;
                 let client = crate::llm::LlmClient::new(state.integrations.http.clone());
                 let preferred = query
                     .model
@@ -214,7 +214,7 @@ async fn test_recognition_service(
     service: &ProviderServiceDefinition,
 ) -> ApiResult<()> {
     ensure_asr_profile_ready(profile)?;
-    profile_api_key(profile)?;
+    profile_api_key(profile).await?;
     match service.adapter {
         ServiceAdapter::QwenRealtime
         | ServiceAdapter::QwenLiveTranslate
@@ -273,7 +273,7 @@ async fn test_text_generation(
             service.adapter
         )));
     }
-    let api_key = profile_api_key(profile)?;
+    let api_key = profile_api_key(profile).await?;
     let model = test_model(
         state,
         profile,
@@ -371,7 +371,7 @@ async fn compatible_diagnostic(
 ) -> ApiResult<Json<Value>> {
     let started = std::time::Instant::now();
     let mut checks = vec![passed("configuration")];
-    let api_key = match profile_api_key(profile) {
+    let api_key = match profile_api_key(profile).await {
         Ok(api_key) => api_key,
         Err((_, error)) => {
             checks.push(skipped("endpoint"));
@@ -507,7 +507,7 @@ async fn test_model(
             .map(str::to_owned)
             .ok_or_else(|| test_model_unavailable(capability));
     }
-    let api_key = profile_api_key(profile)?;
+    let api_key = profile_api_key(profile).await?;
     let catalog = match crate::llm::LlmClient::new(state.integrations.http.clone())
         .list_model_catalog(profile, &api_key)
         .await

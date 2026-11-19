@@ -103,20 +103,26 @@ export function SystemSettingsSection({
     setShortcutsBusy(true);
     setShortcutResult(null);
     try {
-      const shortcuts = await invoke<Array<{ id: string; trigger: string }>>("desktop_capture_register_shortcuts");
-      setShortcutResult({ key: "granted", shortcuts: shortcuts.map((shortcut) => shortcut.trigger).join(" · ") });
+      await invoke("desktop_capture_register_shortcuts");
     } catch (error) {
       const code = String(error);
       setShortcutResult({
         key: code === "capture.shortcuts_unavailable" ? "unavailable"
           : code === "capture.shortcuts_disabled" ? "disabled"
-            : code === "desktop_vision.shortcut_conflict" ? "conflict" : "notCompleted",
+            : code === "desktop_vision.shortcut_conflict" ? "conflict"
+              : code === "capture.shortcuts_changed" ? "needsAuthorization" : "notCompleted",
         error: true,
       });
     } finally {
       setShortcutsBusy(false);
     }
   };
+
+  const shortcutMessage = shortcutResult ?? (desktop?.global_shortcuts.available ? {
+    key: desktop.shortcut_bindings ? "granted" : "needsAuthorization",
+    shortcuts: desktop.shortcut_bindings?.join(" · "),
+    error: false,
+  } : null);
 
   return (
     <div className="settings-section settings-section-active system-section" id="settings-panel-system" role="tabpanel" aria-labelledby="settings-tab-system">
@@ -266,8 +272,8 @@ export function SystemSettingsSection({
               <div>
                 <strong>{t("settings.system.shortcutAuthorization.title")}</strong>
                 {!desktop.global_shortcuts.available && <CapabilityNotice capability={desktop.global_shortcuts} />}
-                {shortcutResult && <p className={shortcutResult.error ? "settings-validation-error" : "settings-inline-message"} role={shortcutResult.error ? "alert" : "status"}>
-                  {t(`settings.system.shortcutAuthorization.${shortcutResult.key}`, { shortcuts: shortcutResult.shortcuts })}
+                {shortcutMessage && <p className={shortcutMessage.error ? "settings-validation-error" : "settings-inline-message"} role={shortcutMessage.error ? "alert" : "status"}>
+                  {t(`settings.system.shortcutAuthorization.${shortcutMessage.key}`, { shortcuts: shortcutMessage.shortcuts })}
                 </p>}
               </div>
               <button className="secondary-button" type="button" disabled={shortcutsBusy || !desktop.global_shortcuts.available} onClick={() => void authorizeShortcuts()}>

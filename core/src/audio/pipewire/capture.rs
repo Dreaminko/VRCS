@@ -271,7 +271,6 @@ fn publish(state: &mut CaptureData, tx: &mpsc::Sender<Vec<f32>>, tap: Option<&Mi
     }
     if channel_dropped != 0 {
         tracing::warn!(dropped_chunks = channel_dropped, "PipeWire PCM consumer queue overflowed");
-        if let Some(tap) = tap { tap.discontinuity("PipeWire PCM consumer queue overflowed"); }
     }
 }
 
@@ -409,6 +408,27 @@ mod tests {
         assert!(state.discontinuity);
         assert_eq!(state.pending_len, 256);
         assert!(state.queue.is_empty());
+    }
+
+    #[tokio::test]
+    async fn full_pcm_queue_does_not_interrupt_tap_recording() {
+        let (tx, mut rx) = mpsc::channel(1);
+        tx.try_send(vec![9.0]).unwrap();
+        let tap = MicrophoneTap::default();
+        let mut window = tap.begin_capture(1).unwrap();
+        tap.started();
+        let mut state = CaptureData::new(TAP_RATE);
+        let bytes: Vec<_> = (0..CHUNK_FRAMES).flat_map(|_| 0.25f32.to_le_bytes()).collect();
+        let start = Instant::now();
+        state.append(&bytes, start + state.duration(CHUNK_FRAMES as u64));
+
+        publish(&mut state, &tx, Some(&tap));
+        window.release();
+        let samples = window.finish().await.unwrap();
+        assert!(!samples.is_empty());
+        assert!(samples.iter().all(|sample| *sample == 0.25));
+        assert_eq!(rx.try_recv().unwrap(), vec![9.0]);
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]

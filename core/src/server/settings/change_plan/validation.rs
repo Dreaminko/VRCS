@@ -44,9 +44,9 @@ pub(super) async fn validate_candidate(
         let token = if candidate.external_api != current.external_api
             || candidate.features.external_api != current.features.external_api
         {
-            credentials::read_external_api_token_for_use()
+            credentials::blocking(credentials::read_external_api_token_for_use).await
         } else {
-            credentials::read_external_api_token()
+            credentials::blocking(credentials::read_external_api_token).await
         }
         .map_err(|error| {
             api_error(

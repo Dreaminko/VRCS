@@ -118,14 +118,25 @@ impl Capture {
         let mut endpoints = Vec::new();
         let mut refreshed = Instant::now() - Duration::from_secs(2);
         let mut alive_checked = refreshed;
+        let mut draining = true;
         while !self.stop.load(Ordering::Relaxed) {
             if refreshed.elapsed() >= Duration::from_secs(1) {
-                endpoints = procfs::udp_endpoints(self.pid);
+                let updated = procfs::udp_endpoints(self.pid);
                 refreshed = Instant::now();
+                if updated != endpoints {
+                    endpoints = updated;
+                    // Only a changed inventory can admit newly attributed flows.
+                    // Drain old frames before accepting the new ownership snapshot.
+                    draining = true;
+                }
             }
             if alive_checked.elapsed() >= Duration::from_secs(1) {
-                if !procfs::alive(self.pid, self.starttime) {
-                    return Err("VRChat exited".into());
+                if let Err(error) = procfs::check_identity(self.pid, self.starttime) {
+                    return if procfs::exited(self.pid, self.starttime) {
+                        Ok(())
+                    } else {
+                        Err(format!("Cannot inspect VRChat process: {error}"))
+                    };
                 }
                 alive_checked = Instant::now();
             }
@@ -134,16 +145,43 @@ impl Capture {
                 match receive(self.fd, &mut buffer) {
                     Ok(Some((bytes, outgoing))) => {
                         received += 1;
-                        let Some(packet) = parse(bytes, outgoing, &endpoints) else {
+                        if draining {
+                            continue;
+                        }
+                        let Some(candidate) = parse(bytes, outgoing, &endpoints) else {
                             continue;
                         };
-                        if write_event(&mut *writer.lock().unwrap(), &Event::Packet(packet))
-                            .is_err()
-                        {
+                        let mut writer = writer.lock().unwrap();
+                        let flow = &candidate.flow;
+                        if !procfs::confirms_flow(
+                            self.pid,
+                            self.starttime,
+                            flow.inode,
+                            flow.local_ip,
+                            flow.local_port,
+                            flow.remote_ip,
+                            flow.remote_port,
+                        ) {
+                            continue;
+                        }
+                        let packet = Packet {
+                            monotonic_us: procfs::monotonic_us(),
+                            incoming: candidate.incoming,
+                            local_ip: flow.local_ip,
+                            local_port: flow.local_port,
+                            remote_ip: flow.remote_ip,
+                            remote_port: flow.remote_port,
+                            challenge: candidate.payload[3..7].try_into().unwrap(),
+                            payload: candidate.payload.to_vec(),
+                        };
+                        if write_event(&mut *writer, &Event::Packet(packet)).is_err() {
                             return Err("Packet event channel closed".into());
                         }
                     }
-                    Ok(None) => break,
+                    Ok(None) => {
+                        draining = false;
+                        break;
+                    }
                     Err(error) => return Err(error),
                 }
             }
@@ -221,7 +259,13 @@ fn receive(fd: libc::c_int, buffer: &mut [u8]) -> Result<Option<(&[u8], bool)>, 
     )))
 }
 
-fn parse(frame: &[u8], outgoing: bool, endpoints: &[procfs::Endpoint]) -> Option<Packet> {
+struct Candidate<'a> {
+    flow: procfs::Endpoint,
+    incoming: bool,
+    payload: &'a [u8],
+}
+
+fn parse<'a>(frame: &'a [u8], outgoing: bool, endpoints: &[procfs::Endpoint]) -> Option<Candidate<'a>> {
     let (bytes, offset) = frame_layout(frame)?;
     let bytes = bytes.get(offset..)?;
     let datagram = packet::ipv4_udp(bytes)?;
@@ -229,34 +273,33 @@ fn parse(frame: &[u8], outgoing: bool, endpoints: &[procfs::Endpoint]) -> Option
     let source_port = datagram.source.port();
     let target_ip = datagram.destination.ip().octets();
     let target_port = datagram.destination.port();
-    let (local_ip, local_port, remote_ip, remote_port, incoming) = if source_port == PHOTON_PORT
-        && procfs::owns_flow(endpoints, target_ip, target_port, source_ip, source_port)
-    {
-        (target_ip, target_port, source_ip, source_port, true)
-    } else if target_port == PHOTON_PORT
-        && procfs::owns_flow(endpoints, source_ip, source_port, target_ip, target_port)
-    {
+    let (local_ip, local_port, remote_ip, remote_port, incoming) = if outgoing {
+        if target_port != PHOTON_PORT {
+            return None;
+        }
         (source_ip, source_port, target_ip, target_port, false)
     } else {
-        return None;
+        if source_port != PHOTON_PORT {
+            return None;
+        }
+        (target_ip, target_port, source_ip, source_port, true)
     };
-    if incoming == outgoing {
-        // AF_PACKET metadata and the endpoint owner must agree.
-        return None;
-    }
+    let inode = procfs::flow_inode(endpoints, local_ip, local_port, remote_ip, remote_port)?;
     let payload = datagram.payload;
     if !packet::encrypted(payload) {
         return None;
     }
-    Some(Packet {
-        monotonic_us: procfs::monotonic_us(),
+    Some(Candidate {
+        flow: procfs::Endpoint {
+            local_ip,
+            local_port,
+            remote_ip,
+            remote_port,
+            inode,
+            owned: true,
+        },
         incoming,
-        local_ip,
-        local_port,
-        remote_ip,
-        remote_port,
-        challenge: payload[3..7].try_into().ok()?,
-        payload: payload.to_vec(),
+        payload,
     })
 }
 
@@ -387,10 +430,11 @@ mod parse_tests {
             inode: 1,
             owned: true,
         }];
-        let incoming = parse(&packet(true), false, &endpoints).unwrap();
+        let bytes = packet(true);
+        let incoming = parse(&bytes, false, &endpoints).unwrap();
         assert!(incoming.incoming);
-        assert_eq!(incoming.local_port, 53000);
-        assert_eq!(incoming.challenge, [7, 8, 9, 10]);
+        assert_eq!(incoming.flow.local_port, 53000);
+        assert_eq!(&incoming.payload[3..7], &[7, 8, 9, 10]);
         assert!(parse(&packet(true), true, &endpoints).is_none());
         assert!(parse(&packet(false), false, &[]).is_none());
         assert!(!parse(&packet(false), true, &endpoints).unwrap().incoming);

@@ -126,6 +126,7 @@ fn run() -> Result<(), String> {
         .and_then(|()| capture::Capture::open(pid, starttime));
     let capture = match capture {
         Ok(capture) => capture,
+        Err(_) if procfs::exited(pid, starttime) => return Ok(()),
         Err(error) => {
             let _ = send(
                 &writer,
@@ -142,8 +143,9 @@ fn run() -> Result<(), String> {
     let packet_writer = Arc::clone(&writer);
     let packet_shutdown = Arc::clone(&shutdown);
     let _packet_thread = std::thread::spawn(move || {
-        if let Err(error) = capture.run(&packet_writer) {
-            packet_stop.store(true, Ordering::Relaxed);
+        let result = capture.run(&packet_writer);
+        packet_stop.store(true, Ordering::Relaxed);
+        if let Err(error) = result {
             let _ = send(
                 &packet_writer,
                 Event::Status {
@@ -151,8 +153,8 @@ fn run() -> Result<(), String> {
                     detail: error,
                 },
             );
-            let _ = packet_shutdown.shutdown(Shutdown::Both);
         }
+        let _ = packet_shutdown.shutdown(Shutdown::Both);
     });
 
     let mut commands = stream;
@@ -205,6 +207,9 @@ fn run() -> Result<(), String> {
                 }
                 // Revalidate the full target constraints at each scan startup.
                 if let Err(error) = procfs::validate_target(pid, starttime, expected_uid) {
+                    if procfs::exited(pid, starttime) {
+                        break Ok(());
+                    }
                     let detail = error.to_string();
                     let _ = send(
                         &writer,
@@ -271,6 +276,10 @@ fn run() -> Result<(), String> {
                         }
                         Err(error) => {
                             session_stop.store(true, Ordering::Relaxed);
+                            if procfs::exited(pid, starttime) {
+                                let _ = thread_shutdown.shutdown(Shutdown::Both);
+                                return;
+                            }
                             let _ = send(
                                 &thread_writer,
                                 Event::Status {

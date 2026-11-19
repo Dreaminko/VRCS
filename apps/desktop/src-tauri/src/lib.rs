@@ -655,6 +655,12 @@ pub fn run() {
             }
 
             let data_dir = app.path().local_data_dir()?.join(".vrcs");
+            #[cfg(target_os = "linux")]
+            {
+                use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+                std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&data_dir)?;
+                std::fs::set_permissions(&data_dir, std::fs::Permissions::from_mode(0o700))?;
+            }
             std::fs::create_dir_all(data_dir.join("models"))?;
 
             let port = setup_connection

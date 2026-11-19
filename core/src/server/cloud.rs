@@ -4,7 +4,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::asr;
+use crate::credentials;
 use crate::config::{ApiAuthMode, ApiProfile, HttpHeaderConfig, DEFAULT_PROFILE_TIMEOUT_MS};
 use crate::providers::{
     self, BaseUrlPolicy, ProviderCategory, ProviderDefinition, ProviderServiceDefinition,
@@ -222,8 +222,8 @@ fn adapter_id(adapter: ServiceAdapter) -> &'static str {
     }
 }
 
-fn profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Result<Value, String> {
-    let status = asr::credential_status(&profile.id, &profile.provider)?;
+async fn profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Result<Value, String> {
+    let status = credentials::credential_status_async(&profile.id, &profile.provider).await?;
     let provider = providers::definition(&profile.provider)
         .ok_or_else(|| format!("Unsupported API provider: {}", profile.provider))?;
     let active = config.asr.backend != crate::config::QWEN_MANAGED_BACKEND
@@ -465,20 +465,16 @@ fn credential_reconfirmation_required(
 }
 
 pub(super) async fn profile_list(State(state): State<SettingsContext>) -> ApiResult<Json<Value>> {
-    profile_list_response(&state)
+    profile_list_response(&state).await
 }
 
-fn profile_list_response(state: &SettingsContext) -> ApiResult<Json<Value>> {
+async fn profile_list_response(state: &SettingsContext) -> ApiResult<Json<Value>> {
     let config = state.config.config.read().expect("config lock").clone();
-    let profiles = config
-        .asr
-        .api_profiles
-        .iter()
-        .map(|profile| {
-            profile_value(profile, &config)
-                .unwrap_or_else(|_| unavailable_profile_value(profile, &config))
-        })
-        .collect::<Vec<_>>();
+    let mut profiles = Vec::with_capacity(config.asr.api_profiles.len());
+    for profile in &config.asr.api_profiles {
+        profiles.push(profile_value(profile, &config).await
+            .unwrap_or_else(|_| unavailable_profile_value(profile, &config)));
+    }
     Ok(Json(json!({ "profiles": profiles })))
 }
 
@@ -486,63 +482,71 @@ pub(super) async fn profile_create(
     State(state): State<SettingsContext>,
     Json(input): Json<CreateProfileInput>,
 ) -> ApiResult<Json<Value>> {
-    let _config_control = state.config.config_control.lock().await;
-    let enabled_capabilities = match input.enabled_capabilities {
-        Some(capabilities) => capabilities,
-        None => providers::provider_capability_ids(&input.provider)
-            .ok_or_else(|| {
-                profile_invalid(format!("Unsupported API provider: {}", input.provider))
-            })?
-            .into_iter()
-            .map(str::to_owned)
-            .collect(),
-    };
-    let mut profile = ApiProfile {
-        id: uuid::Uuid::new_v4().to_string(),
-        name: input.name,
-        provider: input.provider,
-        region: input.region,
-        workspace_id: input.workspace_id,
-        base_url: input.base_url,
-        enabled_capabilities,
-        preset_id: input.preset_id,
-        auth_mode: input.auth_mode.unwrap_or_default(),
-        is_local: input.is_local.unwrap_or(false),
-        timeout_ms: input.timeout_ms.unwrap_or(DEFAULT_PROFILE_TIMEOUT_MS),
-        headers: input.headers.unwrap_or_default(),
-    };
-    normalize_profile_fields(&mut profile).map_err(profile_validation_error)?;
-    if profile.requires_api_key()
-        && input
-            .api_key
-            .as_ref()
-            .is_some_and(|key| key.trim().len() > 4096)
-    {
-        return Err(profile_validation_error(
-            providers::ProfileValidationError::new("api_key", "API key length is invalid"),
-        ));
-    }
-    let mut candidate = state.config.config.read().expect("config lock").clone();
-    candidate.asr.api_profiles.push(profile.clone());
-    commit_profile_config(&state, candidate).await?;
-    if let Some(api_key) = input
-        .api_key
-        .filter(|value| profile.requires_api_key() && !value.trim().is_empty())
-    {
-        if let Err(error) = asr::write_credential(&profile.id, &profile.provider, &api_key) {
-            let mut rollback = state.config.config.read().expect("config lock").clone();
-            rollback
-                .asr
-                .api_profiles
-                .retain(|item| item.id != profile.id);
-            let _ = commit_profile_config(&state, rollback).await;
-            return Err(credential_error(error));
+    credentials::finish_mutation(async move {
+        let _config_control = state.config.config_control.lock().await;
+        let enabled_capabilities = match input.enabled_capabilities {
+            Some(capabilities) => capabilities,
+            None => providers::provider_capability_ids(&input.provider)
+                .ok_or_else(|| {
+                    profile_invalid(format!("Unsupported API provider: {}", input.provider))
+                })?
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        };
+        let mut profile = ApiProfile {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: input.name,
+            provider: input.provider,
+            region: input.region,
+            workspace_id: input.workspace_id,
+            base_url: input.base_url,
+            enabled_capabilities,
+            preset_id: input.preset_id,
+            auth_mode: input.auth_mode.unwrap_or_default(),
+            is_local: input.is_local.unwrap_or(false),
+            timeout_ms: input.timeout_ms.unwrap_or(DEFAULT_PROFILE_TIMEOUT_MS),
+            headers: input.headers.unwrap_or_default(),
+        };
+        normalize_profile_fields(&mut profile).map_err(profile_validation_error)?;
+        if profile.requires_api_key()
+            && input
+                .api_key
+                .as_ref()
+                .is_some_and(|key| key.trim().len() > 4096)
+        {
+            return Err(profile_validation_error(
+                providers::ProfileValidationError::new("api_key", "API key length is invalid"),
+            ));
         }
-    }
-    let config = state.config.config.read().expect("config lock").clone();
-    Ok(Json(
-        profile_value(&profile, &config).map_err(credential_error)?,
-    ))
+        let mut candidate = state.config.config.read().expect("config lock").clone();
+        candidate.asr.api_profiles.push(profile.clone());
+        commit_profile_config(&state, candidate).await?;
+        if let Some(api_key) = input
+            .api_key
+            .filter(|value| profile.requires_api_key() && !value.trim().is_empty())
+        {
+            if let Err(error) = credentials::write_credential_async(&profile.id, &profile.provider, &api_key).await {
+                let mut rollback = state.config.config.read().expect("config lock").clone();
+                rollback
+                    .asr
+                    .api_profiles
+                    .retain(|item| item.id != profile.id);
+                if let Err(recovery) = commit_profile_config(&state, rollback).await {
+                    return Err(api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "settings.rollback_failed",
+                        format!("{error}; configuration rollback failed: {}", api_detail(&recovery)),
+                    ));
+                }
+                return Err(credential_error(error));
+            }
+        }
+        let config = state.config.config.read().expect("config lock").clone();
+        Ok(Json(
+            profile_value(&profile, &config).await.map_err(credential_error)?,
+        ))
+    }).await.map_err(credential_error)?
 }
 
 pub(super) async fn profile_update(
@@ -551,82 +555,225 @@ pub(super) async fn profile_update(
     Query(query): Query<ProfileMutationQuery>,
     Json(input): Json<UpdateProfileInput>,
 ) -> ApiResult<Json<Value>> {
-    let _config_control = state.config.config_control.lock().await;
-    let current = state.config.config.read().expect("config lock").clone();
-    let mut candidate = current.clone();
-    let updated = {
+    credentials::finish_mutation(async move {
+        let _config_control = state.config.config_control.lock().await;
+        let current = state.config.config.read().expect("config lock").clone();
+        let mut candidate = current.clone();
+        let updated = {
+            let profile = candidate
+                .asr
+                .api_profiles
+                .iter_mut()
+                .find(|profile| profile.id == profile_id)
+                .ok_or_else(profile_not_found)?;
+            if let Some(name) = input.name {
+                profile.name = name;
+            }
+            if let Some(enabled_capabilities) = input.enabled_capabilities {
+                profile.enabled_capabilities = enabled_capabilities;
+            }
+            if let Some(region) = input.region {
+                profile.region = region;
+            }
+            if let Some(workspace_id) = input.workspace_id {
+                profile.workspace_id = workspace_id;
+            }
+            if let Some(base_url) = input.base_url {
+                profile.base_url = base_url;
+            }
+            if let Some(preset_id) = input.preset_id {
+                profile.preset_id = preset_id;
+            }
+            if let Some(auth_mode) = input.auth_mode {
+                profile.auth_mode = auth_mode;
+            }
+            if let Some(is_local) = input.is_local {
+                profile.is_local = is_local;
+            }
+            if let Some(timeout_ms) = input.timeout_ms {
+                profile.timeout_ms = timeout_ms;
+            }
+            if let Some(headers) = input.headers {
+                profile.headers = headers;
+            }
+            normalize_profile_fields(profile).map_err(profile_validation_error)?;
+            profile.clone()
+        };
+        let api_key = input
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| updated.requires_api_key() && !value.is_empty());
+        let previous = current
+            .asr
+            .api_profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .expect("profile exists");
+        let status = credentials::credential_status_async(&profile_id, &updated.provider)
+            .await.map_err(credential_error)?;
+        if credential_reconfirmation_required(
+            previous,
+            &updated,
+            api_key.is_some(),
+            status.configured,
+        ) {
+            return Err(api_error(
+                StatusCode::CONFLICT,
+                "profile.credential_reconfirm_required",
+                "Enter an API key again before changing this authenticated connection",
+            ));
+        }
+        if let Some(api_key) = api_key {
+            if api_key.len() > 4096 {
+                return Err(profile_validation_error(
+                    providers::ProfileValidationError::new("api_key", "API key length is invalid"),
+                ));
+            }
+            if status.environment_override
+            {
+                return Err(api_error(
+                    StatusCode::CONFLICT,
+                    "profile.credential_environment_managed",
+                    "This API key is managed by an environment variable",
+                ));
+            }
+        }
+        apply_profile_compatibility_fallbacks(&mut candidate, &updated);
+        let side_effects = profile_side_effects(&current, &candidate, &profile_id);
+        if query.dry_run {
+            candidate.validate_settings().map_err(profile_invalid)?;
+            return Ok(Json(json!({ "side_effects": side_effects })));
+        }
+        if let Some(api_key) = api_key {
+            candidate.validate_settings().map_err(profile_invalid)?;
+            super::settings::commit_profile_candidate(&state, candidate, &updated, api_key).await?;
+        } else {
+            commit_profile_config(&state, candidate).await?;
+        }
+        let config = state.config.config.read().expect("config lock").clone();
+        let mut response = profile_value(&updated, &config).await.map_err(credential_error)?;
+        response["side_effects"] = json!(side_effects);
+        Ok(Json(response))
+    }).await.map_err(credential_error)?
+}
+
+pub(super) async fn profile_delete(
+    State(state): State<SettingsContext>,
+    Path(profile_id): Path<String>,
+    Query(query): Query<ProfileMutationQuery>,
+) -> ApiResult<Json<Value>> {
+    credentials::finish_mutation(async move {
+        let _config_control = state.config.config_control.lock().await;
+        let current = state.config.config.read().expect("config lock").clone();
+        let mut candidate = current.clone();
         let profile = candidate
             .asr
             .api_profiles
-            .iter_mut()
+            .iter()
             .find(|profile| profile.id == profile_id)
+            .cloned()
             .ok_or_else(profile_not_found)?;
-        if let Some(name) = input.name {
-            profile.name = name;
+        candidate
+            .asr
+            .api_profiles
+            .retain(|item| item.id != profile_id);
+        clear_model_bindings(&mut candidate, &profile_id);
+        if candidate.asr.active_profile_id.as_deref() == Some(profile_id.as_str()) {
+            disable_cloud_recognition(&mut candidate);
         }
-        if let Some(enabled_capabilities) = input.enabled_capabilities {
-            profile.enabled_capabilities = enabled_capabilities;
+        if uses_translation_profile(&candidate, &profile_id) {
+            disable_translation_profile(&mut candidate, &profile_id);
         }
-        if let Some(region) = input.region {
-            profile.region = region;
+        disable_vision_profile(&mut candidate, &profile_id);
+        disable_title_profile(&mut candidate, &profile_id);
+        candidate.resolve_model_assignments();
+        if query.dry_run {
+            candidate.validate_settings().map_err(profile_invalid)?;
+            return Ok(Json(
+                json!({ "side_effects": profile_usages(&current, &profile_id) }),
+            ));
         }
-        if let Some(workspace_id) = input.workspace_id {
-            profile.workspace_id = workspace_id;
+        #[cfg(not(target_os = "linux"))]
+        let previous_credential = credentials::read_profile_stored_for_use_async(&profile.id, &profile.provider)
+            .await.map_err(credential_error)?;
+        commit_profile_config(&state, candidate).await?;
+        if let Err(error) = credentials::delete_credential_async(&profile.id, &profile.provider).await {
+            let mut recovery_errors = Vec::new();
+            // Linux restores every original item itself; rewriting one selected
+            // value here would corrupt distinct duplicate/legacy snapshots.
+            #[cfg(not(target_os = "linux"))]
+            if let Err(recovery) = restore_credential(&profile, previous_credential).await {
+                recovery_errors.push(format!("credential rollback failed: {recovery}"));
+            }
+            if let Err(recovery) = commit_profile_config(&state, current).await {
+                recovery_errors.push(api_detail(&recovery));
+            }
+            if !recovery_errors.is_empty() {
+                return Err(api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "settings.rollback_failed",
+                    format!("{error}; {}", recovery_errors.join("; ")),
+                ));
+            }
+            return Err(credential_error(error));
         }
-        if let Some(base_url) = input.base_url {
-            profile.base_url = base_url;
-        }
-        if let Some(preset_id) = input.preset_id {
-            profile.preset_id = preset_id;
-        }
-        if let Some(auth_mode) = input.auth_mode {
-            profile.auth_mode = auth_mode;
-        }
-        if let Some(is_local) = input.is_local {
-            profile.is_local = is_local;
-        }
-        if let Some(timeout_ms) = input.timeout_ms {
-            profile.timeout_ms = timeout_ms;
-        }
-        if let Some(headers) = input.headers {
-            profile.headers = headers;
-        }
-        normalize_profile_fields(profile).map_err(profile_validation_error)?;
-        profile.clone()
-    };
-    let api_key = input
-        .api_key
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| updated.requires_api_key() && !value.is_empty());
-    let previous = current
-        .asr
-        .api_profiles
-        .iter()
-        .find(|profile| profile.id == profile_id)
-        .expect("profile exists");
-    if credential_reconfirmation_required(
-        previous,
-        &updated,
-        api_key.is_some(),
-        asr::credential_status(&profile_id, &updated.provider)
-            .map_err(credential_error)?
-            .configured,
-    ) {
-        return Err(api_error(
-            StatusCode::CONFLICT,
-            "profile.credential_reconfirm_required",
-            "Enter an API key again before changing this authenticated connection",
-        ));
-    }
-    if let Some(api_key) = api_key {
-        if api_key.len() > 4096 {
+        Ok(Json(
+            json!({ "deleted": true, "side_effects": profile_usages(&current, &profile_id) }),
+        ))
+    }).await.map_err(credential_error)?
+}
+
+pub(super) async fn credential_write(
+    State(state): State<SettingsContext>,
+    Path(profile_id): Path<String>,
+    Json(input): Json<CredentialInput>,
+) -> ApiResult<Json<Value>> {
+    credentials::finish_mutation(async move {
+        if input.api_key.trim().is_empty() || input.api_key.trim().len() > 4096 {
             return Err(profile_validation_error(
                 providers::ProfileValidationError::new("api_key", "API key length is invalid"),
             ));
         }
-        if asr::credential_status(&profile_id, &updated.provider)
-            .map_err(credential_error)?
+        let _config_control = state.config.config_control.lock().await;
+        let config = state.config.config.read().expect("config lock").clone();
+        let profile = config
+            .asr
+            .api_profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .cloned()
+            .ok_or_else(profile_not_found)?;
+        providers::definition(&profile.provider).ok_or_else(|| {
+            profile_invalid(format!("Unsupported API provider: {}", profile.provider))
+        })?;
+        let previous =
+            credentials::read_profile_stored_for_use_async(&profile.id, &profile.provider).await.map_err(credential_error)?;
+        credentials::write_credential_async(&profile.id, &profile.provider, &input.api_key)
+            .await.map_err(credential_error)?;
+        reload_after_credential_change(&state, &config, &profile, previous).await?;
+        Ok(Json(
+            profile_value(&profile, &config).await.map_err(credential_error)?,
+        ))
+    }).await.map_err(credential_error)?
+}
+
+pub(super) async fn credential_delete(
+    State(state): State<SettingsContext>,
+    Path(profile_id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    credentials::finish_mutation(async move {
+        let _config_control = state.config.config_control.lock().await;
+        let config = state.config.config.read().expect("config lock").clone();
+        let profile = config
+            .asr
+            .api_profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .cloned()
+            .ok_or_else(profile_not_found)?;
+        if credentials::credential_status_async(&profile.id, &profile.provider)
+            .await.map_err(credential_error)?
             .environment_override
         {
             return Err(api_error(
@@ -635,210 +782,79 @@ pub(super) async fn profile_update(
                 "This API key is managed by an environment variable",
             ));
         }
-    }
-    apply_profile_compatibility_fallbacks(&mut candidate, &updated);
-    let side_effects = profile_side_effects(&current, &candidate, &profile_id);
-    if query.dry_run {
-        candidate.validate_settings().map_err(profile_invalid)?;
-        return Ok(Json(json!({ "side_effects": side_effects })));
-    }
-    if let Some(api_key) = api_key {
-        candidate.validate_settings().map_err(profile_invalid)?;
-        super::settings::commit_profile_candidate(&state, candidate, &updated, api_key).await?;
-    } else {
-        commit_profile_config(&state, candidate).await?;
-    }
-    let config = state.config.config.read().expect("config lock").clone();
-    let mut response = profile_value(&updated, &config).map_err(credential_error)?;
-    response["side_effects"] = json!(side_effects);
-    Ok(Json(response))
-}
-
-pub(super) async fn profile_delete(
-    State(state): State<SettingsContext>,
-    Path(profile_id): Path<String>,
-    Query(query): Query<ProfileMutationQuery>,
-) -> ApiResult<Json<Value>> {
-    let _config_control = state.config.config_control.lock().await;
-    let current = state.config.config.read().expect("config lock").clone();
-    let mut candidate = current.clone();
-    let profile = candidate
-        .asr
-        .api_profiles
-        .iter()
-        .find(|profile| profile.id == profile_id)
-        .cloned()
-        .ok_or_else(profile_not_found)?;
-    candidate
-        .asr
-        .api_profiles
-        .retain(|item| item.id != profile_id);
-    clear_model_bindings(&mut candidate, &profile_id);
-    if candidate.asr.active_profile_id.as_deref() == Some(profile_id.as_str()) {
-        disable_cloud_recognition(&mut candidate);
-    }
-    if uses_translation_profile(&candidate, &profile_id) {
-        disable_translation_profile(&mut candidate, &profile_id);
-    }
-    disable_vision_profile(&mut candidate, &profile_id);
-    disable_title_profile(&mut candidate, &profile_id);
-    candidate.resolve_model_assignments();
-    if query.dry_run {
-        candidate.validate_settings().map_err(profile_invalid)?;
-        return Ok(Json(
-            json!({ "side_effects": profile_usages(&current, &profile_id) }),
-        ));
-    }
-    let previous_credential = crate::credentials::read_profile_stored_for_use(&profile.id, &profile.provider)
-        .map_err(credential_error)?;
-    commit_profile_config(&state, candidate).await?;
-    if let Err(error) = asr::delete_credential(&profile.id, &profile.provider) {
-        let mut recovery_errors = Vec::new();
-        if let Err(recovery) = restore_credential(&profile, previous_credential) {
-            recovery_errors.push(format!("credential rollback failed: {recovery}"));
-        }
-        if let Err(recovery) = commit_profile_config(&state, current).await {
-            recovery_errors.push(api_detail(&recovery));
-        }
-        if !recovery_errors.is_empty() {
-            return Err(api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "settings.rollback_failed",
-                format!("{error}; {}", recovery_errors.join("; ")),
-            ));
-        }
-        return Err(credential_error(error));
-    }
-    Ok(Json(
-        json!({ "deleted": true, "side_effects": profile_usages(&current, &profile_id) }),
-    ))
-}
-
-pub(super) async fn credential_write(
-    State(state): State<SettingsContext>,
-    Path(profile_id): Path<String>,
-    Json(input): Json<CredentialInput>,
-) -> ApiResult<Json<Value>> {
-    if input.api_key.trim().is_empty() || input.api_key.trim().len() > 4096 {
-        return Err(profile_validation_error(
-            providers::ProfileValidationError::new("api_key", "API key length is invalid"),
-        ));
-    }
-    let _config_control = state.config.config_control.lock().await;
-    let config = state.config.config.read().expect("config lock").clone();
-    let profile = config
-        .asr
-        .api_profiles
-        .iter()
-        .find(|profile| profile.id == profile_id)
-        .cloned()
-        .ok_or_else(profile_not_found)?;
-    providers::definition(&profile.provider).ok_or_else(|| {
-        profile_invalid(format!("Unsupported API provider: {}", profile.provider))
-    })?;
-    let previous =
-        crate::credentials::read_profile_stored_for_use(&profile.id, &profile.provider).map_err(credential_error)?;
-    asr::write_credential(&profile.id, &profile.provider, &input.api_key)
-        .map_err(credential_error)?;
-    reload_after_credential_change(&state, &config, &profile, previous).await?;
-    Ok(Json(
-        profile_value(&profile, &config).map_err(credential_error)?,
-    ))
-}
-
-pub(super) async fn credential_delete(
-    State(state): State<SettingsContext>,
-    Path(profile_id): Path<String>,
-) -> ApiResult<Json<Value>> {
-    let _config_control = state.config.config_control.lock().await;
-    let config = state.config.config.read().expect("config lock").clone();
-    let profile = config
-        .asr
-        .api_profiles
-        .iter()
-        .find(|profile| profile.id == profile_id)
-        .cloned()
-        .ok_or_else(profile_not_found)?;
-    if asr::credential_status(&profile.id, &profile.provider)
-        .map_err(credential_error)?
-        .environment_override
-    {
-        return Err(api_error(
-            StatusCode::CONFLICT,
-            "profile.credential_environment_managed",
-            "This API key is managed by an environment variable",
-        ));
-    }
-    let previous =
-        crate::credentials::read_profile_stored_for_use(&profile.id, &profile.provider).map_err(credential_error)?;
-    asr::delete_credential(&profile.id, &profile.provider).map_err(credential_error)?;
-    reload_after_credential_change(&state, &config, &profile, previous).await?;
-    Ok(Json(
-        profile_value(&profile, &config).map_err(credential_error)?,
-    ))
+        let previous =
+            credentials::read_profile_stored_for_use_async(&profile.id, &profile.provider).await.map_err(credential_error)?;
+        credentials::delete_credential_async(&profile.id, &profile.provider).await.map_err(credential_error)?;
+        reload_after_credential_change(&state, &config, &profile, previous).await?;
+        Ok(Json(
+            profile_value(&profile, &config).await.map_err(credential_error)?,
+        ))
+    }).await.map_err(credential_error)?
 }
 
 pub(super) async fn profile_activate(
     State(state): State<SettingsContext>,
     Json(input): Json<ActiveProfileInput>,
 ) -> ApiResult<Json<Value>> {
-    let _config_control = state.config.config_control.lock().await;
-    let mut candidate = state.config.config.read().expect("config lock").clone();
-    let profile = candidate
-        .asr
-        .api_profiles
-        .iter()
-        .find(|profile| profile.id == input.profile_id)
-        .ok_or_else(profile_not_found)?;
-    let resolved =
-        providers::resolve_profile_service(profile, &input.service_id).map_err(profile_invalid)?;
-    if !resolved
-        .service
-        .capabilities
-        .contains(&CAPABILITY_SPEECH_TO_TEXT)
-        || resolved.service.recognition_transport.is_none()
-    {
-        return Err(profile_invalid(
-            "The selected service does not support speech recognition".into(),
-        ));
-    }
-    if profile.requires_api_key() {
-        crate::credentials::read_credential_for_use(&profile.id, &profile.provider)
-            .map_err(credential_error)?;
-    }
-    let status =
-        asr::credential_status(&profile.id, &profile.provider).map_err(credential_error)?;
-    if profile.requires_api_key() && !status.configured {
-        return Err(api_error(
-            StatusCode::CONFLICT,
-            "profile.credential_missing",
-            "Configure an API key before activating this profile",
-        ));
-    }
-    ensure_asr_profile_ready(profile)?;
-    let settings = candidate
-        .asr
-        .service_settings
-        .get(&input.service_id)
-        .ok_or_else(|| {
-            profile_invalid(format!(
-                "Recognition service settings are missing for {}",
-                input.service_id
-            ))
-        })?;
-    if !providers::recognition_model_supported(resolved.service, &settings.model) {
-        return Err(profile_invalid(format!(
-            "Unsupported model for recognition service {}: {}",
-            input.service_id, settings.model
-        )));
-    }
-    candidate.asr.active_profile_id = Some(input.profile_id);
-    candidate.asr.backend = input.service_id;
-    if candidate.asr.backend == providers::SERVICE_FUN_ASR_REALTIME {
-        candidate.vad.silence_seconds = candidate.vad.silence_seconds.max(0.2);
-    }
-    commit_profile_config(&state, candidate).await?;
-    profile_list_response(&state)
+    credentials::finish_mutation(async move {
+        let _config_control = state.config.config_control.lock().await;
+        let mut candidate = state.config.config.read().expect("config lock").clone();
+        let profile = candidate
+            .asr
+            .api_profiles
+            .iter()
+            .find(|profile| profile.id == input.profile_id)
+            .ok_or_else(profile_not_found)?;
+        let resolved =
+            providers::resolve_profile_service(profile, &input.service_id).map_err(profile_invalid)?;
+        if !resolved
+            .service
+            .capabilities
+            .contains(&CAPABILITY_SPEECH_TO_TEXT)
+            || resolved.service.recognition_transport.is_none()
+        {
+            return Err(profile_invalid(
+                "The selected service does not support speech recognition".into(),
+            ));
+        }
+        if profile.requires_api_key() {
+            credentials::read_credential_for_use_async(&profile.id, &profile.provider)
+                .await.map_err(credential_error)?;
+        }
+        let status =
+            credentials::credential_status_async(&profile.id, &profile.provider).await.map_err(credential_error)?;
+        if profile.requires_api_key() && !status.configured {
+            return Err(api_error(
+                StatusCode::CONFLICT,
+                "profile.credential_missing",
+                "Configure an API key before activating this profile",
+            ));
+        }
+        ensure_asr_profile_ready(profile)?;
+        let settings = candidate
+            .asr
+            .service_settings
+            .get(&input.service_id)
+            .ok_or_else(|| {
+                profile_invalid(format!(
+                    "Recognition service settings are missing for {}",
+                    input.service_id
+                ))
+            })?;
+        if !providers::recognition_model_supported(resolved.service, &settings.model) {
+            return Err(profile_invalid(format!(
+                "Unsupported model for recognition service {}: {}",
+                input.service_id, settings.model
+            )));
+        }
+        candidate.asr.active_profile_id = Some(input.profile_id);
+        candidate.asr.backend = input.service_id;
+        if candidate.asr.backend == providers::SERVICE_FUN_ASR_REALTIME {
+            candidate.vad.silence_seconds = candidate.vad.silence_seconds.max(0.2);
+        }
+        commit_profile_config(&state, candidate).await?;
+        profile_list_response(&state).await
+    }).await.map_err(credential_error)?
 }
 
 pub(super) async fn profile_models(
@@ -898,9 +914,9 @@ async fn service_models(
             || service.id == providers::SERVICE_OPENROUTER_TRANSCRIPTION)
     {
         if query.refresh {
-            profile_api_key(profile)?
+            profile_api_key(profile).await?
         } else {
-            match asr::read_credential(&profile.id, &profile.provider) {
+            match credentials::read_credential_async(&profile.id, &profile.provider).await {
                 Ok(Some(key)) => key,
                 Ok(None) => String::new(),
                 Err(error) if query.cached_only => {
@@ -993,12 +1009,12 @@ async fn fetch_service_models(
     ))
 }
 
-pub(super) fn profile_api_key(profile: &ApiProfile) -> ApiResult<String> {
+pub(super) async fn profile_api_key(profile: &ApiProfile) -> ApiResult<String> {
     if !profile.requires_api_key() {
         return Ok(String::new());
     }
-    crate::credentials::read_credential_for_use(&profile.id, &profile.provider)
-        .map_err(credential_error)?
+    credentials::read_credential_for_use_async(&profile.id, &profile.provider)
+        .await.map_err(credential_error)?
         .ok_or_else(|| {
             api_error(
                 StatusCode::CONFLICT,
@@ -1043,7 +1059,7 @@ async fn reload_after_credential_change(
         return Ok(());
     }
     if let Err(error) = super::capture::validate_capture_config(state, config).await {
-        restore_credential(profile, previous).map_err(|recovery| {
+        restore_credential(profile, previous).await.map_err(|recovery| {
             api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "settings.rollback_failed",
@@ -1060,7 +1076,7 @@ async fn reload_after_credential_change(
     super::capture::stop_pipelines(state, plan).await;
     if let Err(error) = super::capture::start_pipelines(state, config, plan).await {
         let mut recovery_errors = Vec::new();
-        if let Err(recovery) = restore_credential(profile, previous) {
+        if let Err(recovery) = restore_credential(profile, previous).await {
             recovery_errors.push(format!("credential rollback failed: {recovery}"));
         } else {
             super::capture::stop_pipelines(state, plan).await;
@@ -1080,13 +1096,13 @@ async fn reload_after_credential_change(
     Ok(())
 }
 
-pub(crate) fn restore_credential(
+pub(crate) async fn restore_credential(
     profile: &ApiProfile,
     previous: Option<String>,
 ) -> Result<(), String> {
     match previous {
-        Some(api_key) => asr::write_credential(&profile.id, &profile.provider, &api_key),
-        None => asr::delete_credential(&profile.id, &profile.provider),
+        Some(api_key) => credentials::write_credential_async(&profile.id, &profile.provider, &api_key).await,
+        None => credentials::delete_credential_async(&profile.id, &profile.provider).await,
     }
 }
 

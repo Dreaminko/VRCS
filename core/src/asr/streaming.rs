@@ -278,7 +278,7 @@ pub async fn spawn_streaming_session(
 ) -> Result<StreamingSession, String> {
     let provider = Provider::from_config(&config)?;
     let profile = active_profile(&config)?.clone();
-    let key = read_credential(&profile.id, &profile.provider)?
+    let key = crate::credentials::read_credential_async(&profile.id, &profile.provider).await?
         .ok_or_else(|| format!("API key is not configured for {}", profile.name))?;
     let (socket, task_id) =
         connect_initialized(provider, &config, &profile, silence_seconds, &key).await?;
@@ -375,7 +375,7 @@ pub async fn test_streaming_connection(
         .iter()
         .find(|profile| profile.id == profile_id)
         .ok_or_else(|| "API profile does not exist".to_string())?;
-    let key = read_credential(&profile.id, &profile.provider)?
+    let key = crate::credentials::read_credential_async(&profile.id, &profile.provider).await?
         .ok_or_else(|| format!("API key is not configured for {}", profile.name))?;
     let mut test_config = config.clone();
     test_config.backend = streaming_test_backend(config, profile_id, service_id)?;

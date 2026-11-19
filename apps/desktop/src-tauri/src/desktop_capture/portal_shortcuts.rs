@@ -14,9 +14,34 @@ use tauri::{AppHandle, Manager as _, WebviewWindow};
 pub struct Manager {
     task: Mutex<Option<Registration>>,
 }
+impl Manager {
+    pub fn bindings(&self, app: &AppHandle) -> Option<Vec<String>> {
+        let mut task = self.task.lock().unwrap();
+        let registration = task.as_ref()?;
+        if registration.stop.load(Ordering::Acquire)
+            || registration.config != configured_bindings(app)
+        {
+            task.take();
+            return None;
+        }
+        Some(registration.bindings.clone())
+    }
+}
 struct Registration {
     stop: Arc<AtomicBool>,
     task: tauri::async_runtime::JoinHandle<()>,
+    session: SessionGuard,
+    config: (Option<String>, Option<String>),
+    bindings: Vec<String>,
+}
+impl Registration {
+    async fn close(mut self) {
+        self.stop.store(true, Ordering::Release);
+        self.task.abort();
+        if let Some(session) = self.session.0.take() {
+            let _ = session.close().await;
+        }
+    }
 }
 impl Drop for Registration {
     fn drop(&mut self) {
@@ -49,26 +74,23 @@ fn trigger(shortcut: &str) -> Result<String, String> {
     Ok(super::shortcut::Shortcut::parse(shortcut)?.portal_trigger())
 }
 
-#[derive(serde::Serialize)]
-pub struct Binding {
-    id: String,
-    trigger: String,
+fn configured_bindings(app: &AppHandle) -> (Option<String>, Option<String>) {
+    (
+        app.state::<crate::desktop_ocr::Manager>().shortcut_binding(),
+        app.state::<crate::desktop_vision::Manager>().shortcut_binding(),
+    )
 }
 
 #[tauri::command]
 pub async fn desktop_capture_register_shortcuts(
     window: WebviewWindow,
     app: AppHandle,
-) -> Result<Vec<Binding>, String> {
+) -> Result<(), String> {
     if window.label() != "main" {
         return Err("Unsupported shortcuts window".into());
     }
-    let ocr = app
-        .state::<crate::desktop_ocr::Manager>()
-        .shortcut_binding();
-    let vision = app
-        .state::<crate::desktop_vision::Manager>()
-        .shortcut_binding();
+    let config = configured_bindings(&app);
+    let (ocr, vision) = &config;
     let mut shortcuts = Vec::new();
     if let Some(shortcut) = ocr.as_deref() {
         shortcuts.push(
@@ -89,6 +111,10 @@ pub async fn desktop_capture_register_shortcuts(
     }
     if shortcuts.is_empty() {
         return Err("capture.shortcuts_disabled".into());
+    }
+    let previous = app.state::<Manager>().task.lock().unwrap().take();
+    if let Some(previous) = previous {
+        previous.close().await;
     }
     let proxy = GlobalShortcuts::new()
         .await
@@ -123,16 +149,13 @@ pub async fn desktop_capture_register_shortcuts(
     let bindings = response
         .shortcuts()
         .iter()
-        .map(|shortcut| Binding {
-            id: shortcut.id().into(),
-            trigger: shortcut.trigger_description().into(),
-        })
-        .collect();
+        .map(|shortcut| shortcut.trigger_description().to_owned())
+        .collect::<Vec<_>>();
     let stop = Arc::new(AtomicBool::new(false));
     let stopping = stop.clone();
+    let event_config = config.clone();
     let event_app = app.clone();
     let task = tauri::async_runtime::spawn(async move {
-        let _guard = guard;
         let _proxy = proxy;
         loop {
             tokio::select! {
@@ -140,9 +163,10 @@ pub async fn desktop_capture_register_shortcuts(
                     let Some(event) = event else { break; };
                     if event.session_handle().as_str() != session_path { continue; }
                     if event_app.state::<super::ShortcutRecording>().is_active() { continue; }
+                    if configured_bindings(&event_app) != event_config { break; }
                     match event.shortcut_id() {
-                        "ocr" if event_app.state::<crate::desktop_ocr::Manager>().shortcut_binding() == ocr => { let _ = event_app.state::<crate::desktop_ocr::Manager>().scan(); }
-                        "vision" if event_app.state::<crate::desktop_vision::Manager>().shortcut_binding() == vision => { let _ = event_app.state::<crate::desktop_vision::Manager>().capture(); }
+                        "ocr" => { let _ = event_app.state::<crate::desktop_ocr::Manager>().scan(); }
+                        "vision" => { let _ = event_app.state::<crate::desktop_vision::Manager>().capture(); }
                         _ => {}
                     }
                 }
@@ -150,7 +174,14 @@ pub async fn desktop_capture_register_shortcuts(
                 _ = async { while !stopping.load(Ordering::Acquire) { tokio::time::sleep(std::time::Duration::from_millis(100)).await; } } => break,
             }
         }
+        stopping.store(true, Ordering::Release);
     });
-    *app.state::<Manager>().task.lock().unwrap() = Some(Registration { stop, task });
-    Ok(bindings)
+    if configured_bindings(&app) != config {
+        task.abort();
+        return Err("capture.shortcuts_changed".into());
+    }
+    *app.state::<Manager>().task.lock().unwrap() = Some(Registration {
+        stop, task, session: guard, config, bindings,
+    });
+    Ok(())
 }

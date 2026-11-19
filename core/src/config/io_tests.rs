@@ -2,6 +2,31 @@ use std::fs;
 
 use super::{load_config, AppConfig};
 
+#[cfg(target_os = "linux")]
+#[test]
+fn config_and_existing_backups_are_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let parent = directory.path().join("settings");
+    let path = parent.join("config.json");
+    let config = AppConfig::default();
+    super::save_config(&path, &config).unwrap();
+    assert_eq!(fs::metadata(&parent).unwrap().permissions().mode() & 0o777, 0o700);
+    assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+
+    let backup = path.with_extension("v41.backup.json");
+    fs::copy(&path, &backup).unwrap();
+    for file in [&path, &backup] {
+        fs::set_permissions(file, fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    assert_eq!(load_config(&path).unwrap(), config);
+    for file in [&path, &backup] {
+        assert_eq!(fs::metadata(file).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+    assert_eq!(fs::read(&backup).unwrap(), fs::read(&path).unwrap());
+}
+
 #[test]
 fn v41_audio_device_keys_upgrade_preserves_settings_and_backup() {
     let directory = tempfile::tempdir().unwrap();

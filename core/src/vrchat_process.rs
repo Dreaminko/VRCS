@@ -132,8 +132,16 @@ pub(crate) fn game() -> Result<Option<(ProcessIdentity, PathBuf)>, String> {
         {
             continue;
         }
-        let Ok(owner) = identity(pid) else {
-            continue;
+        let owner = match identity(pid) {
+            Ok(owner) => owner,
+            Err(error) => {
+                if !matches!(procfs::starttime(pid), Err(error)
+                    if error.kind() == std::io::ErrorKind::NotFound)
+                {
+                    return Err(error);
+                }
+                continue;
+            }
         };
         if !same_uid(pid) {
             continue;

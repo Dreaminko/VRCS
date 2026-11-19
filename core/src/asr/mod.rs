@@ -19,9 +19,7 @@ mod qwen_models_tests;
 #[cfg(test)]
 mod qwen_runtime_download_tests;
 
-pub use crate::credentials::{
-    credential_status, delete_credential, read_credential, write_credential,
-};
+pub use crate::credentials::read_credential;
 pub use manager::ModelManager;
 pub(crate) use migration::paths_equivalent;
 pub(crate) use question::{

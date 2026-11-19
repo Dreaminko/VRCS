@@ -344,7 +344,8 @@ pub(crate) async fn validate_capture_config(
             ));
         }
     } else {
-        crate::asr::validate_cloud_connection(&config.asr)
+        let asr = config.asr.clone();
+        crate::credentials::blocking(move || crate::asr::validate_cloud_connection(&asr)).await
             .map_err(|error| api_error(StatusCode::CONFLICT, "asr.cloud_profile_invalid", error))?;
     }
     Ok(())

@@ -132,25 +132,43 @@ fn supervise(
         {
             status.lock().expect("player status").phase = "authorizing";
         }
-        let network = Network::open(owner, Arc::clone(status), stop)?;
-        status.lock().expect("player status").phase = "waiting_world";
-        run(
-            owner,
-            default_opus_path,
-            network,
-            &config,
-            tx.clone(),
-            stop,
-            status,
-            cache,
-            settings,
-            log.clone(),
-        )?;
+        let result = Network::open(owner, Arc::clone(status), stop).and_then(|network| {
+            status.lock().expect("player status").phase = "waiting_world";
+            run(
+                owner,
+                default_opus_path,
+                network,
+                &config,
+                tx.clone(),
+                stop,
+                status,
+                cache,
+                settings,
+                log.clone(),
+            )
+        });
         if stop.load(Ordering::Relaxed) {
             break;
         }
+        #[cfg(target_os = "linux")]
+        let result = finish_linux_session(owner, result, cache);
+        result?;
     }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn finish_linux_session(
+    owner: ProcessIdentity,
+    result: Result<(), String>,
+    cache: &SessionCache,
+) -> Result<(), String> {
+    if result.is_err() && player_audio_helper::procfs::exited(owner.pid, owner.created) {
+        cache.invalidate();
+        Ok(())
+    } else {
+        result
+    }
 }
 
 type Pending = (Connection, bool, Vec<u8>, Instant);
@@ -262,6 +280,11 @@ fn run(
                 }
             {
                 if crate::vrchat_process::identity(pid).ok() != Some(owner) {
+                    #[cfg(target_os = "linux")]
+                    if !player_audio_helper::procfs::exited(owner.pid, owner.created) {
+                        // Read/permission failures are not evidence of exit.
+                        crate::vrchat_process::identity(pid)?;
+                    }
                     cache.invalidate();
                     break;
                 }
@@ -1498,6 +1521,30 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn helper_failure_waits_for_replacement_game_but_live_game_errors_fail() {
+        let pid = std::process::id();
+        let created = player_audio_helper::procfs::starttime(pid).unwrap();
+        let cache = SessionCache::default();
+        let owner = ProcessIdentity { pid, created };
+        for error in [
+            "helper disconnected",
+            "permission denied",
+            "invalid helper protocol",
+        ] {
+            assert_eq!(
+                finish_linux_session(owner, Err(error.into()), &cache),
+                Err(error.into())
+            );
+        }
+        let replaced = ProcessIdentity {
+            created: created.wrapping_add(1),
+            ..owner
+        };
+        assert!(finish_linux_session(replaced, Err("helper disconnected".into()), &cache).is_ok());
+    }
 
     #[test]
     fn proximity_filter_rejects_unknown_and_out_of_range_voice_before_decode() {

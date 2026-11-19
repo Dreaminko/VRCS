@@ -83,16 +83,16 @@ impl SettingsChangePlan {
                 detail,
             )
         };
-        let previous = crate::credentials::read_profile_stored_for_use(&profile.id, &profile.provider)
-            .map_err(credential_error)?;
-        crate::asr::write_credential(&profile.id, &profile.provider, api_key)
-            .map_err(credential_error)?;
+        let previous = crate::credentials::read_profile_stored_for_use_async(&profile.id, &profile.provider)
+            .await.map_err(credential_error)?;
+        crate::credentials::write_credential_async(&profile.id, &profile.provider, api_key)
+            .await.map_err(credential_error)?;
         match Self::build(state, candidate, current, Some(&profile.id)).await {
             Ok(mut plan) => {
                 plan.credential = Some((profile.clone(), previous));
                 Ok(plan)
             }
-            Err(error) => match super::super::cloud::restore_credential(profile, previous) {
+            Err(error) => match super::super::cloud::restore_credential(profile, previous).await {
                 Ok(()) => Err(error),
                 Err(recovery) => Err(rollback_error(api_detail(&error), recovery)),
             },
@@ -216,7 +216,7 @@ impl SettingsChangePlan {
         let mut errors = Vec::new();
         self.capture.stop_for_rollback(state).await;
         if let Some((profile, previous)) = self.credential.take() {
-            if let Err(error) = super::super::cloud::restore_credential(&profile, previous) {
+            if let Err(error) = super::super::cloud::restore_credential(&profile, previous).await {
                 errors.push(format!("credential rollback failed: {error}"));
             }
         }

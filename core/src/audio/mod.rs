@@ -168,6 +168,15 @@ impl AudioCapture {
         self
     }
 
+    #[cfg(target_os = "linux")]
+    pub(crate) fn close_pcm(&mut self) {
+        if let Some(session) = &mut self.session {
+            session.rx.close();
+            session.priming.clear();
+            while session.rx.try_recv().is_ok() {}
+        }
+    }
+
     #[allow(dead_code)]
     pub fn device(&self) -> Option<&AudioDevice> {
         self.device.as_ref()

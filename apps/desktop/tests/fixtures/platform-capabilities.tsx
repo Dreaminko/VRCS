@@ -20,6 +20,7 @@ export function WindowsCapabilities({ children, networkSupported = true, network
     desktop: {
       os: "windows", arch: "x86_64", session_type: "windows",
       screenshot: available, always_on_top: available, global_shortcuts: available,
+      shortcut_bindings: null,
       vr: { subtitles: available, controller_input: available, scene_capture: available },
       update_method: "in_app",
     },

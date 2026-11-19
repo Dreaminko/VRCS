@@ -204,7 +204,7 @@ impl VisionService {
                     _ = tick.tick() => {
                         status.check()?;
                         if !service.matches_session_for(mode, &task_snapshot)
-                                                    || !service.matches_credential(&task_snapshot, &task_api_key) {
+                            || !service.matches_credential_async(&task_snapshot, &task_api_key).await {
                             return Err("The speech recognition or visual question settings changed. Ask again.".into());
                         }
                         if let Some(released) = status.released_at() {
@@ -264,7 +264,14 @@ impl VisionService {
             .is_ok_and(|current| current == api_key)
     }
 
-    fn check_request(
+    async fn matches_credential_async(&self, snapshot: &AppConfig, api_key: &str) -> bool {
+        let Ok(profile) = vision_profile(snapshot) else {
+            return false;
+        };
+        credential_async(profile).await.is_ok_and(|current| current == api_key)
+    }
+
+    async fn check_request(
         &self,
         mode: VisionMode,
         snapshot: &AppConfig,
@@ -273,7 +280,7 @@ impl VisionService {
         if !self.matches_request(mode, snapshot) {
             return Err("The visual question settings changed. Ask again.".into());
         }
-        if !self.matches_credential(snapshot, api_key) {
+        if !self.matches_credential_async(snapshot, api_key).await {
             return Err("The visual question credential changed. Ask again.".into());
         }
         Ok(())
@@ -292,7 +299,7 @@ impl VisionService {
         if !snapshot.vision.enabled || *self.state.integrations.shutdown.borrow() {
             return Err("Visual questions are disabled".into());
         }
-        let api_key = credential(vision_profile(&snapshot)?)?;
+        let api_key = credential_async(vision_profile(&snapshot)?).await?;
         let answer = self
             .generate_checked(mode, &snapshot, &api_key, &question, &image)
             .await?;
@@ -309,16 +316,16 @@ impl VisionService {
     ) -> Result<String, String> {
         validate_question(question)?;
         validate_image(image, &snapshot.vision)?;
-        self.check_request(mode, snapshot, api_key)?;
+        self.check_request(mode, snapshot, api_key).await?;
         let work = self.generate(snapshot, api_key, question, image);
         tokio::pin!(work);
         let mut tick = tokio::time::interval(Duration::from_millis(50));
         loop {
             tokio::select! {
                 biased;
-                _ = tick.tick() => self.check_request(mode, snapshot, api_key)?,
+                _ = tick.tick() => self.check_request(mode, snapshot, api_key).await?,
                 result = &mut work => {
-                    self.check_request(mode, snapshot, api_key)?;
+                    self.check_request(mode, snapshot, api_key).await?;
                     return result;
                 }
             }
@@ -368,7 +375,7 @@ impl VisionService {
             return Err("The visual question feature is unavailable".into());
         }
         let profile = vision_profile(&snapshot)?;
-        let api_key = credential(profile)?;
+        let api_key = credential_async(profile).await?;
         self.generate(
             &snapshot,
             &api_key,
@@ -408,7 +415,7 @@ impl VisionSession {
         mut on_progress: impl FnMut(VisionProgress) + Send,
     ) -> Result<VisionAnswer, String> {
         validate_image(&image, &self.snapshot.vision)?;
-        self.check_configuration()?;
+        self.check_configuration().await?;
         on_progress(VisionProgress::FinalizingAsr);
         let question = self.finalize_question().await?;
         on_progress(VisionProgress::Requesting {
@@ -418,7 +425,7 @@ impl VisionSession {
             .service
             .generate_checked(self.mode, &self.snapshot, &self.api_key, &question, &image)
             .await?;
-        self.check_configuration()?;
+        self.check_configuration().await?;
         Ok(VisionAnswer { question, answer })
     }
 
@@ -428,7 +435,7 @@ impl VisionSession {
     }
 
     async fn finalize_question(&mut self) -> Result<String, String> {
-        self.check_configuration()?;
+        self.check_configuration().await?;
         if self.audio.released_at().is_none() {
             return Err("Release the audio window before finalizing".into());
         }
@@ -440,21 +447,21 @@ impl VisionSession {
         .map_err(|_| "Question speech recognition timed out. Ask again.".to_owned())?
         .map_err(|error| format!("Question speech recognition task failed: {error}"))??;
         self.audio.stop();
-        self.check_configuration()?;
+        self.check_configuration().await?;
         if question.trim().is_empty() {
             return Err("No question was recognized. Hold the trigger and speak again.".into());
         }
         Ok(validate_question(&question)?.to_owned())
     }
 
-    fn check_configuration(&self) -> Result<(), String> {
+    async fn check_configuration(&self) -> Result<(), String> {
         if !self.service.matches_session_for(self.mode, &self.snapshot) {
             return Err(
                 "The speech recognition or visual question settings changed. Ask again.".into(),
             );
         }
         self.service
-            .check_request(self.mode, &self.snapshot, &self.api_key)
+            .check_request(self.mode, &self.snapshot, &self.api_key).await
     }
 }
 
@@ -522,6 +529,14 @@ fn credential(profile: &ApiProfile) -> Result<String, String> {
         return Ok(String::new());
     }
     crate::credentials::read_credential(&profile.id, &profile.provider)?
+        .ok_or_else(|| "The image-input API credential is not configured".into())
+}
+
+async fn credential_async(profile: &ApiProfile) -> Result<String, String> {
+    if !profile.requires_api_key() {
+        return Ok(String::new());
+    }
+    crate::credentials::read_credential_async(&profile.id, &profile.provider).await?
         .ok_or_else(|| "The image-input API credential is not configured".into())
 }
 

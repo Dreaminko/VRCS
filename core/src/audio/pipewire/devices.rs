@@ -27,7 +27,25 @@ pub(super) struct Node {
 }
 
 impl Node {
+    fn from_properties(id: u32, props: &pw::spa::utils::dict::DictRef) -> Option<Self> {
+        let direction = match props.get("media.class") {
+            Some("Audio/Sink") => DeviceDirection::Render,
+            Some("Audio/Source" | "Audio/Source/Virtual") => DeviceDirection::Capture,
+            _ => return None,
+        };
+        let name = props.get("node.name").filter(|name| !name.is_empty())?;
+        Some(Self {
+            id,
+            name: name.to_owned(),
+            label: props.get("node.description").or_else(|| props.get("node.nick")).unwrap_or(name).to_owned(),
+            direction,
+            rate: props.get("audio.rate").and_then(|rate| rate.parse().ok()).unwrap_or(0),
+            channels: props.get("audio.channels").and_then(|channels| channels.parse().ok()).unwrap_or(0),
+        })
+    }
+
     pub fn key(&self) -> String {
+        // Physical and virtual sources share the existing capture-key namespace.
         let class = match self.direction {
             DeviceDirection::Render => "Audio/Sink",
             DeviceDirection::Capture => "Audio/Source",
@@ -158,20 +176,8 @@ impl Session {
         let registry_listener = registry.add_listener_local().global(move |object| {
             let Some(props) = object.props.as_ref() else { return; };
             if object.type_ == ObjectType::Node {
-                let direction = match props.get("media.class") {
-                    Some("Audio/Sink") => DeviceDirection::Render,
-                    Some("Audio/Source") => DeviceDirection::Capture,
-                    _ => return,
-                };
-                let Some(name) = props.get("node.name").filter(|name| !name.is_empty()) else { return; };
-                reg_inventory.borrow_mut().nodes.insert(object.id, Node {
-                    id: object.id,
-                    name: name.to_owned(),
-                    label: props.get("node.description").or_else(|| props.get("node.nick")).unwrap_or(name).to_owned(),
-                    direction,
-                    rate: props.get("audio.rate").and_then(|rate| rate.parse().ok()).unwrap_or(0),
-                    channels: props.get("audio.channels").and_then(|channels| channels.parse().ok()).unwrap_or(0),
-                });
+                let Some(node) = Node::from_properties(object.id, props) else { return; };
+                reg_inventory.borrow_mut().nodes.insert(object.id, node);
                 // Registry globals only advertise routing identity. Device
                 // format properties are generally delivered by Node::info.
                 let Some(registry) = weak_registry.upgrade() else { return; };
@@ -312,5 +318,41 @@ mod tests {
         assert_eq!(inventory.resolve(None, DeviceDirection::Render).unwrap().id, 1);
         inventory.default_sink = Some("second".into());
         assert_eq!(inventory.resolve(None, DeviceDirection::Render).unwrap().id, 2);
+    }
+
+    #[test]
+    fn registry_classes_preserve_device_keys_and_default_resolution() {
+        for (class, direction, key_class) in [
+            ("Audio/Sink", DeviceDirection::Render, "Audio/Sink"),
+            ("Audio/Source", DeviceDirection::Capture, "Audio/Source"),
+            ("Audio/Source/Virtual", DeviceDirection::Capture, "Audio/Source"),
+        ] {
+            let props = pw::properties::properties! {
+                "media.class" => class,
+                "node.name" => "test-device",
+                "node.description" => "Test device",
+                "audio.rate" => "48000",
+                "audio.channels" => "2",
+            };
+            let node = Node::from_properties(42, props.dict()).unwrap();
+            let key = format!("pipewire:{key_class}:test-device");
+            let device = node.device(true);
+            assert_eq!(node.direction, direction);
+            assert_eq!(device.device_key.as_deref(), Some(key.as_str()));
+            assert_eq!(device.is_loopback, direction == DeviceDirection::Render);
+            let mut inventory = Inventory::default();
+            match direction {
+                DeviceDirection::Render => inventory.default_sink = Some(node.name.clone()),
+                DeviceDirection::Capture => inventory.default_source = Some(node.name.clone()),
+            }
+            inventory.nodes.insert(node.id, node);
+            assert_eq!(inventory.resolve(Some(&key), direction).unwrap().id, 42);
+            assert_eq!(inventory.resolve(None, direction).unwrap().id, 42);
+        }
+        let props = pw::properties::properties! {
+            "media.class" => "Stream/Input/Audio",
+            "node.name" => "application-stream",
+        };
+        assert!(Node::from_properties(43, props.dict()).is_none());
     }
 }

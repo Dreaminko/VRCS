@@ -56,7 +56,7 @@ struct Waiter {
 }
 
 pub(super) struct Network {
-    child: Option<Child>,
+    child: HelperChild,
     writer: UnixStream,
     reader: Option<std::thread::JoinHandle<()>>,
     packets: mpsc::Receiver<Datagram>,
@@ -64,6 +64,85 @@ pub(super) struct Network {
     fatal: Arc<Mutex<Option<String>>>,
     next_request: AtomicU64,
     _runtime: RuntimeDir,
+}
+
+/// Establish the reaper before spawning pkexec, so every later error path can
+/// hand off the child without depending on another thread being available.
+struct HelperChild {
+    process: Option<Child>,
+    reaper: mpsc::Sender<Child>,
+}
+
+impl HelperChild {
+    fn spawn(command: &mut Command) -> Result<Self, String> {
+        let (reaper, receiver) = mpsc::channel::<Child>();
+        std::thread::Builder::new()
+            .name("vrcs-helper-reaper".into())
+            .spawn(move || {
+                if let Ok(mut child) = receiver.recv() {
+                    let _ = child.wait();
+                }
+            })
+            .map_err(|error| format!("Cannot start the helper reaper: {error}"))?;
+        let process = command
+            .spawn()
+            .map_err(|error| format!("Cannot start the network helper: {error}"))?;
+        Ok(Self {
+            process: Some(process),
+            reaper,
+        })
+    }
+
+    fn process(&mut self) -> &mut Child {
+        self.process.as_mut().expect("helper child")
+    }
+}
+
+impl Drop for HelperChild {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.process.take() {
+            // pkexec may still be waiting for authorization. Once privileged,
+            // the helper instead exits on IPC shutdown; kill may return EPERM.
+            let _ = child.kill();
+            let _ = self.reaper.send(child);
+        }
+    }
+}
+
+struct StartupReader<'a> {
+    stream: &'a mut UnixStream,
+    stop: &'a AtomicBool,
+    owner: ProcessIdentity,
+    deadline: Instant,
+}
+
+impl std::io::Read for StartupReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        loop {
+            if self.stop.load(Ordering::Relaxed)
+                || procfs::exited(self.owner.pid, self.owner.created)
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionAborted,
+                    "Network helper startup cancelled",
+                ));
+            }
+            if Instant::now() >= self.deadline {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "Timed out reading the network helper handshake",
+                ));
+            }
+            match std::io::Read::read(self.stream, buffer) {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                result => return result,
+            }
+        }
+    }
 }
 
 struct RuntimeDir(PathBuf);
@@ -95,7 +174,7 @@ impl Network {
             uuid::Uuid::new_v4().simple(),
             uuid::Uuid::new_v4().simple()
         );
-        let mut child = Command::new("/usr/bin/pkexec")
+        let mut child = HelperChild::spawn(Command::new("/usr/bin/pkexec")
             .arg("--disable-internal-agent")
             .arg(&helper)
             .arg("--socket")
@@ -108,10 +187,8 @@ impl Network {
             .stdout(Stdio::null())
             // Keep helper and pkexec diagnostics visible in the terminal that
             // launched `npm run dev`; successful capture writes nothing here.
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|error| format!("Cannot start the network helper: {error}"))?;
-        if let Some(mut stdin) = child.stdin.take() {
+            .stderr(Stdio::inherit()))?;
+        if let Some(mut stdin) = child.process().stdin.take() {
             use std::io::Write;
             stdin
                 .write_all(token.as_bytes())
@@ -120,17 +197,18 @@ impl Network {
         let deadline = Instant::now() + Duration::from_secs(120);
         let stream = loop {
             if stop.load(Ordering::Relaxed) {
-                let _ = child.kill();
                 return Err("Player audio stopped".into());
+            }
+            if procfs::exited(owner.pid, owner.created) {
+                return Err("VRChat exited before network helper startup".into());
             }
             match listener.accept() {
                 Ok((stream, _)) => break stream,
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    if let Some(state) = child.try_wait().map_err(|error| error.to_string())? {
+                    if let Some(state) = child.process().try_wait().map_err(|error| error.to_string())? {
                         return Err(pkexec_failure(state.code()));
                     }
                     if Instant::now() >= deadline {
-                        let _ = child.kill();
                         return Err("Timed out waiting for network capture authorization".into());
                     }
                     std::thread::sleep(Duration::from_millis(50));
@@ -139,13 +217,12 @@ impl Network {
             }
         };
         if stop.load(Ordering::Relaxed) {
-            let _ = child.kill();
             return Err("Player audio stopped".into());
         }
         drop(listener);
         verify_root_peer(&stream)?;
         stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
+            .set_read_timeout(Some(Duration::from_millis(100)))
             .map_err(|error| error.to_string())?;
         let mut hello = stream;
         let Some(Event::Hello {
@@ -154,7 +231,13 @@ impl Network {
             pid,
             starttime,
             monotonic_us,
-        }) = read_event(&mut hello).map_err(|error| error.to_string())?
+        }) = read_event(&mut StartupReader {
+            stream: &mut hello,
+            stop,
+            owner,
+            deadline: Instant::now() + Duration::from_secs(5),
+        })
+        .map_err(|error| error.to_string())?
         else {
             return Err("The network helper did not identify itself".into());
         };
@@ -253,7 +336,7 @@ impl Network {
             })
             .map_err(|error| error.to_string())?;
         Ok(Self {
-            child: Some(child),
+            child,
             writer,
             reader: Some(reader),
             packets,
@@ -270,8 +353,7 @@ impl Network {
         }
         if let Some(status) = self
             .child
-            .as_mut()
-            .expect("helper child")
+            .process()
             .try_wait()
             .map_err(|error| error.to_string())?
         {
@@ -370,38 +452,14 @@ impl Network {
 
 impl Drop for Network {
     fn drop(&mut self) {
-        if let Ok(mut writer) = self.writer.try_clone() {
-            let _ = write_command(&mut writer, &HelperCommand::Shutdown);
-        }
+        // Best effort only: stopping capture must not wait behind a helper
+        // that no longer reads commands or is stuck in a kernel memory read.
+        let _ = self.writer.set_nonblocking(true);
+        let _ = write_command(&mut self.writer, &HelperCommand::Shutdown);
         let _ = self.writer.shutdown(std::net::Shutdown::Both);
-        if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
-        }
-        let Some(mut child) = self.child.take() else {
-            return;
-        };
-        let deadline = Instant::now() + Duration::from_secs(2);
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) => break,
-                Ok(None) if Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(25))
-                }
-                _ => {
-                    if let Err(error) = child.kill() {
-                        tracing::warn!(%error, "network helper did not exit after shutdown");
-                    }
-                    // A user process cannot always signal its root helper. Reap
-                    // it when it exits without blocking capture_stop forever.
-                    let _ = std::thread::Builder::new()
-                        .name("vrcs-helper-reaper".into())
-                        .spawn(move || {
-                            let _ = child.wait();
-                        });
-                    break;
-                }
-            }
-        }
+        // The socket shutdown wakes the reader. Dropping its handle detaches it
+        // rather than making user stop depend on its scheduling or status lock.
+        self.reader.take();
     }
 }
 
@@ -447,6 +505,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn abandoning_helper_startup_kills_and_reaps_the_child() {
+        let mut child = HelperChild::spawn(Command::new("/usr/bin/sleep").arg("30")).unwrap();
+        let pid = child.process().id();
+        let status = PathBuf::from(format!("/proc/{pid}/stat"));
+        assert!(status.exists());
+        drop(child);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while status.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!status.exists(), "helper must be killed and reaped on startup failure");
+    }
+
+    #[test]
     fn key_acquisition_ends_when_helper_fails_with_a_request_pending() {
         let directory = tempfile::tempdir().unwrap();
         let runtime = directory.path().join("network");
@@ -454,7 +526,7 @@ mod tests {
         let (writer, _peer) = UnixStream::pair().unwrap();
         let (_packets, packets) = mpsc::sync_channel(1);
         let network = Network {
-            child: Some(Command::new("/usr/bin/true").spawn().unwrap()),
+            child: HelperChild::spawn(&mut Command::new("/usr/bin/true")).unwrap(),
             writer,
             reader: None,
             packets,

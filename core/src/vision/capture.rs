@@ -125,6 +125,9 @@ fn run_capture(
     let device = capture
         .start(device_id, device_key, None)
         .map_err(|error| format!("Visual question microphone: {}: {error}", error.code()))?;
+    // This capture delivers audio through the tap; no PCM reader is attached.
+    #[cfg(target_os = "linux")]
+    capture.close_pcm();
     tracing::info!(device_name = %device.name, "visual question microphone capture started");
     let result = loop {
         if cancelled.load(Ordering::SeqCst) {

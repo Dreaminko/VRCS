@@ -23,6 +23,7 @@ export interface DesktopCapabilities {
   screenshot: Capability;
   always_on_top: Capability;
   global_shortcuts: Capability;
+  shortcut_bindings: string[] | null;
   vr: { subtitles: Capability; controller_input: Capability; scene_capture: Capability };
   update_method: "in_app" | "manual";
 }

@@ -10,6 +10,7 @@ pub(crate) struct PlatformCapabilities {
     screenshot: Capability,
     always_on_top: Capability,
     global_shortcuts: Capability,
+    shortcut_bindings: Option<Vec<String>>,
     vr: VrCapabilities,
     update_method: &'static str,
 }
@@ -39,6 +40,7 @@ pub(crate) fn session_type() -> String {
 
 #[tauri::command]
 pub(crate) async fn platform_capabilities(
+    _app: tauri::AppHandle,
     vr: State<'_, crate::vr_overlay::Manager>,
 ) -> Result<PlatformCapabilities, String> {
     let windows = cfg!(windows);
@@ -81,6 +83,15 @@ pub(crate) async fn platform_capabilities(
             shortcuts,
             "platform.shortcuts_unavailable",
         ),
+        shortcut_bindings: {
+            #[cfg(target_os = "linux")]
+            {
+                use tauri::Manager as _;
+                _app.state::<crate::desktop_capture::portal_shortcuts::Manager>().bindings(&_app)
+            }
+            #[cfg(not(target_os = "linux"))]
+            { None }
+        },
         vr: VrCapabilities {
             subtitles: Capability::runtime(vr_supported, vr_available, vr_reason),
             controller_input: Capability::runtime(vr_supported, vr_available, vr_reason),

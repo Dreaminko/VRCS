@@ -1,9 +1,60 @@
+use std::future::Future;
+
 use serde::Serialize;
 
 use crate::providers::{self, ALIBABA_PROVIDER, OPENAI_PROVIDER};
 
 #[cfg(target_os = "linux")]
 mod linux;
+
+/// Run the complete synchronous keyring operation away from Tokio workers.
+pub(crate) async fn blocking<T: Send + 'static>(
+    operation: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tokio::task::spawn_blocking(operation)
+        .await
+        .map_err(|error| format!("credentials.task_failed: Credential task exited unexpectedly: {error}"))?
+}
+
+/// Keep mutation locks and recovery alive if an HTTP request is dropped while
+/// its non-cancellable blocking keyring operation is still running.
+pub(crate) async fn finish_mutation<T: Send + 'static>(
+    operation: impl Future<Output = T> + Send + 'static,
+) -> Result<T, String> {
+    tokio::spawn(operation)
+        .await
+        .map_err(|error| format!("credentials.task_failed: Credential mutation exited unexpectedly: {error}"))
+}
+
+pub(crate) async fn credential_status_async(profile_id: &str, provider: &str) -> Result<CredentialStatus, String> {
+    let (profile_id, provider) = (profile_id.to_owned(), provider.to_owned());
+    blocking(move || credential_status(&profile_id, &provider)).await
+}
+
+pub(crate) async fn read_credential_async(profile_id: &str, provider: &str) -> Result<Option<String>, String> {
+    let (profile_id, provider) = (profile_id.to_owned(), provider.to_owned());
+    blocking(move || read_credential(&profile_id, &provider)).await
+}
+
+pub(crate) async fn read_credential_for_use_async(profile_id: &str, provider: &str) -> Result<Option<String>, String> {
+    let (profile_id, provider) = (profile_id.to_owned(), provider.to_owned());
+    blocking(move || read_credential_for_use(&profile_id, &provider)).await
+}
+
+pub(crate) async fn read_profile_stored_for_use_async(profile_id: &str, provider: &str) -> Result<Option<String>, String> {
+    let (profile_id, provider) = (profile_id.to_owned(), provider.to_owned());
+    blocking(move || read_profile_stored_for_use(&profile_id, &provider)).await
+}
+
+pub(crate) async fn write_credential_async(profile_id: &str, provider: &str, value: &str) -> Result<(), String> {
+    let (profile_id, provider, value) = (profile_id.to_owned(), provider.to_owned(), value.to_owned());
+    blocking(move || write_credential(&profile_id, &provider, &value)).await
+}
+
+pub(crate) async fn delete_credential_async(profile_id: &str, provider: &str) -> Result<(), String> {
+    let (profile_id, provider) = (profile_id.to_owned(), provider.to_owned());
+    blocking(move || delete_credential(&profile_id, &provider)).await
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct CredentialStatus {
@@ -191,12 +242,17 @@ pub fn write_credential(profile_id: &str, provider: &str, value: &str) -> Result
 }
 
 pub fn delete_credential(profile_id: &str, provider: &str) -> Result<(), String> {
-    delete_stored(&target(profile_id))?;
-    delete_stored(&old_profile_target(profile_id))?;
-    if let Some(target) = legacy_target(profile_id, provider) {
-        delete_stored(&target)?;
+    #[cfg(target_os = "linux")]
+    return linux::delete(&profile_targets(profile_id, provider));
+    #[cfg(not(target_os = "linux"))]
+    {
+        delete_stored(&target(profile_id))?;
+        delete_stored(&old_profile_target(profile_id))?;
+        if let Some(target) = legacy_target(profile_id, provider) {
+            delete_stored(&target)?;
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 fn target(profile_id: &str) -> String {
@@ -257,6 +313,8 @@ pub fn error_reason_code(error: &str) -> Option<&'static str> {
         "credentials.cancelled",
         "credentials.read_failed",
         "credentials.write_failed",
+        "credentials.rollback_failed",
+        "credentials.task_failed",
         "credentials.unsupported",
     ]
     .into_iter()
@@ -408,7 +466,7 @@ fn write_stored(target_name: &str, value: &str) -> Result<(), String> {
 
 #[cfg(target_os = "linux")]
 fn delete_stored(target_name: &str) -> Result<(), String> {
-    linux::delete(target_name)
+    linux::delete(&[target_name.to_owned()])
 }
 
 #[cfg(not(any(windows, target_os = "linux")))]
@@ -429,6 +487,32 @@ fn delete_stored(_target_name: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancelled_keyring_mutation_keeps_control_without_blocking_the_runtime() {
+        let control = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+        let mutation_control = control.clone();
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (release, wait) = std::sync::mpsc::channel();
+        let (done, completed) = tokio::sync::oneshot::channel();
+        let request = tokio::spawn(finish_mutation(async move {
+            let _control = mutation_control.lock().await;
+            let result = blocking(move || {
+                let _ = started.send(());
+                wait.recv_timeout(std::time::Duration::from_secs(5))
+                    .map_err(|error| error.to_string())
+            }).await;
+            let _ = done.send(result);
+        }));
+        ready.await.unwrap();
+        // The sole runtime worker must reach this while keyring I/O is waiting.
+        request.abort();
+        let _ = request.await;
+        assert!(control.try_lock().is_err());
+        release.send(()).unwrap();
+        completed.await.unwrap().unwrap();
+        let _released = control.lock().await;
+    }
 
     #[test]
     fn accepts_all_supported_providers() {

@@ -111,9 +111,9 @@ try {
     }
     run("patchelf", ["--set-rpath", "$ORIGIN/../lib/vrcs:$ORIGIN/../lib:$ORIGIN/lib", stageBin]);
     writeFileSync(join(artifactRoot, `linux-${arch}-${channel}.ldd.txt`), helperLinked ? `${linked}\n--- network helper ---\n${helperLinked}` : linked);
-    // Include dlopen libraries and external authorization commands explicitly;
-    // ldd cannot discover pkexec or the polkit daemon.
-    const systemPackages = new Set(["libayatana-appindicator3-1", "libpipewire-0.3-0", "libdbus-1-3", "libwebkit2gtk-4.1-0", "libgtk-3-0t64", "libvulkan1", "libopus0", "pkexec", "polkitd"]);
+    // Include managed llama.cpp CPU/Vulkan dependencies, dlopen libraries and
+    // external authorization commands; the desktop ELF does not link these all.
+    const systemPackages = new Set(["libayatana-appindicator3-1", "libpipewire-0.3-0", "libdbus-1-3", "libwebkit2gtk-4.1-0", "libgtk-3-0t64", "libvulkan1", "libgomp1", "libssl3t64", "libstdc++6", "libgcc-s1", "libopus0", "pkexec", "polkitd"]);
     for (const binary of bundles_helper ? [executable, helper] : [executable]) {
       for (const library of dependencies(binary).paths) {
         if (!library.startsWith("/lib/") && !library.startsWith("/usr/lib/")) continue;

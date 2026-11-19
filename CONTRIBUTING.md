@@ -139,9 +139,17 @@ Implemented boundaries:
   Once running, default-device capture rebuilds after device loss, stream
   disconnection or a PipeWire restart while retaining its PCM channel. Recovery
   waits remain cancellable; explicit selections and permanent errors still fail.
+  Virtual microphone sources are selectable. A full transcription PCM queue does
+  not invalidate audio already delivered to an independent visual-question tap.
+  Tap-only visual questions close their unused PCM receiver to avoid queue growth
+  and overflow warnings.
 - Secret Service stores profile-isolated credentials; environment overrides
   retain precedence. Missing/locked services and cancelled prompts report errors;
   no plaintext credential fallback is introduced.
+  Async callers offload keyring work. Matching entries are unlocked and snapshotted
+  before mutation; partial failures attempt restoration and report restoration
+  failures explicitly. Secret Service has no cross-process transaction, and a
+  connection failure can prevent restoration from being confirmed.
 - Managed Qwen CPU/Vulkan uses fixed llama.cpp b11501 assets with size/SHA checks,
   architecture-specific ELF validation, bounded archive extraction, internal-link
   checks, staged activation and child-process cleanup. Vulkan builds select separate
@@ -161,18 +169,31 @@ Implemented boundaries:
   Real VRChat/Proton traffic, authorization, packaging, anti-cheat behavior and
   long-running capture are not yet accepted, and ARM64 network capture remains
   unsupported.
+  Candidate packets require a fresh inode/endpoint/target-fd confirmation; stale
+  queued packets are discarded when the inventory changes. `/proc` reads are not
+  atomic with packet arrival or later socket close/rebind, so this is not a
+  packet-level ownership guarantee. Ambiguous same-port IPv6 sockets are rejected
+  conservatively, including IPv6-only sockets whose mode cannot be established.
+  A confirmed game exit ends its session and returns capture to waiting for the
+  next game; authorization and startup failures also hand off child reaping.
 - ScreenCast Portal capture requests one user-selected source, receives one frame
   through its authorized PipeWire remote, closes capture, then opens an in-app
   frozen-frame picker. Only the crop reaches OCR/vision. Shared memory and packed
   single-plane linear DMA-BUF are supported; unsupported modifiers fail explicitly.
   GlobalShortcuts Portal registration is opt-in and independent from the button.
+  The capability snapshot reports active bindings; changing their configuration
+  or closing the Portal session invalidates authorization and requires rebinding.
 - Data remains in Tauri's local data directory under `.vrcs`; logs use
-  `$XDG_STATE_HOME/vrcs/logs` or `$HOME/.local/state/vrcs/logs`. New directories are
-  private. Wayland compact subtitles do not promise global stacking. Tray failure
-  leaves close-to-exit behavior rather than hiding the only window.
+  `$XDG_STATE_HOME/vrcs/logs` or `$HOME/.local/state/vrcs/logs`. The desktop data root
+  is private; configuration, migration backups and database files are owner-only,
+  including existing files when reopened. Wayland compact subtitles do not promise
+  global stacking. Tray failure leaves close-to-exit behavior.
 - `node scripts/build-linux-release.mjs` builds native deb/AppImage channels with
   Qwen Vulkan support; `--deb-only` limits local packaging and `--preview` stages
   an unsigned directory with the same inference support.
+  Runtime dependencies include the managed llama.cpp libraries' system requirements
+  (`libgomp1`, `libssl3t64`, `libstdc++6`, `libgcc-s1` and the Vulkan loader), which
+  are not all visible in the desktop executable's ELF dependency list.
   deb/development installs never use the AppImage updater. Publishable AppImages
   require the existing signing key and public key. Complete release aggregation
   verifies every platform's package, architecture, hash and signature before
@@ -180,6 +201,8 @@ Implemented boundaries:
 - CI/Preview/Release have native `ubuntu-24.04` and `ubuntu-24.04-arm` jobs.
   Same-commit CI reuse requires both Linux jobs. Workflow configuration is not
   evidence that the remote jobs have run successfully.
+  Changes to `packaging/linux/`, including polkit policy and installation scripts,
+  select the native CI checks.
 
 Measured evidence (2026-11-10 unless dated otherwise; x86_64 Xeon E3-1245 v6, Arch/niri Wayland unless
 otherwise stated):

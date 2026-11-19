@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use secret_service::blocking::SecretService;
+use secret_service::blocking::{Item, SecretService};
 use secret_service::{EncryptionType, Error};
 
 use super::StoredStatus;
@@ -60,8 +60,8 @@ pub(super) fn write(target: &str, value: &str) -> Result<(), String> {
     outside_runtime(|| write_blocking(target, value))
 }
 
-pub(super) fn delete(target: &str) -> Result<(), String> {
-    outside_runtime(|| delete_blocking(target))
+pub(super) fn delete(targets: &[String]) -> Result<(), String> {
+    outside_runtime(|| delete_blocking(targets))
 }
 
 fn connect<'a>(operation: &'static str) -> Result<SecretService<'a>, String> {
@@ -162,15 +162,31 @@ fn write_blocking(target: &str, value: &str) -> Result<(), String> {
         .search_items(attributes(target))
         .map_err(|error| failure(error, WRITE_FAILED))?;
     if !items.unlocked.is_empty() || !items.locked.is_empty() {
-        // Update every exact match so an old duplicate cannot reappear on restart.
-        for item in items.unlocked.iter().chain(&items.locked) {
-            if item.is_locked().map_err(|error| failure(error, WRITE_FAILED))? {
-                item.unlock().map_err(|error| failure(error, WRITE_FAILED))?;
+        let items: Vec<_> = items.unlocked.into_iter().chain(items.locked).collect();
+        authorize_items(&items)?;
+        let previous = items
+            .iter()
+            .map(|item| {
+                Ok((
+                    item.get_secret().map_err(|error| failure(error, WRITE_FAILED))?,
+                    item.get_secret_content_type().map_err(|error| failure(error, WRITE_FAILED))?,
+                ))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        // Secret Service has no transaction or compare-and-swap. Restore every
+        // attempted write on failure, including an ambiguously acknowledged call.
+        // Another process can still change or lock these items during recovery.
+        for (index, item) in items.iter().enumerate() {
+            if let Err(error) = item.set_secret(value.as_bytes(), "text/plain; charset=utf-8") {
+                let recovery = items[..=index]
+                    .iter()
+                    .zip(&previous[..=index])
+                    .filter_map(|(item, (secret, content_type))| {
+                        item.set_secret(secret, content_type).err().map(|error| failure(error, WRITE_FAILED))
+                    })
+                    .collect::<Vec<_>>();
+                return Err(mutation_failure(error, recovery));
             }
-            item.ensure_unlocked()
-                .map_err(|error| failure(error, WRITE_FAILED))?;
-            item.set_secret(value.as_bytes(), "text/plain; charset=utf-8")
-                .map_err(|error| failure(error, WRITE_FAILED))?;
         }
         return Ok(());
     }
@@ -192,16 +208,88 @@ fn write_blocking(target: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn delete_blocking(target: &str) -> Result<(), String> {
-    let service = connect(WRITE_FAILED)?;
-    let items = service
-        .search_items(attributes(target))
-        .map_err(|error| failure(error, WRITE_FAILED))?;
-    for item in items.unlocked.iter().chain(&items.locked) {
+fn authorize_items(items: &[Item<'_>]) -> Result<(), String> {
+    // Finish all unlock prompts before changing even an already unlocked item.
+    for item in items {
         if item.is_locked().map_err(|error| failure(error, WRITE_FAILED))? {
             item.unlock().map_err(|error| failure(error, WRITE_FAILED))?;
         }
-        item.delete().map_err(|error| failure(error, WRITE_FAILED))?;
+        item.ensure_unlocked().map_err(|error| failure(error, WRITE_FAILED))?;
+    }
+    Ok(())
+}
+
+fn mutation_failure(error: Error, recovery: Vec<String>) -> String {
+    let error = failure(error, WRITE_FAILED);
+    if recovery.is_empty() {
+        error
+    } else {
+        format!("credentials.rollback_failed: {error}; credential recovery failed: {}", recovery.join("; "))
+    }
+}
+
+fn delete_blocking(targets: &[String]) -> Result<(), String> {
+    let service = connect(WRITE_FAILED)?;
+    let mut items = Vec::new();
+    for target in targets {
+        let matches = service.search_items(attributes(target)).map_err(|error| failure(error, WRITE_FAILED))?;
+        items.extend(matches.unlocked);
+        items.extend(matches.locked);
+    }
+    if items.is_empty() {
+        return Ok(());
+    }
+    authorize_items(&items)?;
+    let collections = service.get_all_collections().map_err(|error| failure(error, WRITE_FAILED))?;
+    // Discover collection membership through the API; item paths need not be
+    // children of their collection's object path.
+    let mut membership = HashMap::new();
+    for (index, collection) in collections.iter().enumerate() {
+        for target in targets {
+            for item in collection.search_items(attributes(target)).map_err(|error| failure(error, WRITE_FAILED))? {
+                membership.insert(item.item_path, index);
+            }
+        }
+    }
+    let previous = items.iter().map(|item| {
+        let collection = *membership.get(&item.item_path).ok_or_else(|| {
+            "credentials.write_failed: Cannot locate the credential's collection for recovery".to_string()
+        })?;
+        collections[collection].ensure_unlocked().map_err(|error| failure(error, WRITE_FAILED))?;
+        Ok((
+            collection,
+            item.get_label().map_err(|error| failure(error, WRITE_FAILED))?,
+            item.get_attributes().map_err(|error| failure(error, WRITE_FAILED))?,
+            item.get_secret().map_err(|error| failure(error, WRITE_FAILED))?,
+            item.get_secret_content_type().map_err(|error| failure(error, WRITE_FAILED))?,
+        ))
+    }).collect::<Result<Vec<_>, String>>()?;
+    // Delete itself can prompt; the API cannot preauthorize all deletes. On any
+    // failure (including cancellation) recreate removed items in their original
+    // collections, preserving secrets, labels, attributes and content types.
+    // Object paths/timestamps and cross-process atomicity cannot be preserved.
+    for (index, item) in items.iter().enumerate() {
+        if let Err(error) = item.delete() {
+            let mut recovery = Vec::new();
+            for (item, (collection, label, attributes, secret, content_type)) in
+                items[..=index].iter().zip(&previous[..=index])
+            {
+                let collection = &collections[*collection];
+                let search_attributes = attributes.iter().map(|(key, value)| (key.as_str(), value.as_str())).collect();
+                let restore = (|| {
+                    // Check the failed call too: a lost reply may hide a deletion.
+                    if !collection.search_items(search_attributes)?.iter().any(|found| found.item_path == item.item_path) {
+                        let restore_attributes = attributes.iter().map(|(key, value)| (key.as_str(), value.as_str())).collect();
+                        collection.create_item(label, restore_attributes, secret, false, content_type)?;
+                    }
+                    Ok::<_, Error>(())
+                })();
+                if let Err(error) = restore {
+                    recovery.push(failure(error, WRITE_FAILED));
+                }
+            }
+            return Err(mutation_failure(error, recovery));
+        }
     }
     Ok(())
 }
@@ -224,7 +312,7 @@ mod tests {
         impl Drop for Cleanup<'_> {
             fn drop(&mut self) {
                 for target in self.0 {
-                    let _ = delete(target);
+                    let _ = delete(&[target.to_owned()]);
                 }
             }
         }
@@ -239,14 +327,20 @@ mod tests {
         assert_eq!(read(&first, false).unwrap().as_deref(), Some("first-profile-secret"));
         assert_eq!(read(&second, false).unwrap().as_deref(), Some("second-profile-secret"));
         assert!(status(std::slice::from_ref(&first)).configured);
+        let service = connect(WRITE_FAILED).unwrap();
+        let collection = service.get_default_collection().unwrap();
+        collection.create_item("duplicate profile", attributes(&first), b"stale-secret", false, "text/plain").unwrap();
         write(&first, "updated-profile-secret").unwrap();
+        let duplicates = service.search_items(attributes(&first)).unwrap().unlocked;
+        assert_eq!(duplicates.len(), 2);
+        assert!(duplicates.iter().all(|item| item.get_secret().unwrap().as_slice() == b"updated-profile-secret"));
         assert_eq!(read(&first, false).unwrap().as_deref(), Some("updated-profile-secret"));
         assert_eq!(read(&second, false).unwrap().as_deref(), Some("second-profile-secret"));
-        delete(&first).unwrap();
-        delete(&first).unwrap();
+        delete(&[first.clone()]).unwrap();
+        delete(&[first.clone()]).unwrap();
         assert_eq!(read(&first, false).unwrap(), None);
         assert_eq!(read(&second, false).unwrap().as_deref(), Some("second-profile-secret"));
-        delete(&second).unwrap();
+        delete(&[second.clone()]).unwrap();
         assert_eq!(read(&second, false).unwrap(), None);
     }
 }
