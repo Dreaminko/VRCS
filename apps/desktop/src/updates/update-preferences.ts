@@ -1,24 +1,38 @@
-import { isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 
-const STORE_KEY = "checkForUpdatesAutomatically";
-const WEB_STORAGE_KEY = "vrcs.checkForUpdatesAutomatically";
+const AUTOMATIC_CHECKS_KEY = "checkForUpdatesAutomatically";
+const NIGHTLY_UPDATES_KEY = "receiveNightlyUpdates";
 
-export async function loadAutomaticUpdatePreference(): Promise<boolean> {
+export async function loadUpdatePreferences() {
   if (!isTauri()) {
-    return globalThis.localStorage?.getItem(WEB_STORAGE_KEY) !== "false";
+    return {
+      automaticChecks: globalThis.localStorage?.getItem(`vrcs.${AUTOMATIC_CHECKS_KEY}`) !== "false",
+      receiveNightlyUpdates: globalThis.localStorage?.getItem(`vrcs.${NIGHTLY_UPDATES_KEY}`) === "true",
+    };
   }
   const { load } = await import("@tauri-apps/plugin-store");
   const store = await load("preferences.json", { autoSave: false });
-  return (await store.get(STORE_KEY)) !== false;
+  return {
+    automaticChecks: (await store.get(AUTOMATIC_CHECKS_KEY)) !== false,
+    receiveNightlyUpdates: (await store.get(NIGHTLY_UPDATES_KEY)) === true,
+  };
 }
 
 export async function saveAutomaticUpdatePreference(enabled: boolean): Promise<void> {
   if (!isTauri()) {
-    globalThis.localStorage?.setItem(WEB_STORAGE_KEY, String(enabled));
+    globalThis.localStorage?.setItem(`vrcs.${AUTOMATIC_CHECKS_KEY}`, String(enabled));
     return;
   }
   const { load } = await import("@tauri-apps/plugin-store");
   const store = await load("preferences.json", { autoSave: false });
-  await store.set(STORE_KEY, enabled);
+  await store.set(AUTOMATIC_CHECKS_KEY, enabled);
   await store.save();
+}
+
+export async function saveNightlyUpdatePreference(enabled: boolean): Promise<void> {
+  if (!isTauri()) {
+    globalThis.localStorage?.setItem(`vrcs.${NIGHTLY_UPDATES_KEY}`, String(enabled));
+    return;
+  }
+  await invoke("set_receive_nightly_updates", { enabled });
 }

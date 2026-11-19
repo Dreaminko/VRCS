@@ -23,6 +23,7 @@ const COMMANDS: &[&str] = &[
     "export_error_report",
     "app_build_info",
     "check_for_update",
+    "set_receive_nightly_updates",
     "download_and_install_update",
     "update_native_labels",
     "set_compact_window_topmost",

@@ -3378,6 +3378,7 @@ macro_rules! backend_mut {
     };
 }
 
+#[cfg(any(windows, linux_vr))]
 macro_rules! backend_ref {
     ($self:ident, $method:ident($($arg:expr),*)) => {
         match &$self.inner {
@@ -3519,6 +3520,7 @@ impl Backend {
     }
 
     /// OpenXR confirms a frame only after `xrEndFrame`; OpenVR confirms at upload.
+    #[cfg(any(windows, linux_vr))]
     pub fn defers_submission(&self) -> bool {
         match self.inner {
             Inner::Vr(_) => false,

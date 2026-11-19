@@ -18,6 +18,7 @@ mod names;
 mod ntfs;
 #[cfg(any(windows, target_os = "linux", test))]
 mod opus;
+mod priority;
 #[cfg(any(windows, target_os = "linux", test))]
 mod protocol;
 #[cfg(any(windows, target_os = "linux", test))]
@@ -30,6 +31,10 @@ mod connection;
 mod linux;
 #[cfg(any(windows, target_os = "linux"))]
 mod platform;
+
+#[cfg(any(windows, target_os = "linux"))]
+pub(crate) use priority::replace as publish_view_priority;
+pub(crate) use priority::{clear as clear_view_priority, is_visible as is_view_priority};
 pub(crate) mod session;
 #[cfg(target_os = "linux")]
 pub(crate) use linux::network_available;
@@ -65,6 +70,9 @@ pub(crate) struct ProximityStatus {
     pub tracked_players: usize,
     pub excluded_packets: u64,
     pub unknown_packets: u64,
+    pub view_enabled: bool,
+    pub local_view: bool,
+    pub in_view_players: usize,
     #[cfg(any(windows, target_os = "linux"))]
     #[serde(skip)]
     pub blocked_players: HashSet<String>,
@@ -162,6 +170,7 @@ impl Capture {
     }
     pub(crate) async fn shutdown(mut self) {
         self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        clear_view_priority();
         if let Some(thread) = self.thread.take() {
             let _ = tokio::task::spawn_blocking(move || thread.join()).await;
         }
@@ -170,5 +179,6 @@ impl Capture {
 impl Drop for Capture {
     fn drop(&mut self) {
         self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        clear_view_priority();
     }
 }

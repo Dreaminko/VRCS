@@ -32,6 +32,9 @@ pub struct PlayerAudioConfig {
     pub selected_user_names: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     pub proximity: PlayerProximityConfig,
+    /// Rank players in the local horizontal view ahead of others when resources compete.
+    #[serde(default)]
+    pub view_priority: PlayerViewPriorityConfig,
     /// Per-player source allow list keyed by stable VRChat usr_ IDs.
     #[serde(default)]
     pub source_overrides: std::collections::BTreeMap<String, PlayerSourceOverride>,
@@ -70,6 +73,22 @@ impl Default for PlayerProximityConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PlayerViewPriorityConfig {
+    pub enabled: bool,
+    pub horizontal_fov_deg: f32,
+}
+
+impl Default for PlayerViewPriorityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            horizontal_fov_deg: 120.0,
+        }
+    }
+}
+
 impl Default for PlayerAudioConfig {
     fn default() -> Self {
         Self {
@@ -81,6 +100,7 @@ impl Default for PlayerAudioConfig {
             selected_tracks: None,
             selected_user_names: Default::default(),
             proximity: PlayerProximityConfig::default(),
+            view_priority: PlayerViewPriorityConfig::default(),
             source_overrides: Default::default(),
             source_mode: default_source_mode(),
         }
@@ -209,6 +229,10 @@ mod tests {
             defaults["proximity"],
             serde_json::json!({"enabled": false, "radius_m": 10.0})
         );
+        assert_eq!(
+            defaults["view_priority"],
+            serde_json::json!({"enabled": false, "horizontal_fov_deg": 120.0})
+        );
 
         let legacy = serde_json::json!({
             "pagefile_drive": "D:",
@@ -227,6 +251,10 @@ mod tests {
         assert_eq!(
             saved.as_object_mut().unwrap().remove("proximity"),
             Some(serde_json::json!({"enabled": false, "radius_m": 10.0}))
+        );
+        assert_eq!(
+            saved.as_object_mut().unwrap().remove("view_priority"),
+            Some(serde_json::json!({"enabled": false, "horizontal_fov_deg": 120.0}))
         );
         assert_eq!(
             saved.as_object_mut().unwrap().remove("source_overrides"),

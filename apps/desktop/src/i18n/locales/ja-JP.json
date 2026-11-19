@@ -420,6 +420,9 @@
         "userIdPending": "ユーザー ID の確認待ちのため選択できません",
         "proximityOff": "オフ",
         "proximityRadius": "識別距離",
+        "viewPriority": "視界内のプレイヤーを優先（試験的）",
+        "viewAngle": "水平視界",
+        "viewWaiting": "視界データを待機中です。現在は通常の優先度で処理しています。",
         "sourceMode": "プレイヤーの取得元",
         "sourceModeEveryone": "全員",
         "sourceModeAllowlist": "許可リスト",
@@ -756,24 +759,30 @@
       }
     },
     "updates": {
+      "channel": {
+        "stable": "正式版",
+        "nightly": "Nightly"
+      },
       "title": "ソフトウェア更新",
       "currentVersion": "現在のバージョン {{version}}",
       "variant": {
         "standard": "標準版"
       },
       "automaticChecks": "更新を自動確認する",
+      "receiveNightlyUpdates": "Nightly の更新を受け取る",
+      "nightlyDescription": "Nightly は動作が不安定な場合があります。",
       "checkNow": "今すぐ確認",
-      "availableTitle": "VRCS {{version}} を利用できます",
+      "availableTitle": "VRCS {{version}}（{{channel}}）を利用できます",
       "availableDescription": "新しいバージョンをダウンロードしてインストールできます。",
       "downloadAndInstall": "ダウンロードしてインストール",
       "later": "後で",
       "stopTranscriptionFirst": "更新をインストールする前に文字起こしを停止してください。",
       "status": {
-        "ready": "GitHub Releases から更新を確認できます。",
+        "ready": "更新を確認できます。",
         "unavailable": "この開発ビルドでは更新機能を利用できません。",
-        "checking": "GitHub Releases を確認しています…",
+        "checking": "更新を確認しています…",
         "upToDate": "VRCS は最新です。",
-        "available": "バージョン {{version}} をダウンロードできます。",
+        "available": "バージョン {{version}}（{{channel}}）をダウンロードできます。",
         "downloading": "更新をダウンロードしています…",
         "installing": "更新をインストールしています…"
       },
@@ -793,12 +802,17 @@
         "unavailable": "このビルドには更新機能が設定されていません。",
         "busy": "別の更新操作が実行中です。",
         "no_pending": "もう一度更新を確認してからインストールしてください。",
+        "stable_check_failed": "正式版の更新を確認できませんでした。もう一度お試しください。",
+        "nightly_check_failed": "Nightly の更新を確認できませんでした。もう一度お試しください。",
+        "both_checks_failed": "正式版と Nightly の更新を確認できませんでした。もう一度お試しください。",
+        "preference_save_failed": "Nightly の更新設定を保存できませんでした。もう一度お試しください。",
         "failed": "更新操作を完了できませんでした。接続を確認して再試行してください。"
       }
     },
     "settings": {
       "downloads": {
         "source": "ダウンロード元",
+        "sourceDescription": "ローカルモデルやランタイムのダウンロード元を選択します。",
         "auto": "自動選択",
         "official": "公式サイト",
         "modelscope": "ModelScope ミラー"
@@ -881,6 +895,12 @@
       },
       "features": {
         "title": "機能の選択",
+        "mode": "機能モード",
+        "modes": {
+          "translation_only": "翻訳のみ",
+          "full": "全機能",
+          "custom": "カスタム"
+        },
         "glossary": "用語集",
         "learning": "辞書と学習",
         "anki": "Anki",
@@ -2069,7 +2089,21 @@
         "privacyTitle": "ローカル優先",
         "privacyDescription": "VRCS は生の音声を保存しません。クラウド認識では、検出された発話区間だけを送信します。",
         "realtimeTitle": "リアルタイム字幕",
-        "realtimeDescription": "システム出力、VRChat のプロセス音声、自分のマイクを取得できます。"
+        "realtimeDescription": "システム出力、VRChat のプロセス音声、自分のマイクを取得できます。",
+        "featureModeTitle": "機能モードの選択",
+        "featureModes": {
+          "translation_only": {
+            "summary": "リアルタイム字幕と翻訳に集中します"
+          },
+          "full": {
+            "summary": "すべての機能を有効にします"
+          },
+          "custom": {
+            "summary": "必要な機能を個別に選ぶか、現在の構成を維持します。"
+          }
+        },
+        "featureCustomHint": "機能をオフにしても関連ページや操作が非表示になるだけで、保存済みの設定やデータは削除されません。",
+        "featureModeFootnote": "選択はすぐに保存されます。後から「設定 › システム › 機能の選択」でいつでも切り替え・調整できます。"
       },
       "recognition": {
         "description": "クラウド認識またはローカル Qwen を選択します。ローカル認識では音声をアップロードしません。",
@@ -2130,7 +2164,10 @@
         "microphone": "マイク",
         "microphoneSkipped": "自分のマイク音声は取得しません",
         "microphoneReady": "マイクとトリガーしきい値を確認済み",
+        "featureMode": "機能モード",
+        "featureModeValue": "{{mode}} — 後から「設定 › システム › 機能の選択」でいつでも調整できます",
         "nextHint": "翻訳、辞書、OSC、Anki は設定画面で後から設定できます。",
+        "nextHintTranslationOnly": "翻訳、用語集、OSC は設定画面で後から設定できます。他の機能が必要な場合は「設定 › システム › 機能の選択」からいつでも切り替えられます。",
         "finish": "メイン画面へ進む"
       },
       "errors": {

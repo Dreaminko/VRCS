@@ -107,6 +107,7 @@ impl Outputs {
     pub(super) fn voice_failed(&mut self, error: String) {
         self.voice_error = Some(error);
         self.voice.take();
+        super::clear_view_priority();
     }
 
     #[cfg(any(windows, target_os = "linux", test))]
@@ -295,6 +296,7 @@ impl VrchatNetworkSession {
             subscriptions.voice = Some(rx);
         } else if !consumers.voice {
             outputs.voice.take();
+            super::clear_view_priority();
         }
         if consumers.chatbox && !self.consumers.chatbox {
             let (tx, rx) = mpsc::channel(64);
@@ -333,6 +335,7 @@ impl VrchatNetworkSession {
         outputs.keepalive_until = Some(Instant::now() + std::time::Duration::from_secs(30));
         if !consumers.voice {
             outputs.voice.take();
+            super::clear_view_priority();
             self.consumers.voice = false;
         }
         if !consumers.chatbox {

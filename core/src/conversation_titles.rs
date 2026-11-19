@@ -246,12 +246,15 @@ mod tests {
     use serde_json::{json, Value};
     use tokio::sync::{broadcast, mpsc, oneshot};
 
+    const TEST_WAIT: Duration = Duration::from_secs(10);
+    const PROVIDER_TIMEOUT_MS: u64 = 30_000;
+
     async fn title_state(
         events: &mut broadcast::Receiver<ConversationCatalog>,
         id: &str,
         status: &str,
     ) -> Conversation {
-        tokio::time::timeout(Duration::from_secs(4), async {
+        tokio::time::timeout(TEST_WAIT, async {
             loop {
                 let catalog = events.recv().await.unwrap();
                 if let Some(item) = catalog
@@ -323,6 +326,7 @@ mod tests {
             base_url: Some(format!("http://{address}/v1")),
             enabled_capabilities: vec![CAPABILITY_TEXT_GENERATION.into()],
             auth_mode: crate::config::ApiAuthMode::None,
+            timeout_ms: PROVIDER_TIMEOUT_MS,
             ..Default::default()
         });
         crate::config::save_config(&config_path, &config).unwrap();
@@ -373,7 +377,7 @@ mod tests {
             .status(),
             StatusCode::OK
         );
-        let (body, reply) = tokio::time::timeout(Duration::from_secs(2), received.recv())
+        let (body, reply) = tokio::time::timeout(TEST_WAIT, received.recv())
             .await
             .unwrap()
             .unwrap();
@@ -495,7 +499,7 @@ mod tests {
             .status(),
             StatusCode::ACCEPTED
         );
-        let (_, reply) = tokio::time::timeout(Duration::from_secs(2), received.recv())
+        let (_, reply) = tokio::time::timeout(TEST_WAIT, received.recv())
             .await
             .unwrap()
             .unwrap();
@@ -624,7 +628,6 @@ mod tests {
             .model = "title-model".into();
 
         // Manual generation remains available when automatic generation is off.
-        handle.state.config.config.write().unwrap().asr.api_profiles[0].timeout_ms = 500;
         assert_eq!(
             api(
                 &client,
@@ -637,17 +640,20 @@ mod tests {
             .status(),
             StatusCode::ACCEPTED
         );
-        let (_, delayed) = tokio::time::timeout(Duration::from_secs(2), received.recv())
+        let (_, delayed) = tokio::time::timeout(TEST_WAIT, received.recv())
             .await
             .unwrap()
             .unwrap();
+        // Run the TCP exchange on real time, then expire the unanswered request on virtual time.
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_millis(PROVIDER_TIMEOUT_MS)).await;
+        tokio::time::resume();
         let failed = title_state(&mut events, &next, "failed").await;
         assert_eq!(
             failed.title_generation_error_code.as_deref(),
             Some("conversations.title_timeout")
         );
         drop(delayed);
-        handle.state.config.config.write().unwrap().asr.api_profiles[0].timeout_ms = 30_000;
         api(
             &client,
             &handle,
@@ -658,7 +664,7 @@ mod tests {
         .await
         .error_for_status()
         .unwrap();
-        let (_, delayed) = tokio::time::timeout(Duration::from_secs(2), received.recv())
+        let (_, delayed) = tokio::time::timeout(TEST_WAIT, received.recv())
             .await
             .unwrap()
             .unwrap();

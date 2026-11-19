@@ -5905,7 +5905,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vrcs-core"
-version = "0.3.8"
+version = "0.3.10"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -5948,7 +5948,7 @@ dependencies = [
 
 [[package]]
 name = "vrcs-desktop"
-version = "0.3.8"
+version = "0.3.10"
 dependencies = [
  "ash",
  "ashpd",
@@ -5963,6 +5963,7 @@ dependencies = [
  "openxr",
  "pipewire",
  "png 0.17.16",
+ "semver",
  "serde",
  "serde_json",
  "soup3",

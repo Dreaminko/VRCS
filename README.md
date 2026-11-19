@@ -50,13 +50,13 @@ Arch installation, updates and removal. `npm run dev` does not install the helpe
 
 ## Getting started
 
-1. Follow the setup wizard to select a language and local or cloud recognition.
+1. Follow the setup wizard to select a UI language, feature mode (`Translation only` / `All features` / `Custom`), and local or cloud recognition.
 2. Select system audio, VRChat process audio, or microphone input, then test the microphone and adjust the voice activation threshold.
 3. Start transcription. Enable translation, Chatbox output, or the SteamVR overlay as needed.
 
 To run the wizard again, open **Settings › System**.
 
-Turn off unused features in **Settings › System › Features** to hide their settings and actions while keeping your configuration and data.
+Switch feature presets (`Translation only`, `All features`, or `Custom`) or toggle individual modules anytime in **Settings › System › Features** to hide unused settings and actions while keeping your configuration and data.
 
 ## Features
 

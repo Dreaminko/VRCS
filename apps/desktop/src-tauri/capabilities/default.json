@@ -43,6 +43,7 @@
     "allow-export-error-report",
     "allow-app-build-info",
     "allow-check-for-update",
+    "allow-set-receive-nightly-updates",
     "allow-download-and-install-update",
     "allow-update-native-labels",
     "allow-set-compact-window-topmost",

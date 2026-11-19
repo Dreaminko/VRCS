@@ -511,11 +511,6 @@ pub fn run() {
     };
     let diagnostic_state = diagnostics::DiagnosticState::new(log_dir.clone());
     diagnostics::install_panic_hook(diagnostic_state.clone());
-    tracing::info!(
-        session_id = %diagnostic_state.session_id(),
-        version = env!("CARGO_PKG_VERSION"),
-        "VRCS desktop starting"
-    );
 
     let connection = core_connection_config();
     let setup_connection = connection.clone();
@@ -571,6 +566,7 @@ pub fn run() {
             diagnostics::export_error_report,
             app_updates::app_build_info,
             app_updates::check_for_update,
+            app_updates::set_receive_nightly_updates,
             app_updates::download_and_install_update,
             update_native_labels,
             set_compact_window_topmost,
@@ -612,8 +608,16 @@ pub fn run() {
             desktop_vision::desktop_vision_close
         ])
         .setup(move |app| {
+            tracing::info!(
+                session_id = %app.state::<diagnostics::DiagnosticState>().session_id(),
+                version = %app.package_info().version,
+                "VRCS desktop starting"
+            );
             app_updates::register_plugin(app)?;
-            app.store("preferences.json")?;
+            // Preference writers save explicitly so a failed Nightly save can roll back.
+            app.store_builder("preferences.json")
+                .disable_auto_save()
+                .build()?;
 
             let show_item = MenuItem::with_id(app, "show", "Show VRCS", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit VRCS", true, None::<&str>)?;

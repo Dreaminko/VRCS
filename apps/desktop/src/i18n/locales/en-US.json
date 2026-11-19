@@ -420,6 +420,9 @@
         "userIdPending": "Waiting for player user ID before selection",
         "proximityOff": "Off",
         "proximityRadius": "Recognition distance",
+        "viewPriority": "Prioritize players in view (experimental)",
+        "viewAngle": "Horizontal view",
+        "viewWaiting": "Waiting for view data; players currently run at normal priority.",
         "sourceMode": "Player sources",
         "sourceModeEveryone": "Everyone",
         "sourceModeAllowlist": "Allowlist",
@@ -756,24 +759,30 @@
       }
     },
     "updates": {
+      "channel": {
+        "stable": "Stable",
+        "nightly": "Nightly"
+      },
       "title": "Software updates",
       "currentVersion": "Current version {{version}}",
       "variant": {
         "standard": "Standard build"
       },
       "automaticChecks": "Check for updates automatically",
+      "receiveNightlyUpdates": "Receive Nightly updates",
+      "nightlyDescription": "Nightly builds may be unstable.",
       "checkNow": "Check now",
-      "availableTitle": "VRCS {{version}} is available",
+      "availableTitle": "VRCS {{version}} ({{channel}}) is available",
       "availableDescription": "A new version of VRCS is ready to install.",
       "downloadAndInstall": "Download and install",
       "later": "Later",
       "stopTranscriptionFirst": "Stop transcription before installing the update.",
       "status": {
-        "ready": "Ready to check GitHub Releases.",
+        "ready": "Ready to check for updates.",
         "unavailable": "Updates are unavailable in this development build.",
-        "checking": "Checking GitHub Releases…",
+        "checking": "Checking for updates…",
         "upToDate": "VRCS is up to date.",
-        "available": "Version {{version}} is ready to download.",
+        "available": "Version {{version}} ({{channel}}) is ready to download.",
         "downloading": "Downloading update…",
         "installing": "Installing update…"
       },
@@ -793,12 +802,17 @@
         "unavailable": "Updates are not configured for this build.",
         "busy": "An update operation is already running.",
         "no_pending": "Check for updates again before installing.",
+        "stable_check_failed": "Could not check for Stable updates. Try again.",
+        "nightly_check_failed": "Could not check for Nightly updates. Try again.",
+        "both_checks_failed": "Could not check for Stable or Nightly updates. Try again.",
+        "preference_save_failed": "Could not save the Nightly update preference. Try again.",
         "failed": "Could not complete the update operation. Check your connection and try again."
       }
     },
     "settings": {
       "downloads": {
         "source": "Download source",
+        "sourceDescription": "Choose where VRCS downloads local models and runtimes.",
         "auto": "Automatic",
         "official": "Official source",
         "modelscope": "ModelScope mirror"
@@ -881,6 +895,12 @@
       },
       "features": {
         "title": "Features",
+        "mode": "Feature preset",
+        "modes": {
+          "translation_only": "Translation only",
+          "full": "All features",
+          "custom": "Custom"
+        },
         "glossary": "Glossary",
         "learning": "Dictionary and learning",
         "anki": "Anki",
@@ -2069,7 +2089,21 @@
         "privacyTitle": "Local first",
         "privacyDescription": "VRCS does not save raw audio. Cloud recognition sends only detected speech segments.",
         "realtimeTitle": "Live subtitles",
-        "realtimeDescription": "Capture system output, VRChat process audio, and your microphone."
+        "realtimeDescription": "Capture system output, VRChat process audio, and your microphone.",
+        "featureModeTitle": "Feature mode",
+        "featureModes": {
+          "translation_only": {
+            "summary": "Focus on live captions and translation"
+          },
+          "full": {
+            "summary": "Enable all features"
+          },
+          "custom": {
+            "summary": "Pick individual modules yourself or keep your current setup."
+          }
+        },
+        "featureCustomHint": "Turning a module off hides its pages and actions without deleting saved settings or data.",
+        "featureModeFootnote": "Changes take effect immediately. You can switch modes or toggle individual features anytime under Settings › System › Features."
       },
       "recognition": {
         "description": "Choose cloud recognition or run Qwen locally. Local recognition does not upload speech.",
@@ -2130,7 +2164,10 @@
         "microphone": "Microphone",
         "microphoneSkipped": "Your microphone will not be captured",
         "microphoneReady": "The microphone and trigger threshold are confirmed",
+        "featureMode": "Feature mode",
+        "featureModeValue": "{{mode}} — you can adjust this anytime under Settings › System › Features",
         "nextHint": "Translation, dictionaries, OSC, and Anki can be configured later under Settings.",
+        "nextHintTranslationOnly": "Translation, glossaries, and OSC can be configured later under Settings. You can switch feature modes anytime under System › Features.",
         "finish": "Open main interface"
       },
       "errors": {

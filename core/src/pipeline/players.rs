@@ -302,23 +302,25 @@ async fn run_players(
                     let task_discard = Arc::clone(&discard);
                     let ready = Arc::new(AtomicBool::new(false));
                     let task_ready = Arc::clone(&ready);
+                    let priority = crate::work_priority::Context::for_player(&id);
                     let task = tokio::spawn(async move {
-                        let result = run_player(
-                            receiver,
-                            stop_rx,
-                            shutdown,
-                            dependencies.clone(),
-                            asr,
-                            vad,
-                            echo,
-                            vad_path,
-                            vad_runtime,
-                            threshold,
-                            smart_turn,
-                            discard,
-                            task_ready,
-                        )
-                        .await;
+                        let result = priority
+                            .scope(run_player(
+                                receiver,
+                                stop_rx,
+                                shutdown,
+                                dependencies.clone(),
+                                asr,
+                                vad,
+                                echo,
+                                vad_path,
+                                vad_runtime,
+                                threshold,
+                                smart_turn,
+                                discard,
+                                task_ready,
+                            ))
+                            .await;
                         dependencies.reset_recognition("speaker");
                         result
                     });

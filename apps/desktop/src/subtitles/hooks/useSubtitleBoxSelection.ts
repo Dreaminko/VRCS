@@ -32,26 +32,39 @@ export function useSubtitleBoxSelection(validIds: readonly number[]): {
   const dragRef = useRef<DragState | null>(null);
   const pendingRectRef = useRef<SubtitleSelectionRect | null>(null);
   const frameRef = useRef<number | null>(null);
+  const rowBoundsRef = useRef<Array<{ id: number; top: number; bottom: number }> | null>(null);
   const validIdSet = useMemo(() => new Set(validIds), [validIds]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [dragRect, setDragRect] = useState<SubtitleSelectionRect | null>(null);
   const [selecting, setSelecting] = useState(false);
 
-  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+  const clearSelection = useCallback(() => setSelectedIds((current) => current.size === 0 ? current : new Set()), []);
 
   const selectIntersecting = useCallback((rect: SubtitleSelectionRect) => {
     const next = new Set<number>();
     const container = containerRef.current;
     if (container) {
-      for (const article of container.querySelectorAll<HTMLElement>("[data-subtitle-id]")) {
-        const id = Number(article.dataset.subtitleId);
-        const bubble = article.querySelector<HTMLElement>(".bubble");
-        if (validIdSet.has(id) && bubble && selectionTouchesRow(rect, bubble.getBoundingClientRect())) {
-          next.add(id);
+      let rows = rowBoundsRef.current;
+      if (!rows) {
+        rows = [];
+        for (const article of container.querySelectorAll<HTMLElement>("[data-subtitle-id]")) {
+          const id = Number(article.dataset.subtitleId);
+          const bubble = article.querySelector<HTMLElement>(".bubble");
+          if (validIdSet.has(id) && bubble) {
+            const bounds = bubble.getBoundingClientRect();
+            rows.push({ id, top: bounds.top, bottom: bounds.bottom });
+          }
+        }
+        rowBoundsRef.current = rows;
+      }
+      const selectionBottom = rect.top + rect.height;
+      for (const row of rows) {
+        if (rect.top < row.bottom && selectionBottom > row.top) {
+          next.add(row.id);
         }
       }
     }
-    setSelectedIds(next);
+    setSelectedIds((current) => sameNumberSet(current, next) ? current : next);
   }, [validIdSet]);
 
   const applyPendingRect = useCallback(() => {
@@ -80,6 +93,7 @@ export function useSubtitleBoxSelection(validIds: readonly number[]): {
       clearSelection();
     }
     pendingRectRef.current = null;
+    rowBoundsRef.current = null;
     dragRef.current = null;
     setDragRect(null);
     setSelecting(false);
@@ -90,6 +104,7 @@ export function useSubtitleBoxSelection(validIds: readonly number[]): {
 
   const onPointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0 || !canStartBoxSelection(event.target, event.currentTarget)) return;
+    rowBoundsRef.current = null;
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -122,6 +137,7 @@ export function useSubtitleBoxSelection(validIds: readonly number[]): {
   }, [finishDrag]);
 
   useEffect(() => {
+    rowBoundsRef.current = null;
     setSelectedIds((current) => {
       const next = new Set([...current].filter((id) => validIdSet.has(id)));
       return next.size === current.size ? current : next;
@@ -129,10 +145,28 @@ export function useSubtitleBoxSelection(validIds: readonly number[]): {
   }, [validIdSet]);
 
   useEffect(() => {
+    if (!selecting) return;
+    const invalidate = () => {
+      rowBoundsRef.current = null;
+    };
+    window.addEventListener("scroll", invalidate, { capture: true, passive: true });
+    window.addEventListener("resize", invalidate);
+    const container = containerRef.current;
+    const observer = container && typeof ResizeObserver !== "undefined" ? new ResizeObserver(invalidate) : null;
+    if (container && observer) observer.observe(container);
+    return () => {
+      window.removeEventListener("scroll", invalidate, true);
+      window.removeEventListener("resize", invalidate);
+      observer?.disconnect();
+    };
+  }, [selecting]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       dragRef.current = null;
       pendingRectRef.current = null;
+      rowBoundsRef.current = null;
       if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
       setDragRect(null);
@@ -171,7 +205,10 @@ export function selectionRect(startX: number, startY: number, endX: number, endY
   };
 }
 
-function selectionTouchesRow(selection: SubtitleSelectionRect, target: DOMRect): boolean {
-  return selection.top < target.bottom
-    && selection.top + selection.height > target.top;
+function sameNumberSet(left: ReadonlySet<number>, right: ReadonlySet<number>): boolean {
+  if (left.size !== right.size) return false;
+  for (const value of left) {
+    if (!right.has(value)) return false;
+  }
+  return true;
 }

@@ -72,42 +72,30 @@ pub(crate) fn controlled(config: &AsrConfig) -> bool {
 
 #[derive(Default)]
 struct State {
-    next_start: Option<Instant>,
     cooldown: Option<Instant>,
     last_limit: Option<Instant>,
     failures: u32,
 }
 
-#[derive(Default)]
 pub(super) struct ConnectionGate {
-    queue: tokio::sync::Mutex<()>,
+    queue: crate::work_priority::Gate,
     state: Mutex<State>,
 }
 
-impl ConnectionGate {
-    pub(super) async fn acquire(&self) {
-        // FIFO, cancellation-safe: only an actual admission consumes a slot.
-        let _turn = self.queue.lock().await;
-        loop {
-            let until = {
-                let mut state = self.state.lock().expect("connection quota");
-                let now = Instant::now();
-                let until = state
-                    .next_start
-                    .into_iter()
-                    .chain(state.cooldown)
-                    .max()
-                    .unwrap_or(now);
-                if until <= now {
-                    state.next_start = Some(now + START_INTERVAL);
-                    return;
-                }
-                until
-            };
-            // Recheck shared cooldown: another active socket may be limited
-            // while this request is queued. Never sleep with the state locked.
-            tokio::time::sleep_until(until).await;
+impl Default for ConnectionGate {
+    fn default() -> Self {
+        Self {
+            queue: crate::work_priority::Gate::rate_limited(START_INTERVAL, 512),
+            state: Mutex::new(State::default()),
         }
+    }
+}
+
+impl ConnectionGate {
+    pub(super) async fn acquire(&self) -> Result<(), String> {
+        let permit = self.queue.acquire().await.map_err(str::to_owned)?;
+        drop(permit);
+        Ok(())
     }
 
     pub(super) fn failed(&self, detail: &str) {
@@ -130,6 +118,7 @@ impl ConnectionGate {
         state.failures = state.failures.saturating_add(1);
         state.last_limit = Some(now);
         state.cooldown = Some(now + Duration::from_secs(seconds));
+        self.queue.defer_until(now + Duration::from_secs(seconds));
         tracing::warn!(
             retry_after_seconds = seconds,
             "Qwen connection quota reached; shared cooldown before new sessions"
@@ -161,10 +150,10 @@ mod tests {
     async fn first_start_is_immediate_and_all_other_starts_share_a_minute_budget() {
         let gate = ConnectionGate::default();
         let start = Instant::now();
-        gate.acquire().await;
+        gate.acquire().await.unwrap();
         assert_eq!(Instant::now(), start);
         for n in 1..=10 {
-            gate.acquire().await;
+            gate.acquire().await.unwrap();
             assert_eq!(Instant::now().duration_since(start), START_INTERVAL * n);
         }
         assert!(Instant::now().duration_since(start) > Duration::from_secs(60));
@@ -173,10 +162,10 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn cancelled_wait_does_not_reserve_a_slot_and_cooldown_is_rechecked() {
         let gate = Arc::new(ConnectionGate::default());
-        gate.acquire().await;
+        gate.acquire().await.unwrap();
         let waiting = {
             let gate = gate.clone();
-            tokio::spawn(async move { gate.acquire().await })
+            tokio::spawn(async move { gate.acquire().await.unwrap() })
         };
         tokio::task::yield_now().await;
         waiting.abort();
@@ -185,22 +174,22 @@ mod tests {
         let start = Instant::now();
         gate.failed("1007 Requests rate limit exceeded, please try again later.");
         gate.failed("Requests rate limit exceeded");
-        gate.acquire().await;
+        gate.acquire().await.unwrap();
         assert_eq!(Instant::now().duration_since(start), Duration::from_secs(5));
         gate.failed("429 Too many requests");
-        gate.acquire().await;
+        gate.acquire().await.unwrap();
         assert_eq!(
             Instant::now().duration_since(start),
             Duration::from_secs(15)
         );
         gate.failed("Throttling.Concurrency");
-        gate.acquire().await;
+        gate.acquire().await.unwrap();
         assert_eq!(
             Instant::now().duration_since(start),
             Duration::from_secs(30)
         );
         gate.failed("Requests rate limit exceeded");
-        gate.acquire().await;
+        gate.acquire().await.unwrap();
         assert_eq!(
             Instant::now().duration_since(start),
             Duration::from_secs(45)
@@ -210,11 +199,11 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn failures_on_other_sockets_extend_a_wait_without_delaying_existing_audio() {
         let gate = Arc::new(ConnectionGate::default());
-        gate.acquire().await;
+        gate.acquire().await.unwrap();
         let start = Instant::now();
         let waiting = {
             let gate = gate.clone();
-            tokio::spawn(async move { gate.acquire().await })
+            tokio::spawn(async move { gate.acquire().await.unwrap() })
         };
         tokio::task::yield_now().await;
         tokio::time::advance(Duration::from_secs(3)).await;
@@ -224,7 +213,7 @@ mod tests {
         tokio::time::advance(BACKOFF_RESET).await;
         gate.failed("Requests rate limit exceeded");
         let reset = Instant::now();
-        gate.acquire().await;
+        gate.acquire().await.unwrap();
         assert_eq!(Instant::now().duration_since(reset), Duration::from_secs(5));
     }
 

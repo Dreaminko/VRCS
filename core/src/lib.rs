@@ -37,6 +37,7 @@ mod vrchat_log;
 mod vrchat_mute_sync;
 mod vrchat_process;
 mod vrcx;
+mod work_priority;
 mod yomitan;
 
 use std::net::SocketAddr;

@@ -36,7 +36,7 @@ fn v42_source_policy_upgrade_preserves_device_keys_and_saved_player_preferences(
 
         let config = config_from_value(&raw).unwrap();
 
-        assert_eq!(config.schema_version, 43);
+        assert_eq!(config.schema_version, SCHEMA_VERSION);
         assert_eq!(config.audio.output.device_id, Some(10));
         assert_eq!(
             config.audio.output.device_key.as_deref(),

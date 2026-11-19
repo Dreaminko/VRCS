@@ -30,6 +30,7 @@ pub enum Group {
 #[serde(rename_all = "snake_case")]
 pub enum SliderAction {
     ProximityRadius,
+    ViewHorizontalFov,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -62,6 +63,10 @@ impl Slider {
             SliderAction::ProximityRadius => {
                 Command::Display(Action::SetProximityRadius(value as f32))
             }
+            SliderAction::ViewHorizontalFov => Command::Display(Action::SetViewPriority {
+                enabled: true,
+                horizontal_fov_deg: value as f32,
+            }),
         })
     }
 }
@@ -314,6 +319,30 @@ mod tests {
                     "step": 0.1
                 }
             })
+        );
+    }
+
+    #[test]
+    fn view_angle_slider_resolves_to_bounded_integer_degrees() {
+        let slider = Slider {
+            action: SliderAction::ViewHorizontalFov,
+            min: 30.0,
+            max: 180.0,
+            step: 1.0,
+        };
+        for (fraction, degrees) in [(-1.0, 30.0), (0.503, 105.0), (2.0, 180.0)] {
+            assert_eq!(
+                slider.command(fraction),
+                Some(Command::Display(Action::SetViewPriority {
+                    enabled: true,
+                    horizontal_fov_deg: degrees,
+                }))
+            );
+        }
+        assert_eq!(slider.command(f32::NAN), None);
+        assert_eq!(
+            serde_json::to_value(Command::Slider(slider)).unwrap(),
+            serde_json::json!({"slider": {"action": "view_horizontal_fov", "min": 30.0, "max": 180.0, "step": 1.0}})
         );
     }
 

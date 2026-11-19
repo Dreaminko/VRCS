@@ -94,13 +94,25 @@ export function translationLanguage(code: string): TranslationLanguage | undefin
   return TRANSLATION_LANGUAGES.find((language) => language.code === code);
 }
 
+const displayNamesByLocale = new Map<string, Intl.DisplayNames>();
+
+function languageDisplayNames(locale: string): Intl.DisplayNames {
+  let formatter = displayNamesByLocale.get(locale);
+  if (!formatter) {
+    formatter = new Intl.DisplayNames([locale], {
+      type: "language",
+      languageDisplay: "dialect",
+    });
+    if (displayNamesByLocale.size >= 32) displayNamesByLocale.clear();
+    displayNamesByLocale.set(locale, formatter);
+  }
+  return formatter;
+}
+
 export function localizedLanguageName(code: string, locale: string): string {
   const fallback = translationLanguage(code)?.englishName ?? code;
   try {
-    return new Intl.DisplayNames([locale], {
-      type: "language",
-      languageDisplay: "dialect",
-    }).of(code) ?? fallback;
+    return languageDisplayNames(locale).of(code) ?? fallback;
   } catch {
     return fallback;
   }

@@ -13,6 +13,7 @@ export interface AppUpdateMetadata {
   version: string;
   currentVersion: string;
   notes: string | null;
+  channel: "stable" | "nightly";
 }
 
 export type UpdateDownloadEvent =
@@ -33,12 +34,13 @@ export async function checkForAppUpdate(): Promise<AppUpdateMetadata | null> {
 }
 
 export async function downloadAndInstallAppUpdate(
+  version: string,
   onEvent: (event: UpdateDownloadEvent) => void,
 ): Promise<void> {
   if (!isTauri()) return;
   const channel = new Channel<UpdateDownloadEvent>();
   channel.onmessage = onEvent;
-  await invoke("download_and_install_update", { onEvent: channel });
+  await invoke("download_and_install_update", { version, onEvent: channel });
 }
 
 export function updaterErrorCode(reason: unknown): string {

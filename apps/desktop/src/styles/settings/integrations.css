@@ -27,9 +27,32 @@
 .connections-settings-group .connections-feature-heading h3 { font-size: var(--settings-text-group-title); }
 .system-settings-group > .section-heading,
 .learning-settings-group > .section-heading { margin-bottom: 14px; }
-.system-features-group > .settings-toggle-list {
+.system-features-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.system-features-group > .section-heading { margin-bottom: 0; }
+.system-features-mode-setting {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: var(--settings-row-min-height);
+  padding: 5px 4px;
+}
+.system-features-mode-setting > div:first-child { display: grid; gap: 4px; }
+.system-features-mode-setting strong {
+  color: var(--text);
+  font-size: var(--settings-text-label);
+  font-weight: var(--settings-weight-heading);
+  line-height: var(--settings-leading-label);
+}
+.system-features-group .settings-toggle-list {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 4px 24px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 .system-features-group .settings-toggle-row { min-width: 0; min-height: var(--settings-control-height); gap: 12px; padding: 0 4px; }
 

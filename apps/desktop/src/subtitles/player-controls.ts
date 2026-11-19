@@ -13,13 +13,18 @@ export type PlayerVisibilityAction =
   | { set_source_language_hidden: { language: string; hidden: boolean } }
   | { clear_hidden_languages: null };
 export type PlayerProximityAction = { set_proximity_radius: number };
+export type PlayerViewPriorityAction = { set_view_priority: { enabled: boolean; horizontal_fov_deg: number } };
 export type PlayerSourceAction =
   | { set_user_source_disabled: { user_id: string; source: "vrchat_chatbox" | "speaker"; disabled: boolean } };
 export type PlayerSourceModeAction = { set_source_mode: PlayerSourceMode };
-export type PlayerDisplayAction = PlayerVisibilityAction | PlayerProximityAction | PlayerSourceAction | PlayerSourceModeAction | MicrophoneSpeakerAction;
+export type PlayerDisplayAction = PlayerVisibilityAction | PlayerProximityAction | PlayerViewPriorityAction | PlayerSourceAction | PlayerSourceModeAction | MicrophoneSpeakerAction;
 
 export function isPlayerProximityAction(action: PlayerDisplayAction): action is PlayerProximityAction {
   return "set_proximity_radius" in action;
+}
+
+export function isPlayerViewPriorityAction(action: PlayerDisplayAction): action is PlayerViewPriorityAction {
+  return "set_view_priority" in action;
 }
 
 export function isPlayerSourceAction(action: PlayerDisplayAction): action is PlayerSourceAction {
@@ -87,6 +92,8 @@ function playerAudioOptions(options: PlayerAudioSettings | undefined): PlayerAud
     opus_library_path: "",
     max_players: 0,
     max_visible_players: 4,
+    proximity: { enabled: false, radius_m: 10 },
+    view_priority: { enabled: false, horizontal_fov_deg: 120 },
     source_mode: "allowlist",
   };
 }
@@ -100,6 +107,14 @@ export function applyPlayerProximity(settings: Settings, radius_m: number): Sett
   const options = playerAudioOptions(settings.audio.output.player_audio);
   return { ...settings, audio: { ...settings.audio, output: { ...settings.audio.output,
     player_audio: { ...options, proximity: { enabled: radius_m > 0, radius_m } },
+  } } };
+}
+
+export function applyPlayerViewPriority(settings: Settings, enabled: boolean, horizontal_fov_deg: number): Settings {
+  const options = playerAudioOptions(settings.audio.output.player_audio);
+  const fov = Math.min(180, Math.max(30, horizontal_fov_deg));
+  return { ...settings, audio: { ...settings.audio, output: { ...settings.audio.output,
+    player_audio: { ...options, view_priority: { enabled, horizontal_fov_deg: fov } },
   } } };
 }
 

@@ -98,6 +98,7 @@ fn v42_upgrade_preserves_stable_audio_devices_and_backs_up_retired_selection() {
         .unwrap();
     player_audio.remove("source_mode");
     player_audio.remove("source_overrides");
+    player_audio.remove("view_priority");
     player_audio.insert("selected_tracks".into(), serde_json::json!([]));
     let original = serde_json::to_vec(&raw).unwrap();
     fs::write(&path, &original).unwrap();
@@ -108,7 +109,7 @@ fn v42_upgrade_preserves_stable_audio_devices_and_backs_up_retired_selection() {
     let backup = path.with_extension("v42.backup.json");
     assert_eq!(fs::read(&backup).unwrap(), original);
     let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(saved["schema_version"], 43);
+    assert_eq!(saved["schema_version"], super::SCHEMA_VERSION);
     assert_eq!(
         saved["audio"]["output"]["player_audio"]["source_mode"],
         "allowlist"
@@ -120,7 +121,9 @@ fn v42_upgrade_preserves_stable_audio_devices_and_backs_up_retired_selection() {
     assert!(saved["audio"]["output"]["player_audio"]["selected_tracks"].is_null());
     assert_eq!(load_config(&path).unwrap(), migrated);
     assert_eq!(fs::read(backup).unwrap(), original);
-    assert!(!path.with_extension("v43.backup.json").exists());
+    assert!(!path
+        .with_extension(format!("v{}.backup.json", super::SCHEMA_VERSION))
+        .exists());
 }
 
 #[test]

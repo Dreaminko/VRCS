@@ -5,19 +5,19 @@ import { PreferenceToggle } from "../settings/SettingsControls";
 import type { AppUpdaterState } from "./useAppUpdater";
 
 function updateStatusKey(updater: AppUpdaterState): string {
+  if (updater.phase === "error") return `updates.errors.${updater.errorCode ?? "failed"}`;
   if (!updater.buildInfo?.updaterAvailable) return "updates.status.unavailable";
   if (updater.phase === "checking") return "updates.status.checking";
   if (updater.phase === "upToDate") return "updates.status.upToDate";
   if (updater.phase === "available") return "updates.status.available";
   if (updater.phase === "downloading") return "updates.status.downloading";
   if (updater.phase === "installing") return "updates.status.installing";
-  if (updater.phase === "error") return `updates.errors.${updater.errorCode ?? "failed"}`;
   return "updates.status.ready";
 }
 
 export function SoftwareUpdateSettings({ updater }: { updater: AppUpdaterState }) {
   const { t } = useTranslation();
-  const busy = updater.phase === "checking"
+  const busy = updater.preferenceSaving || updater.phase === "checking"
     || updater.phase === "downloading"
     || updater.phase === "installing";
   const statusKey = updateStatusKey(updater);
@@ -33,6 +33,7 @@ export function SoftwareUpdateSettings({ updater }: { updater: AppUpdaterState }
           <small>{t(`updates.variant.${updater.buildInfo?.variant ?? "standard"}`)}</small>
           <p className={updater.phase === "error" ? "error" : ""}>{t(statusKey, {
             version: updater.update?.version,
+            channel: updater.update ? t(`updates.channel.${updater.update.channel}`) : undefined,
           })}</p>
         </div>
         {updater.buildInfo?.os === "linux" && updater.buildInfo.packageChannel !== "appimage" && <p role="status">{t("platform.manual_updates")}</p>}
@@ -49,8 +50,15 @@ export function SoftwareUpdateSettings({ updater }: { updater: AppUpdaterState }
       <PreferenceToggle
         title={t("updates.automaticChecks")}
         checked={updater.automaticChecks}
-        disabled={!updater.buildInfo?.updaterAvailable || !updater.preferenceReady || updater.preferenceSaving}
+        disabled={!updater.buildInfo?.updaterAvailable || !updater.preferenceReady || busy}
         onChange={(enabled) => void updater.setAutomaticChecks(enabled)}
+      />
+      <PreferenceToggle
+        title={t("updates.receiveNightlyUpdates")}
+        description={t("updates.nightlyDescription")}
+        checked={updater.receiveNightlyUpdates}
+        disabled={!updater.buildInfo?.updaterAvailable || !updater.preferenceReady || busy}
+        onChange={(enabled) => void updater.setReceiveNightlyUpdates(enabled)}
       />
     </section>
   );

@@ -40,6 +40,8 @@ impl CaptureReloadPlan {
         candidate_output.player_audio.selected_user_names.clear();
         current_output.player_audio.proximity = Default::default();
         candidate_output.player_audio.proximity = Default::default();
+        current_output.player_audio.view_priority = Default::default();
+        candidate_output.player_audio.view_priority = Default::default();
         // Source rules apply per packet; changing them must not restart capture.
         current_output.player_audio.source_overrides.clear();
         candidate_output.player_audio.source_overrides.clear();

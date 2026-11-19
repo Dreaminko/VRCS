@@ -19,6 +19,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   const serial = useRef(1);
   const paintFrame = useRef<number | null>(null);
   const pendingState = useRef<SurfaceState | null>(null);
+  const pendingPointer = useRef<{ key: SurfaceKey; point: [number, number] | null } | null>(null);
   const restored = useRef<SurfaceKey | null>(null);
   const pointerPoint = useRef<[number, number] | null>(null);
   const cancelScroll = useCallback(() => {
@@ -43,15 +44,21 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
           }
         }
         const next = pendingState.current;
+        const pointer = pendingPointer.current;
         pendingState.current = null;
+        pendingPointer.current = null;
         if (next) {
-          setMeasured(previous => sameKey(previous, next.key) ? previous : null);
+          const merged = pointer && sameKey(next.key, pointer.key) ? { ...next, pointer: pointer.point } : next;
+          setMeasured(previous => sameKey(previous, merged.key) ? previous : null);
           setState(previous => {
-            if (!previous || !sameKey(previous.key, next.key)) return next;
-            const view = next.view.kind === "menu" && previous.view.kind === "menu" && next.view.hold_progress !== previous.view.hold_progress
-              ? next.view : previous.view;
-            return { ...next, key: previous.key, view };
+            if (!previous || !sameKey(previous.key, merged.key)) return merged;
+            const view = merged.view.kind === "menu" && previous.view.kind === "menu" && merged.view.hold_progress !== previous.view.hold_progress
+              ? merged.view : previous.view;
+            return { ...merged, key: previous.key, view };
           });
+        } else if (pointer) {
+          setState(previous => previous && sameKey(previous.key, pointer.key)
+            ? { ...previous, pointer: pointer.point } : previous);
         }
         setPaintSerial(serial.current);
         if (root.current?.getAnimations({ subtree: true }).some(animation => animation.playState === "running" || animation.pending)) {
@@ -85,8 +92,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
     const previous = pointerPoint.current;
     if (previous === point || (previous && point && previous[0] === point[0] && previous[1] === point[1])) return;
     pointerPoint.current = point;
-    setState(currentState => currentState && sameKey(currentState.key, payload.key)
-      ? { ...currentState, pointer: point } : currentState);
+    pendingPointer.current = { key: payload.key, point };
     markPaint();
   }, [markPaint]);
 
@@ -103,6 +109,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
         if (paintFrame.current !== null) cancelAnimationFrame(paintFrame.current);
         paintFrame.current = null;
         pendingState.current = null;
+        pendingPointer.current = null;
         const scrollTop = root.current?.querySelector<HTMLElement>("[data-vr-page-viewport]")?.scrollTop ?? null;
         void connection.current?.snapshot(current.current, next.request, scrollTop)
           .catch(error => console.error("VR surface snapshot failed", error));
@@ -116,6 +123,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
         if (!sameKey(scrollKey.current, nextScrollKey)) cancelScroll();
         scrollKey.current = nextScrollKey;
         pointerPoint.current = next.pointer ?? null;
+        pendingPointer.current = null;
         current.current = next.key;
         pendingState.current = next;
         markPaint();
@@ -137,7 +145,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
     return () => {
       disposed = true; mounted.current = false; layoutRequest.current++; cancelScroll();
       if (paintFrame.current !== null) cancelAnimationFrame(paintFrame.current);
-      paintFrame.current = null; pendingState.current = null;
+      paintFrame.current = null; pendingState.current = null; pendingPointer.current = null;
       abort.abort(); connection.current = null;
     };
   }, [surface, connect, markPaint, cancelScroll, receiveScroll, receivePointer]);

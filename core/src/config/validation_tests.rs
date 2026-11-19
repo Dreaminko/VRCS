@@ -2,6 +2,35 @@ use super::validation::validate_glossary;
 use super::*;
 
 #[test]
+fn player_view_priority_angle_is_validated_even_when_disabled() {
+    let mut config = AppConfig::default();
+    config
+        .audio
+        .output
+        .player_audio
+        .view_priority
+        .horizontal_fov_deg = 29.0;
+    assert!(config
+        .validate_settings()
+        .unwrap_err()
+        .contains("view_priority.horizontal_fov_deg"));
+    config
+        .audio
+        .output
+        .player_audio
+        .view_priority
+        .horizontal_fov_deg = 180.0;
+    assert!(config.validate_settings().is_ok());
+    config
+        .audio
+        .output
+        .player_audio
+        .view_priority
+        .horizontal_fov_deg = f32::NAN;
+    assert!(config.validate_settings().is_err());
+}
+
+#[test]
 fn player_proximity_radius_is_validated_even_when_disabled() {
     let mut config = AppConfig::default();
     config.audio.output.player_audio.proximity.radius_m = f32::NAN;

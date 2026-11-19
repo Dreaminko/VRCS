@@ -97,7 +97,7 @@ export function SettingsPanel({
   const draftController = useSettingsDraft(settings, onSave);
   const desktop = useDesktopPreferences();
   const asr = useAsrModels({
-    active: activeCategory === "recognition" || activeCategory === "api",
+    active: activeCategory === "recognition" || (activeCategory === "api" && apiTab === "local"),
     settings,
     onModelsChanged,
     draftController,

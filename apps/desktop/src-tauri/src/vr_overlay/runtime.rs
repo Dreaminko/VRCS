@@ -957,6 +957,8 @@ fn worker_loop(
                 }
                 None => false,
             };
+            #[cfg(not(any(windows, linux_vr)))]
+            let _ = accepted;
             #[cfg(any(windows, linux_vr))]
             {
                 state.headset_surface.confirm_frame(&app, accepted);

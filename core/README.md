@@ -77,6 +77,12 @@ Linux GNU x86_64 的 PLaMo 使用固定 `plamo-3-translate-0.8b-Q4_K_M.gguf`
 PLaMo 与 Qwen 使用独立进程、loopback 端口和会话 token，共享已校验的 runtime 文件。
 ARM64 PLaMo 尚未完成原生推理验收，前后端保持禁用，不从 Qwen ARM64 资产外推支持。
 
+## 实验性视野优先
+
+开启 VRChat 网络采集并使用分玩家独立音轨后，可在桌面或 VR 的「捕获管理」开启「优先处理视野内玩家」。配置为 `audio.output.player_audio.view_priority`，默认关闭，水平总视角默认 120°、可设 30°–180°，支持热更新。
+
+此功能仅估算水平视野，不能判断俯仰或墙体遮挡；姿态缺失／过期时恢复普通优先级，视野外玩家仍正常处理。来源规则、距离筛选及原有并发限制继续有效，不因转头取消已经执行的请求。共享 ASR／翻译资源繁忙时优先分配等待名额；远端服务内部排队和模型推理速度不受本地权重保证。候选 yaw 的真实头部／相机语义仍需实机校准。
+
 ## API Profile 接口
 
 API 管理使用 `/api/profile`。旧路径 `/api/asr/profiles` 已移除，调用方需要同步更新。
@@ -139,6 +145,8 @@ cargo run --manifest-path core/Cargo.toml --no-default-features
 ```
 
 可用 `-Check format`、`-Check clippy` 或 `-Check test` 单独执行一个阶段。Vulkan 检查会准备 loader，无需 SDK。发布包支持 CPU/Vulkan。
+
+会话标题生成的集成测试在模拟服务收到 HTTP 请求后才推进 Tokio 的虚拟时钟。这样既能验证请求超时的错误码，也不会把 Windows CI 上的本地网络调度耗时计入超时场景。
 
 ## 音频实现要点
 

@@ -6,7 +6,7 @@ use super::{
     VadConfig, VrOcrConfig, VrOverlayConfig, VrchatChatboxConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 43;
+pub const SCHEMA_VERSION: u32 = 44;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -195,11 +195,16 @@ mod tests {
                 "selected_user_names",
                 "source_mode",
                 "source_overrides",
+                "view_priority",
             ],
         );
         assert_keys(
             &value["audio"]["output"]["player_audio"]["proximity"],
             ["enabled", "radius_m"],
+        );
+        assert_keys(
+            &value["audio"]["output"]["player_audio"]["view_priority"],
+            ["enabled", "horizontal_fov_deg"],
         );
         assert_keys(
             &value["audio"]["microphone"],

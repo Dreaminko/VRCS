@@ -5,18 +5,23 @@ import type { UiLanguagePreference } from "../../app/ui-language";
 import { localeCatalog } from "../../i18n/catalog";
 import { Select } from "../../settings/SettingsControls";
 import { DownloadSourceSettings } from "../../settings/system/DownloadSourceSettings";
-import type { ModelDownloadSource } from "../../settings/types";
+import type { FeatureSettings, ModelDownloadSource } from "../../settings/types";
+import { FeatureModeSection } from "./FeatureModeSection";
 
 export function WelcomeStep({
   languagePreference,
   busy,
   onUpdateLanguage,
+  features,
+  onUpdateFeatures,
   downloadSource,
   onUpdateDownloadSource,
 }: {
   languagePreference: UiLanguagePreference;
   busy: boolean;
   onUpdateLanguage: (preference: UiLanguagePreference) => void;
+  features?: FeatureSettings;
+  onUpdateFeatures?: (update: (current: FeatureSettings) => FeatureSettings) => Promise<boolean>;
   downloadSource: ModelDownloadSource;
   onUpdateDownloadSource: (source: ModelDownloadSource) => void;
 }) {
@@ -44,7 +49,19 @@ export function WelcomeStep({
           onChange={(value) => onUpdateLanguage(value as UiLanguagePreference)}
         />
       </div>
-      <DownloadSourceSettings source={downloadSource} disabled={busy} onChange={onUpdateDownloadSource} />
+      <DownloadSourceSettings
+        source={downloadSource}
+        disabled={busy}
+        variant="onboarding"
+        onChange={onUpdateDownloadSource}
+      />
+      {features && onUpdateFeatures && (
+        <FeatureModeSection
+          features={features}
+          disabled={busy}
+          onUpdateFeatures={onUpdateFeatures}
+        />
+      )}
     </div>
   );
 }

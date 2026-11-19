@@ -123,6 +123,40 @@ test("proximity controls are unavailable when the saved settings have no proximi
   await assert.rejects(execute({ set_proximity_radius: 5 }), /unavailable/i);
 });
 
+test("view priority requires published player settings, bounds the angle and preserves confirmed saves", async () => {
+  let settings = initialSettings();
+  let applySave = true;
+  let failSave = false;
+  const execute = createPlayerDisplayExecutor({
+    getState: () => ({ available: true, processingAvailable: true, speakers: [], current: [], hiddenTracks: [], defaultLanguages: [], languages: [] }),
+    updateSettings: async apply => {
+      const next = apply(settings);
+      if (failSave) throw new Error("Save failed");
+      return applySave ? (settings = next) : settings;
+    },
+    updatePreferences: () => { throw new Error("Unexpected visibility change"); },
+  });
+  const setView = (enabled: boolean, horizontal_fov_deg: number) => execute({ set_view_priority: { enabled, horizontal_fov_deg } });
+  await assert.rejects(setView(true, 120), /unavailable/i);
+  settings = { ...settings, audio: { ...settings.audio, output: { ...settings.audio.output,
+    player_audio: { ...settings.audio.output.player_audio!, view_priority: { enabled: false, horizontal_fov_deg: 120 } },
+  } } };
+  await setView(true, 30);
+  assert.deepEqual(settings.audio.output.player_audio?.view_priority, { enabled: true, horizontal_fov_deg: 30 });
+  await setView(false, 180);
+  assert.deepEqual(settings.audio.output.player_audio?.view_priority, { enabled: false, horizontal_fov_deg: 180 });
+  for (const angle of [29, 181, Number.NaN]) await assert.rejects(setView(true, angle), /invalid/i);
+  const confirmed = settings;
+  failSave = true;
+  await assert.rejects(setView(true, 90), /Save failed/);
+  assert.equal(settings, confirmed);
+  failSave = false;
+  applySave = false;
+  await assert.rejects(setView(true, 90), /not applied/i);
+  settings = { ...settings, audio: { ...settings.audio, output: { ...settings.audio.output, mode: "system" } } } as Settings;
+  await assert.rejects(setView(true, 90), /unavailable/i);
+});
+
 test("source mode switches the shared player audio policy from VR", async () => {
   let settings = initialSettings();
   const execute = createPlayerDisplayExecutor({

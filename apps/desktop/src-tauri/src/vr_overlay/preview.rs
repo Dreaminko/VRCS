@@ -1365,6 +1365,11 @@ fn sample_player_display(scene: Scene) -> player_display::View {
             enabled: false,
             radius_m: 10.0,
         }),
+        view_priority: Some(player_display::ViewPriority {
+            enabled: false,
+            horizontal_fov_deg: 120.0,
+            local_view: !matches!(scene, Scene::Unavailable | Scene::Expired | Scene::Empty),
+        }),
         microphone: None,
         languages: [
             ("en", "English"),
@@ -1411,6 +1416,12 @@ fn sample_player_display(scene: Scene) -> player_display::View {
             ("showAll", "Restore people display"),
             ("proximityOff", "Off"),
             ("proximityRadius", "Recognition distance"),
+            ("viewPriority", "Prioritize players in view (experimental)"),
+            ("viewAngle", "Horizontal view"),
+            (
+                "viewWaiting",
+                "Waiting for view data; players currently run at normal priority.",
+            ),
             ("empty", "Waiting for tracks or loading history."),
             ("show", "Show"),
             ("hide", "Hide"),
@@ -1432,6 +1443,15 @@ fn sample_player_display(scene: Scene) -> player_display::View {
 fn apply_player_display(view: &mut player_display::View, action: player_display::Action) {
     use player_display::Action;
     match action {
+        Action::SetViewPriority {
+            enabled,
+            horizontal_fov_deg,
+        } => {
+            if let Some(view_priority) = &mut view.view_priority {
+                view_priority.enabled = enabled;
+                view_priority.horizontal_fov_deg = horizontal_fov_deg;
+            }
+        }
         Action::SetMicrophoneFilter(enabled) => {
             if let Some(mic) = &mut view.microphone {
                 mic.enabled = enabled;

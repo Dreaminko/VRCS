@@ -294,10 +294,15 @@ export function SystemSettingsSection({
           onChange={(patch) => applySettings((current) => ({
             ...current, conversation_titles: { ...current.conversation_titles, ...patch },
           }))} />
-        <FeatureSettingsCard features={draft.features} disabled={false}
-          onChange={(key, enabled) => applySettings((current) => ({
-            ...current, features: { ...current.features, [key]: enabled },
-          }))} />
+        <FeatureSettingsCard
+          features={draft.features}
+          disabled={false}
+          onUpdate={(update, afterError) => applySettings(
+            (current) => ({ ...current, features: update(current.features) }),
+            undefined,
+            afterError,
+          )}
+        />
         <StorageSettingsSection
           locale={locale}
           draft={draft}

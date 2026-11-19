@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 const MAX_ERROR_TEXT: usize = 4_000;
@@ -281,6 +281,7 @@ fn recent_log_files(log_dir: &Path) -> Result<Vec<PathBuf>, String> {
 
 #[tauri::command]
 pub(crate) fn export_error_report(
+    app: AppHandle,
     path: PathBuf,
     state: State<'_, DiagnosticState>,
 ) -> Result<(), String> {
@@ -297,7 +298,7 @@ pub(crate) fn export_error_report(
         .unwrap_or_else(|| "none".into());
     let mut output = format!(
         "VRCS error report\nGenerated: {generated_at}\nVersion: {}\nSession: {}\nLatest report: {latest_report_id}\n\nThis report was generated locally and is not uploaded automatically.\n",
-        env!("CARGO_PKG_VERSION"),
+        app.package_info().version,
         state.session_id,
     );
     let mut remaining = MAX_EXPORTED_LOG_BYTES;

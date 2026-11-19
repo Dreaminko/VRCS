@@ -286,20 +286,25 @@ pub async fn spawn_streaming_session(
     let (event_tx, event_rx) = mpsc::channel(32);
     let (stop_tx, stop_rx) = watch::channel(false);
     let task_config = config.clone();
+    let priority = crate::work_priority::Context::current();
     let task = tokio::spawn(async move {
-        run_with_reconnect(
-            provider,
-            task_config,
-            profile,
-            silence_seconds,
-            key,
-            socket,
-            task_id,
-            audio_rx,
-            event_tx,
-            stop_rx,
-        )
-        .await;
+        priority
+            .scope(async move {
+                run_with_reconnect(
+                    provider,
+                    task_config,
+                    profile,
+                    silence_seconds,
+                    key,
+                    socket,
+                    task_id,
+                    audio_rx,
+                    event_tx,
+                    stop_rx,
+                )
+                .await;
+            })
+            .await;
     });
     Ok(StreamingSession {
         audio: audio_tx,
@@ -830,7 +835,7 @@ async fn connect_initialized(
 ) -> Result<(Socket, Option<String>), String> {
     let quota = rate_limit::gate(config, profile);
     if let Some(quota) = &quota {
-        quota.acquire().await;
+        quota.acquire().await?;
     }
     let result = connect_admitted(provider, config, profile, silence_seconds, key).await;
     if let (Some(quota), Err(detail)) = (&quota, &result) {

@@ -1,8 +1,7 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { lazy, memo, Suspense, useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { Captions, ChevronLeft, ChevronRight, Crop, Eye, GripHorizontal, Hand, Languages, MessageSquare, Mic, Pin, PinOff, Radio, ScanEye, Settings2, Square, UsersRound, X } from "lucide-react";
 import type { WristMenuCommand } from "../vr-controls/player-display-protocol";
 import type { ControlAction } from "../vr-controls/protocol";
-import { VisionAnswerMarkdown } from "../vision/VisionAnswerMarkdown";
 import { Headset, OcrProgress } from "./PassiveSurfaces";
 import { visibleCaptionMessages } from "./caption-visibility";
 import { DashboardSurface, DashboardThumbnail } from "./DashboardSurface";
@@ -13,6 +12,19 @@ import { menuStatus, pageGeometry, SURFACE_SIZE, type SurfaceLayout, type Surfac
 import { MessageSourceIcon } from "../subtitles/components/MessageSourceIcon";
 
 import "./surface.css";
+
+let visionMarkdownModule: Promise<typeof import("../vision/VisionAnswerMarkdown")> | undefined;
+const LazyVisionAnswerMarkdown = lazy(() => (visionMarkdownModule ??= import("../vision/VisionAnswerMarkdown")).then(
+  ({ VisionAnswerMarkdown }) => ({
+    default: function VrVisionAnswerMarkdown({ children }: { children: string }) {
+      const ref = useRef<HTMLDivElement>(null);
+      useLayoutEffect(() => {
+        ref.current?.dispatchEvent(new CustomEvent("vr-surface-layout", { bubbles: true }));
+      }, [children]);
+      return <div ref={ref}><VisionAnswerMarkdown vr>{children}</VisionAnswerMarkdown></div>;
+    },
+  }),
+));
 
 function SurfaceButton({ state, id, label, children, active = false, primary = false, disabled = false, grip = false, status, menu }: {
   state: SurfaceState; id: number; label: string; children: ReactNode; active?: boolean; primary?: boolean; disabled?: boolean; grip?: boolean;
@@ -116,10 +128,19 @@ function Dialogue({ state, view }: { state: SurfaceState; view: Extract<SurfaceV
 function Reader({ state, view }: { state: SurfaceState; view: Extract<SurfaceView, { kind: "reader" }> }) {
   const viewport = useRef<HTMLDivElement>(null);
   const reader = view.reader;
-  useLayoutEffect(() => {
+  const syncPageOffset = useCallback(() => {
     const element = viewport.current;
-    if (element) element.scrollTop = pageGeometry(element.scrollHeight, element.clientHeight, reader.page, parseFloat(getComputedStyle(element).lineHeight) || 1).offset;
-  }, [reader.mode, reader.block_index, reader.source, reader.translation_label, reader.source_only, reader.page]);
+    if (element && !element.querySelector("[data-vr-pending]")) {
+      element.scrollTop = pageGeometry(element.scrollHeight, element.clientHeight, reader.page, parseFloat(getComputedStyle(element).lineHeight) || 1).offset;
+    }
+  }, [reader.page]);
+  useLayoutEffect(() => {
+    syncPageOffset();
+    const element = viewport.current;
+    if (!element) return;
+    element.addEventListener("vr-surface-layout", syncPageOffset);
+    return () => element.removeEventListener("vr-surface-layout", syncPageOffset);
+  }, [reader.mode, reader.block_index, reader.source, reader.translation_label, reader.source_only, reader.page, syncPageOffset]);
   const label = (key: string) => view.labels[key] || key;
   const vision = reader.mode === "vision";
   const busy = vision && ["listening", "finalizing", "requesting"].includes(reader.status);
@@ -139,7 +160,9 @@ function Reader({ state, view }: { state: SurfaceState; view: Extract<SurfaceVie
         </section>}
         {!reader.source_only && translation && <section className={`vr-reader-card${error ? " error" : ""}`}>
           <h2>{label(error ? "visionError" : reader.translation_label || "answer")}</h2>
-          {vision && reader.status === "complete" ? <VisionAnswerMarkdown vr>{translation}</VisionAnswerMarkdown> : <p className="vr-reader-plain">{translation}</p>}
+          {vision && reader.status === "complete"
+            ? <Suspense fallback={<p className="vr-reader-plain" data-vr-pending="true">{translation}</p>}><LazyVisionAnswerMarkdown>{translation}</LazyVisionAnswerMarkdown></Suspense>
+            : <p className="vr-reader-plain">{translation}</p>}
         </section>}
       </div>
     </div>
@@ -171,6 +194,7 @@ export const VrSurface = memo(function VrSurface({ state, onLayout }: { state: S
     const element = root.current;
     if (!element) return;
     let disposed = false;
+    let measureQueued = false;
     const measure = () => {
       if (disposed || element.querySelector("[data-vr-pending]")) return;
       const viewport = element.querySelector<HTMLElement>("[data-vr-page-viewport]");
@@ -196,13 +220,21 @@ export const VrSurface = memo(function VrSurface({ state, onLayout }: { state: S
       const signature = JSON.stringify(layout);
       if (lastLayout.current !== signature) { lastLayout.current = signature; onLayout?.(layout); }
     };
+    const scheduleMeasure = () => {
+      if (disposed || measureQueued) return;
+      measureQueued = true;
+      queueMicrotask(() => {
+        measureQueued = false;
+        measure();
+      });
+    };
     measure();
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(scheduleMeasure);
     observer.observe(element);
     element.querySelectorAll("[data-vr-panel]").forEach(panel => observer.observe(panel));
     const content = element.querySelector("[data-vr-page-content]");
     if (content) observer.observe(content);
-    void document.fonts.ready.then(measure);
+    void document.fonts.ready.then(scheduleMeasure);
     element.addEventListener("vr-surface-layout", measure);
     return () => { disposed = true; observer.disconnect(); element.removeEventListener("vr-surface-layout", measure); };
   }, [layoutContent, state.key.generation, state.key.revision, onLayout, fontSize]);

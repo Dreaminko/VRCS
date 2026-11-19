@@ -1,4 +1,4 @@
-import { Children, Component, isValidElement, type ReactNode } from "react";
+import { Children, Component, isValidElement, memo, type ReactNode } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -56,10 +56,10 @@ class MarkdownBoundary extends Component<{ source: string; children: ReactNode }
   }
 }
 
-export function VisionAnswerMarkdown({ children, vr = false }: { children: string; vr?: boolean }) {
+export const VisionAnswerMarkdown = memo(function VisionAnswerMarkdown({ children, vr = false }: { children: string; vr?: boolean }) {
   return <div className={`vision-answer-markdown${vr ? " vision-answer-markdown-vr" : ""}`}>
     <MarkdownBoundary key={children} source={children}>
       <Markdown remarkPlugins={[remarkGfm]} components={vr ? vrComponents : desktopComponents} skipHtml>{children}</Markdown>
     </MarkdownBoundary>
   </div>;
-}
+});

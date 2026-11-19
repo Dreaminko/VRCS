@@ -420,6 +420,9 @@
         "userIdPending": "等待玩家用户 ID，暂不能选择",
         "proximityOff": "关闭",
         "proximityRadius": "识别距离",
+        "viewPriority": "优先处理视野内玩家（实验性）",
+        "viewAngle": "水平视角",
+        "viewWaiting": "等待视角数据，当前按普通优先级处理。",
         "sourceMode": "玩家来源",
         "sourceModeEveryone": "所有人",
         "sourceModeAllowlist": "白名单",
@@ -756,24 +759,30 @@
       }
     },
     "updates": {
+      "channel": {
+        "stable": "正式版",
+        "nightly": "Nightly"
+      },
       "title": "软件更新",
       "currentVersion": "当前版本 {{version}}",
       "variant": {
         "standard": "标准版"
       },
       "automaticChecks": "自动检查更新",
+      "receiveNightlyUpdates": "接收 Nightly 更新",
+      "nightlyDescription": "Nightly 可能不稳定。",
       "checkNow": "立即检查",
-      "availableTitle": "VRCS {{version}} 已发布",
+      "availableTitle": "VRCS {{version}}（{{channel}}）已发布",
       "availableDescription": "新版本已可下载并安装。",
       "downloadAndInstall": "下载并安装",
       "later": "稍后",
       "stopTranscriptionFirst": "请先停止转写，再安装更新。",
       "status": {
-        "ready": "可从 GitHub Releases 检查更新。",
+        "ready": "可检查软件更新。",
         "unavailable": "当前开发构建未启用更新功能。",
-        "checking": "正在检查 GitHub Releases…",
+        "checking": "正在检查更新…",
         "upToDate": "当前已是最新版本。",
-        "available": "版本 {{version}} 已可下载。",
+        "available": "版本 {{version}}（{{channel}}）已可下载。",
         "downloading": "正在下载更新…",
         "installing": "正在安装更新…"
       },
@@ -793,12 +802,17 @@
         "unavailable": "当前构建未配置更新功能。",
         "busy": "已有更新操作正在进行。",
         "no_pending": "请重新检查更新后再安装。",
+        "stable_check_failed": "无法检查正式版更新，请重试。",
+        "nightly_check_failed": "无法检查 Nightly 更新，请重试。",
+        "both_checks_failed": "无法检查正式版和 Nightly 更新，请重试。",
+        "preference_save_failed": "无法保存 Nightly 更新设置，请重试。",
         "failed": "更新操作未能完成，请检查网络连接后重试。"
       }
     },
     "settings": {
       "downloads": {
         "source": "下载源",
+        "sourceDescription": "选择下载本地模型和运行时的来源。",
         "auto": "自动选择",
         "official": "官方源",
         "modelscope": "ModelScope 镜像"
@@ -881,6 +895,12 @@
       },
       "features": {
         "title": "功能选项",
+        "mode": "功能模式",
+        "modes": {
+          "translation_only": "仅翻译",
+          "full": "全功能",
+          "custom": "自定义"
+        },
         "glossary": "术语表",
         "learning": "词典与学习",
         "anki": "Anki",
@@ -2069,7 +2089,21 @@
         "privacyTitle": "本地优先",
         "privacyDescription": "VRCS 不保存原始音频；使用云端识别时，只发送检测到的语音片段。",
         "realtimeTitle": "实时字幕",
-        "realtimeDescription": "支持系统输出、VRChat 进程音频和自己的麦克风。"
+        "realtimeDescription": "支持系统输出、VRChat 进程音频和自己的麦克风。",
+        "featureModeTitle": "选择功能模式",
+        "featureModes": {
+          "translation_only": {
+            "summary": "专注于实时字幕与翻译"
+          },
+          "full": {
+            "summary": "开启所有功能"
+          },
+          "custom": {
+            "summary": "自由组合所需模块，或保留当前配置。"
+          }
+        },
+        "featureCustomHint": "关闭任意模块只会隐藏其界面与入口，不会删除已保存的配置、词典或学习数据。",
+        "featureModeFootnote": "选择会立即保存；之后可随时在“设置 › 系统 › 功能选项”中切换预设或逐项调整。"
       },
       "recognition": {
         "description": "选择云端识别或在本机运行 Qwen。本地识别不会上传语音。",
@@ -2130,7 +2164,10 @@
         "microphone": "麦克风",
         "microphoneSkipped": "已选择不采集自己的声音",
         "microphoneReady": "麦克风和触发阈值已确认",
+        "featureMode": "功能模式",
+        "featureModeValue": "{{mode}} — 之后可随时在“设置 › 系统 › 功能选项”调整",
         "nextHint": "翻译、词典、OSC 和 Anki 可在设置中继续配置。",
+        "nextHintTranslationOnly": "翻译、术语表和 OSC 可在设置中继续配置；如需启用其他模块，可随时前往“设置 › 系统 › 功能选项”切换。",
         "finish": "进入主界面"
       },
       "errors": {

@@ -11,7 +11,7 @@ import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
 
 export const DEFAULT_PLAYER_AUDIO: Options = {
   enabled: false, pagefile_drive: "C:", opus_library_path: "", max_players: 0, max_visible_players: 4,
-  proximity: { enabled: false, radius_m: 10 },
+  proximity: { enabled: false, radius_m: 10 }, view_priority: { enabled: false, horizontal_fov_deg: 120 },
 };
 
 export function PlayerAudioSettings({ value, status, memory, disabled, onChange }: {

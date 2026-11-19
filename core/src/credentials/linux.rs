@@ -336,11 +336,11 @@ mod tests {
         assert!(duplicates.iter().all(|item| item.get_secret().unwrap().as_slice() == b"updated-profile-secret"));
         assert_eq!(read(&first, false).unwrap().as_deref(), Some("updated-profile-secret"));
         assert_eq!(read(&second, false).unwrap().as_deref(), Some("second-profile-secret"));
-        delete(&[first.clone()]).unwrap();
-        delete(&[first.clone()]).unwrap();
+        delete(std::slice::from_ref(&first)).unwrap();
+        delete(std::slice::from_ref(&first)).unwrap();
         assert_eq!(read(&first, false).unwrap(), None);
         assert_eq!(read(&second, false).unwrap().as_deref(), Some("second-profile-secret"));
-        delete(&[second.clone()]).unwrap();
+        delete(std::slice::from_ref(&second)).unwrap();
         assert_eq!(read(&second, false).unwrap(), None);
     }
 }

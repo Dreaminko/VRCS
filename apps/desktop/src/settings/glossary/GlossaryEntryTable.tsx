@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, FileUp, Plus, Search, Trash2 } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ConfirmDialog } from "../../app/components/ConfirmDialog";
@@ -40,6 +40,10 @@ export function GlossaryEntryTable({
 }: GlossaryEntryTableProps) {
   const { t } = useTranslation();
   const tableScrollRef = useRef<HTMLDivElement>(null);
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<GlossaryEntryCategoryFilter>("all");
   const [mapping, setMapping] = useState<GlossaryEntryMappingFilter>("all");
@@ -118,9 +122,28 @@ export function GlossaryEntryTable({
     }));
   }, [entries, issues, showValidation]);
 
-  const updateEntry = (rowId: string, patch: Partial<GlossaryEntry>) => onChange(entries.map((entry) => (
-    entry.rowId === rowId ? { ...entry, ...patch } : entry
-  )));
+  const toggleRowSelection = useCallback((rowId: string) => {
+    setSelectedRowIds((current) => {
+      const next = new Set(current);
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
+      return next;
+    });
+  }, []);
+  const updateEntry = useCallback((rowId: string, patch: Partial<GlossaryEntry>) => {
+    onChangeRef.current(entriesRef.current.map((entry) => (
+      entry.rowId === rowId ? { ...entry, ...patch } : entry
+    )));
+  }, []);
+  const removeEntry = useCallback((rowId: string) => {
+    onChangeRef.current(entriesRef.current.filter((item) => item.rowId !== rowId));
+    setSelectedRowIds((current) => {
+      if (!current.has(rowId)) return current;
+      const next = new Set(current);
+      next.delete(rowId);
+      return next;
+    });
+  }, []);
   const requestRemoval = (rowIds: ReadonlySet<string>) => {
     if (rowIds.size) setPendingRemoval(new Set(rowIds));
   };
@@ -251,21 +274,9 @@ export function GlossaryEntryTable({
                 categoryOptions={categoryOptions}
                 sourceIssue={showValidation ? issueByCell.get(`${entry.rowId}:source`) : undefined}
                 targetIssue={showValidation ? issueByCell.get(`${entry.rowId}:target`) : undefined}
-                onSelect={() => setSelectedRowIds((current) => {
-                  const next = new Set(current);
-                  if (next.has(entry.rowId)) next.delete(entry.rowId);
-                  else next.add(entry.rowId);
-                  return next;
-                })}
-                onUpdate={(patch) => updateEntry(entry.rowId, patch)}
-                onRemove={() => {
-                  onChange(entries.filter((item) => item.rowId !== entry.rowId));
-                  setSelectedRowIds((current) => {
-                    const next = new Set(current);
-                    next.delete(entry.rowId);
-                    return next;
-                  });
-                }}
+                onSelect={toggleRowSelection}
+                onUpdate={updateEntry}
+                onRemove={removeEntry}
               />
             ))}
           </tbody>
@@ -354,15 +365,15 @@ const GlossaryEntryRow = memo(function GlossaryEntryRow({
   categoryOptions: DropdownOption[];
   sourceIssue?: string;
   targetIssue?: string;
-  onSelect: () => void;
-  onUpdate: (patch: Partial<GlossaryEntry>) => void;
-  onRemove: () => void;
+  onSelect: (rowId: string) => void;
+  onUpdate: (rowId: string, patch: Partial<GlossaryEntry>) => void;
+  onRemove: (rowId: string) => void;
 }) {
   const { t } = useTranslation();
   return (
     <tr className={selected ? "selected" : ""} data-row-id={entry.rowId}>
       <td className="glossary-entry-select-cell">
-        <SelectionCheckbox checked={selected} disabled={saving} label={t("settings.glossary.table.selectRow", { row: position })} onChange={onSelect} />
+        <SelectionCheckbox checked={selected} disabled={saving} label={t("settings.glossary.table.selectRow", { row: position })} onChange={() => onSelect(entry.rowId)} />
       </td>
       <th className="glossary-entry-position-cell" scope="row">{position}</th>
       <td className={sourceIssue ? "invalid" : undefined}>
@@ -374,7 +385,7 @@ const GlossaryEntryRow = memo(function GlossaryEntryRow({
           aria-label={t("settings.glossary.table.sourceAtRow", { row: position })}
           aria-invalid={Boolean(sourceIssue)}
           data-tooltip={sourceIssue}
-          onChange={(event) => onUpdate({ source: event.target.value })}
+          onChange={(event) => onUpdate(entry.rowId, { source: event.target.value })}
         />
       </td>
       <td className={targetIssue ? "invalid" : undefined}>
@@ -387,7 +398,7 @@ const GlossaryEntryRow = memo(function GlossaryEntryRow({
           aria-invalid={Boolean(targetIssue)}
           placeholder={entry.target === null ? t("settings.glossary.keepOriginal") : undefined}
           data-tooltip={targetIssue}
-          onChange={(event) => onUpdate({ target: event.target.value })}
+          onChange={(event) => onUpdate(entry.rowId, { target: event.target.value })}
         />
       </td>
       <td className="glossary-entry-category-cell">
@@ -399,7 +410,7 @@ const GlossaryEntryRow = memo(function GlossaryEntryRow({
           value={entry.category}
           options={categoryOptions}
           disabled={saving}
-          onChange={(value) => onUpdate({ category: value as GlossaryEntry["category"] })}
+          onChange={(value) => onUpdate(entry.rowId, { category: value as GlossaryEntry["category"] })}
         />
       </td>
       <td className="glossary-entry-toggle-cell">
@@ -410,7 +421,7 @@ const GlossaryEntryRow = memo(function GlossaryEntryRow({
           aria-checked={entry.target === null}
           aria-label={t("settings.glossary.table.keepOriginalAtRow", { row: position })}
           disabled={saving}
-          onClick={() => onUpdate({ target: entry.target === null ? "" : null })}
+          onClick={() => onUpdate(entry.rowId, { target: entry.target === null ? "" : null })}
         >
           <span className="switch-track" aria-hidden="true"><span /></span>
         </button>
@@ -423,7 +434,7 @@ const GlossaryEntryRow = memo(function GlossaryEntryRow({
           aria-checked={entry.case_sensitive}
           aria-label={t("settings.glossary.table.caseSensitiveAtRow", { row: position })}
           disabled={saving}
-          onClick={() => onUpdate({ case_sensitive: !entry.case_sensitive })}
+          onClick={() => onUpdate(entry.rowId, { case_sensitive: !entry.case_sensitive })}
         >
           <span className="switch-track" aria-hidden="true"><span /></span>
         </button>
@@ -435,7 +446,7 @@ const GlossaryEntryRow = memo(function GlossaryEntryRow({
           aria-label={t("settings.glossary.table.deleteRow", { row: position })}
           data-tooltip={t("common.delete")}
           disabled={saving}
-          onClick={onRemove}
+          onClick={() => onRemove(entry.rowId)}
         >
           <Trash2 size={15} aria-hidden="true" />
         </button>

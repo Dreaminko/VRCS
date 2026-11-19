@@ -15,7 +15,8 @@ import type { UiLanguagePreference } from "../app/ui-language";
 import { changeUiLanguage, currentUiLanguagePreference } from "../i18n";
 import type { AudioDevice } from "../capture/types";
 import type { Health } from "../core-client/types";
-import type { Settings } from "../settings/types";
+import { areFeatureSettingsEqual } from "../settings/feature-presets";
+import type { FeatureSettings, Settings } from "../settings/types";
 import { useOnboardingAudio } from "./hooks/useOnboardingAudio";
 import { useOnboardingMicrophone } from "./hooks/useOnboardingMicrophone";
 import { useOnboardingRecognition } from "./hooks/useOnboardingRecognition";
@@ -39,6 +40,7 @@ export function OnboardingWizard({
   onStartMicrophoneTest,
   onStopMicrophoneTest,
   onSave,
+  onUpdateSettings,
   onProgress,
   onSkip,
   onComplete,
@@ -54,6 +56,7 @@ export function OnboardingWizard({
   onStartMicrophoneTest: () => Promise<void>;
   onStopMicrophoneTest: () => Promise<void>;
   onSave: (settings: Settings) => Promise<Settings>;
+  onUpdateSettings?: (update: (current: Settings) => Settings) => Promise<Settings>;
   onProgress: (step: number) => Promise<void>;
   onSkip: () => Promise<void>;
   onComplete: (startCapture: boolean) => Promise<void>;
@@ -64,6 +67,8 @@ export function OnboardingWizard({
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"info" | "error">("error");
   const [busy, setBusy] = useState(false);
+  const [featureBusy, setFeatureBusy] = useState(false);
+  const [pendingFeatures, setPendingFeatures] = useState<FeatureSettings | null>(null);
   const [languagePreference, setLanguagePreference] = useState<UiLanguagePreference>(
     currentUiLanguagePreference,
   );
@@ -111,6 +116,7 @@ export function OnboardingWizard({
     devices,
     devicesReady,
     onSave,
+    onUpdateSettings,
     clearMessage,
     showError,
   });
@@ -125,11 +131,35 @@ export function OnboardingWizard({
     showError,
   });
   const operationBusy = busy
+    || featureBusy
     || recognition.busy
     || audio.busy
     || microphone.operationBusy
     || recognition.saveBusy
     || recognition.apiProfiles.busy !== null;
+
+  const updateFeatures = async (
+    updater: (current: FeatureSettings) => FeatureSettings,
+  ): Promise<boolean> => {
+    if (operationBusy) return false;
+    const nextPreview = updater(settings.features);
+    if (areFeatureSettingsEqual(settings.features, nextPreview)) return true;
+    setFeatureBusy(true);
+    setPendingFeatures(nextPreview);
+    clearMessage();
+    try {
+      await (onUpdateSettings
+        ? onUpdateSettings((current) => ({ ...current, features: updater(current.features) }))
+        : onSave({ ...settings, features: updater(settings.features) }));
+      return true;
+    } catch (reason) {
+      showError(reason, "errors.settings.apply");
+      return false;
+    } finally {
+      setPendingFeatures(null);
+      setFeatureBusy(false);
+    }
+  };
 
   const stepItems = useMemo(() => [
     { icon: <Sparkles size={16} />, label: t("onboarding.steps.welcome") },
@@ -232,6 +262,8 @@ export function OnboardingWizard({
                 languagePreference={languagePreference}
                 busy={operationBusy}
                 onUpdateLanguage={(preference) => void updateLanguage(preference)}
+                features={pendingFeatures ?? settings.features}
+                onUpdateFeatures={updateFeatures}
                 downloadSource={settings.storage.model_download_source}
                 onUpdateDownloadSource={(source) => void audio.updateSettings((current) => ({
                   ...current, storage: { ...current.storage, model_download_source: source },
@@ -307,6 +339,7 @@ export function OnboardingWizard({
                 recognitionMode={recognition.recognitionMode}
                 audioReady={audio.ready}
                 microphoneDisabled={settings.audio.microphone.mode === "disabled"}
+                features={settings.features}
               />
             )}
           </div>
