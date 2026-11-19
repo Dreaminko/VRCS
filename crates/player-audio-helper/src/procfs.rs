@@ -1,6 +1,10 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
+use std::ffi::CString;
 use std::fs;
 use std::io;
+use std::os::fd::FromRawFd;
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::FileTypeExt;
 use std::path::Path;
 
 pub fn starttime(pid: u32) -> io::Result<u64> {
@@ -106,6 +110,7 @@ pub struct Endpoint {
     pub remote_ip: [u8; 4],
     pub remote_port: u16,
     pub inode: u64,
+    pub fd: Option<u32>,
     pub owned: bool,
 }
 
@@ -145,10 +150,17 @@ pub fn udp_endpoints(pid: u32) -> Vec<Endpoint> {
     read_udp_endpoints(pid).unwrap_or_default()
 }
 
-fn socket_inodes(pid: u32) -> io::Result<HashSet<u64>> {
-    let mut inodes = HashSet::new();
+fn socket_inodes(pid: u32) -> io::Result<HashMap<u64, u32>> {
+    let mut inodes = HashMap::new();
     for entry in fs::read_dir(format!("/proc/{pid}/fd"))? {
         let entry = entry?;
+        let Some(fd_num) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
         let path = match fs::read_link(entry.path()) {
             Ok(path) => path,
             // File descriptors may close while the directory is traversed.
@@ -161,13 +173,13 @@ fn socket_inodes(pid: u32) -> io::Result<HashSet<u64>> {
             .and_then(|path| path.strip_suffix(']'))
             .and_then(|inode| inode.parse().ok())
         {
-            inodes.insert(inode);
+            inodes.entry(inode).or_insert(fd_num);
         }
     }
     Ok(inodes)
 }
 
-fn read_udp_endpoints(pid: u32) -> io::Result<Vec<Endpoint>> {
+pub fn read_udp_endpoints(pid: u32) -> io::Result<Vec<Endpoint>> {
     let table = fs::read_to_string(format!("/proc/{pid}/net/udp"))?;
     let inodes = socket_inodes(pid)?;
     table
@@ -180,7 +192,7 @@ fn read_udp_endpoints(pid: u32) -> io::Result<Vec<Endpoint>> {
         .collect()
 }
 
-fn parse_udp_row(line: &str, inodes: &HashSet<u64>) -> Option<Endpoint> {
+fn parse_udp_row(line: &str, inodes: &HashMap<u64, u32>) -> Option<Endpoint> {
     let mut fields = line.split_whitespace();
     let _slot = fields.next()?;
     let (local_ip, local_port) = parse_endpoint(fields.next()?)?;
@@ -190,28 +202,22 @@ fn parse_udp_row(line: &str, inodes: &HashSet<u64>) -> Option<Endpoint> {
         fields.next()?;
     }
     let inode = fields.next()?.parse().ok()?;
+    let fd = inodes.get(&inode).copied();
     Some(Endpoint {
         local_ip,
         local_port,
         remote_ip,
         remote_port,
         inode,
-        owned: inodes.contains(&inode),
+        fd,
+        owned: fd.is_some(),
     })
 }
 
 /// Recheck only candidate flows. The cached inode must still be the sole
 /// matching socket and still be held by the same process. These /proc reads
 /// narrow races; they cannot prove ownership at the instant a packet arrived.
-pub fn confirms_flow(
-    pid: u32,
-    starttime: u64,
-    inode: u64,
-    local_ip: [u8; 4],
-    local_port: u16,
-    remote_ip: [u8; 4],
-    remote_port: u16,
-) -> bool {
+pub fn confirms_flow(pid: u32, starttime: u64, flow: &Endpoint) -> bool {
     if !alive(pid, starttime) {
         return false;
     }
@@ -219,13 +225,18 @@ pub fn confirms_flow(
         return false;
     };
     let mut found = false;
-    let inodes = HashSet::new();
+    let inodes = HashMap::new();
     for line in table.lines().skip(1) {
         let Some(endpoint) = parse_udp_row(line, &inodes) else {
             return false;
         };
-        if endpoint.matches(local_ip, local_port, remote_ip, remote_port) {
-            if endpoint.inode != inode || inode == 0 {
+        if endpoint.matches(
+            flow.local_ip,
+            flow.local_port,
+            flow.remote_ip,
+            flow.remote_port,
+        ) {
+            if endpoint.inode != flow.inode || flow.inode == 0 {
                 return false;
             }
             found = true;
@@ -234,13 +245,20 @@ pub fn confirms_flow(
     // Inspect descriptors after the table: an inode closed since the cached
     // snapshot must not authorize traffic from a replacement socket.
     found
-        && ipv6_port_is_clear(pid, local_port)
-        && holds_socket(pid, inode).unwrap_or(false)
+        && ipv6_port_is_clear(pid, starttime, flow.local_port)
+        && holds_socket(pid, flow.inode, flow.fd).unwrap_or(false)
         && alive(pid, starttime)
 }
 
-fn holds_socket(pid: u32, inode: u64) -> io::Result<bool> {
+fn holds_socket(pid: u32, inode: u64, fd_hint: Option<u32>) -> io::Result<bool> {
     let expected = format!("socket:[{inode}]");
+    if let Some(fd) = fd_hint {
+        if let Ok(path) = fs::read_link(format!("/proc/{pid}/fd/{fd}")) {
+            if path.as_os_str() == std::ffi::OsStr::new(&expected) {
+                return Ok(true);
+            }
+        }
+    }
     for entry in fs::read_dir(format!("/proc/{pid}/fd"))? {
         match fs::read_link(entry?.path()) {
             Ok(path) if path.as_os_str() == std::ffi::OsStr::new(&expected) => return Ok(true),
@@ -252,9 +270,13 @@ fn holds_socket(pid: u32, inode: u64) -> io::Result<bool> {
     Ok(false)
 }
 
-fn ipv6_port_is_clear(pid: u32, local_port: u16) -> bool {
-    let Ok(table) = fs::read_to_string(format!("/proc/{pid}/net/udp6")) else {
-        return false;
+fn ipv6_port_is_clear(pid: u32, starttime: u64, local_port: u16) -> bool {
+    let table = match fs::read_to_string(format!("/proc/{pid}/net/udp6")) {
+        Ok(table) => table,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return !Path::new("/proc/net/udp6").exists() && alive(pid, starttime);
+        }
+        Err(_) => return false,
     };
     // A dual-stack UDP socket may receive IPv4 traffic. /proc does not expose
     // IPV6_V6ONLY here, so conservatively reject even IPv6-only sockets with
@@ -311,22 +333,49 @@ pub fn peer_credentials(stream: &std::os::unix::net::UnixStream) -> io::Result<(
 }
 
 pub fn parent_is_private(path: &Path, expected_uid: Option<u32>) -> Result<(), String> {
-    use std::os::unix::fs::MetadataExt;
+    if !path.is_absolute() {
+        return Err("Socket path must be absolute".into());
+    }
     let parent = path
         .parent()
         .ok_or_else(|| "Socket has no parent directory".to_string())?;
-    let metadata = fs::metadata(parent)
-        .map_err(|error| format!("Cannot inspect socket directory: {error}"))?;
-    if !metadata.is_dir() {
+    let c_parent = CString::new(parent.as_os_str().as_bytes())
+        .map_err(|_| "Socket directory path contains NUL byte".to_string())?;
+    let raw_fd = unsafe {
+        libc::open(
+            c_parent.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if raw_fd < 0 {
+        return Err(format!(
+            "Cannot inspect socket directory: {}",
+            io::Error::last_os_error()
+        ));
+    }
+    let _dir_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(raw_fd) };
+    let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstat(raw_fd, &mut stat) } != 0 {
+        return Err(format!(
+            "Cannot stat socket directory: {}",
+            io::Error::last_os_error()
+        ));
+    }
+    if (stat.st_mode & libc::S_IFMT) != libc::S_IFDIR {
         return Err("Socket parent is not a directory".into());
     }
-    if metadata.mode() & 0o077 != 0 {
+    if (stat.st_mode & 0o077) != 0 {
         return Err("Socket directory is accessible by other users".into());
     }
     if let Some(uid) = expected_uid {
-        if metadata.uid() != uid {
+        if stat.st_uid != uid {
             return Err("Socket directory owner does not match the requesting user".into());
         }
+    }
+    let socket_meta = fs::symlink_metadata(path)
+        .map_err(|error| format!("Cannot inspect helper socket: {error}"))?;
+    if !socket_meta.file_type().is_socket() {
+        return Err("Helper socket path is not a Unix domain socket".into());
     }
     Ok(())
 }
@@ -354,17 +403,16 @@ mod tests {
         let cached = super::udp_endpoints(pid);
         let inode =
             super::flow_inode(&cached, [127, 0, 0, 1], port, [192, 0, 2, 1], 27002).unwrap();
-        let confirmed = || {
-            super::confirms_flow(
-                pid,
-                starttime,
-                inode,
-                [127, 0, 0, 1],
-                port,
-                [192, 0, 2, 1],
-                27002,
-            )
+        let flow = super::Endpoint {
+            local_ip: [127, 0, 0, 1],
+            local_port: port,
+            remote_ip: [192, 0, 2, 1],
+            remote_port: 27002,
+            inode,
+            fd: None,
+            owned: true,
         };
+        let confirmed = || super::confirms_flow(pid, starttime, &flow);
         assert!(confirmed());
         // IPv6 loopback does not overlap this IPv4 binding, but procfs cannot
         // tell us whether an arbitrary IPv6 socket is IPv6-only.
@@ -389,6 +437,7 @@ mod tests {
             remote_ip: [192, 0, 2, 1],
             remote_port: 27002,
             inode: 1,
+            fd: None,
             owned: true,
         };
         let accepts = |endpoints: &[Endpoint], ip, remote| {

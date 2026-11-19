@@ -8,11 +8,17 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use zeroize::Zeroize;
 
 use player_audio_helper::{
     procfs, read_command, write_event, Command, Event, ScanProgress, ScanResult, VERSION,
 };
+
+struct FsUidGuard;
+impl Drop for FsUidGuard {
+    fn drop(&mut self) {
+        unsafe { libc::setfsuid(0) };
+    }
+}
 
 fn main() {
     if let Err(error) = run() {
@@ -42,6 +48,22 @@ fn run() -> Result<(), String> {
             env!("CARGO_PKG_VERSION")
         );
         return Ok(());
+    }
+    if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+        return Err(format!(
+            "cannot disable helper core dumps: {}",
+            io::Error::last_os_error()
+        ));
+    }
+    let zero_core = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    if unsafe { libc::setrlimit(libc::RLIMIT_CORE, &zero_core) } != 0 {
+        return Err(format!(
+            "cannot clear core limit: {}",
+            io::Error::last_os_error()
+        ));
     }
     if unsafe { libc::geteuid() } != 0 {
         return Err("must run as root through pkexec".into());
@@ -95,14 +117,21 @@ fn run() -> Result<(), String> {
 
     let mut token = String::new();
     io::stdin()
+        .take(257)
         .read_to_string(&mut token)
         .map_err(|error| format!("cannot read authorization token: {error}"))?;
+    if token.len() > 256 {
+        return Err("invalid authorization token".into());
+    }
     let token = token.trim().to_string();
     if token.is_empty() || token.len() > 128 {
         return Err("invalid authorization token".into());
     }
-    let stream =
-        UnixStream::connect(&socket).map_err(|error| format!("cannot connect to VRCS: {error}"))?;
+    let stream = {
+        let _fsuid = FsUidGuard;
+        unsafe { libc::setfsuid(expected_uid) };
+        UnixStream::connect(&socket).map_err(|error| format!("cannot connect to VRCS: {error}"))?
+    };
     verify_peer(&stream, expected_uid)?;
     stream
         .set_write_timeout(Some(Duration::from_millis(500)))
@@ -230,6 +259,7 @@ fn run() -> Result<(), String> {
                     let outcome = scan::scan(
                         pid,
                         starttime,
+                        expected_uid,
                         &packets,
                         &thread_stop,
                         started + Duration::from_secs(40),
@@ -253,7 +283,7 @@ fn run() -> Result<(), String> {
                     let event = match outcome {
                         Ok(outcome) => Event::ScanResult(ScanResult {
                             request,
-                            key: outcome.key.as_deref().copied(),
+                            key: outcome.key,
                             scanned: outcome.scanned,
                             candidates: outcome.candidates,
                             elapsed_ms: outcome.elapsed_ms,
@@ -313,19 +343,11 @@ fn run() -> Result<(), String> {
     result
 }
 
-fn send(writer: &Mutex<UnixStream>, mut event: Event) -> Result<(), String> {
-    let result = writer
+fn send(writer: &Mutex<UnixStream>, event: Event) -> Result<(), String> {
+    writer
         .lock()
         .map_err(|_| "helper writer lock failed".to_string())
-        .and_then(|mut writer| {
-            write_event(&mut *writer, &event).map_err(|error| error.to_string())
-        });
-    if let Event::ScanResult(result) = &mut event {
-        if let Some(key) = &mut result.key {
-            key.zeroize();
-        }
-    }
-    result
+        .and_then(|mut writer| write_event(&mut *writer, &event).map_err(|error| error.to_string()))
 }
 
 fn verify_peer(stream: &UnixStream, expected_uid: u32) -> Result<(), String> {

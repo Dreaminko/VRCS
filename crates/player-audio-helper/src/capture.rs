@@ -7,8 +7,6 @@ use player_audio_helper::packet::{self, PHOTON_PORT};
 use player_audio_helper::procfs;
 use player_audio_helper::{write_event, Event, Packet};
 
-const SO_LOCK_FILTER: libc::c_int = 36;
-
 pub struct Capture {
     fd: libc::c_int,
     pid: u32,
@@ -43,15 +41,26 @@ impl Capture {
 
     fn configure(&self) -> Result<(), String> {
         let size: libc::c_int = 8 * 1024 * 1024;
-        let result = unsafe {
+        let mut result = unsafe {
             libc::setsockopt(
                 self.fd,
                 libc::SOL_SOCKET,
-                libc::SO_RCVBUF,
+                libc::SO_RCVBUFFORCE,
                 (&size as *const libc::c_int).cast(),
                 std::mem::size_of_val(&size) as libc::socklen_t,
             )
         };
+        if result != 0 {
+            result = unsafe {
+                libc::setsockopt(
+                    self.fd,
+                    libc::SOL_SOCKET,
+                    libc::SO_RCVBUF,
+                    (&size as *const libc::c_int).cast(),
+                    std::mem::size_of_val(&size) as libc::socklen_t,
+                )
+            };
+        }
         if result != 0 {
             return Err(format!(
                 "Cannot configure packet receive buffer: {}",
@@ -83,7 +92,7 @@ impl Capture {
             libc::setsockopt(
                 self.fd,
                 libc::SOL_SOCKET,
-                SO_LOCK_FILTER,
+                libc::SO_LOCK_FILTER,
                 (&locked as *const libc::c_int).cast(),
                 std::mem::size_of_val(&locked) as libc::socklen_t,
             )
@@ -121,14 +130,15 @@ impl Capture {
         let mut draining = true;
         while !self.stop.load(Ordering::Relaxed) {
             if refreshed.elapsed() >= Duration::from_secs(1) {
-                let updated = procfs::udp_endpoints(self.pid);
-                refreshed = Instant::now();
-                if updated != endpoints {
+                if let Ok(updated) = procfs::read_udp_endpoints(self.pid) {
+                    if owned_changed(&endpoints, &updated) {
+                        // Only a changed owned inventory can admit newly attributed flows.
+                        // Drain old frames before accepting the new ownership snapshot.
+                        draining = true;
+                    }
                     endpoints = updated;
-                    // Only a changed inventory can admit newly attributed flows.
-                    // Drain old frames before accepting the new ownership snapshot.
-                    draining = true;
                 }
+                refreshed = Instant::now();
             }
             if alive_checked.elapsed() >= Duration::from_secs(1) {
                 if let Err(error) = procfs::check_identity(self.pid, self.starttime) {
@@ -140,28 +150,18 @@ impl Capture {
                 }
                 alive_checked = Instant::now();
             }
-            let mut received = 0;
+            let mut empty = false;
             for _ in 0..128 {
-                match receive(self.fd, &mut buffer) {
-                    Ok(Some((bytes, outgoing))) => {
-                        received += 1;
+                match receive(self.fd, &mut buffer)? {
+                    Receive::Frame(bytes, outgoing) => {
                         if draining {
                             continue;
                         }
                         let Some(candidate) = parse(bytes, outgoing, &endpoints) else {
                             continue;
                         };
-                        let mut writer = writer.lock().unwrap();
                         let flow = &candidate.flow;
-                        if !procfs::confirms_flow(
-                            self.pid,
-                            self.starttime,
-                            flow.inode,
-                            flow.local_ip,
-                            flow.local_port,
-                            flow.remote_ip,
-                            flow.remote_port,
-                        ) {
+                        if !procfs::confirms_flow(self.pid, self.starttime, flow) {
                             continue;
                         }
                         let packet = Packet {
@@ -174,19 +174,21 @@ impl Capture {
                             challenge: candidate.payload[3..7].try_into().unwrap(),
                             payload: candidate.payload.to_vec(),
                         };
+                        let mut writer = writer.lock().unwrap();
                         if write_event(&mut *writer, &Event::Packet(packet)).is_err() {
                             return Err("Packet event channel closed".into());
                         }
                     }
-                    Ok(None) => {
+                    Receive::Skip => {}
+                    Receive::Empty => {
                         draining = false;
+                        empty = true;
                         break;
                     }
-                    Err(error) => return Err(error),
                 }
             }
-            if received == 0 {
-                std::thread::sleep(Duration::from_millis(2));
+            if empty {
+                wait_readable(self.fd, 200)?;
             }
         }
         Ok(())
@@ -203,6 +205,23 @@ impl Drop for Capture {
     }
 }
 
+fn owned_changed(previous: &[procfs::Endpoint], next: &[procfs::Endpoint]) -> bool {
+    let key = |endpoint: &procfs::Endpoint| {
+        (
+            endpoint.local_ip,
+            endpoint.local_port,
+            endpoint.remote_ip,
+            endpoint.remote_port,
+            endpoint.inode,
+        )
+    };
+    let mut prev: Vec<_> = previous.iter().filter(|e| e.owned).map(key).collect();
+    let mut curr: Vec<_> = next.iter().filter(|e| e.owned).map(key).collect();
+    prev.sort_unstable();
+    curr.sort_unstable();
+    prev != curr
+}
+
 fn filter(code: u32, jt: u8, jf: u8, k: u32) -> libc::sock_filter {
     libc::sock_filter {
         code: code as u16,
@@ -212,19 +231,21 @@ fn filter(code: u32, jt: u8, jf: u8, k: u32) -> libc::sock_filter {
     }
 }
 
-fn instructions() -> [libc::sock_filter; 12] {
+fn instructions() -> [libc::sock_filter; 14] {
     use libc::{
-        BPF_ABS, BPF_ALU, BPF_AND, BPF_B, BPF_H, BPF_IND, BPF_JEQ, BPF_JMP, BPF_K, BPF_LD, BPF_LDX,
-        BPF_MSH, BPF_RET,
+        BPF_ABS, BPF_ALU, BPF_AND, BPF_B, BPF_H, BPF_IND, BPF_JEQ, BPF_JMP, BPF_JSET, BPF_K,
+        BPF_LD, BPF_LDX, BPF_MSH, BPF_RET,
     };
     [
         filter(BPF_LD | BPF_B | BPF_ABS, 0, 0, 0),
         filter(BPF_ALU | BPF_AND | BPF_K, 0, 0, 0xf0),
-        filter(BPF_JMP | BPF_JEQ | BPF_K, 0, 7, 0x40), // IPv4
+        filter(BPF_JMP | BPF_JEQ | BPF_K, 0, 9, 0x40), // IPv4
         filter(BPF_LD | BPF_B | BPF_ABS, 0, 0, 9),
-        filter(BPF_JMP | BPF_JEQ | BPF_K, 0, 5, 17), // UDP
-        filter(BPF_LDX | BPF_B | BPF_MSH, 0, 0, 0),  // x = 4 * IHL
-        filter(BPF_LD | BPF_H | BPF_IND, 0, 0, 2),   // destination port
+        filter(BPF_JMP | BPF_JEQ | BPF_K, 0, 7, 17), // UDP
+        filter(BPF_LD | BPF_H | BPF_ABS, 0, 0, 6),
+        filter(BPF_JMP | BPF_JSET | BPF_K, 5, 0, 0x1fff), // reject IPv4 fragments
+        filter(BPF_LDX | BPF_B | BPF_MSH, 0, 0, 0),       // x = 4 * IHL
+        filter(BPF_LD | BPF_H | BPF_IND, 0, 0, 2),        // destination port
         filter(BPF_JMP | BPF_JEQ | BPF_K, 3, 0, u32::from(PHOTON_PORT)),
         filter(BPF_LD | BPF_H | BPF_IND, 0, 0, 0), // source port
         filter(BPF_JMP | BPF_JEQ | BPF_K, 1, 0, u32::from(PHOTON_PORT)),
@@ -233,30 +254,61 @@ fn instructions() -> [libc::sock_filter; 12] {
     ]
 }
 
-fn receive(fd: libc::c_int, buffer: &mut [u8]) -> Result<Option<(&[u8], bool)>, String> {
-    let mut address: libc::sockaddr_ll = unsafe { std::mem::zeroed() };
-    let mut length = std::mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t;
-    let count = unsafe {
-        libc::recvfrom(
-            fd,
-            buffer.as_mut_ptr().cast(),
-            buffer.len(),
-            0,
-            (&mut address as *mut libc::sockaddr_ll).cast(),
-            &mut length,
-        )
+enum Receive<'a> {
+    Frame(&'a [u8], bool),
+    Skip,
+    Empty,
+}
+
+fn wait_readable(fd: libc::c_int, timeout_ms: libc::c_int) -> Result<(), String> {
+    let mut pollfd = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
     };
-    if count < 0 {
+    loop {
+        let ready = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
+        if ready >= 0 {
+            return Ok(());
+        }
         let error = io::Error::last_os_error();
-        return match error.raw_os_error() {
-            Some(libc::EAGAIN) => Ok(None),
-            _ => Err(format!("Linux packet capture failed: {error}")),
-        };
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(format!("Linux packet poll failed: {error}"));
+        }
     }
-    Ok(Some((
-        &buffer[..count as usize],
-        address.sll_pkttype == libc::PACKET_OUTGOING,
-    )))
+}
+
+fn receive(fd: libc::c_int, buffer: &mut [u8]) -> Result<Receive<'_>, String> {
+    let mut address: libc::sockaddr_ll = unsafe { std::mem::zeroed() };
+    loop {
+        let mut length = std::mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t;
+        let count = unsafe {
+            libc::recvfrom(
+                fd,
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                0,
+                (&mut address as *mut libc::sockaddr_ll).cast(),
+                &mut length,
+            )
+        };
+        if count < 0 {
+            let error = io::Error::last_os_error();
+            match error.kind() {
+                io::ErrorKind::Interrupted => continue,
+                io::ErrorKind::WouldBlock => return Ok(Receive::Empty),
+                _ => return Err(format!("Linux packet capture failed: {error}")),
+            }
+        }
+        if address.sll_pkttype != libc::PACKET_HOST && address.sll_pkttype != libc::PACKET_OUTGOING
+        {
+            return Ok(Receive::Skip);
+        }
+        return Ok(Receive::Frame(
+            &buffer[..count as usize],
+            address.sll_pkttype == libc::PACKET_OUTGOING,
+        ));
+    }
 }
 
 struct Candidate<'a> {
@@ -293,6 +345,9 @@ fn parse<'a>(
     if !packet::encrypted(payload) {
         return None;
     }
+    let endpoint = endpoints
+        .iter()
+        .find(|endpoint| endpoint.owned && endpoint.inode == inode);
     Some(Candidate {
         flow: procfs::Endpoint {
             local_ip,
@@ -300,6 +355,7 @@ fn parse<'a>(
             remote_ip,
             remote_port,
             inode,
+            fd: endpoint.and_then(|endpoint| endpoint.fd),
             owned: true,
         },
         incoming,
@@ -394,6 +450,10 @@ mod tests {
         let mut unrelated = ipv4_udp(5, 27002, 53000);
         unrelated[9] = 6;
         assert!(!accepts(&unrelated));
+        let mut fragment = ipv4_udp(5, 27002, 53000);
+        fragment[6] = 0x00;
+        fragment[7] = 0x01;
+        assert!(!accepts(&fragment));
     }
 }
 #[cfg(test)]
@@ -432,6 +492,7 @@ mod parse_tests {
             remote_ip: [0; 4],
             remote_port: 0,
             inode: 1,
+            fd: None,
             owned: true,
         }];
         let bytes = packet(true);

@@ -13,6 +13,7 @@ const OVERLAP: usize = 32 + 8;
 struct Region {
     start: usize,
     end: usize,
+    anonymous: bool,
 }
 
 pub struct ScanOutcome {
@@ -25,6 +26,7 @@ pub struct ScanOutcome {
 pub fn scan(
     pid: u32,
     starttime: u64,
+    expected_uid: u32,
     packets: &[Vec<u8>],
     stop: &AtomicBool,
     deadline: Instant,
@@ -40,6 +42,12 @@ pub fn scan(
         || packets
             .iter()
             .any(|packet| !(40..=65_507).contains(&packet.len()) || packet[2] != 1)
+        || packets
+            .iter()
+            .map(|packet| &packet[7..19])
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            < 2
     {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -50,9 +58,10 @@ pub fn scan(
     let regions = regions(pid)?;
     // An open mem fd remains tied to this mm even if the numeric PID is reused.
     let memory = File::open(format!("/proc/{pid}/mem"))?;
-    procfs::check_identity(pid, starttime)?;
+    procfs::validate_target(pid, starttime, expected_uid)?;
     let total: u64 = regions.iter().map(|r| (r.end - r.start) as u64).sum();
     let started = Instant::now();
+    let mut last_identity_check = started;
     let mut scanned = 0u64;
     let mut buffer = player_audio_scan::ScanBuffer::default();
     buffer.bytes().resize(CHUNK + OVERLAP, 0);
@@ -62,18 +71,23 @@ pub fn scan(
     for region in regions {
         let mut address = region.start;
         let mut carry = 0;
+        let mut high_water = 0;
         while address < region.end {
             control.check().map_err(scan_abort)?;
-            procfs::check_identity(pid, starttime)?;
+            if last_identity_check.elapsed() >= Duration::from_millis(64) {
+                procfs::check_identity(pid, starttime)?;
+                last_identity_check = Instant::now();
+            }
             let length = (region.end - address).min(CHUNK);
             let result = read_memory(&memory, address, &mut buffer[carry..carry + length]);
-            // Check after failures and zero reads too, before inspecting any bytes.
-            procfs::check_identity(pid, starttime)?;
             control.check().map_err(scan_abort)?;
             let read = result?.unwrap_or(0);
             if read == 0 {
                 // Never join candidates across an unreadable gap.
-                buffer[..carry].zeroize();
+                if high_water > 0 {
+                    buffer[..high_water].zeroize();
+                    high_water = 0;
+                }
                 carry = 0;
                 address = address
                     .saturating_add(page - address % page)
@@ -81,11 +95,16 @@ pub fn scan(
                 continue;
             }
             let valid = carry + read;
-            buffer[valid..].zeroize();
+            if valid < high_water {
+                buffer[valid..high_water].zeroize();
+            }
+            high_water = valid;
             let key = player_audio_scan::scan_candidates(&buffer[..valid], packets, &mut control)
                 .map_err(scan_abort)?;
             scanned += read as u64;
             if key.is_some() {
+                procfs::check_identity(pid, starttime)?;
+                buffer[..high_water].zeroize();
                 progress(scanned, total, control.candidates);
                 return Ok(ScanOutcome {
                     key,
@@ -103,8 +122,11 @@ pub fn scan(
             buffer.copy_within(valid - carry..valid, 0);
             address += read;
         }
-        buffer.as_mut_slice().zeroize();
+        if high_water > 0 {
+            buffer[..high_water].zeroize();
+        }
     }
+    procfs::check_identity(pid, starttime)?;
     progress(scanned, total, control.candidates);
     Ok(ScanOutcome {
         key: None,
@@ -135,12 +157,17 @@ fn regions(pid: u32) -> io::Result<Vec<Region>> {
         let Some(perms) = fields.next() else { continue };
         let _offset = fields.next();
         let _device = fields.next();
-        let _inode = fields.next();
+        let inode = fields
+            .next()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(1);
         let path = fields.next().unwrap_or("");
-        if !perms.starts_with("rw")
+        if perms != "rw-p"
             || path.starts_with("/dev")
             || path.starts_with("/sys")
             || path.starts_with("/proc")
+            || path.starts_with("anon_inode:")
+            || path.starts_with("/memfd:")
             || matches!(path, "[vvar]" | "[vdso]" | "[vsyscall]")
         {
             continue;
@@ -155,10 +182,19 @@ fn regions(pid: u32) -> io::Result<Vec<Region>> {
             continue;
         };
         if end > start && end - start >= 64 * 1024 {
-            regions.push(Region { start, end });
+            regions.push(Region {
+                start,
+                end,
+                anonymous: inode == 0 && path.is_empty(),
+            });
         }
     }
-    regions.sort_by_key(|region| std::cmp::Reverse(region.end - region.start));
+    regions.sort_by_key(|region| {
+        (
+            !region.anonymous,
+            std::cmp::Reverse(region.end - region.start),
+        )
+    });
     Ok(regions)
 }
 
@@ -191,6 +227,7 @@ mod tests {
         let result = scan(
             0,
             0,
+            0,
             &[],
             &stop,
             Instant::now() + Duration::from_secs(1),
@@ -198,7 +235,7 @@ mod tests {
         );
         assert_eq!(result.err().unwrap().kind(), io::ErrorKind::Interrupted);
         let stop = AtomicBool::new(false);
-        let result = scan(0, 0, &[], &stop, Instant::now(), |_, _, _| {});
+        let result = scan(0, 0, 0, &[], &stop, Instant::now(), |_, _, _| {});
         assert_eq!(result.err().unwrap().kind(), io::ErrorKind::TimedOut);
     }
 }

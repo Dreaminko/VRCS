@@ -69,6 +69,11 @@ impl EventSender {
     fn is_closed(&self) -> bool {
         self.0.lock().expect("network outputs").network_closed()
     }
+
+    #[cfg(target_os = "linux")]
+    fn voice_enabled(&self) -> bool {
+        self.0.lock().expect("network outputs").voice_enabled()
+    }
 }
 
 #[cfg(test)]
@@ -131,6 +136,10 @@ fn supervise(
         // Game installation and sockets are opened only after a process exists;
         // starting transcription itself never requires being in VRChat.
         let default_opus_path = platform::opus_path(&path);
+        #[cfg(target_os = "linux")]
+        if tx.voice_enabled() {
+            Opus::load(&default_opus_path)?;
+        }
         #[cfg(target_os = "linux")]
         {
             status.lock().expect("player status").phase = "authorizing";
@@ -241,7 +250,7 @@ fn run(
     #[cfg(windows)]
     let mut scanner: Option<std::thread::JoinHandle<()>> = None;
     #[cfg(target_os = "linux")]
-    let scanner: Option<std::thread::JoinHandle<()>> = None;
+    let mut scanner: Option<super::linux::PendingScan> = None;
     #[cfg(windows)]
     let (key_tx, key_rx) = mpsc::sync_channel(1);
     let started = Instant::now();
@@ -411,6 +420,26 @@ fn run(
                     }
                 }
             }
+            #[cfg(target_os = "linux")]
+            if let Some(pending_scan) = scanner.as_ref() {
+                if let Some(result) = network.poll_key_scan(pending_scan) {
+                    scanner = None;
+                    if stop.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    match result {
+                        Ok(bytes) => candidate = Some(bytes),
+                        Err(error) => {
+                            network.refresh()?;
+                            retry_at = Instant::now() + retry_delay;
+                            retry_delay = (retry_delay * 2).min(Duration::from_secs(30));
+                            let mut state = status.lock().expect("player status");
+                            state.phase = "retrying_key";
+                            state.detail = Some(error);
+                        }
+                    }
+                }
+            }
             if scanner.is_none() && Instant::now() >= retry_at && pending.len() >= 2 {
                 if key.is_none() {
                     status.lock().expect("player status").phase = if world_ready {
@@ -535,8 +564,8 @@ fn run(
                                 }
                                 #[cfg(target_os = "linux")]
                                 {
-                                    match network.acquire_key(config, &samples, stop, status) {
-                                        Ok(bytes) => candidate = Some(bytes),
+                                    match network.start_key_scan(&samples) {
+                                        Ok(pending_scan) => scanner = Some(pending_scan),
                                         Err(error) => {
                                             network.refresh()?;
                                             retry_at = Instant::now() + retry_delay;
@@ -565,6 +594,10 @@ fn run(
     #[cfg(windows)]
     if let Some(thread) = scanner {
         let _ = thread.join();
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(pending_scan) = scanner {
+        network.cancel_key_scan(pending_scan);
     }
     engine.close_tracks();
     engine.clear_text();

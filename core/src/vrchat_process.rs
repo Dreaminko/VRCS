@@ -123,6 +123,9 @@ pub(crate) fn game() -> Result<Option<(ProcessIdentity, PathBuf)>, String> {
         if pid == std::process::id() {
             continue;
         }
+        if !same_uid(pid) {
+            continue;
+        }
         let comm = fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
         let cmdline = fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
         if !comm.to_ascii_lowercase().contains("vrchat.exe")
@@ -132,20 +135,19 @@ pub(crate) fn game() -> Result<Option<(ProcessIdentity, PathBuf)>, String> {
         {
             continue;
         }
-        let owner = match identity(pid) {
-            Ok(owner) => owner,
-            Err(error) => {
-                if !matches!(procfs::starttime(pid), Err(error)
-                    if error.kind() == std::io::ErrorKind::NotFound)
-                {
-                    return Err(error);
-                }
+        let created = match procfs::starttime(pid) {
+            Ok(created) => created,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+                ) || error.raw_os_error() == Some(libc::ESRCH) =>
+            {
                 continue;
             }
+            Err(error) => return Err(format!("Cannot read VRChat process: {error}")),
         };
-        if !same_uid(pid) {
-            continue;
-        }
+        let owner = ProcessIdentity { pid, created };
         // The EAC launcher also has VRChat in its command line; only the
         // IL2CPP host maps GameAssembly.dll.
         let maps = fs::read_to_string(format!("/proc/{pid}/maps")).unwrap_or_default();

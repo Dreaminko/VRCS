@@ -22,6 +22,8 @@ const HELPER_PATHS: [&str; 2] = [
     "/usr/local/lib/vrcs/vrcs-network-helper",
 ];
 
+static PKEXEC_ACTIVE: AtomicBool = AtomicBool::new(false);
+
 pub(crate) fn network_available() -> bool {
     Path::new("/usr/bin/pkexec").is_file() && helper_path().is_some()
 }
@@ -73,7 +75,15 @@ struct HelperChild {
 }
 
 impl HelperChild {
+    #[cfg(test)]
     fn spawn(command: &mut Command) -> Result<Self, String> {
+        Self::spawn_with_flag(command, None)
+    }
+
+    fn spawn_with_flag(
+        command: &mut Command,
+        active: Option<&'static AtomicBool>,
+    ) -> Result<Self, String> {
         let (reaper, receiver) = mpsc::channel::<Child>();
         std::thread::Builder::new()
             .name("vrcs-helper-reaper".into())
@@ -81,11 +91,25 @@ impl HelperChild {
                 if let Ok(mut child) = receiver.recv() {
                     let _ = child.wait();
                 }
+                if let Some(flag) = active {
+                    flag.store(false, Ordering::Release);
+                }
             })
-            .map_err(|error| format!("Cannot start the helper reaper: {error}"))?;
-        let process = command
-            .spawn()
-            .map_err(|error| format!("Cannot start the network helper: {error}"))?;
+            .map_err(|error| {
+                if let Some(flag) = active {
+                    flag.store(false, Ordering::Release);
+                }
+                format!("Cannot start the helper reaper: {error}")
+            })?;
+        let process = match command.spawn() {
+            Ok(process) => process,
+            Err(error) => {
+                if let Some(flag) = active {
+                    flag.store(false, Ordering::Release);
+                }
+                return Err(format!("Cannot start the network helper: {error}"));
+            }
+        };
         Ok(Self {
             process: Some(process),
             reaper,
@@ -162,18 +186,44 @@ impl Network {
         let helper = helper_path().ok_or(
             "The VRCS network helper is not installed. Install the matching vrcs-network-helper package",
         )?;
-        let (runtime, socket_path) = runtime_path()?;
-        let listener = UnixListener::bind(&socket_path)
-            .map_err(|error| format!("Cannot create network helper socket: {error}"))?;
-        listener
-            .set_nonblocking(true)
-            .map_err(|error| error.to_string())?;
+        let version = Command::new(&helper)
+            .arg("--version")
+            .output()
+            .map_err(|error| format!("Cannot run the network helper: {error}"))?;
+        let expected_protocol = format!("(protocol {})", player_audio_helper::VERSION);
+        if !version.status.success()
+            || !String::from_utf8_lossy(&version.stdout).contains(&expected_protocol)
+        {
+            return Err("The installed network helper is incompatible with this VRCS build".into());
+        }
+        if PKEXEC_ACTIVE
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err("A network capture authorization prompt is already pending".into());
+        }
+        let (runtime, socket_path) = match runtime_path() {
+            Ok(pair) => pair,
+            Err(error) => {
+                PKEXEC_ACTIVE.store(false, Ordering::Release);
+                return Err(error);
+            }
+        };
+        let listener = match UnixListener::bind(&socket_path)
+            .and_then(|listener| listener.set_nonblocking(true).map(|()| listener))
+        {
+            Ok(listener) => listener,
+            Err(error) => {
+                PKEXEC_ACTIVE.store(false, Ordering::Release);
+                return Err(format!("Cannot create network helper socket: {error}"));
+            }
+        };
         let token = format!(
             "{}{}",
             uuid::Uuid::new_v4().simple(),
             uuid::Uuid::new_v4().simple()
         );
-        let mut child = HelperChild::spawn(
+        let mut child = HelperChild::spawn_with_flag(
             Command::new("/usr/bin/pkexec")
                 .arg("--disable-internal-agent")
                 .arg(&helper)
@@ -188,12 +238,22 @@ impl Network {
                 // Keep helper and pkexec diagnostics visible in the terminal that
                 // launched `npm run dev`; successful capture writes nothing here.
                 .stderr(Stdio::inherit()),
+            Some(&PKEXEC_ACTIVE),
         )?;
         if let Some(mut stdin) = child.process().stdin.take() {
             use std::io::Write;
-            stdin
-                .write_all(token.as_bytes())
-                .map_err(|error| format!("Cannot authorize the network helper: {error}"))?;
+            if let Err(error) = stdin.write_all(token.as_bytes()) {
+                if error.kind() == std::io::ErrorKind::BrokenPipe {
+                    if let Some(state) = child
+                        .process()
+                        .try_wait()
+                        .map_err(|wait_err| wait_err.to_string())?
+                    {
+                        return Err(pkexec_failure(state.code()));
+                    }
+                }
+                return Err(format!("Cannot authorize the network helper: {error}"));
+            }
         }
         let deadline = Instant::now() + Duration::from_secs(120);
         let stream = loop {
@@ -382,13 +442,7 @@ impl Network {
         }
     }
 
-    pub(super) fn acquire_key(
-        &self,
-        _config: &crate::config::PlayerAudioConfig,
-        packets: &[Vec<u8>],
-        stop: &AtomicBool,
-        _status: &SharedStatus,
-    ) -> Result<zeroize::Zeroizing<[u8; 32]>, String> {
+    pub(super) fn start_key_scan(&self, packets: &[Vec<u8>]) -> Result<PendingScan, String> {
         let mut writer = self.writer.try_clone().map_err(|error| error.to_string())?;
         let request = self.next_request.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = mpsc::sync_channel(1);
@@ -409,42 +463,51 @@ impl Network {
             self.waiter.lock().expect("scan waiter").take();
             return Err(format!("Cannot request a network key scan: {error}"));
         }
-        let deadline = Instant::now() + Duration::from_secs(45);
-        loop {
-            if stop.load(Ordering::Relaxed) {
-                self.cancel(request);
-                return Err("Player audio stopped".into());
+        Ok(PendingScan {
+            request,
+            receiver,
+            deadline: Instant::now() + Duration::from_secs(45),
+        })
+    }
+
+    pub(super) fn poll_key_scan(
+        &self,
+        scan: &PendingScan,
+    ) -> Option<Result<zeroize::Zeroizing<[u8; 32]>, String>> {
+        if let Some(detail) = self.fatal.lock().expect("helper fatal").as_ref() {
+            self.waiter.lock().expect("scan waiter").take();
+            return Some(Err(detail.clone()));
+        }
+        match scan.receiver.try_recv() {
+            Ok(result) => Some(result.key.ok_or_else(|| {
+                result
+                    .error
+                    .unwrap_or_else(|| "No key authenticated the current session".into())
+            })),
+            Err(mpsc::TryRecvError::Empty) => {
+                if Instant::now() >= scan.deadline {
+                    self.cancel(scan.request);
+                    Some(Err("Timed out waiting for the network key scan".into()))
+                } else {
+                    None
+                }
             }
-            if let Some(detail) = self.fatal.lock().expect("helper fatal").as_ref() {
+            Err(mpsc::TryRecvError::Disconnected) => {
                 self.waiter.lock().expect("scan waiter").take();
-                return Err(detail.clone());
-            }
-            if Instant::now() >= deadline {
-                self.cancel(request);
-                return Err("Timed out waiting for the network key scan".into());
-            }
-            match receiver.recv_timeout(Duration::from_millis(100)) {
-                Ok(result) => {
-                    return result.key.map(zeroize::Zeroizing::new).ok_or_else(|| {
-                        result
-                            .error
-                            .unwrap_or_else(|| "No key authenticated the current session".into())
-                    })
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    self.waiter.lock().expect("scan waiter").take();
-                    return Err(self
-                        .fatal
-                        .lock()
-                        .expect("helper fatal")
-                        .clone()
-                        .unwrap_or_else(|| {
-                            "The network helper stopped during key acquisition".into()
-                        }));
-                }
+                Some(Err(self
+                    .fatal
+                    .lock()
+                    .expect("helper fatal")
+                    .clone()
+                    .unwrap_or_else(|| {
+                        "The network helper stopped during key acquisition".into()
+                    })))
             }
         }
+    }
+
+    pub(super) fn cancel_key_scan(&self, scan: PendingScan) {
+        self.cancel(scan.request);
     }
 
     fn cancel(&self, request: u64) {
@@ -453,6 +516,12 @@ impl Network {
             let _ = write_command(&mut writer, &HelperCommand::Cancel { request });
         }
     }
+}
+
+pub(super) struct PendingScan {
+    request: u64,
+    receiver: mpsc::Receiver<ScanResult>,
+    deadline: Instant,
 }
 
 impl Drop for Network {
@@ -543,17 +612,8 @@ mod tests {
             next_request: AtomicU64::new(1),
             _runtime: RuntimeDir(runtime),
         };
-        let stop = Arc::new(AtomicBool::new(false));
-        let thread_stop = Arc::clone(&stop);
-        let (sender, receiver) = mpsc::channel();
-        let thread = std::thread::spawn(move || {
-            let result =
-                network.acquire_key(&Default::default(), &[], &thread_stop, &Default::default());
-            sender.send(result).unwrap();
-        });
-        let result = receiver.recv_timeout(Duration::from_secs(1));
-        stop.store(true, Ordering::Relaxed);
-        thread.join().unwrap();
+        let pending = network.start_key_scan(&[]).unwrap();
+        let result = network.poll_key_scan(&pending);
         assert_eq!(result.unwrap().unwrap_err(), "fixture helper disconnected");
     }
 }

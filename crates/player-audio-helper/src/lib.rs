@@ -34,7 +34,7 @@ pub struct ScanProgress {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScanResult {
     pub request: u64,
-    pub key: Option<[u8; 32]>,
+    pub key: Option<Zeroizing<[u8; 32]>>,
     pub scanned: u64,
     pub candidates: u64,
     pub elapsed_ms: u64,
@@ -173,7 +173,7 @@ pub fn write_event(writer: &mut impl Write, event: &Event) -> io::Result<()> {
             body.extend_from_slice(&result.scanned.to_le_bytes());
             body.extend_from_slice(&result.candidates.to_le_bytes());
             body.extend_from_slice(&result.elapsed_ms.to_le_bytes());
-            body.extend_from_slice(result.key.as_ref().unwrap_or(&[0; 32]));
+            body.extend_from_slice(result.key.as_deref().unwrap_or(&[0; 32]));
             put_string(&mut body, result.error.as_deref().unwrap_or(""))?;
         }
         Event::Status { fatal, detail } => {
@@ -231,7 +231,7 @@ pub fn read_event(reader: &mut impl Read) -> io::Result<Option<Event>> {
             let scanned = cursor.u64()?;
             let candidates = cursor.u64()?;
             let elapsed_ms = cursor.u64()?;
-            let key = cursor.array()?;
+            let key = Zeroizing::new(cursor.array()?);
             let error = cursor.string()?;
             Event::ScanResult(ScanResult {
                 request,
