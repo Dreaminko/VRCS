@@ -107,8 +107,6 @@ impl Default for PlayerAudioConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MicrophoneConfig {
-    #[serde(default)]
-    pub speaker_filter_enabled: bool,
     #[serde(default = "default_microphone_mode")]
     pub mode: String,
     #[serde(default)]
@@ -183,7 +181,6 @@ impl Default for OutputConfig {
 impl Default for MicrophoneConfig {
     fn default() -> Self {
         Self {
-            speaker_filter_enabled: false,
             mode: default_microphone_mode(),
             device_id: None,
             trigger_threshold_dbfs: default_microphone_trigger_threshold_dbfs(),

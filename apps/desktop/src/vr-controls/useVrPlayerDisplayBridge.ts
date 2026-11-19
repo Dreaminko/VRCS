@@ -24,13 +24,14 @@ function playerDisplayState(workspace: AppWorkspace, optimistic = false) {
   const roster = workspace.runtime.health?.network_players
     ?? (playerMode ? workspace.runtime.health?.player_audio?.players ?? [] : []);
   const current = roster.map(player => player.speaker);
+  const distances = new Map(roster.map(player => [player.speaker.id, player.distance_m]));
   const savedIds = Object.keys(overrides);
   const preferences = workspace.playerDisplay.getCurrent();
   const defaultLanguages = defaultHiddenSourceLanguages(settings?.translation, workspace.runtime.health?.language_session);
   const available = workspace.onboarding.status === "complete";
   return {
     available, processingAvailable: available && workspace.runtime.ready && playerMode,
-    playerMode, sourceMode: sourceMode(settings?.audio.output.player_audio), names, overrides, proximity, viewPriority, current, preferences, defaultLanguages, unmatchedBlocked,
+    playerMode, sourceMode: sourceMode(settings?.audio.output.player_audio), names, overrides, proximity, viewPriority, current, distances, preferences, defaultLanguages, unmatchedBlocked,
     hiddenTracks: preferences.hiddenTracks,
     speakers: collectPlayerSpeakers(workspace.subtitles.items, current, savedIds, names),
     languages: playerLanguageOptions(workspace.subtitles.items, defaultLanguages, preferences.hiddenSourceLanguages),
@@ -69,7 +70,6 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
     for (const id of known) if (!order.current.has(id)) order.current.set(id, nextOrder.current++);
     const labels: Record<string, string> = {
       ...(translate("live.players", { returnObjects: true }) as Record<string, string>),
-      ...Object.fromEntries(Object.entries(translate("live.microphoneSpeakers", { returnObjects: true }) as Record<string, string>).map(([key, value]) => [`mic_${key}`, value])),
       close: translate("common.close"), previous: translate("wristReader.previousPage"),
       next: translate("wristReader.nextPage"), busy: translate("settings.vrOverlay.controlBusy"),
     };
@@ -79,10 +79,6 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
       .map(playerUserId)
       .filter((id): id is string => id !== null));
     const languageName = (language: string) => localizedLanguageName(language, locale);
-    const micControl = current.current.workspace.microphoneSpeakers;
-    const mic = micControl.connected
-      && current.current.workspace.settings.getOptimistic()?.features.microphone_speaker_filter
-      ? micControl.getCurrent() : null;
     const viewHealth = current.current.workspace.runtime.health?.player_audio?.proximity;
     return {
       available: state.available,
@@ -94,13 +90,6 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
         enabled: state.viewPriority.enabled, horizontal_fov_deg: state.viewPriority.horizontal_fov_deg,
         local_view: state.processingAvailable && viewHealth?.view_enabled === true && viewHealth.local_view,
       } } : {}),
-      ...(mic ? { microphone: {
-        enabled: mic.enabled, supported: mic.supported, running: mic.running,
-        generation: mic.generation, revision: mic.revision,
-        speakers: mic.speakers.map(speaker => ({ id: speaker.id, index: speaker.index, decision: speaker.decision,
-          name: translate("live.speakerNumber", { number: speaker.index + 1 }),
-          last_active: translate("live.microphoneSpeakers.lastActive", { time: new Date(speaker.last_active_at).toLocaleTimeString(locale) }) })),
-      } } : {}),
       players: [...state.speakers].sort((a, b) => order.current.get(a.id)! - order.current.get(b.id)!).map(speaker => {
         const userId = playerUserId(speaker);
         const saved = speaker.id.startsWith("saved-user:");
@@ -109,8 +98,23 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
         const name = speaker.id === "other:unidentified" ? labels.unidentified
           : speaker.display_name || (userId && state.names[userId]) || userId || number;
         const category = isCurrent ? labels.current : saved ? labels.savedSelection : labels.history;
-        const detail = saved ? `${category} - ${userId?.slice(-8) ?? ""}`
-          : `${category} - ${number}${isCurrent && !userId ? ` - ${labels.userIdPending}` : ""}`;
+        const distance = state.distances.get(speaker.id);
+        let detail: string;
+        if (isCurrent) {
+          if (!userId) {
+            detail = `${category} · ${number} · ${labels.userIdPending}`;
+          } else if (distance !== undefined && Number.isFinite(distance)) {
+            const dist = translate("live.players.distance", { distance: distance.toFixed(1) });
+            const far = state.proximity?.enabled && distance > state.proximity.radius_m;
+            detail = `${category} · ${dist}${far ? ` · ${labels.outOfRange}` : ""}`;
+          } else if (state.playerMode) {
+            detail = `${category} · ${labels.distanceUnknown}`;
+          } else {
+            detail = `${category} · ${number}`;
+          }
+        } else {
+          detail = saved ? `${category} · ${userId?.slice(-8) ?? ""}` : `${category} · ${number}`;
+        }
         const rule = userId ? state.overrides[userId] : undefined;
         return {
           track_id: saved ? null : speaker.id, user_id: userId, name, detail,
@@ -150,7 +154,6 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
       },
       updateSettings: apply => current.current.workspace.settings.update(apply),
       updatePreferences: apply => current.current.workspace.playerDisplay.update(apply),
-      updateMicrophone: action => current.current.workspace.microphoneSpeakers.execute(action),
     });
     const receive = createPlayerDisplayReceiver({
       epoch, active: () => !disposed,

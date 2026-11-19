@@ -6,7 +6,7 @@ use super::{
     VadConfig, VrOcrConfig, VrOverlayConfig, VrchatChatboxConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 44;
+pub const SCHEMA_VERSION: u32 = 45;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -208,12 +208,7 @@ mod tests {
         );
         assert_keys(
             &value["audio"]["microphone"],
-            [
-                "device_id",
-                "mode",
-                "speaker_filter_enabled",
-                "trigger_threshold_dbfs",
-            ],
+            ["device_id", "mode", "trigger_threshold_dbfs"],
         );
         assert_keys(
             &value["vad"],

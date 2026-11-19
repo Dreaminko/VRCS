@@ -31,33 +31,11 @@ pub enum Action {
         source: String,
         disabled: bool,
     },
-    SetMicrophoneFilter(bool),
-    SetMicrophoneSpeaker {
-        generation: String,
-        revision: u64,
-        id: String,
-        decision: String,
-    },
 }
 
 impl Action {
     pub(super) fn allowed(&self, view: &View) -> bool {
         match self {
-            Self::SetMicrophoneFilter(_) => view.microphone.is_some(),
-            Self::SetMicrophoneSpeaker {
-                generation,
-                revision,
-                id,
-                decision,
-            } => view.microphone.as_ref().is_some_and(|mic| {
-                mic.enabled
-                    && mic.running
-                    && mic.supported
-                    && mic.generation == *generation
-                    && mic.revision == *revision
-                    && matches!(decision.as_str(), "allow" | "block")
-                    && mic.speakers.iter().any(|speaker| speaker.id == *id)
-            }),
             Self::SetTrackHidden { track_id, .. } => {
                 !track_id.is_empty()
                     && view
@@ -142,25 +120,6 @@ pub struct Language {
     pub hidden: bool,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MicrophoneSpeaker {
-    pub id: String,
-    pub index: u64,
-    pub name: String,
-    pub decision: String,
-    pub last_active: String,
-}
-
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Microphone {
-    pub enabled: bool,
-    pub supported: bool,
-    pub running: bool,
-    pub generation: String,
-    pub revision: u64,
-    pub speakers: Vec<MicrophoneSpeaker>,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Proximity {
     pub enabled: bool,
@@ -187,8 +146,6 @@ pub struct View {
     pub proximity: Option<Proximity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view_priority: Option<ViewPriority>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub microphone: Option<Microphone>,
     pub languages: Vec<Language>,
     pub follow_default: bool,
     pub default_languages: Vec<String>,
@@ -200,24 +157,6 @@ pub struct View {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn microphone_filter_can_be_enabled_before_capture_starts() {
-        let view = View {
-            microphone: Some(Microphone::default()),
-            ..Default::default()
-        };
-        assert!(Action::SetMicrophoneFilter(true).allowed(&view));
-        assert!(Action::SetMicrophoneFilter(false).allowed(&view));
-        assert!(!Action::SetMicrophoneSpeaker {
-            generation: String::new(),
-            revision: 0,
-            id: "unknown".into(),
-            decision: "allow".into(),
-        }
-        .allowed(&view));
-        assert!(!Action::SetMicrophoneFilter(true).allowed(&View::default()));
-    }
 
     #[test]
     fn proximity_actions_require_player_mode_published_controls_and_a_bounded_radius() {
@@ -260,19 +199,6 @@ mod tests {
     #[test]
     fn action_payloads_match_the_shared_typescript_contract() {
         let cases = [
-            (
-                Action::SetMicrophoneFilter(true),
-                serde_json::json!({"set_microphone_filter": true}),
-            ),
-            (
-                Action::SetMicrophoneSpeaker {
-                    generation: "session".into(),
-                    revision: 7,
-                    id: "speaker-1".into(),
-                    decision: "block".into(),
-                },
-                serde_json::json!({"set_microphone_speaker": {"generation": "session", "revision": 7, "id": "speaker-1", "decision": "block"}}),
-            ),
             (
                 Action::SetTrackHidden {
                     track_id: "track-1".into(),

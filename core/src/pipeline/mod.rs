@@ -454,7 +454,6 @@ fn reduce_cloud_event(
     echo_guard: &AsrEchoGuard,
 ) -> Vec<PipelineEffect> {
     match event {
-        CloudEvent::SpeakerSession { .. } => Vec::new(),
         CloudEvent::LiveTranslation {
             service,
             snapshot,
@@ -850,7 +849,7 @@ async fn run(
                 }
             } => {
                 match event {
-                    Some(event) => PipelineInput::Cloud(dependencies.scope_event(event, source)),
+                    Some(event) => PipelineInput::Cloud(dependencies.scope_event(event)),
                     None => break Err("Cloud recognition session is closed".into()),
                 }
             }
@@ -955,7 +954,7 @@ async fn run(
             let effects = reduce_pipeline_event(
                 &mut state,
                 PipelineEvent::Cloud {
-                    event: dependencies.scope_event(event, source),
+                    event: dependencies.scope_event(event),
                     partial_publication: PartialPublication::Immediate,
                 },
                 &echo_guard,

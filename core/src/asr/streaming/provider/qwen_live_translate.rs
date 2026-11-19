@@ -48,7 +48,7 @@ struct Target {
 }
 #[derive(Default)]
 pub(super) struct State {
-    pub(super) session_id: String,
+    session_id: String,
     sources: HashMap<String, Source>,
     targets: HashMap<String, Target>,
     order: VecDeque<String>,
@@ -259,8 +259,7 @@ impl State {
             || !translations.is_empty()
             || !finished_preview_ids.is_empty()
             || !snapshot.text.is_empty()
-            || !snapshot.translation.is_empty()
-            || snapshot.speaker.is_some())
+            || !snapshot.translation.is_empty())
         .then_some(CloudEvent::LiveTranslation {
             service: SERVICE_QWEN_LIVE_TRANSLATE.into(),
             snapshot: Box::new(snapshot),
@@ -325,9 +324,6 @@ pub(super) fn normalize_event(
             // before its first transcription delta arrives.
             let source = state.source(&id);
             if speaker.is_some() {
-                if source.speaker.is_none() {
-                    source.published = false;
-                }
                 source.speaker = speaker;
             }
             state.active = Some(id);

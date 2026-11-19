@@ -46,7 +46,7 @@ for (const width of [1200, 380]) {
           updateReducedMotionPreference(true);
 
           let persisted = {
-            schema_version: 44,
+            schema_version: 45,
             features: { ...DEFAULT_FEATURE_SETTINGS },
             storage: {
               database_path: 'data/vrcs.db',
@@ -292,14 +292,14 @@ for (const width of [1200, 380]) {
             await wait(() => findModeButton('Custom').getAttribute('aria-pressed') === 'true' && Boolean(findSwitch('Dictionary and learning')) && !findModeButton('All features').disabled, 'rolls back to Custom');
             check(persisted.features.learning === false && persisted.features.anki === true, 'persisted features unchanged after failed save');
 
-            // 4. Succeed switching to All features -> all 9 enabled, collapses switches.
+            // 4. Succeed switching to All features -> all 8 enabled, collapses switches.
             stage = 'all features';
             const putsBeforeFull = putCount;
             click(findModeButton('All features'));
             await completeNextSave(false);
             check(putCount === putsBeforeFull + 1, 'All features sends 1 atomic PUT');
             await wait(() => !findSwitch('Dictionary and learning') && !findModeButton('All features').disabled, 'switches collapse in All features');
-            check(Object.values(persisted.features).every(Boolean), 'all 9 features enabled');
+            check(Object.values(persisted.features).every(Boolean), 'all 8 features enabled');
             assertFitsViewport(stage);
 
             // 5. CompleteStep reflects All features (shows Learning & VR Overlay badges).

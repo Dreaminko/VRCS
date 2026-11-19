@@ -17,7 +17,6 @@ mod language_session;
 mod learning;
 mod llm;
 mod microphone_monitor;
-mod microphone_speakers;
 mod models;
 pub mod ocr;
 mod osc;

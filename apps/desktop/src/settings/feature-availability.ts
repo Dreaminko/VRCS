@@ -2,7 +2,7 @@ import type { SettingsCategory } from "./settings-types";
 import type { FeatureSettings } from "./types";
 
 export const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
-  glossary: true, learning: true, anki: true, microphone_speaker_filter: false,
+  glossary: true, learning: true, anki: true,
   vrcx: true, ocr: true, vr_overlay: true, external_api: true, visual_question_answering: false,
 };
 

@@ -215,58 +215,7 @@ impl PipelineDependencies {
             .map_or_else(|| id.to_owned(), |(_, prefix)| format!("{prefix}:{id}"))
     }
 
-    pub(super) fn scope_event(
-        &self,
-        mut event: crate::asr::CloudEvent,
-        source: &str,
-    ) -> crate::asr::CloudEvent {
-        if source == "microphone" {
-            let speakers = self.output.microphone_speakers();
-            match &mut event {
-                crate::asr::CloudEvent::SpeakerSession { generation } => {
-                    speakers.begin_session(generation.clone());
-                    self.output.asr_reset(source);
-                }
-                crate::asr::CloudEvent::LiveTranslation {
-                    snapshot,
-                    completed,
-                    translations,
-                    ..
-                } => {
-                    for transcript in completed
-                        .iter()
-                        .chain(translations.iter())
-                        .map(|item| &item.transcript)
-                        .chain(std::iter::once(snapshot.as_ref()))
-                    {
-                        speakers.discover(&transcript.utterance_id, transcript.speaker.as_ref());
-                        if let Some(id) = &transcript.source_utterance_id {
-                            speakers.discover(id, transcript.speaker.as_ref());
-                        }
-                    }
-                    // Unresolved originals can be emitted again when native speaker metadata arrives.
-                    completed
-                        .retain(|result| speakers.allows(source, &result.transcript.utterance_id));
-                    translations
-                        .retain(|result| speakers.allows(source, &result.transcript.utterance_id));
-                }
-                crate::asr::CloudEvent::Failed {
-                    reset_session: true,
-                    ..
-                } => speakers.begin_session(String::new()),
-                crate::asr::CloudEvent::Partial { utterance_id, .. }
-                | crate::asr::CloudEvent::Final { utterance_id, .. } => {
-                    speakers.discover(utterance_id, None)
-                }
-                _ => {}
-            }
-            self.pending_native
-                .lock()
-                .expect("native translation lock")
-                .retain(|id, item| {
-                    item.source != "microphone" || speakers.allows("microphone", id)
-                });
-        }
+    pub(super) fn scope_event(&self, mut event: crate::asr::CloudEvent) -> crate::asr::CloudEvent {
         let Some(speaker) = self.player_identity() else {
             return event;
         };
@@ -279,7 +228,6 @@ impl PipelineDependencies {
             value.speaker = Some(speaker.clone());
         };
         match &mut event {
-            crate::asr::CloudEvent::SpeakerSession { .. } => {}
             crate::asr::CloudEvent::Partial { utterance_id, .. }
             | crate::asr::CloudEvent::Final { utterance_id, .. } => {
                 *utterance_id = self.scope_id(utterance_id)
@@ -340,9 +288,6 @@ impl PipelineDependencies {
                 text,
                 language,
             } => {
-                if !self.output.allows(source, utterance_id) {
-                    return;
-                }
                 if let Some(speaker) = self.player_identity() {
                     self.player_previews
                         .lock()
@@ -404,9 +349,6 @@ impl PipelineDependencies {
     }
 
     pub(crate) fn reset_recognition(&self, source: &str) {
-        if source == "microphone" {
-            self.output.microphone_speakers().stop();
-        }
         self.fail_pending_native(source);
         if self.player.is_none() {
             self.output.asr_reset(source);
@@ -504,9 +446,6 @@ impl PipelineDependencies {
         if !self.current_player_selected() {
             return Ok(());
         }
-        if !self.output.allows(source, &result.transcript.utterance_id) {
-            return Ok(());
-        }
         if result.source_utterance_ids.len() > 1 {
             return self.publish_native_translation_group(source, result).await;
         }
@@ -567,25 +506,19 @@ impl PipelineDependencies {
             let database = Arc::clone(&self.database);
             let record = translation.clone();
             let catalog = self.catalog.clone();
-            let filter = self.output.microphone_speakers().clone();
-            let message_id = message_id.clone();
             let task_validity = self.player_validity();
             match tokio::task::spawn_blocking(move || {
                 let save = || {
-                    filter
-                        .with_allowed(source, &message_id, || {
-                            let database = database
-                                .lock()
-                                .map_err(|_| "Database lock is unavailable".to_string())?;
-                            let changed = database
-                                .save_translation(item.subtitle_id, &record)
-                                .map_err(|error| error.to_string())?;
-                            if changed {
-                                catalog.request();
-                            }
-                            Ok::<_, String>(())
-                        })
-                        .unwrap_or(Ok(()))
+                    let database = database
+                        .lock()
+                        .map_err(|_| "Database lock is unavailable".to_string())?;
+                    let changed = database
+                        .save_translation(item.subtitle_id, &record)
+                        .map_err(|error| error.to_string())?;
+                    if changed {
+                        catalog.request();
+                    }
+                    Ok::<_, String>(())
                 };
                 match task_validity.as_ref() {
                     Some(validity) => validity.with_current(save).unwrap_or(Ok(())),
@@ -650,13 +583,6 @@ impl PipelineDependencies {
         source: &'static str,
         result: crate::asr::LiveTranslationResult,
     ) -> Result<(), String> {
-        if result
-            .source_utterance_ids
-            .iter()
-            .any(|id| !self.output.allows(source, id))
-        {
-            return Ok(());
-        }
         let items = {
             let pending = self.pending_native.lock().expect("native translation lock");
             result
@@ -849,9 +775,6 @@ impl PipelineDependencies {
         native: Option<SubtitleTranslation>,
         native_pending: bool,
     ) -> Result<(), String> {
-        if !self.output.allows(source, &message_id) {
-            return Ok(());
-        }
         if !self.current_player_selected() {
             self.output
                 .asr_cancelled(&message_id, source, "track_unselected");
@@ -889,43 +812,35 @@ impl PipelineDependencies {
         let native_record = native
             .clone()
             .filter(|translation| !translation.text.is_empty());
-        let filter = self.output.microphone_speakers().clone();
-        let storage_id = message_id.clone();
         let task_validity = self.player_validity();
         let (saved, native_error) = match tokio::task::spawn_blocking(move || {
             let save = || {
-                filter
-                    .with_allowed(source, &storage_id, || {
-                        let database = database
-                            .lock()
-                            .map_err(|_| "Database lock is unavailable".to_string())?;
-                        // Read under the database lock so a late metadata update cannot
-                        // backfill history and then be overwritten by an older ASR snapshot.
-                        if let Some(player) = player {
-                            subtitle.speaker =
-                                Some(player.read().expect("player identity").clone());
-                        }
-                        let mut saved = database
-                            .add_subtitle(&subtitle)
-                            .map_err(|error| error.to_string())?;
-                        let mut native_error = None;
-                        if let Some(translation) = native_record {
-                            match database.save_translation(
-                                saved.id.expect("saved subtitle id"),
-                                &translation,
-                            ) {
-                                Ok(_) => saved.translations.push(translation),
-                                Err(error) => native_error = Some(error.to_string()),
-                            }
-                        }
-                        catalog.request();
-                        Ok::<_, String>((saved, native_error))
-                    })
-                    .transpose()
+                let database = database
+                    .lock()
+                    .map_err(|_| "Database lock is unavailable".to_string())?;
+                // Read under the database lock so a late metadata update cannot
+                // backfill history and then be overwritten by an older ASR snapshot.
+                if let Some(player) = player {
+                    subtitle.speaker = Some(player.read().expect("player identity").clone());
+                }
+                let mut saved = database
+                    .add_subtitle(&subtitle)
+                    .map_err(|error| error.to_string())?;
+                let mut native_error = None;
+                if let Some(translation) = native_record {
+                    match database
+                        .save_translation(saved.id.expect("saved subtitle id"), &translation)
+                    {
+                        Ok(_) => saved.translations.push(translation),
+                        Err(error) => native_error = Some(error.to_string()),
+                    }
+                }
+                catalog.request();
+                Ok::<_, String>((saved, native_error))
             };
             match task_validity.as_ref() {
-                Some(validity) => validity.with_current(save).unwrap_or(Ok(None)),
-                None => save(),
+                Some(validity) => validity.with_current(save).transpose(),
+                None => save().map(Some),
             }
         })
         .await
@@ -945,9 +860,6 @@ impl PipelineDependencies {
             }
         };
         if !self.current_player_selected() {
-            return Ok(());
-        }
-        if !self.output.allows(source, &message_id) {
             return Ok(());
         }
         let (mut translation_targets, translation_prompt, api_profiles, include_vrcx_context) = {
@@ -1258,107 +1170,6 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn microphone_speakers_filter_storage_previews_and_late_translations() {
-        use crate::microphone_speakers::{SpeakerDecision, SpeakerSelection};
-        let hub = crate::domain_events::DomainEventHub::new();
-        let mut events = hub.subscribe();
-        let dependencies = super::super::tests::test_dependencies(hub);
-        let filter = dependencies.output.microphone_speakers();
-        filter.start(true);
-        filter.begin_session("session".into());
-        let identity = |id: &str, index| crate::models::SpeakerIdentity {
-            id: id.into(),
-            index,
-            display_name: None,
-            user_id: None,
-        };
-        let alice = identity("alice", 0);
-        let bob = identity("bob", 1);
-        filter.discover("setup-a", Some(&alice));
-        filter.discover("setup-b", Some(&bob));
-        let snapshot = filter.snapshot();
-        filter
-            .apply(
-                "session",
-                snapshot.revision,
-                true,
-                &[
-                    SpeakerSelection {
-                        id: "alice".into(),
-                        decision: SpeakerDecision::Allow,
-                    },
-                    SpeakerSelection {
-                        id: "bob".into(),
-                        decision: SpeakerDecision::Block,
-                    },
-                ],
-            )
-            .unwrap();
-        for (id, speaker) in [
-            ("allowed", Some(alice)),
-            ("blocked", Some(bob)),
-            ("unknown", None),
-        ] {
-            let mut result = native_result();
-            result.pending = true;
-            result.transcript.utterance_id = format!("qwen-source-session-{id}");
-            result.transcript.translation.clear();
-            result.transcript.speaker = speaker;
-            dependencies.scope_event(
-                crate::asr::CloudEvent::LiveTranslation {
-                    service: crate::providers::SERVICE_QWEN_LIVE_TRANSLATE.into(),
-                    snapshot: Box::new(result.transcript.clone()),
-                    completed: vec![result.clone()],
-                    translations: vec![],
-                    finished_preview_ids: vec![],
-                },
-                "microphone",
-            );
-            dependencies.publish_live_translation("microphone", result.transcript.clone());
-            dependencies
-                .publish_native_translation("microphone", result)
-                .await
-                .unwrap();
-        }
-        let rows = dependencies
-            .database
-            .lock()
-            .unwrap()
-            .subtitle_history(10)
-            .unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].speaker.as_ref().unwrap().id, "alice");
-        let snapshot = filter.snapshot();
-        filter
-            .apply(
-                "session",
-                snapshot.revision,
-                true,
-                &[SpeakerSelection {
-                    id: "alice".into(),
-                    decision: SpeakerDecision::Block,
-                }],
-            )
-            .unwrap();
-        let mut late = native_result();
-        late.transcript.utterance_id = "qwen-source-session-allowed".into();
-        dependencies
-            .publish_native_translation_update("microphone", late)
-            .await
-            .unwrap();
-        let rows = dependencies
-            .database
-            .lock()
-            .unwrap()
-            .subtitle_history(10)
-            .unwrap();
-        assert!(rows[0].translations.is_empty());
-        while let Ok(event) = events.try_recv() {
-            assert!(!event.message_id.contains("blocked") && !event.message_id.contains("unknown"));
-        }
-    }
-
     #[test]
     fn native_repair_requires_the_configured_text_translation_profile() {
         let mut target = TranslationTargetConfig::new("zh-Hans");
@@ -1549,16 +1360,13 @@ mod tests {
                     display_name: None,
                     user_id: None,
                 });
-                let event = player.scope_event(
-                    CloudEvent::LiveTranslation {
-                        service: service.into(),
-                        snapshot: Box::new(result.transcript.clone()),
-                        completed: vec![result],
-                        translations: vec![],
-                        finished_preview_ids: vec!["old-preview".into()],
-                    },
-                    "speaker",
-                );
+                let event = player.scope_event(CloudEvent::LiveTranslation {
+                    service: service.into(),
+                    snapshot: Box::new(result.transcript.clone()),
+                    completed: vec![result],
+                    translations: vec![],
+                    finished_preview_ids: vec!["old-preview".into()],
+                });
                 let CloudEvent::LiveTranslation {
                     snapshot,
                     completed,

@@ -51,9 +51,6 @@ pub struct LiveTranslationResult {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CloudEvent {
-    SpeakerSession {
-        generation: String,
-    },
     LiveTranslation {
         service: String,
         snapshot: Box<crate::models::LiveTranslation>,
@@ -431,13 +428,6 @@ async fn run_with_reconnect(
         .await;
         let outcome = match outcome {
             Ok(SessionEnd::Idle(mut resume)) => {
-                if provider == Provider::QwenLiveTranslate {
-                    let _ = events
-                        .send(CloudEvent::SpeakerSession {
-                            generation: String::new(),
-                        })
-                        .await;
-                }
                 while !resume.ready && !*stop.borrow() && !resume.closed {
                     tokio::select! {
                         _ = stop.changed() => {}
@@ -630,11 +620,6 @@ async fn run_session_buffered(
     replay: &mut VecDeque<StreamingInput>,
 ) -> Result<SessionEnd, String> {
     let mut normalization = NormalizationState::default();
-    if matches!(provider, Provider::QwenLiveTranslate) {
-        let generation = uuid::Uuid::new_v4().to_string();
-        normalization.set_speaker_session(generation.clone());
-        let _ = events.send(CloudEvent::SpeakerSession { generation }).await;
-    }
     let outcome = run_session_inner(
         provider,
         config,

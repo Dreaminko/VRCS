@@ -4,7 +4,6 @@ import type { PlayerAudioSettings, PlayerSourceMode } from "../capture/types";
 import { isPlayerUserId, playerUserId } from "../capture/player-selection.ts";
 import { historySpeakers, isOtherPlayerSource, sourceLanguageKey, subtitleSourceLanguage, type PlayerHistoryPreferences } from "./player-history.ts";
 import { TRANSLATION_LANGUAGE_CODES } from "../translation/translation-languages.ts";
-import type { MicrophoneSpeakerAction } from "../capture/microphone-speakers";
 
 export type PlayerVisibilityAction =
   | { set_track_hidden: { track_id: string; hidden: boolean } }
@@ -17,7 +16,7 @@ export type PlayerViewPriorityAction = { set_view_priority: { enabled: boolean; 
 export type PlayerSourceAction =
   | { set_user_source_disabled: { user_id: string; source: "vrchat_chatbox" | "speaker"; disabled: boolean } };
 export type PlayerSourceModeAction = { set_source_mode: PlayerSourceMode };
-export type PlayerDisplayAction = PlayerVisibilityAction | PlayerProximityAction | PlayerViewPriorityAction | PlayerSourceAction | PlayerSourceModeAction | MicrophoneSpeakerAction;
+export type PlayerDisplayAction = PlayerVisibilityAction | PlayerProximityAction | PlayerViewPriorityAction | PlayerSourceAction | PlayerSourceModeAction;
 
 export function isPlayerProximityAction(action: PlayerDisplayAction): action is PlayerProximityAction {
   return "set_proximity_radius" in action;

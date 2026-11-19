@@ -136,26 +136,24 @@ test("feature presets and custom switches commit visibility and roll back on sav
           check(translationOnly.getAttribute('aria-pressed') === 'false', 'Translation only starts unselected');
           check(allFeatures.getAttribute('aria-pressed') === 'false', 'All features starts unselected');
           check(!findSwitch('OSC Chatbox'), 'OSC Chatbox is not an optional feature switch');
+          check(!findSwitch('Microphone speaker blocking'), 'Microphone speaker blocking is not an optional feature switch');
+          check(!('microphone_speaker_filter' in persisted.features), 'microphone_speaker_filter is not present');
 
           // 1. Failed individual switch rolls back and shows alert.
-          const speakerFilter = findSwitch('Microphone speaker blocking');
-          check(speakerFilter.getAttribute('aria-checked') === 'false', 'speaker filter starts off');
-          click(speakerFilter);
-          check(speakerFilter.getAttribute('aria-checked') === 'true', 'speaker filter toggles optimistically');
+          const vqaSwitch = findSwitch('Visual question answering');
+          check(vqaSwitch.getAttribute('aria-checked') === 'false', 'vqa starts off');
+          click(vqaSwitch);
+          check(vqaSwitch.getAttribute('aria-checked') === 'true', 'vqa toggles optimistically');
           await completeSave(true);
           await wait(() => Boolean(document.querySelector('[role="alert"]')), 'save failure alert');
-          await wait(() => findSwitch('Microphone speaker blocking')?.getAttribute('aria-checked') === 'false', 'speaker filter rollback');
+          await wait(() => findSwitch('Visual question answering')?.getAttribute('aria-checked') === 'false', 'vqa rollback');
 
-          // 2. Successful individual switch saves.
-          click(findSwitch('Microphone speaker blocking'));
-          await completeSave(false);
-          await wait(() => persisted.features.microphone_speaker_filter === true, 'speaker filter persisted');
-          check(!('osc_chatbox' in persisted.features), 'osc_chatbox is not present');
-
-          // 3. Enabling the last remaining switch keeps Custom expanded rather than collapsing mid-edit.
+          // 2. Enabling the last remaining switch persists and keeps Custom expanded rather than collapsing mid-edit.
           click(findSwitch('Visual question answering'));
           await completeSave(false);
           await wait(() => persisted.features.visual_question_answering === true, 'vqa persisted');
+          check(!('osc_chatbox' in persisted.features), 'osc_chatbox is not present');
+          check(!('microphone_speaker_filter' in persisted.features), 'microphone_speaker_filter is not present');
           check(custom.getAttribute('aria-pressed') === 'true', 'stays in Custom while editing');
           check(Boolean(findSwitch('Dictionary and learning')), 'switches stay mounted while editing');
 
@@ -189,7 +187,6 @@ test("feature presets and custom switches commit visibility and roll back on sav
             glossary: true,
             learning: false,
             anki: false,
-            microphone_speaker_filter: false,
             vrcx: false,
             ocr: false,
             visual_question_answering: false,
@@ -214,14 +211,14 @@ test("feature presets and custom switches commit visibility and roll back on sav
           await wait(() => custom.getAttribute('aria-pressed') === 'true' && Boolean(findSwitch('Dictionary and learning')), 'rolls back to Custom');
           check(findSwitch('Dictionary and learning').getAttribute('aria-checked') === 'false', 'learning switch rolled back');
 
-          // 9. Succeed switching to All features -> enables all 9 switches including vr_overlay.
+          // 9. Succeed switching to All features -> enables all 8 switches including vr_overlay.
           const putsBeforeFull = putCount;
           click(allFeatures);
           await completeSave(false);
           check(putCount === putsBeforeFull + 1, 'All features uses a single atomic PUT');
           await wait(() => Boolean(findTab('learning')) && Boolean(findTab('vision')) && Boolean(findTab('vr_overlay')) && Boolean(findTab('glossary')), 'all tabs restored');
           await wait(() => !findSwitch('Dictionary and learning'), 'switches collapsed after All features');
-          check(Object.values(persisted.features).every(Boolean), 'all 9 features enabled in All features');
+          check(Object.values(persisted.features).every(Boolean), 'all 8 features enabled in All features');
 
           // 10. Switch to Translation only from All features -> preserves vr_overlay: true.
           click(translationOnly);

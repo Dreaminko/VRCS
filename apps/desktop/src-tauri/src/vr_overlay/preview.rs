@@ -1370,7 +1370,6 @@ fn sample_player_display(scene: Scene) -> player_display::View {
             horizontal_fov_deg: 120.0,
             local_view: !matches!(scene, Scene::Unavailable | Scene::Expired | Scene::Empty),
         }),
-        microphone: None,
         languages: [
             ("en", "English"),
             ("ja", "Japanese"),
@@ -1401,7 +1400,12 @@ fn sample_player_display(scene: Scene) -> player_display::View {
         labels: [
             ("title", "Capture management"),
             ("playersTab", "People"),
+            ("rulesTab", "Rules"),
+            ("languagesTab", "Languages"),
             ("historySaved", "History"),
+            ("sourceMode", "Player sources"),
+            ("sourceModeEveryone", "Everyone"),
+            ("sourceModeAllowlist", "Allowlist"),
             (
                 "processingUnavailable",
                 "Distance filtering requires per-player audio and a connected Core.",
@@ -1411,6 +1415,7 @@ fn sample_player_display(scene: Scene) -> player_display::View {
                 "Open the main VRCS window to use these settings.",
             ),
             ("languages", "Hidden original languages"),
+            ("hiddenLanguagesCount", "{{count}} hidden"),
             ("followDefault", "Follow default"),
             ("noHiddenLanguages", "No languages hidden"),
             ("showAll", "Restore people display"),
@@ -1422,7 +1427,16 @@ fn sample_player_display(scene: Scene) -> player_display::View {
                 "viewWaiting",
                 "Waiting for view data; players currently run at normal priority.",
             ),
+            ("outOfRange", "Out of range"),
+            ("voiceLocked", "Hidden record · voice locked"),
+            ("chatboxLabel", "Chatbox"),
+            ("voiceLabel", "Voice"),
             ("empty", "Waiting for tracks or loading history."),
+            (
+                "currentEmpty",
+                "No players in the current world yet. Players appear here after capture starts.",
+            ),
+            ("historyEmpty", "No history or saved people yet."),
             ("show", "Show"),
             ("hide", "Hide"),
             ("current", "Current world"),
@@ -1450,19 +1464,6 @@ fn apply_player_display(view: &mut player_display::View, action: player_display:
             if let Some(view_priority) = &mut view.view_priority {
                 view_priority.enabled = enabled;
                 view_priority.horizontal_fov_deg = horizontal_fov_deg;
-            }
-        }
-        Action::SetMicrophoneFilter(enabled) => {
-            if let Some(mic) = &mut view.microphone {
-                mic.enabled = enabled;
-            }
-        }
-        Action::SetMicrophoneSpeaker { id, decision, .. } => {
-            if let Some(mic) = &mut view.microphone {
-                if let Some(speaker) = mic.speakers.iter_mut().find(|speaker| speaker.id == id) {
-                    speaker.decision = decision;
-                }
-                mic.revision += 1;
             }
         }
         Action::SetUserSourceDisabled {

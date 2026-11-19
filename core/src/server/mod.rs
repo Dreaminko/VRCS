@@ -13,7 +13,6 @@ mod feature_gate;
 mod glossaries;
 mod learning;
 mod local_translation;
-mod microphone_speakers;
 mod model_cache;
 mod ocr;
 mod osc;
@@ -183,10 +182,6 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/audio/devices", get(capture::audio_devices))
         .route("/api/capture/start", post(capture::capture_start))
         .route("/api/capture/stop", post(capture::capture_stop))
-        .route(
-            "/api/capture/microphone/speakers",
-            get(microphone_speakers::get).patch(microphone_speakers::update),
-        )
         .route(
             "/api/audio/microphone-test/start",
             post(capture::microphone_test_start),

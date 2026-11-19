@@ -12,7 +12,7 @@ export type ModelDownloadSource = "auto" | "official" | "modelscope";
 export type TranslationBackend = "api" | "plamo_local";
 
 export interface Settings {
-  schema_version: 44;
+  schema_version: 45;
   model_defaults: ModelDefaults;
   learning_ai: LearningAiSettings;
   vrchat_chatbox: VrchatChatboxConfig;
@@ -75,7 +75,6 @@ export interface FeatureSettings {
   glossary: boolean;
   learning: boolean;
   anki: boolean;
-  microphone_speaker_filter: boolean;
   vrcx: boolean;
   ocr: boolean;
   visual_question_answering: boolean;

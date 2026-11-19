@@ -219,7 +219,6 @@ pub(super) fn parse_settings_update(body: &[u8]) -> Result<SettingsUpdate, Strin
         "glossary",
         "learning",
         "anki",
-        "microphone_speaker_filter",
         "vrcx",
         "ocr",
         "visual_question_answering",
