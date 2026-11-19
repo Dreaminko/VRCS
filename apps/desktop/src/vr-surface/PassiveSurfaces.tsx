@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AudioLines, Camera, Check, Gamepad2, KeyRound, Languages, Minus, Monitor, ScanText, Shield, X } from "lucide-react";
 import type { CaptionMessage, CaptionLabels, SurfaceView } from "./protocol";
 import { visibleTail } from "./headset-layout";
@@ -7,7 +7,17 @@ import { MessageSourceIcon } from "../subtitles/components/MessageSourceIcon";
 
 const CAPTION_LINE_HEIGHT = 1.3;
 
-function Caption({ text, lines, fontSize }: { text: string; lines: number; fontSize: number }) {
+let cachedMeasureContext: CanvasRenderingContext2D | null | undefined;
+function canvasMeasureContext() {
+  if (cachedMeasureContext === undefined) {
+    cachedMeasureContext = typeof document !== "undefined"
+      ? document.createElement("canvas").getContext("2d")
+      : null;
+  }
+  return cachedMeasureContext;
+}
+
+const Caption = memo(function Caption({ text, lines, fontSize }: { text: string; lines: number; fontSize: number }) {
   const root = useRef<HTMLDivElement>(null);
   const value = useRef({ text, lines, fontSize });
   const measure = useRef(() => {});
@@ -20,12 +30,22 @@ function Caption({ text, lines, fontSize }: { text: string; lines: number; fontS
       const next = value.current;
       const width = slot.clientWidth;
       if (!width) return;
-      const height = Math.ceil(parseFloat(getComputedStyle(content).lineHeight) * next.lines);
+      const style = getComputedStyle(content);
+      const height = Math.ceil(parseFloat(style.lineHeight) * next.lines);
       if (previous && previous.text === next.text && previous.lines === next.lines
         && previous.fontSize === next.fontSize
         && previous.width === width && previous.height === height) return;
       previous = { ...next, width, height };
       slot.style.maxHeight = `${height}px`;
+      if (next.lines === 1) {
+        const ctx = canvasMeasureContext();
+        if (ctx) {
+          ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+          const candidate = visibleTail(next.text, s => ctx.measureText(s).width <= width - 1);
+          content.textContent = candidate;
+          if (content.scrollWidth <= width && content.scrollHeight <= height + 1) return;
+        }
+      }
       const fits = (candidate: string) => {
         content.textContent = candidate;
         return content.scrollWidth <= width + 1 && content.scrollHeight <= height + 1;
@@ -49,7 +69,7 @@ function Caption({ text, lines, fontSize }: { text: string; lines: number; fontS
   return <div ref={root} className="vr-headset-language" style={{ fontSize }}>
     <span style={{ lineHeight: CAPTION_LINE_HEIGHT, whiteSpace: lines === 1 ? "nowrap" : "pre-wrap" }}>{text}</span>
   </div>;
-}
+});
 
 function HeadsetCaptions({ messages, labels, lines, fontSize, height }: {
   messages: CaptionMessage[]; labels?: CaptionLabels; lines: number; fontSize: number; height: number;
@@ -75,16 +95,16 @@ function HeadsetCaptions({ messages, labels, lines, fontSize, height }: {
 export function Headset({ view }: { view: Extract<SurfaceView, { kind: "headset" }> }) {
   const root = useRef<HTMLElement>(null);
   const [height, setHeight] = useState(0);
-  const messages = visibleCaptionMessages(view);
+  const messages = useMemo(() => visibleCaptionMessages(view), [view]);
   const visible = messages.length > 0 || !!view.notice;
   useLayoutEffect(() => {
     const panel = root.current;
     const surface = panel?.parentElement;
     if (!panel || !surface) return;
+    const notice = panel.querySelector<HTMLElement>(".vr-caption-notice");
     const measure = () => {
       const outer = getComputedStyle(surface);
       const inner = getComputedStyle(panel);
-      const notice = panel.querySelector<HTMLElement>(".vr-caption-notice");
       const noticeStyle = notice && getComputedStyle(notice);
       setHeight(surface.clientHeight - parseFloat(outer.paddingTop) - parseFloat(outer.paddingBottom)
         - parseFloat(inner.paddingTop) - parseFloat(inner.paddingBottom)
@@ -94,7 +114,7 @@ export function Headset({ view }: { view: Extract<SurfaceView, { kind: "headset"
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(surface);
-    observer.observe(panel);
+    if (notice) observer.observe(notice);
     return () => observer.disconnect();
   }, [visible, view.notice]);
   if (!visible) return null;

@@ -61,7 +61,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
             ? { ...previous, pointer: pointer.point } : previous);
         }
         setPaintSerial(serial.current);
-        if (root.current?.getAnimations({ subtree: true }).some(animation => animation.playState === "running" || animation.pending)) {
+        if (surface === "ocr_progress" && root.current?.getAnimations({ subtree: true }).some(animation => animation.playState === "running" || animation.pending)) {
           paintFrame.current = requestAnimationFrame(() => {
             serial.current = ((serial.current + 1) >>> 0) || 1;
             paint();
@@ -71,7 +71,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
       paintFrame.current = requestAnimationFrame(paint);
     }
     return serial.current;
-  }, []);
+  }, [surface]);
 
   const receiveScroll = useCallback((payload: SurfaceScrollState) => {
     if (!activity.current.active || !sameKey(scrollKey.current, payload.key) || !Number.isFinite(payload.delta)) return;
@@ -135,7 +135,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
       connection.current = bridge;
       bridge.on("view", receive);
       bridge.on("activity", receiveActivity);
-      bridge.on("pointer", receivePointer);
+      if (surface === "menu") bridge.on("pointer", receivePointer);
       bridge.on("repaint", () => {
         if (!disposed) markPaint();
       });
@@ -185,9 +185,9 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   }, [markPaint]);
 
   useEffect(() => {
-    if (!active || !state) return;
+    if (!active || !state || surface !== "ocr_progress") return;
     if (root.current?.getAnimations({ subtree: true }).some(animation => animation.playState === "running" || animation.pending)) markPaint();
-  }, [active, state, markPaint]);
+  }, [active, state, surface, markPaint]);
 
   return <main ref={root} className="vr-surface-host" data-active={active}>
     {state && <VrSurface state={state} onLayout={onLayout} />}

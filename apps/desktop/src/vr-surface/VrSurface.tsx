@@ -20,7 +20,7 @@ const LazyVisionAnswerMarkdown = lazy(() => (visionMarkdownModule ??= import("..
       const ref = useRef<HTMLDivElement>(null);
       useLayoutEffect(() => {
         ref.current?.dispatchEvent(new CustomEvent("vr-surface-layout", { bubbles: true }));
-      }, [children]);
+      }, []);
       return <div ref={ref}><VisionAnswerMarkdown vr>{children}</VisionAnswerMarkdown></div>;
     },
   }),
@@ -126,19 +126,20 @@ function Dialogue({ state, view }: { state: SurfaceState; view: Extract<SurfaceV
 function Reader({ state, view }: { state: SurfaceState; view: Extract<SurfaceView, { kind: "reader" }> }) {
   const viewport = useRef<HTMLDivElement>(null);
   const reader = view.reader;
-  const syncPageOffset = useCallback(() => {
-    const element = viewport.current;
-    if (element && !element.querySelector("[data-vr-pending]")) {
-      element.scrollTop = pageGeometry(element.scrollHeight, element.clientHeight, reader.page, parseFloat(getComputedStyle(element).lineHeight) || 1).offset;
-    }
-  }, [reader.page]);
   useLayoutEffect(() => {
-    syncPageOffset();
     const element = viewport.current;
     if (!element) return;
-    element.addEventListener("vr-surface-layout", syncPageOffset);
-    return () => element.removeEventListener("vr-surface-layout", syncPageOffset);
-  }, [reader.mode, reader.block_index, reader.source, reader.translation_label, reader.source_only, reader.page, syncPageOffset]);
+    let synced = false;
+    const sync = () => {
+      if (synced || element.querySelector("[data-vr-pending]")) return;
+      synced = true;
+      element.scrollTop = pageGeometry(element.scrollHeight, element.clientHeight, reader.page, parseFloat(getComputedStyle(element).lineHeight) || 1).offset;
+    };
+    sync();
+    if (synced) return;
+    element.addEventListener("vr-surface-layout", sync);
+    return () => element.removeEventListener("vr-surface-layout", sync);
+  }, [reader.mode, reader.block_index, reader.source, reader.translation_label, reader.source_only, reader.page]);
   const label = (key: string) => view.labels[key] || key;
   const vision = reader.mode === "vision";
   const busy = vision && ["listening", "finalizing", "requesting"].includes(reader.status);
@@ -189,6 +190,20 @@ export const VrSurface = memo(function VrSurface({ state, onLayout }: { state: S
   const layoutContent = state.view.kind === "menu" ? state.key : state.view;
 
   useLayoutEffect(() => {
+    if (
+      state.view.kind === "headset"
+      || state.view.kind === "ocr_progress"
+      || state.view.kind === "dashboard_thumbnail"
+      || state.view.kind === "ocr_selection"
+    ) {
+      const layout: SurfaceLayout = { key: state.key, regions: [], page_count: 1 };
+      const signature = JSON.stringify(layout);
+      if (lastLayout.current !== signature) {
+        lastLayout.current = signature;
+        onLayout?.(layout);
+      }
+      return;
+    }
     const element = root.current;
     if (!element) return;
     let disposed = false;

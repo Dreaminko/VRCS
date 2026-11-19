@@ -41,6 +41,16 @@ export function useVrDashboardBridge(
   const saveRef = useRef(save);
   const saveVersionRef = useRef(0);
   const profilesRef = useRef(profiles);
+  const lastPublishedRef = useRef("");
+  const statusState = status?.state ?? null;
+  const headsetSampleVisible = status?.headset.sample_visible ?? false;
+  const wristSampleVisible = status?.wrist.sample_visible ?? false;
+  const captionNotice = settings?.features.vr_overlay
+    ? playerAudioNotice(capture.playerAudio, capture.running, t)
+    : null;
+  const captionNoticeKey = captionNotice ? JSON.stringify(captionNotice) : "";
+  const captionNoticeRef = useRef(captionNotice);
+  captionNoticeRef.current = captionNotice;
 
   settingsRef.current = settings;
   statusRef.current = status;
@@ -119,7 +129,10 @@ export function useVrDashboardBridge(
   }, [t]);
 
   useEffect(() => {
-    if (!settings?.features.vr_overlay) return;
+    if (!settings?.features.vr_overlay) {
+      lastPublishedRef.current = "";
+      return;
+    }
     const overlay = settings.vr_overlay;
     const positionFields = (kind: VrOverlayDisplayKind) => Object.entries(VR_OVERLAY_POSITION_RANGES[kind]).map(([name, range]) => {
       const field = name as VrOverlayPositionField;
@@ -141,7 +154,7 @@ export function useVrDashboardBridge(
     const model: VrDashboardViewModel = {
       caption_visibility: { hidden_tracks: display.hiddenTracks, hidden_source_languages: display.hiddenSourceLanguages },
       max_visible_players: settings.audio.output.mode === "vrchat_players" ? settings.audio.output.player_audio?.max_visible_players ?? 4 : null,
-      caption_notice: playerAudioNotice(capture.playerAudio, capture.running, t),
+      caption_notice: captionNoticeRef.current,
       labels: {
         captions: { me: t("live.microphoneMe"), other: t("live.speakerOther") },
         ocr_progress: i18n.t("settings.vrOcr.progress", { returnObjects: true }) as Record<string, string>,
@@ -215,7 +228,7 @@ export function useVrDashboardBridge(
       osc_available: true,
       headset: {
         enabled: overlay.headset.enabled,
-        preview_visible: status?.headset.sample_visible ?? false,
+        preview_visible: headsetSampleVisible,
         width: `${overlay.headset.width_m.toFixed(2)} m`,
         opacity: `${Math.round(overlay.headset.opacity * 100)}%`,
         position: positionFields("headset"),
@@ -224,7 +237,7 @@ export function useVrDashboardBridge(
         enabled: overlay.wrist.enabled,
         anchor_mode: overlay.wrist.anchor_mode,
         follow_view: overlay.wrist.follow_view,
-        preview_visible: status?.wrist.sample_visible ?? false,
+        preview_visible: wristSampleVisible,
         hand: {
           value: t(`settings.vrDashboard.hands.${overlay.wrist.hand}`),
           options: ["left", "right", "dominant"].map((value) => ({ value, label: t(`settings.vrDashboard.hands.${value}`) })),
@@ -270,12 +283,15 @@ export function useVrDashboardBridge(
         },
         endpoint: `127.0.0.1:${settings.osc.port}`,
       },
-      status: status
-        ? t(`settings.vrOverlay.runtimeStates.${status.state}`)
+      status: statusState
+        ? t(`settings.vrOverlay.runtimeStates.${statusState}`)
         : t("settings.vrDashboard.connecting"),
       save_state: saveState,
       error: saveError,
     };
+    const serialized = JSON.stringify(model);
+    if (serialized === lastPublishedRef.current) return;
+    lastPublishedRef.current = serialized;
     void updateVrDashboardView(model);
-  }, [capture.running, capture.available, capture.playerAudio, display.hiddenTracks, display.hiddenSourceLanguages, i18n.resolvedLanguage, profiles, saveError, saveState, settings, status, t]);
+  }, [capture.running, capture.available, captionNoticeKey, display.hiddenTracks, display.hiddenSourceLanguages, headsetSampleVisible, i18n.resolvedLanguage, profiles, saveError, saveState, settings, statusState, t, wristSampleVisible]);
 }
