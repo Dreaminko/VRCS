@@ -133,6 +133,18 @@ test("the wrist photo gesture control exposes saved state and gates unavailable 
         assert.equal(await commandButton(page, { control: { set_ocr_gesture_enabled: !enabled } }).isDisabled(), true);
         assert.equal(await page.evaluate(() => window.menuLayout.regions.some(region => region.id === 30)), false);
       }
+      await render(page, { dark, page: "home", gesture: { requested: enabled, effective: enabled, hidden: true } });
+      assert.equal(await page.locator('[data-vr-region="30"]').count(), 0);
+      assert.equal(await commandButton(page, { control: { set_ocr_gesture_enabled: !enabled } }).count(), 0);
+      assert.deepEqual(await page.locator(".vr-menu-capsule").boundingBox(), { x: 16, y: 1032, width: 1248, height: 240 });
+      const hiddenCapsule = await page.locator(".vr-menu-capsule [data-vr-region]").evaluateAll(nodes => nodes.map(node => ({ id: +node.dataset.vrRegion, width: node.offsetWidth, height: node.offsetHeight })));
+      assert.deepEqual(hiddenCapsule.map(item => item.id), [0, 1, 2, 4, 3]);
+      assert.deepEqual(hiddenCapsule.map(item => [item.width, item.height]), Array(5).fill([160, 160]));
+      assert.equal(await page.evaluate(() => window.menuLayout.regions.some(region => region.id === 30)), false);
+
+      await render(page, { dark, page: "home", gesture: { requested: enabled, effective: enabled, hidden: false } });
+      assert.equal(await page.locator('[data-vr-region="30"]').count(), 1);
+      assert.equal(await page.evaluate(() => window.menuLayout.regions.some(region => region.id === 30)), true);
     }
   } finally { await browser.close(); }
 });

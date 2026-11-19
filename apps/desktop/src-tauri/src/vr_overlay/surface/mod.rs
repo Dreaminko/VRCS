@@ -2930,6 +2930,22 @@ mod tests {
     }
 
     #[test]
+    fn menu_same_layout_detects_photo_gesture_visibility_changes() {
+        let mut shown = ControlSnapshot::default();
+        shown.items[4].hidden = false;
+        let mut hidden = shown.clone();
+        hidden.items[4].hidden = true;
+        let view = |controls| SurfaceView::Menu {
+            players: Default::default(),
+            ui: Default::default(),
+            controls,
+            hold_progress: None,
+        };
+        assert!(view(shown.clone()).same_layout(&view(shown.clone())));
+        assert!(!view(shown).same_layout(&view(hidden)));
+    }
+
+    #[test]
     fn slider_regions_resolve_release_positions_to_quantized_values() {
         use super::super::{
             player_display::Action,

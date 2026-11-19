@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createCaptureController } from "../src/capture/capture-control.ts";
 import { createSettingsAutosave } from "../src/settings/settings-autosave.ts";
-import { applyControlAction, createControlExecutor } from "../src/vr-controls/actions.ts";
+import { applyControlAction, createControlExecutor, photoGestureControlState } from "../src/vr-controls/actions.ts";
 import { DEFAULT_OCR_SETTINGS, DEFAULT_VR_OVERLAY_SETTINGS } from "../src/settings/vr-overlay-settings.ts";
 import type { Settings } from "../src/settings/types.ts";
 
@@ -58,6 +58,47 @@ test("the photo gesture control rejects a save that did not apply its target", a
     setCaptureRunning: async () => true,
   });
   await assert.rejects(execute({ set_ocr_gesture_enabled: false }), /not applied/);
+});
+
+test("photoGestureControlState hides the toggle only when both OCR and VQA features are off", () => {
+  assert.deepEqual(photoGestureControlState(null), { hidden: true, available: false });
+
+  const bothOff = settings();
+  bothOff.features = { ...bothOff.features, ocr: false, visual_question_answering: false };
+  bothOff.ocr = { ...bothOff.ocr, master_enabled: true };
+  bothOff.vision = { enabled: true } as Settings["vision"];
+  assert.deepEqual(photoGestureControlState(bothOff), { hidden: true, available: false });
+
+  const ocrOnly = settings();
+  ocrOnly.features = { ...ocrOnly.features, ocr: true, visual_question_answering: false };
+  ocrOnly.ocr = { ...ocrOnly.ocr, master_enabled: false };
+  ocrOnly.vision = { enabled: true } as Settings["vision"];
+  assert.deepEqual(photoGestureControlState(ocrOnly), { hidden: false, available: false });
+  ocrOnly.ocr.master_enabled = true;
+  assert.deepEqual(photoGestureControlState(ocrOnly), { hidden: false, available: true });
+
+  const vqaOnly = settings();
+  vqaOnly.features = { ...vqaOnly.features, ocr: false, visual_question_answering: true };
+  vqaOnly.ocr = { ...vqaOnly.ocr, master_enabled: true };
+  vqaOnly.vision = { enabled: false } as Settings["vision"];
+  assert.deepEqual(photoGestureControlState(vqaOnly), { hidden: false, available: false });
+  vqaOnly.vision.enabled = true;
+  assert.deepEqual(photoGestureControlState(vqaOnly), { hidden: false, available: true });
+
+  const bothOn = settings();
+  bothOn.features = { ...bothOn.features, ocr: true, visual_question_answering: true };
+  bothOn.ocr = { ...bothOn.ocr, master_enabled: false };
+  bothOn.vision = { enabled: false } as Settings["vision"];
+  assert.deepEqual(photoGestureControlState(bothOn), { hidden: false, available: false });
+  bothOn.vision.enabled = true;
+  assert.deepEqual(photoGestureControlState(bothOn), { hidden: false, available: true });
+  bothOn.vision.enabled = false;
+  bothOn.ocr.master_enabled = true;
+  assert.deepEqual(photoGestureControlState(bothOn), { hidden: false, available: true });
+
+  const partialWithoutVision = settings();
+  partialWithoutVision.features = { ...partialWithoutVision.features, ocr: false, visual_question_answering: true };
+  assert.deepEqual(photoGestureControlState(partialWithoutVision), { hidden: false, available: false });
 });
 
 test("dialogue placement saves anchor and follow preference together without changing other layers", async () => {

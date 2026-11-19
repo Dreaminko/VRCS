@@ -166,6 +166,7 @@ impl Preview {
         }
         controls.items[4].requested = view.ocr.gesture;
         controls.items[4].effective = view.ocr.gesture;
+        controls.items[4].hidden = !view.ocr_available && !view.vision_available;
         let mut dashboard = DashboardState::new();
         dashboard.update_view(&view);
         dashboard.set_interactive(true);
@@ -792,7 +793,7 @@ impl Preview {
             Effect::Control(action) => {
                 let index = action.index();
                 let item = &mut self.controls.items[index];
-                if !item.available || item.busy {
+                if item.hidden || !item.available || item.busy {
                     return;
                 }
                 item.busy = true;

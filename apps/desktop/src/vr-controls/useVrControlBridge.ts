@@ -3,7 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import type { Settings } from "../settings/types";
-import { createControlExecutor } from "./actions";
+import { createControlExecutor, photoGestureControlState } from "./actions";
 import type { ControlRequest, ControlSnapshot, PlacementRequest } from "./protocol";
 import type { PlayerAudioStart } from "../capture/usePlayerAudioStart";
 import type { ChatboxStatus, PlayerAudioStatus } from "../core-client/types";
@@ -38,9 +38,10 @@ function buildControlView(
 ): ControlSnapshot {
   const settings = options.getSettings();
   const overlay = settings?.vr_overlay;
-  const item = (requested: boolean, effective: boolean, available: boolean, label: string, busy = false, reason: string | null = null) =>
-    ({ requested, effective, available, busy, label, reason });
+  const item = (requested: boolean, effective: boolean, available: boolean, label: string, busy = false, reason: string | null = null, hidden = false) =>
+    ({ requested, effective, available, busy, label, reason, hidden });
   const requested = options.getRequested();
+  const gesture = photoGestureControlState(settings);
   return {
     owner_epoch: ownerEpoch,
     revision,
@@ -52,7 +53,7 @@ function buildControlView(
       item(settings?.osc.enabled ?? false, settings?.osc.enabled ?? false, options.available && Boolean(settings), "OSC"),
       item(requested, options.running, options.available, t(requested ? "capture.stop" : "capture.start"), options.busy),
       item(settings?.ocr.hand_gesture_enabled ?? false, settings?.ocr.hand_gesture_enabled ?? false,
-        options.available && Boolean(settings?.features.ocr && settings.ocr.master_enabled), t("settings.vrDashboard.gesture")),
+        options.available && gesture.available, t("settings.vrDashboard.gesture"), false, null, gesture.hidden),
     ],
   };
 }
@@ -202,8 +203,7 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
   const hasSettings = Boolean(settings);
   const oscEnabled = Boolean(settings?.osc.enabled);
   const ocrGestureEnabled = Boolean(settings?.ocr.hand_gesture_enabled);
-  const ocrFeature = Boolean(settings?.features.ocr);
-  const ocrMasterEnabled = Boolean(settings?.ocr.master_enabled);
+  const { hidden: ocrGestureHidden, available: ocrGestureAvailable } = photoGestureControlState(settings);
   const captureRequested = options.getRequested();
 
   useEffect(() => {
@@ -230,8 +230,8 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
     hasSettings,
     oscEnabled,
     ocrGestureEnabled,
-    ocrFeature,
-    ocrMasterEnabled,
+    ocrGestureHidden,
+    ocrGestureAvailable,
     captureRequested,
     options.available,
     options.running,

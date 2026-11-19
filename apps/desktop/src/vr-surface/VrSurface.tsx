@@ -73,7 +73,7 @@ function Menu({ state, view }: { state: SurfaceState; view: Extract<SurfaceView,
           menu={{ page: ui.page === "home" ? "players" : "home" }} active={ui.page !== "home"}><UsersRound /></SurfaceButton>;
         const index = id === 30 ? 4 : id;
         const item = view.controls.items[index];
-        if (!item) return null;
+        if (!item || item.hidden) return null;
         return <SurfaceButton state={state} id={id} key={id}
           {...menuStatus(item, view.controls.labels)}
           menu={{ control: actions[index] }} active={item.requested} primary={index === 3} disabled={!item.available || item.busy}>
