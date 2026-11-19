@@ -584,10 +584,7 @@ fn worker_loop(
         if started < next_tick {
             let mut wake = next_tick;
             #[cfg(windows)]
-            if state.ui.fast_tick()
-                || state.player_audio.active()
-                || state.ocr.status.wrist_state == super::ocr_status::OcrWristState::Visible
-            {
+            if state.ui.pointer_fast_tick() || state.player_audio.active() {
                 if let Some(backend) = state.backend.as_mut() {
                     if started >= next_pointer {
                         if state.player_audio.active() {
@@ -785,10 +782,8 @@ fn worker_loop(
         #[cfg(windows)]
         let ui_active = state.ui.fast_tick()
             || state.player_audio.active()
-            || app
-                .state::<super::surface::SurfaceHub>()
-                .progress_animating()
-            || state.ocr.status.wrist_state == super::ocr_status::OcrWristState::Visible;
+            || state.ocr.needs_fast_tick()
+            || app.state::<super::surface::SurfaceHub>().needs_fast_tick();
         #[cfg(not(windows))]
         let ui_active = false;
         let interval = if status.dashboard.visible || ui_active {
@@ -799,14 +794,12 @@ fn worker_loop(
         next_tick = (started + interval).min(business_clock.0);
         #[cfg(windows)]
         if let Some(backend) = state.backend.as_mut() {
-            if Instant::now() >= next_pointer || !ui_active {
-                if state.player_audio.active() {
-                    state.player_audio.update_pointer(&app, backend);
-                } else {
-                    state.ui.update_pointer(&app, backend);
-                }
-                next_pointer = Instant::now() + backend.cursor_interval();
+            if state.player_audio.active() {
+                state.player_audio.sync_cursor(backend);
+            } else {
+                state.ui.sync_cursor(&app, backend);
             }
+            next_pointer = Instant::now() + backend.cursor_interval();
         }
     }
 }
@@ -1204,12 +1197,10 @@ fn update_dashboard(
                 DashboardPointerEvent::Shown | DashboardPointerEvent::Hidden => {
                     state.dashboard.clear_pointer();
                     state.dashboard_pressed_key = None;
-                    hub.point(app, SurfaceId::Dashboard, None)?;
                     continue;
                 }
             };
             let point = [x / DASHBOARD_WIDTH as f32, y / DASHBOARD_HEIGHT as f32];
-            hub.point(app, SurfaceId::Dashboard, Some(point))?;
             let hit = layout.as_ref().and_then(|layout| layout.hit(point));
             state.dashboard.hovered = hit;
             match event {

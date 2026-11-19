@@ -284,7 +284,7 @@ impl HeadsetPresentation {
     ) -> Option<PresentationFrame> {
         // One latest caption per source/track. A preview replaces only its own
         // lane, so another player's update, completion or cancellation is isolated.
-        let mut lanes: Vec<(&PresentationItem, bool)> = Vec::new();
+        let mut lanes: Vec<(&PresentationItem, Option<&PresentationItem>, bool)> = Vec::new();
         for item in self.recent.iter().filter(|item| {
             source_enabled(&item.source, config)
                 && fade_opacity(now, item.expires_at, config.fade_seconds).is_some()
@@ -292,30 +292,32 @@ impl HeadsetPresentation {
             // Unlimited candidates are filtered and capped by the shared
             // WebView policy. Keep older visible languages available as well.
             if self.player_limit == Some(0) {
-                lanes.push((item, false));
+                lanes.push((item, None, false));
                 continue;
             }
             if let Some(lane) = lanes
                 .iter_mut()
-                .find(|(previous, _)| same_lane(previous, item))
+                .find(|(previous, _, _)| same_lane(previous, item))
             {
-                *lane = (item, false);
+                *lane = (item, None, false);
             } else {
-                lanes.push((item, false));
+                lanes.push((item, None, false));
             }
         }
         for item in self.partials.iter().filter(|item| {
             source_enabled(&item.source, config)
                 && fade_opacity(now, item.expires_at, config.fade_seconds).is_some()
         }) {
+            let completed = self
+                .recent
+                .iter()
+                .find(|completed| matches_original(item, completed));
             if preview_text(
                 item,
                 translation_display,
                 config.show_partials,
                 config.show_translation_partials,
-                self.recent
-                    .iter()
-                    .find(|completed| matches_original(item, completed)),
+                completed,
             )
             .trim()
             .is_empty()
@@ -323,16 +325,16 @@ impl HeadsetPresentation {
                 continue;
             }
             if self.player_limit == Some(0) {
-                lanes.push((item, true));
+                lanes.push((item, completed, true));
                 continue;
             }
             if let Some(lane) = lanes
                 .iter_mut()
-                .find(|(previous, _)| same_lane(previous, item))
+                .find(|(previous, _, _)| same_lane(previous, item))
             {
-                *lane = (item, true);
+                *lane = (item, completed, true);
             } else {
-                lanes.push((item, true));
+                lanes.push((item, completed, true));
             }
         }
         if self.player_limit.is_none() {
@@ -340,9 +342,9 @@ impl HeadsetPresentation {
             let latest_audio = lanes
                 .iter()
                 .copied()
-                .filter(|(item, _)| item.source != "vrchat_chatbox")
+                .filter(|(item, _, _)| item.source != "vrchat_chatbox")
                 .rev()
-                .find(|(_, preview)| *preview)
+                .find(|(_, _, preview)| *preview)
                 .or_else(|| {
                     self.recent
                         .iter()
@@ -352,16 +354,16 @@ impl HeadsetPresentation {
                                 && source_enabled(&item.source, config)
                                 && fade_opacity(now, item.expires_at, config.fade_seconds).is_some()
                         })
-                        .map(|item| (item, false))
+                        .map(|item| (item, None, false))
                 });
-            lanes.retain(|(item, _)| item.source == "vrchat_chatbox");
+            lanes.retain(|(item, _, _)| item.source == "vrchat_chatbox");
             if let Some(audio) = latest_audio {
                 lanes.insert(0, audio);
             }
         } else {
-            lanes.sort_by_key(|(_, preview)| !*preview);
+            lanes.sort_by_key(|(_, _, preview)| !*preview);
             let mut players = Vec::new();
-            lanes.retain(|(item, _)| {
+            lanes.retain(|(item, _, _)| {
                 if !other_player_source(&item.source) || self.player_limit == Some(0) {
                     return true;
                 }
@@ -379,16 +381,14 @@ impl HeadsetPresentation {
         let mut opacity = 0.0_f32;
         let messages: Vec<_> = lanes
             .into_iter()
-            .filter_map(|(item, preview)| {
+            .filter_map(|(item, completed, preview)| {
                 let text = if preview {
                     preview_text(
                         item,
                         translation_display,
                         config.show_partials,
                         config.show_translation_partials,
-                        self.recent
-                            .iter()
-                            .find(|completed| matches_original(item, completed)),
+                        completed,
                     )
                 } else {
                     display_text(
@@ -410,13 +410,7 @@ impl HeadsetPresentation {
                     text,
                     side: message_side(&item.source),
                     speaker: speaker_label(item),
-                    original: Some(caption_original(
-                        item,
-                        preview,
-                        self.recent
-                            .iter()
-                            .find(|completed| matches_original(item, completed)),
-                    )),
+                    original: Some(caption_original(item, preview, completed)),
                 })
             })
             .collect();
@@ -667,7 +661,7 @@ impl WristPresentation {
 
         let limit = config.max_entries.clamp(3, 10) as usize;
         let mut visible: Vec<&PresentationItem> = Vec::new();
-        let mut players = Vec::new();
+        let mut players: Vec<Option<&str>> = Vec::new();
         for item in self
             .partials
             .iter()
@@ -676,7 +670,7 @@ impl WristPresentation {
                 source_enabled(&item.source, config) && other_player_source(&item.source)
             })
         {
-            let player = item.speaker.as_ref().map(|speaker| speaker.id.clone());
+            let player = item.speaker.as_ref().map(|speaker| speaker.id.as_str());
             if !visible.iter().any(|other| same_lane(other, item))
                 && (players.contains(&player)
                     || self

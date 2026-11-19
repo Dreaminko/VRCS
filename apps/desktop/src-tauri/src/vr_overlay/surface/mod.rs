@@ -234,7 +234,15 @@ impl SurfaceView {
                     ui: bu,
                     ..
                 },
-            ) => a == b && ap == bp && au == bu,
+            ) => {
+                a == b
+                    && au == bu
+                    && if au.page == super::wrist_menu::Page::Home {
+                        ap.labels.get("title") == bp.labels.get("title")
+                    } else {
+                        ap == bp
+                    }
+            }
             _ => self == other,
         }
     }
@@ -553,8 +561,8 @@ struct Entry {
     navigation_id: u64,
     document: Option<bridge::DocumentSession>,
     state: Option<SurfaceState>,
-    layout: Option<SurfaceLayout>,
-    displayed_layout: Option<SurfaceLayout>,
+    layout: Option<Arc<SurfaceLayout>>,
+    displayed_layout: Option<Arc<SurfaceLayout>>,
     displayed_scroll_key: Option<SurfaceKey>,
     submitted: Option<SurfaceKey>,
     endpoint: Option<native_host::CaptureEndpoint>,
@@ -674,7 +682,22 @@ impl Entry {
         true
     }
 
+    #[cfg(any(test, all(debug_assertions, feature = "vr-preview")))]
     fn publish(&mut self, view: SurfaceView, hovered: Option<u8>, pressed: Option<u8>) -> bool {
+        let changed = self
+            .state
+            .as_ref()
+            .is_none_or(|state| !state.view.same_layout(&view));
+        self.publish_with_content_changed(view, hovered, pressed, changed)
+    }
+
+    fn publish_with_content_changed(
+        &mut self,
+        view: SurfaceView,
+        hovered: Option<u8>,
+        pressed: Option<u8>,
+        changed: bool,
+    ) -> bool {
         if matches!(
             self.recovery.phase,
             recovery::Phase::Failed | recovery::Phase::Closing
@@ -682,10 +705,6 @@ impl Entry {
             return false;
         }
         // Hold progress changes pixels without invalidating the menu's hit regions.
-        let changed = self
-            .state
-            .as_ref()
-            .is_none_or(|state| !state.view.same_layout(&view));
         let feedback = changed || self.state.as_ref().is_some_and(|state| {
             state.hovered != hovered || state.pressed != pressed
                 || matches!((&state.view, &view),
@@ -849,7 +868,7 @@ impl Entry {
                 return Err("Unknown OCR overflow block".into());
             }
         }
-        self.layout = Some(layout);
+        self.layout = Some(Arc::new(layout));
         Ok(true)
     }
 
@@ -1088,7 +1107,7 @@ impl Entry {
         true
     }
 
-    fn active_layout(&self) -> Option<&SurfaceLayout> {
+    fn active_layout(&self) -> Option<&Arc<SurfaceLayout>> {
         self.layout.as_ref().filter(|layout| {
             self.active
                 && self.error.is_none()
@@ -1113,7 +1132,7 @@ impl Entry {
         .then_some(state.scroll_key)
     }
 
-    fn pointer_layout(&self) -> Option<&SurfaceLayout> {
+    fn pointer_layout(&self) -> Option<&Arc<SurfaceLayout>> {
         // Keep the contour of the visible texture while new pixels and hit regions are pending.
         self.displayed_layout.as_ref().filter(|layout| {
             self.active
@@ -1129,13 +1148,17 @@ impl Entry {
 pub struct SurfaceHub(Mutex<[Entry; 10]>);
 
 impl SurfaceHub {
-    pub(super) fn progress_animating(&self) -> bool {
+    pub(super) fn needs_fast_tick(&self) -> bool {
         let entries = self.0.lock().unwrap_or_else(|error| error.into_inner());
-        let entry = &entries[SurfaceId::OcrProgress.index()];
-        entry.active
-            && matches!(entry.state.as_ref().map(|state| &state.view),
+        let progress = &entries[SurfaceId::OcrProgress.index()];
+        let progress_animating = progress.active
+            && matches!(progress.state.as_ref().map(|state| &state.view),
                 Some(SurfaceView::OcrProgress { progress: Some(progress), .. })
-                    if progress.stages.contains(&Stage::Active))
+                    if progress.stages.contains(&Stage::Active));
+        progress_animating
+            || entries
+                .iter()
+                .any(|entry| entry.active && (!entry.has_frame || entry.needs_paint()))
     }
 
     fn submit_frame(
@@ -1226,13 +1249,13 @@ impl SurfaceHub {
             == recovery::Phase::Failed
     }
 
-    pub fn layout(&self, surface: SurfaceId) -> Option<SurfaceLayout> {
+    pub fn layout(&self, surface: SurfaceId) -> Option<Arc<SurfaceLayout>> {
         self.0.lock().ok()?[surface.index()]
             .active_layout()
             .cloned()
     }
 
-    pub fn pointer_layout(&self, surface: SurfaceId) -> Option<SurfaceLayout> {
+    pub fn pointer_layout(&self, surface: SurfaceId) -> Option<Arc<SurfaceLayout>> {
         self.0.lock().ok()?[surface.index()]
             .pointer_layout()
             .cloned()
@@ -1339,7 +1362,8 @@ impl SurfaceHub {
                 // present runs on every business tick with the latest view, including the final result.
                 return Ok(None);
             }
-            let changed = entry.publish(view, hovered, pressed);
+            let changed =
+                entry.publish_with_content_changed(view, hovered, pressed, content_changed);
             if changed && entry.active {
                 entry.last_publish = Some(Instant::now());
                 if metrics::enabled() {
@@ -3336,7 +3360,8 @@ mod tests {
             .is_some());
         let mut value = hub.0.lock().unwrap()[surface.index()]
             .layout
-            .clone()
+            .as_deref()
+            .cloned()
             .unwrap();
         value.capture_bounds = Some([200, 200, 600, 600]);
         assert!(hub

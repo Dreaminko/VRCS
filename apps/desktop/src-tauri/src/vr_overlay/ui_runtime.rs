@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager as _};
 use vrcs_core::VrOverlayConfig;
 
-use super::backend::{menu_config, OpenVrBackend, OverlayKind};
+use super::backend::{menu_config, CursorTarget, OpenVrBackend, OverlayKind};
 use super::control_protocol::{ControlHub, ControlSource};
 use super::interaction::{Hit, Key, Kind, Router, Sample, Surface};
 use super::ocr_wrist::LaserEvent;
@@ -21,6 +21,8 @@ struct Pointer {
     distance: f32,
     scroll_y: f32,
     origin: i32,
+    panel: [[f32; 4]; 3],
+    panel_width: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -49,7 +51,7 @@ fn pointer_overlay(surface: Surface) -> (OverlayKind, SurfaceId) {
 
 fn nearest_pointer(
     pointers: impl Iterator<Item = Pointer>,
-    layouts: &[Option<SurfaceLayout>; 3],
+    layouts: &[Option<Arc<SurfaceLayout>>; 3],
 ) -> Option<Pointer> {
     pointers
         .filter(|pointer| {
@@ -132,6 +134,7 @@ pub struct UiRuntime {
     menu_error: Option<String>,
     last_input: Instant,
     pointer_targets: Vec<(OverlayKind, Key, Option<u32>)>,
+    pointer_devices: Vec<(u32, u64)>,
     pointer: Option<Pointer>,
     cursor_error: Option<String>,
     menu_surface: SurfaceRenderer,
@@ -171,6 +174,7 @@ impl UiRuntime {
             menu_error: None,
             last_input: Instant::now(),
             pointer_targets: Vec::new(),
+            pointer_devices: Vec::new(),
             pointer: None,
             cursor_error: None,
             menu_surface: SurfaceRenderer::new(SurfaceId::Menu),
@@ -193,7 +197,15 @@ impl UiRuntime {
     }
 
     pub fn fast_tick(&self) -> bool {
-        self.menu_visible || self.menu_fade.active() || self.dialogue_active || self.router.active()
+        self.menu_visible
+            || self.menu_fade.animating()
+            || self.dialogue_fade.animating()
+            || self.router.active()
+            || self.pointer.is_some()
+    }
+
+    pub fn pointer_fast_tick(&self) -> bool {
+        self.pointer.is_some() || self.menu_visible || self.router.active()
     }
 
     pub fn reset_dialogue_visibility(&mut self) {
@@ -215,6 +227,7 @@ impl UiRuntime {
     fn suspend_input(&mut self) {
         self.router.cancel();
         self.pointer_targets.clear();
+        self.pointer_devices.clear();
         self.pointer = None;
         self.last_input = Instant::now();
         self.pressed = None;
@@ -226,6 +239,7 @@ impl UiRuntime {
     pub fn reset(&mut self) {
         self.router.cancel();
         self.pointer_targets.clear();
+        self.pointer_devices.clear();
         self.pointer = None;
         self.cursor_error = None;
         self.last_input = Instant::now();
@@ -287,70 +301,88 @@ impl UiRuntime {
         }
     }
 
+    fn probe_device_pointer(
+        &self,
+        backend: &OpenVrBackend,
+        layouts: &[Option<Arc<SurfaceLayout>>; 3],
+        device: u32,
+        source: u64,
+        scroll_y: f32,
+    ) -> Option<Option<Pointer>> {
+        let ray = backend.controller_pointer_pose(openvr::TrackedDeviceIndex(device), source)?;
+        if self.origin != Some(ray.1) {
+            return None;
+        }
+        Some(nearest_pointer(
+            self.pointer_targets
+                .iter()
+                .filter(|(_, _, bound)| *bound != Some(device))
+                .filter_map(|&(kind, key, _)| {
+                    let hit = backend.intersect(kind, device, ray)?;
+                    Some(Pointer {
+                        device,
+                        key,
+                        point: hit.point,
+                        position: hit.position,
+                        distance: hit.distance,
+                        scroll_y,
+                        origin: ray.1,
+                        panel: hit.panel,
+                        panel_width: hit.panel_width,
+                    })
+                }),
+            layouts,
+        ))
+    }
+
+    fn finish_pointer_selection(&mut self, pointers: Vec<Pointer>) {
+        let candidates: Vec<_> = pointers.iter().map(|p| (p.device, p.distance)).collect();
+        let device = self.router.select_pointer_device(&candidates);
+        self.pointer = pointers.into_iter().find(|p| Some(p.device) == device);
+    }
+
     fn sample_pointer(
         &mut self,
         backend: &OpenVrBackend,
-        layouts: &[Option<SurfaceLayout>; 3],
+        layouts: &[Option<Arc<SurfaceLayout>>; 3],
     ) -> Vec<super::ocr_input::UiInput> {
         let mut inputs = backend.ui_inputs();
         let mut pointers = Vec::with_capacity(inputs.len());
         inputs.retain(|input| {
-            let Some(ray) = backend
-                .controller_pointer_pose(openvr::TrackedDeviceIndex(input.device), input.source)
-            else {
-                return false;
-            };
-            if self.origin != Some(ray.1) {
-                return false;
-            }
-            if let Some(pointer) = nearest_pointer(
-                self.pointer_targets
-                    .iter()
-                    .filter(|(_, _, bound)| *bound != Some(input.device))
-                    .filter_map(|&(kind, key, _)| {
-                        let (point, position, distance) =
-                            backend.intersect(kind, input.device, ray)?;
-                        Some(Pointer {
-                            device: input.device,
-                            key,
-                            point,
-                            position,
-                            distance,
-                            scroll_y: input.scroll_y,
-                            origin: ray.1,
-                        })
-                    }),
+            match self.probe_device_pointer(
+                backend,
                 layouts,
+                input.device,
+                input.source,
+                input.scroll_y,
             ) {
-                pointers.push(pointer);
+                None => false,
+                Some(hit) => {
+                    if let Some(pointer) = hit {
+                        pointers.push(pointer);
+                    }
+                    true
+                }
             }
-            true
         });
-        let candidates: Vec<_> = pointers.iter().map(|p| (p.device, p.distance)).collect();
-        let device = self.router.select_pointer_device(&candidates);
-        self.pointer = pointers.into_iter().find(|p| Some(p.device) == device);
+        self.pointer_devices.clear();
+        self.pointer_devices
+            .extend(inputs.iter().map(|input| (input.device, input.source)));
+        self.finish_pointer_selection(pointers);
         inputs
     }
 
-    /// Updates only the shared cursor; panel content stays on the regular render tick.
-    pub fn update_pointer(&mut self, app: &AppHandle, backend: &mut OpenVrBackend) {
-        if self.pointer_targets.is_empty()
-            || backend.system_dashboard_visible()
-            || backend.ocr_tracking().is_err()
-        {
-            self.pointer = None;
-        } else {
-            let surfaces = app.state::<SurfaceHub>();
-            let layouts = [
-                surfaces.pointer_layout(SurfaceId::Menu),
-                surfaces.pointer_layout(SurfaceId::Dialogue),
-                surfaces.pointer_layout(SurfaceId::Reader),
-            ];
-            self.sample_pointer(backend, &layouts);
-        }
+    pub fn sync_cursor(&mut self, app: &AppHandle, backend: &mut OpenVrBackend) {
         let target = self.pointer.map(|p| {
             let (kind, surface) = pointer_overlay(p.key.surface);
-            (kind, p.position, p.origin, surface.size().0)
+            CursorTarget {
+                kind,
+                position: p.position,
+                origin: p.origin,
+                panel: p.panel,
+                panel_width: p.panel_width,
+                texture_width: surface.size().0,
+            }
         });
         match backend.update_cursor(target) {
             Ok(()) => self.cursor_error = None,
@@ -384,6 +416,34 @@ impl UiRuntime {
         {
             tracing::debug!(%error, "VR menu pointer unavailable");
         }
+    }
+
+    /// Updates only the shared cursor; panel content stays on the regular render tick.
+    pub fn update_pointer(&mut self, app: &AppHandle, backend: &mut OpenVrBackend) {
+        if self.pointer_targets.is_empty()
+            || self.pointer_devices.is_empty()
+            || backend.system_dashboard_visible()
+            || backend.ocr_tracking().is_err()
+        {
+            self.pointer = None;
+        } else {
+            let surfaces = app.state::<SurfaceHub>();
+            let layouts = [
+                surfaces.pointer_layout(SurfaceId::Menu),
+                surfaces.pointer_layout(SurfaceId::Dialogue),
+                surfaces.pointer_layout(SurfaceId::Reader),
+            ];
+            let mut pointers = Vec::with_capacity(self.pointer_devices.len());
+            for &(device, source) in &self.pointer_devices {
+                if let Some(Some(pointer)) =
+                    self.probe_device_pointer(backend, &layouts, device, source, 0.0)
+                {
+                    pointers.push(pointer);
+                }
+            }
+            self.finish_pointer_selection(pointers);
+        }
+        self.sync_cursor(app, backend);
     }
 
     pub fn tick_with_cadence(
@@ -915,6 +975,8 @@ mod tests {
             distance: 1.,
             scroll_y: 0.,
             origin: 1,
+            panel: [[0.; 4]; 3],
+            panel_width: 1.,
         };
         let reader = Pointer {
             key: Key {
@@ -932,7 +994,11 @@ mod tests {
             "page_count": 1
         }))
         .unwrap();
-        let mut layouts = [Some(layout.clone()), None, Some(reader_layout)];
+        let mut layouts = [
+            Some(Arc::new(layout.clone())),
+            None,
+            Some(Arc::new(reader_layout)),
+        ];
         let selected = nearest_pointer([menu, reader].into_iter(), &layouts).unwrap();
         assert_eq!(selected.key.surface, Surface::Menu);
 
@@ -951,7 +1017,7 @@ mod tests {
         assert!(nearest_pointer([menu].into_iter(), &[None, None, None]).is_none());
         assert!(nearest_pointer([reader].into_iter(), &[None, None, None]).is_none());
         layout.regions.clear();
-        layouts[0] = Some(layout);
+        layouts[0] = Some(Arc::new(layout));
         assert!(nearest_pointer([menu].into_iter(), &layouts).is_some());
     }
 
@@ -979,6 +1045,8 @@ mod tests {
             distance: 1.,
             scroll_y: 0.,
             origin: 1,
+            panel: [[0.; 4]; 3],
+            panel_width: 1.,
         };
         let reader = Pointer {
             key: Key {
@@ -995,7 +1063,7 @@ mod tests {
             "page_count": 1
         }))
         .unwrap();
-        let layouts = [None, Some(layout), Some(reader_layout)];
+        let layouts = [None, Some(Arc::new(layout)), Some(Arc::new(reader_layout))];
         for point in [[0.005, 0.5], [0.5, 0.135], [0.011, 0.011], [0.021, 0.146]] {
             let front = Pointer { point, ..dialogue };
             let selected = nearest_pointer([front, reader].into_iter(), &layouts).unwrap();

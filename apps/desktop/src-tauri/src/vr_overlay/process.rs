@@ -53,18 +53,23 @@ fn find_process(pid: Option<u32>, name: &str) -> Option<u32> {
         let mut found = None;
 
         if Process32FirstW(snapshot, &mut entry) != 0 {
+            let target = name.as_bytes();
             loop {
-                let len = entry
-                    .szExeFile
-                    .iter()
-                    .position(|character| *character == 0)
-                    .unwrap_or(entry.szExeFile.len());
-                let executable = String::from_utf16_lossy(&entry.szExeFile[..len]);
-                if executable.eq_ignore_ascii_case(name)
-                    && pid.is_none_or(|pid| pid == entry.th32ProcessID)
-                {
-                    found = Some(entry.th32ProcessID);
-                    break;
+                if pid.is_none_or(|pid| pid == entry.th32ProcessID) {
+                    let len = entry
+                        .szExeFile
+                        .iter()
+                        .position(|character| *character == 0)
+                        .unwrap_or(entry.szExeFile.len());
+                    let exe = &entry.szExeFile[..len];
+                    if exe.len() == target.len()
+                        && exe.iter().zip(target).all(|(&w, &b)| {
+                            u8::try_from(w).is_ok_and(|c| c.eq_ignore_ascii_case(&b))
+                        })
+                    {
+                        found = Some(entry.th32ProcessID);
+                        break;
+                    }
                 }
                 if Process32NextW(snapshot, &mut entry) == 0 {
                     break;
