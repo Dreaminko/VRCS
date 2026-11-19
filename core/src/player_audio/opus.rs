@@ -4,12 +4,16 @@ use std::sync::Arc;
 
 type Create = unsafe extern "C" fn(c_int, c_int, *mut c_int) -> *mut c_void;
 type Decode = unsafe extern "C" fn(*mut c_void, *const u8, c_int, *mut f32, c_int, c_int) -> c_int;
+type Ctl = unsafe extern "C" fn(*mut c_void, c_int) -> c_int;
 type Destroy = unsafe extern "C" fn(*mut c_void);
+
+const OPUS_RESET_STATE: c_int = 4028;
 
 pub(super) struct Opus {
     _library: libloading::Library,
     create: Create,
     decode: Decode,
+    ctl: Option<Ctl>,
     destroy: Destroy,
 }
 
@@ -69,6 +73,10 @@ impl Opus {
             let decode = *library
                 .get::<Decode>(b"opus_decode_float\0")
                 .map_err(|e| e.to_string())?;
+            let ctl = library
+                .get::<Ctl>(b"opus_decoder_ctl\0")
+                .ok()
+                .map(|symbol| *symbol);
             let destroy = *library
                 .get::<Destroy>(b"opus_decoder_destroy\0")
                 .map_err(|e| e.to_string())?;
@@ -76,6 +84,7 @@ impl Opus {
                 _library: library,
                 create,
                 decode,
+                ctl,
                 destroy,
             }))
         }
@@ -103,11 +112,17 @@ pub(super) struct Decoder {
 unsafe impl Send for Decoder {}
 
 impl Decoder {
-    pub(super) fn decode(&mut self, packet: &[u8]) -> Result<Vec<f32>, String> {
+    pub(super) fn reset(&mut self) -> bool {
+        self.opus
+            .ctl
+            .is_some_and(|ctl| unsafe { ctl(self.handle, OPUS_RESET_STATE) } == 0)
+    }
+
+    pub(super) fn decode(&mut self, packet: &[u8]) -> Result<[f32; 320], String> {
         if packet.is_empty() || packet.len() > 1275 {
             return Err("Invalid Opus packet length".into());
         }
-        let mut samples = vec![0.0f32; 1920];
+        let mut samples = [0.0f32; 1920];
         let count = unsafe {
             (self.opus.decode)(
                 self.handle,
@@ -123,11 +138,11 @@ impl Decoder {
                 "Expected a 20 ms USpeak frame, Opus returned {count}"
             ));
         }
-        samples.truncate(count as usize);
-        if samples.iter().any(|v| !v.is_finite()) {
+        let frame = &samples[..320];
+        if frame.iter().any(|v| !v.is_finite()) {
             return Err("Invalid Opus audio samples".into());
         }
-        Ok(samples)
+        Ok(frame.try_into().expect("320 samples"))
     }
 }
 impl Drop for Decoder {

@@ -554,6 +554,7 @@ struct Flow {
     inbound: Parser,
     outbound: Parser,
     nonces: VecDeque<(bool, [u8; 12])>,
+    nonce_set: HashSet<(bool, [u8; 12])>,
     last_seen: Instant,
     participants: HashMap<u16, Participant>,
     next_participant: u64,
@@ -986,7 +987,8 @@ impl Engine {
                     world: None,
                     inbound: Parser::default(),
                     outbound: Parser::default(),
-                    nonces: VecDeque::new(),
+                    nonces: VecDeque::with_capacity(513),
+                    nonce_set: HashSet::with_capacity(513),
                     last_seen: now,
                     participants: HashMap::new(),
                     next_participant: 0,
@@ -997,12 +999,14 @@ impl Engine {
             allow_voice && self.tx.0.lock().expect("network outputs").voice_enabled();
         let flow = self.flows.get_mut(&connection).unwrap();
         let nonce: [u8; 12] = packet[7..19].try_into().unwrap();
-        if flow.nonces.contains(&(incoming, nonce)) {
+        if !flow.nonce_set.insert((incoming, nonce)) {
             return;
         }
         flow.nonces.push_back((incoming, nonce));
         if flow.nonces.len() > 512 {
-            flow.nonces.pop_front();
+            if let Some(evicted) = flow.nonces.pop_front() {
+                flow.nonce_set.remove(&evicted);
+            }
         }
         flow.last_seen = now;
         let parser = if incoming {
@@ -1164,9 +1168,8 @@ impl Engine {
                 .observe_player(&id, flow_number, epoch, position, now);
         }
         if spatial_changed {
-            self.publish_view_priority(now);
+            self.publish_spatial_state(now, spatial_enabled, true);
         }
-        self.update_proximity_status(now);
         for (voice, participant) in voices {
             self.voice(flow_number, epoch, voice, participant, now);
         }
@@ -1337,8 +1340,10 @@ impl Engine {
                 }
                 track.next_playout += Duration::from_millis(20);
                 if std::mem::take(&mut track.buffer.reset) {
-                    if let Some(Ok(decoder)) = self.opus.as_ref().map(|opus| opus.decoder()) {
-                        track.decoder = decoder;
+                    if !track.decoder.reset() {
+                        if let Some(Ok(decoder)) = self.opus.as_ref().map(|opus| opus.decoder()) {
+                            track.decoder = decoder;
+                        }
                     }
                 }
                 let samples = match track.buffer.pop() {
@@ -1346,10 +1351,10 @@ impl Engine {
                         Ok(samples) => samples,
                         Err(_) => {
                             self.status.lock().expect("player status").decode_errors += 1;
-                            vec![0.0; 320]
+                            [0.0; 320]
                         }
                     },
-                    None => vec![0.0; 320],
+                    None => [0.0; 320],
                 };
                 track.pending.extend(samples);
                 while track.pending.len() >= 512 {
@@ -1401,26 +1406,32 @@ impl Engine {
         }
         self.status.lock().expect("player status").players = players;
     }
-    fn update_proximity_status(&mut self, now: Instant) {
-        let mut status = self.status.lock().expect("player status");
-        status.proximity.enabled = self.proximity_config.enabled;
-        status.proximity.local_position = self.proximity.local_fresh(now);
-        status.proximity.tracked_players = self.proximity.fresh_players(now);
-    }
-    fn publish_view_priority(&mut self, now: Instant) {
-        let outputs = self.tx.0.lock().expect("network outputs");
+    fn publish_spatial_state(
+        &mut self,
+        now: Instant,
+        voice_enabled: bool,
+        update_proximity: bool,
+    ) {
         let (enabled, local_view, visible, valid_until) = self.proximity.visibility(
-            self.view_priority_config.enabled && outputs.voice_enabled(),
+            self.view_priority_config.enabled && voice_enabled,
             self.view_priority_config.horizontal_fov_deg,
             now,
         );
         let count = visible.len();
         super::publish_view_priority(enabled, visible, valid_until);
-        drop(outputs);
         let mut status = self.status.lock().expect("player status");
         status.proximity.view_enabled = enabled;
         status.proximity.local_view = local_view;
         status.proximity.in_view_players = count;
+        if update_proximity {
+            status.proximity.enabled = self.proximity_config.enabled;
+            status.proximity.local_position = self.proximity.local_fresh(now);
+            status.proximity.tracked_players = self.proximity.fresh_players(now);
+        }
+    }
+    fn publish_view_priority(&mut self, now: Instant) {
+        let voice_enabled = self.tx.0.lock().expect("network outputs").voice_enabled();
+        self.publish_spatial_state(now, voice_enabled, false);
     }
     fn refresh_proximity(&mut self, now: Instant) {
         let mut ids = self.admitted_proximity.clone();

@@ -200,30 +200,32 @@ pub(super) fn event_parameters(message: &[u8], event_code: u8) -> Option<Vec<(u8
         .enumerate()
         .find_map(|(at, bytes)| matches!(bytes, [0xf3, 2] | [0xf3, 4]).then_some((at, bytes[1])))?;
     let event = &message[at..];
+    match header {
+        4 if *event.get(2)? != event_code => return None,
+        2 if *event.get(2)? != 0xfd => return None,
+        2 | 4 => {}
+        _ => return None,
+    }
     let mut reader = Reader {
         bytes: event,
         offset: 3,
         nodes: 0,
     };
     let count = reader.byte()?;
-    let mut parameters = Vec::new();
+    let mut parameters = Vec::with_capacity(usize::from(count));
     for _ in 0..count {
         parameters.push((reader.byte()?, reader.dynamic(0)?));
     }
-    let actual_event = if header == 4 {
-        *event.get(2)?
-    } else if header == 2 && *event.get(2)? == 0xfd {
-        parameters
+    if header == 2 {
+        let actual_event: u8 = parameters
             .iter()
             .find(|(code, _)| *code == 244)
             .and_then(|(_, value)| value.actor())?
             .try_into()
-            .ok()?
-    } else {
-        return None;
-    };
-    if actual_event != event_code {
-        return None;
+            .ok()?;
+        if actual_event != event_code {
+            return None;
+        }
     }
     reader.finished().then_some(parameters)
 }
