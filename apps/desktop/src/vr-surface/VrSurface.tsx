@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { lazy, memo, Suspense, useCallback, useLayoutEffect, useMemo, useRef, type ComponentType, type CSSProperties, type ReactNode } from "react";
 import { Captions, ChevronLeft, ChevronRight, Crop, Eye, GripHorizontal, Hand, Languages, MessageSquare, Mic, Pin, PinOff, Radio, ScanEye, Square, UsersRound, X } from "lucide-react";
 import type { WristMenuCommand } from "../vr-controls/player-display-protocol";
 import type { ControlAction } from "../vr-controls/protocol";
@@ -13,18 +13,34 @@ import { MessageSourceIcon } from "../subtitles/components/MessageSourceIcon";
 
 import "./surface.css";
 
-let visionMarkdownModule: Promise<typeof import("../vision/VisionAnswerMarkdown")> | undefined;
-const LazyVisionAnswerMarkdown = lazy(() => (visionMarkdownModule ??= import("../vision/VisionAnswerMarkdown")).then(
-  ({ VisionAnswerMarkdown }) => ({
-    default: function VrVisionAnswerMarkdown({ children }: { children: string }) {
-      const ref = useRef<HTMLDivElement>(null);
-      useLayoutEffect(() => {
-        ref.current?.dispatchEvent(new CustomEvent("vr-surface-layout", { bubbles: true }));
-      }, []);
-      return <div ref={ref}><VisionAnswerMarkdown vr>{children}</VisionAnswerMarkdown></div>;
-    },
-  }),
-));
+type VisionMarkdownComponent = typeof import("../vision/VisionAnswerMarkdown").VisionAnswerMarkdown;
+let visionMarkdownModule: Promise<{ default: ComponentType<{ children: string }> }> | undefined;
+let visionMarkdownComponent: VisionMarkdownComponent | null = null;
+
+function VrVisionAnswerMarkdown({ Component, children }: { Component: VisionMarkdownComponent; children: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    ref.current?.dispatchEvent(new CustomEvent("vr-surface-layout", { bubbles: true }));
+  }, []);
+  return <div ref={ref}><Component vr>{children}</Component></div>;
+}
+
+function loadVisionMarkdown() {
+  return visionMarkdownModule ??= import("../vision/VisionAnswerMarkdown").then(({ VisionAnswerMarkdown }) => {
+    visionMarkdownComponent = VisionAnswerMarkdown;
+    return {
+      default: function LazyLoadedVisionAnswerMarkdown({ children }: { children: string }) {
+        return <VrVisionAnswerMarkdown Component={VisionAnswerMarkdown}>{children}</VrVisionAnswerMarkdown>;
+      },
+    };
+  });
+}
+
+export function preloadVisionMarkdown() {
+  void loadVisionMarkdown();
+}
+
+const LazyVisionAnswerMarkdown = lazy(loadVisionMarkdown);
 
 function SurfaceButton({ state, id, label, children, active = false, primary = false, disabled = false, grip = false, status, menu }: {
   state: SurfaceState; id: number; label: string; children: ReactNode; active?: boolean; primary?: boolean; disabled?: boolean; grip?: boolean;
@@ -146,6 +162,7 @@ function Reader({ state, view }: { state: SurfaceState; view: Extract<SurfaceVie
   const error = vision && reader.status === "visionError";
   const translation = busy ? label(reader.status === "listening" ? "listeningHint" : "requestingHint")
     : error ? `${label("retryHint")}\n\n${reader.translation}` : reader.translation;
+  const LoadedVisionMarkdown = visionMarkdownComponent;
   return <section className="vr-reader-panel vr-surface-panel" data-vr-panel>
     <header className="vr-reader-header">
       <h1><ScanEye />{label(reader.title)}</h1>
@@ -160,7 +177,9 @@ function Reader({ state, view }: { state: SurfaceState; view: Extract<SurfaceVie
         {!reader.source_only && translation && <section className={`vr-reader-card${error ? " error" : ""}`}>
           <h2>{label(error ? "visionError" : reader.translation_label || "answer")}</h2>
           {vision && reader.status === "complete"
-            ? <Suspense fallback={<p className="vr-reader-plain" data-vr-pending="true">{translation}</p>}><LazyVisionAnswerMarkdown>{translation}</LazyVisionAnswerMarkdown></Suspense>
+            ? LoadedVisionMarkdown
+              ? <VrVisionAnswerMarkdown Component={LoadedVisionMarkdown}>{translation}</VrVisionAnswerMarkdown>
+              : <Suspense fallback={<p className="vr-reader-plain" data-vr-pending="true">{translation}</p>}><LazyVisionAnswerMarkdown>{translation}</LazyVisionAnswerMarkdown></Suspense>
             : <p className="vr-reader-plain">{translation}</p>}
         </section>}
       </div>

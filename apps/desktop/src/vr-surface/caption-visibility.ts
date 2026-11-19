@@ -10,29 +10,41 @@ const player = (message: CaptionMessage) => message.original?.track_id ?? messag
 
 export function visibleCaptionMessages(view: CaptionView): CaptionMessage[] {
   const hidden = view.visibility;
-  let messages = view.messages.filter(message => {
-    if (!message.text.trim()) return false;
+  let messages: CaptionMessage[] = [];
+  for (const message of view.messages) {
+    if (!message.text.trim()) continue;
     const original = message.original;
-    if (!original || !hidden) return true; // Sample captions have no captured source.
-    const speaker = original.track_id ? { id: original.track_id, index: 0 } : null;
-    return trackVisible(original.source, speaker, hidden.hidden_tracks)
-      && (!hidden.hidden_source_languages.length || !isOtherPlayerSource(original.source) || sourceLanguageVisible(original.source,
-        originalSourceLanguage(original.text, original.language, original.translation_sources), hidden.hidden_source_languages));
-  });
+    if (original && hidden) {
+      const speaker = original.track_id ? { id: original.track_id, index: 0 } : null;
+      if (!trackVisible(original.source, speaker, hidden.hidden_tracks)) continue;
+      if (hidden.hidden_source_languages.length && isOtherPlayerSource(original.source)
+        && !sourceLanguageVisible(original.source,
+          originalSourceLanguage(original.text, original.language, original.translation_sources),
+          hidden.hidden_source_languages)) continue;
+    }
+    messages.push(message);
+  }
 
   if (view.kind === "headset") {
     if (view.max_visible_players === null) {
       // Mixed audio still uses one caption; remote text keeps independent player lanes.
-      const audio = messages.filter(message => message.original?.source !== "vrchat_chatbox");
-      const latest = audio.filter(live).at(-1) ?? audio.at(-1);
+      let latestLive: CaptionMessage | undefined;
+      let latestAny: CaptionMessage | undefined;
       const text = new Map<string, CaptionMessage>();
-      for (const message of messages.filter(message => message.original?.source === "vrchat_chatbox")) text.set(lane(message), message);
-      return [...(latest ? [latest] : []), ...text.values()];
+      for (const message of messages) {
+        if (message.original?.source === "vrchat_chatbox") {
+          text.set(lane(message), message);
+        } else {
+          latestAny = message;
+          if (live(message)) latestLive = message;
+        }
+      }
+      const latest = latestLive ?? latestAny;
+      return latest ? [latest, ...text.values()] : [...text.values()];
     }
     const lanes = new Map<string, CaptionMessage>();
-    for (const message of [...messages.filter(message => !live(message)), ...messages.filter(live)]) {
-      lanes.set(lane(message), message);
-    }
+    for (const message of messages) if (!live(message)) lanes.set(lane(message), message);
+    for (const message of messages) if (live(message)) lanes.set(lane(message), message);
     messages = [...lanes.values()].sort((a, b) => Number(live(b)) - Number(live(a)));
   }
 
@@ -40,14 +52,19 @@ export function visibleCaptionMessages(view: CaptionView): CaptionMessage[] {
   if (limit != null && limit > 0) {
     const selected = new Set<string>();
     // Keep active players first, then fill unused slots from recent history.
-    for (const message of [...messages.filter(live), ...messages.filter(message => !live(message)).reverse()]) {
-      if (other(message) && selected.size < limit) selected.add(player(message));
+    for (const message of messages) {
+      if (selected.size >= limit) break;
+      if (live(message) && other(message)) selected.add(player(message));
+    }
+    for (let i = messages.length - 1; i >= 0 && selected.size < limit; i--) {
+      const message = messages[i]!;
+      if (!live(message) && other(message)) selected.add(player(message));
     }
     messages = messages.filter(message => !other(message) || selected.has(player(message)));
   }
   if (view.kind === "dialogue") {
     const count = Number.isFinite(view.max_entries) ? Math.min(10, Math.max(3, Math.floor(view.max_entries!))) : 10;
-    messages = messages.slice(-count);
+    if (messages.length > count) messages = messages.slice(-count);
   }
   return messages;
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { connectSurfaceBridge, type SurfaceBridge } from "./bridge";
-import { VrSurface } from "./VrSurface";
+import { preloadVisionMarkdown, VrSurface } from "./VrSurface";
 import { markerBits, newerKey, sameKey, type Surface, type SurfaceActivity, type SurfaceKey, type SurfaceLayout, type SurfacePointerState, type SurfaceScrollState, type SurfaceState } from "./protocol";
 
 export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surface: Surface; connect?: (surface: Surface, signal: AbortSignal) => Promise<SurfaceBridge> }) {
@@ -100,6 +100,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
     let disposed = false;
     const abort = new AbortController();
     mounted.current = true;
+    if (surface === "reader") preloadVisionMarkdown();
     const receiveActivity = (next: SurfaceActivity) => {
       if (disposed || !Number.isSafeInteger(next.request) || next.request < activity.current.request) return;
       activity.current = next;
