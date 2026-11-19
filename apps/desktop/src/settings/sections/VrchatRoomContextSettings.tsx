@@ -1,7 +1,6 @@
-import { Globe } from "lucide-react";
+import { CircleQuestionMark, Globe } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { RoomContextStatus } from "../../core-client/types";
 import type { ApplySettings } from "../settings-types";
 import { PreferenceToggle } from "../SettingsControls";
 import type { Settings, VrchatContextConfig } from "../types";
@@ -14,14 +13,17 @@ export const DEFAULT_VRCHAT_CONTEXT_CONFIG: VrchatContextConfig = {
 
 export function VrchatRoomContextSettings({
   draft,
-  status,
   applySettings,
 }: {
   draft: Settings;
-  status?: RoomContextStatus | null;
   applySettings: ApplySettings;
 }) {
   const { t } = useTranslation();
+  const title = t("settings.capture.roomContext.title");
+  const titleTailMatch = title.match(/^(.*?)(\S+)$/);
+  const titleLeading = titleTailMatch && titleTailMatch[1] ? titleTailMatch[1] : title.slice(0, -1);
+  const titleTrailing = titleTailMatch && titleTailMatch[1] ? titleTailMatch[2] : title.slice(-1);
+  const description = t("settings.capture.roomContext.description");
   const value = {
     ...DEFAULT_VRCHAT_CONTEXT_CONFIG,
     ...draft.vrchat_context,
@@ -36,24 +38,27 @@ export function VrchatRoomContextSettings({
       },
     }));
 
-  const statusText = status
-    ? status.availability === "unavailable"
-      ? t("settings.capture.roomContext.statusUnavailable")
-      : t(`settings.capture.roomContext.tier.${status.tier}`, {
-          world: status.world_name ?? t("settings.capture.roomContext.worldUnknown"),
-          count: status.member_count,
-        })
-    : null;
-
   return (
-    <section className="capture-chatbox-settings" aria-labelledby="vrchat-room-context-title">
-      <div className="device-group-heading">
-        <div className="device-group-title">
-          <span className="device-group-icon"><Globe size={18} /></span>
-          <div>
-            <h3 id="vrchat-room-context-title">{t("settings.capture.roomContext.title")}</h3>
-            <p className="settings-field-note">{t("settings.capture.roomContext.description")}</p>
-          </div>
+    <section className="capture-chatbox-settings capture-room-context-settings" aria-labelledby="vrchat-room-context-title">
+      <div className="device-group-title">
+        <span className="device-group-icon"><Globe size={18} /></span>
+        <div className="device-group-title-heading">
+          <h3 id="vrchat-room-context-title" aria-label={title}>
+            {titleLeading}
+            <span className="device-group-title-tail">
+              <span className="device-group-title-tail-text">{titleTrailing}</span>
+              <button
+                type="button"
+                className="settings-help-trigger"
+                aria-label={title}
+                aria-description={description}
+                data-tooltip={description}
+                data-tooltip-prose=""
+              >
+                <CircleQuestionMark size={15} strokeWidth={1.9} aria-hidden="true" />
+              </button>
+            </span>
+          </h3>
         </div>
       </div>
       <div className="device-group-content">
@@ -80,11 +85,6 @@ export function VrchatRoomContextSettings({
           disabled={!value.include_in_asr_context && !value.include_in_translation_context}
           onChange={(include_world_name) => update({ include_world_name })}
         />
-        {statusText && (
-          <p className="settings-field-note" role="status" aria-live="polite">
-            {statusText}
-          </p>
-        )}
       </div>
     </section>
   );

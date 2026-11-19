@@ -209,7 +209,6 @@ export function SettingsPanel({
           playerAudioStatus={health?.player_audio}
           playerAudioStart={playerAudioStart}
           chatboxStatus={health?.vrchat_chatbox}
-          roomContextStatus={health?.room_context}
           translation={sessionTranslation}
           profiles={apiProfileCatalog.profiles}
           onOpenTranslation={() => setActiveCategory("translation")}

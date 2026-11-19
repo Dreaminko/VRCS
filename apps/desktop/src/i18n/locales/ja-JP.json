@@ -1964,22 +1964,14 @@
           }
         },
         "roomContext": {
-          "title": "VRChat ルームコンテキスト",
+          "title": "コンテキスト最適化",
           "description": "現在の VRChat ワールド名や参加プレイヤー名を使って音声認識と翻訳の精度を高めます。ネットワークキャプチャが無効でもローカルログからワールド名とルーム履歴分離を利用でき、有効時は参加者リストと発話者も取得します。",
           "asr": "音声認識（ASR）のコンテキストに含める",
           "asrDescription": "対応する音声認識サービスへ現在のワールド名やプレイヤー名をホットワード/コンテキストとして渡します。",
           "translation": "翻訳コンテキストに含める",
           "translationDescription": "ルーム単位で翻訳履歴を分離し、翻訳モデルへワールドと発話者の参照情報を渡します。",
           "worldName": "ワールド名を含める",
-          "worldNameDescription": "ルームコンテキスト有効時に現在の VRChat ワールド名を含めます。",
-          "statusUnavailable": "VRChat のルーム入室を待機しています。",
-          "worldUnknown": "不明なワールド",
-          "tier": {
-            "none": "VRChat ルーム外",
-            "log_only": "ログのみモード · ワールド：{{world}}",
-            "network_chatbox": "ネットワーク Chatbox モード · ワールド：{{world}} · {{count}} 人",
-            "network_player_audio": "ネットワーク個別音声モード · ワールド：{{world}} · {{count}} 人"
-          }
+          "worldNameDescription": "ルームコンテキスト有効時に現在の VRChat ワールド名を含めます。"
         }
       },
       "modelAssignments": {

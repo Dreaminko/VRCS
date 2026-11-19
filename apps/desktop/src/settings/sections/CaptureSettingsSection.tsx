@@ -13,7 +13,7 @@ import { OtherVoiceLevelSetting } from "./OtherVoiceLevelSetting";
 import { VrchatChatboxSettings } from "./VrchatChatboxSettings";
 import { VrchatRoomContextSettings } from "./VrchatRoomContextSettings";
 import { DEFAULT_PLAYER_AUDIO, PlayerAudioSettings } from "./PlayerAudioSettings";
-import type { ChatboxStatus, PlayerAudioStatus, RoomContextStatus } from "../../core-client/types";
+import type { ChatboxStatus, PlayerAudioStatus } from "../../core-client/types";
 import type { ApiProfileView } from "../../providers/types";
 import type { PlayerAudioStart } from "../../capture/usePlayerAudioStart";
 import { ConfirmDialog } from "../../app/components/ConfirmDialog";
@@ -23,7 +23,6 @@ export function CaptureSettingsSection({
   playerAudioStatus,
   playerAudioStart,
   chatboxStatus,
-  roomContextStatus,
   translation = draft.translation,
   profiles = [],
   onOpenTranslation = () => undefined,
@@ -46,7 +45,6 @@ export function CaptureSettingsSection({
   playerAudioStatus?: PlayerAudioStatus | null;
   playerAudioStart?: PlayerAudioStart;
   chatboxStatus?: ChatboxStatus | null;
-  roomContextStatus?: RoomContextStatus | null;
   translation?: TranslationSettings;
   profiles?: ApiProfileView[];
   onOpenTranslation?: () => void;
@@ -333,7 +331,7 @@ export function CaptureSettingsSection({
           <VrchatChatboxSettings draft={draft} translation={translation} profiles={profiles} status={chatboxStatus}
             supported={playerAudioStart?.memory.status?.supported} saveState={saveState} saveMessage={saveMessage}
             applySettings={applySettings} onOpenTranslation={onOpenTranslation} />
-          <VrchatRoomContextSettings draft={draft} status={roomContextStatus} applySettings={applySettings} />
+          <VrchatRoomContextSettings draft={draft} applySettings={applySettings} />
           <PlayerAudioSettings value={draft.audio.output.player_audio} status={playerAudioStatus}
             memory={playerAudioStart?.memory}
             disabled={playerAudioStart?.memory.status?.supported === false}

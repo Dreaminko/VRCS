@@ -104,7 +104,8 @@ export function ControlTooltip() {
       const gap = 10;
       const viewportWidth = interfaceLayoutPixels(window.innerWidth);
       const viewportHeight = interfaceLayoutPixels(window.innerHeight);
-      element.style.maxWidth = `${Math.max(0, Math.min(220, viewportWidth - gutter * 2))}px`;
+      const maxWidth = target.hasAttribute("data-tooltip-prose") ? 320 : 220;
+      element.style.maxWidth = `${Math.max(0, Math.min(maxWidth, viewportWidth - gutter * 2))}px`;
       element.style.setProperty("--tooltip-max-height", `${Math.max(0, viewportHeight - gutter * 2)}px`);
       const width = element.offsetWidth;
       const height = element.offsetHeight;
@@ -134,8 +135,9 @@ export function ControlTooltip() {
     };
   }, [tooltip, id]);
 
+  const prose = tooltip?.target.hasAttribute("data-tooltip-prose") ?? false;
   return tooltip && createPortal(
-    <div ref={tooltipRef} id={id} role="tooltip" className={`control-tooltip${tooltip.keyboard ? " keyboard" : ""}`}>
+    <div ref={tooltipRef} id={id} role="tooltip" className={`control-tooltip${tooltip.keyboard ? " keyboard" : ""}${prose ? " prose" : ""}`}>
       <span className="control-tooltip-label">{tooltip.label}</span>
     </div>,
     document.body,

@@ -1964,22 +1964,14 @@
           }
         },
         "roomContext": {
-          "title": "VRChat room context",
+          "title": "Context optimization",
           "description": "Use current VRChat world and participant names to improve speech recognition and translation. Works with VRChat logs for world name and room history without network capture, and adds participant names when network capture is active.",
           "asr": "Include in speech recognition (ASR)",
           "asrDescription": "Send active world and player names as ASR context or hotwords where supported by the service.",
           "translation": "Include in translation context",
           "translationDescription": "Isolate translation history per room and provide sanitized world/speaker context to translation models.",
           "worldName": "Include world name",
-          "worldNameDescription": "Include the current VRChat world name when room context is enabled.",
-          "statusUnavailable": "Waiting for an active VRChat room.",
-          "worldUnknown": "Unknown world",
-          "tier": {
-            "none": "No active VRChat room",
-            "log_only": "Log-only mode · World: {{world}}",
-            "network_chatbox": "Network Chatbox mode · World: {{world}} · {{count}} participants",
-            "network_player_audio": "Network audio + Chatbox mode · World: {{world}} · {{count}} participants"
-          }
+          "worldNameDescription": "Include the current VRChat world name when room context is enabled."
         }
       },
       "modelAssignments": {
