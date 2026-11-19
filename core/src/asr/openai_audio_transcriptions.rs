@@ -1,3 +1,4 @@
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use reqwest::multipart::{Form, Part};
@@ -99,6 +100,19 @@ pub(super) async fn transcribe_result_with_empty(
     })
 }
 
+fn local_qwen_http_client() -> &'static reqwest::Client {
+    static LOCAL_QWEN_HTTP: OnceLock<reqwest::Client> = OnceLock::new();
+    LOCAL_QWEN_HTTP.get_or_init(|| {
+        reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(120))
+            .build()
+            .expect("static local HTTP client options are valid")
+    })
+}
+
 pub(crate) async fn transcribe_managed_qwen(
     connection: &super::qwen_runtime::QwenConnection,
     language: &str,
@@ -116,7 +130,7 @@ pub(crate) async fn transcribe_managed_qwen(
         context: String::new(),
     };
     transcribe_result(
-        &http_client(&profile),
+        local_qwen_http_client(),
         &profile,
         &connection.token,
         &settings,

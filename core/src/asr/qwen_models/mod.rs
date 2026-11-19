@@ -11,12 +11,6 @@ pub(crate) fn verify_file(path: &std::path::Path, spec: AssetSpec) -> Result<boo
 pub(crate) fn verify_file_forced(path: &std::path::Path, spec: AssetSpec) -> Result<bool, String> {
     package::verify_asset(path, spec, true)
 }
-pub(crate) fn verify_file_readonly(
-    path: &std::path::Path,
-    spec: AssetSpec,
-) -> Result<bool, String> {
-    package::verify_asset_readonly(path, spec)
-}
 
 pub(crate) use manifest::AssetSpec;
 pub(super) use manifest::PackageSpec;

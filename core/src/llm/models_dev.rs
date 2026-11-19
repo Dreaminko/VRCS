@@ -84,7 +84,7 @@ impl Snapshot {
                 if model.is_empty() || model.len() > 200 || !entry.is_object() {
                     continue;
                 }
-                let mut info = ModelDetails {
+                let info = ModelDetails {
                     input_modalities: modalities(entry.pointer("/modalities/input")),
                     output_modalities: modalities(entry.pointer("/modalities/output")),
                     context_tokens: positive_limit(entry.pointer("/limit/context")),
@@ -164,10 +164,9 @@ impl Snapshot {
                     ..Default::default()
                 };
                 // Reuse the field merge to mark every public fact with its source.
-                let raw = info.clone();
-                info = ModelDetails::default();
-                info.supplement(&raw);
-                details.insert(model.clone(), info);
+                let mut marked = ModelDetails::default();
+                marked.supplement(&info);
+                details.insert(model.clone(), marked);
             }
             if !details.is_empty() {
                 providers.insert(id.clone(), details);

@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
 use serde::Serialize;
 
 use crate::providers::{self, ALIBABA_PROVIDER, OPENAI_PROVIDER};
@@ -201,11 +204,23 @@ fn wide(value: &str) -> Vec<u16> {
 }
 
 #[cfg(windows)]
+fn stored_cache() -> &'static Mutex<HashMap<String, Option<String>>> {
+    static STORED_CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+    STORED_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(windows)]
 fn read_stored(target_name: &str) -> Result<Option<String>, String> {
     use windows::core::PCWSTR;
     use windows::Win32::Security::Credentials::{
         CredFree, CredReadW, CREDENTIALW, CRED_TYPE_GENERIC,
     };
+
+    if let Ok(cache) = stored_cache().lock() {
+        if let Some(cached) = cache.get(target_name) {
+            return Ok(cached.clone());
+        }
+    }
 
     let target = wide(target_name);
     let mut credential: *mut CREDENTIALW = std::ptr::null_mut();
@@ -218,11 +233,17 @@ fn read_stored(target_name: &str) -> Result<Option<String>, String> {
         )
     } {
         if error.code().0 == 0x80070490u32 as i32 {
+            if let Ok(mut cache) = stored_cache().lock() {
+                cache.insert(target_name.to_owned(), None);
+            }
             return Ok(None);
         }
         return Err(format!("Failed to read Windows credential: {error}"));
     }
     if credential.is_null() {
+        if let Ok(mut cache) = stored_cache().lock() {
+            cache.insert(target_name.to_owned(), None);
+        }
         return Ok(None);
     }
     let result = unsafe {
@@ -235,7 +256,11 @@ fn read_stored(target_name: &str) -> Result<Option<String>, String> {
             .map_err(|_| "Windows credential is not valid UTF-8".to_string())
     };
     unsafe { CredFree(credential.cast()) };
-    result.map(Some)
+    let value = result?;
+    if let Ok(mut cache) = stored_cache().lock() {
+        cache.insert(target_name.to_owned(), Some(value.clone()));
+    }
+    Ok(Some(value))
 }
 
 #[cfg(windows)]
@@ -258,7 +283,11 @@ fn write_stored(target_name: &str, value: &str) -> Result<(), String> {
         ..Default::default()
     };
     unsafe { CredWriteW(&credential, 0) }
-        .map_err(|error| format!("Failed to write Windows credential: {error}"))
+        .map_err(|error| format!("Failed to write Windows credential: {error}"))?;
+    if let Ok(mut cache) = stored_cache().lock() {
+        cache.insert(target_name.to_owned(), Some(value.to_owned()));
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -268,8 +297,18 @@ fn delete_stored(target_name: &str) -> Result<(), String> {
 
     let target = wide(target_name);
     match unsafe { CredDeleteW(PCWSTR(target.as_ptr()), CRED_TYPE_GENERIC, None) } {
-        Ok(()) => Ok(()),
-        Err(error) if error.code().0 == 0x80070490u32 as i32 => Ok(()),
+        Ok(()) => {
+            if let Ok(mut cache) = stored_cache().lock() {
+                cache.insert(target_name.to_owned(), None);
+            }
+            Ok(())
+        }
+        Err(error) if error.code().0 == 0x80070490u32 as i32 => {
+            if let Ok(mut cache) = stored_cache().lock() {
+                cache.insert(target_name.to_owned(), None);
+            }
+            Ok(())
+        }
         Err(error) => Err(format!("Failed to delete Windows credential: {error}")),
     }
 }

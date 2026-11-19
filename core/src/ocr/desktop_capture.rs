@@ -273,14 +273,14 @@ fn capture_desktop_inner(excluded_windows: &[isize]) -> windows::core::Result<De
     let _excluded = ExcludedWindows::new(excluded_windows)?;
     for &(monitor, rect) in &displays {
         let item: GraphicsCaptureItem = unsafe { interop.CreateForMonitor(monitor)? };
-        let pixels = capture_monitor(
+        capture_monitor_into(
             &item,
             &capture_device,
             &graphics.device,
             &graphics.context,
             &rect,
+            &mut capture,
         )?;
-        paste_monitor(&mut capture, &rect, &pixels)?;
     }
     if monitors()? != displays {
         return Err(Error::new(
@@ -291,13 +291,14 @@ fn capture_desktop_inner(excluded_windows: &[isize]) -> windows::core::Result<De
     Ok(capture)
 }
 
-fn capture_monitor(
+fn capture_monitor_into(
     item: &GraphicsCaptureItem,
     capture_device: &IDirect3DDevice,
     device: &ID3D11Device,
     context: &ID3D11DeviceContext,
     bounds: &RECT,
-) -> windows::core::Result<Vec<u8>> {
+    capture: &mut DesktopCapture,
+) -> windows::core::Result<()> {
     let size = item.Size()?;
     if size.Width != bounds.right - bounds.left || size.Height != bounds.bottom - bounds.top {
         return Err(Error::new(
@@ -311,12 +312,12 @@ fn capture_monitor(
         1,
         size,
     )?;
-    let mut capture = CaptureSession {
+    let mut capture_session = CaptureSession {
         pool,
         session: None,
     };
-    let session = capture.pool.CreateCaptureSession(item)?;
-    capture.session = Some(session.clone());
+    let session = capture_session.pool.CreateCaptureSession(item)?;
+    capture_session.session = Some(session.clone());
     session.SetIsCursorCaptureEnabled(false)?;
     if let Err(error) = disable_capture_border(&session) {
         tracing::warn!(%error, "Borderless desktop capture is unavailable; keeping the system border");
@@ -324,7 +325,7 @@ fn capture_monitor(
     let deadline = Instant::now() + Duration::from_secs(2);
     session.StartCapture()?;
     let frame = loop {
-        match capture.pool.TryGetNextFrame() {
+        match capture_session.pool.TryGetNextFrame() {
             Ok(frame) => break frame,
             Err(error) if is_pending_frame(&error) => wait_for_frame(deadline)?,
             Err(error) => return Err(error),
@@ -340,13 +341,15 @@ fn capture_monitor(
         }
         let access: IDirect3DDxgiInterfaceAccess = frame.Surface()?.cast()?;
         let texture: ID3D11Texture2D = unsafe { access.GetInterface()? };
-        read_pixels(
+        read_pixels_into(
             device,
             context,
             &texture,
+            bounds,
             size.Width as u32,
             size.Height as u32,
             deadline,
+            capture,
         )
     })();
     let _ = frame.Close();
@@ -356,9 +359,13 @@ fn capture_monitor(
 fn disable_capture_border(session: &GraphicsCaptureSession) -> windows::core::Result<()> {
     // Check support before requesting access on older Windows versions.
     session.cast::<IGraphicsCaptureSession3>()?;
-    let access =
-        GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Borderless)?.join()?;
-    if access != AppCapabilityAccessStatus::Allowed {
+    static BORDERLESS_ALLOWED: OnceLock<bool> = OnceLock::new();
+    let allowed = *BORDERLESS_ALLOWED.get_or_init(|| {
+        GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Borderless)
+            .and_then(|op| op.join())
+            .is_ok_and(|access| access == AppCapabilityAccessStatus::Allowed)
+    });
+    if !allowed {
         return Err(Error::new(
             E_ACCESSDENIED,
             "Borderless capture access was denied",
@@ -367,6 +374,7 @@ fn disable_capture_border(session: &GraphicsCaptureSession) -> windows::core::Re
     session.SetIsBorderRequired(false)
 }
 
+#[cfg(test)]
 fn paste_monitor(
     capture: &mut DesktopCapture,
     rect: &RECT,
@@ -411,18 +419,20 @@ fn wait_for_frame(deadline: Instant) -> windows::core::Result<()> {
             "Timed out waiting for a desktop frame",
         ));
     }
-    thread::sleep(Duration::from_millis(10));
+    thread::sleep(Duration::from_millis(2));
     Ok(())
 }
 
-fn read_pixels(
+fn read_pixels_into(
     device: &ID3D11Device,
     context: &ID3D11DeviceContext,
     texture: &ID3D11Texture2D,
+    bounds: &RECT,
     width: u32,
     height: u32,
     deadline: Instant,
-) -> windows::core::Result<Vec<u8>> {
+    capture: &mut DesktopCapture,
+) -> windows::core::Result<()> {
     unsafe {
         let mut desc = D3D11_TEXTURE2D_DESC::default();
         texture.GetDesc(&mut desc);
@@ -440,6 +450,7 @@ fn read_pixels(
         device.CreateTexture2D(&desc, None, Some(&mut staging))?;
         let staging = staging.ok_or_else(|| Error::from(E_POINTER))?;
         context.CopyResource(&staging, texture);
+        context.Flush();
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         loop {
             match context.Map(
@@ -462,17 +473,67 @@ fn read_pixels(
             mapped.pData as *const u8,
             mapped.RowPitch as usize * desc.Height as usize,
         );
-        let rgba = bgra_to_rgba(
+        let result = bgra_to_rgba_into(
+            capture,
+            bounds,
             bgra,
             mapped.RowPitch as usize,
             width as usize,
             height as usize,
         );
         context.Unmap(&staging, 0);
-        rgba.map_err(|message| Error::new(E_FAIL, message))
+        result.map_err(|message| Error::new(E_FAIL, message))
     }
 }
 
+fn bgra_to_rgba_into(
+    capture: &mut DesktopCapture,
+    rect: &RECT,
+    pixels: &[u8],
+    stride: usize,
+    width: usize,
+    height: usize,
+) -> Result<(), String> {
+    let row_bytes = width.checked_mul(4);
+    let end = height.checked_mul(stride);
+    let x = i64::from(rect.left) - i64::from(capture.origin.0);
+    let y = i64::from(rect.top) - i64::from(capture.origin.1);
+    let rect_width = i64::from(rect.right) - i64::from(rect.left);
+    let rect_height = i64::from(rect.bottom) - i64::from(rect.top);
+    if width == 0
+        || height == 0
+        || row_bytes.is_none_or(|n| n > stride)
+        || end.is_none_or(|n| n > pixels.len())
+        || x < 0
+        || y < 0
+        || rect_width != width as i64
+        || rect_height != height as i64
+        || x + width as i64 > capture.width as i64
+        || y + height as i64 > capture.height as i64
+    {
+        return Err("The image is outside the captured frame".into());
+    }
+    let row_bytes = width * 4;
+    let dst_stride = capture.width as usize * 4;
+    let dst_x = x as usize * 4;
+    let dst_y = y as usize;
+    for row in 0..height {
+        let source = &pixels[row * stride..row * stride + row_bytes];
+        let offset = (dst_y + row) * dst_stride + dst_x;
+        let destination = &mut capture.pixels[offset..offset + row_bytes];
+        for (source, destination) in source
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(destination.as_chunks_mut::<4>().0)
+        {
+            *destination = [source[2], source[1], source[0], 255];
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
 fn bgra_to_rgba(
     pixels: &[u8],
     stride: usize,

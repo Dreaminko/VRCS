@@ -32,8 +32,7 @@ pub(crate) use question::{
 pub(crate) use qwen_models::is_supported as is_supported_qwen_package;
 pub(crate) use qwen_models::{
     download_file as download_model_file, verify_file as verify_model_file,
-    verify_file_forced as verify_model_file_forced,
-    verify_file_readonly as verify_model_file_readonly, AssetSpec as ModelAssetSpec,
+    verify_file_forced as verify_model_file_forced, AssetSpec as ModelAssetSpec,
 };
 pub(crate) use qwen_runtime::QwenRuntime;
 pub(crate) use runtime_context::{AsrContextSource, AsrEchoGuard};

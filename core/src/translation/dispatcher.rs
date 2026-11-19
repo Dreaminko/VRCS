@@ -447,6 +447,7 @@ impl TranslationDispatcher {
                     drop(_permit);
                     // Reserve upstream budgets, never the two real inference slots.
                     let player_id = player(&job).map(str::to_owned);
+                    let shared_context = Arc::new(tokio::sync::OnceCell::new());
                     for (index, target) in job.targets.iter().cloned().enumerate() {
                         let budget = if target.backend == TranslationBackend::PlamoLocal {
                             &local
@@ -458,10 +459,11 @@ impl TranslationDispatcher {
                             .expect("selected group fits its resource budgets");
                         let context = context.clone();
                         let job = job.clone();
+                        let shared_context = Arc::clone(&shared_context);
                         let task = running.spawn(async move {
                             let preferred = job.first_preferred && index == 0;
                             job_priority(&job)
-                                .scope(process_job(context, job, target, preferred))
+                                .scope(process_job(context, job, target, preferred, shared_context))
                                 .await;
                             // Drop also returns capacity on panic, before JoinSet wakes dispatch.
                             drop(permit);
@@ -581,11 +583,19 @@ impl TranslationDispatcher {
     }
 }
 
+type SharedTranslationContext = Arc<
+    tokio::sync::OnceCell<(
+        Vec<super::TranslationContextEntry>,
+        Option<super::prompt::RoomTranslationContext>,
+    )>,
+>;
+
 async fn process_job(
     context: TranslationJobContext,
     job: TranslationJob,
     target: TranslationTargetConfig,
     preferred: bool,
+    shared_context: SharedTranslationContext,
 ) {
     let TranslationJobContext {
         service,
@@ -638,40 +648,45 @@ async fn process_job(
         });
     };
     // Waiting for the shared database lock must not stall an async worker.
-    let (context, room_context) = tokio::task::spawn_blocking({
-        let database = Arc::clone(&database);
-        let prompt = job.prompt.clone();
-        let vrcx = vrcx.clone();
-        let include_vrcx = job.include_vrcx_context;
-        let vrchat_context = job.vrchat_context.clone();
-        let room_snapshot = job.room_snapshot.clone();
-        let speaker = job.subtitle.speaker.clone();
-        move || match database.lock() {
-            Ok(database) => super::context::load_translation_context(
-                &database,
-                &prompt,
-                Some(subtitle_id),
-                &vrcx,
-                include_vrcx,
-                &vrchat_context,
-                &room_snapshot,
-                speaker.as_ref(),
-            ),
-            Err(_) => {
-                tracing::warn!("translation context database lock is unavailable");
-                (
-                    Vec::new(),
-                    super::context::room_translation_context(
-                        &room_snapshot,
+    let (context, room_context) = shared_context
+        .get_or_init(|| async {
+            tokio::task::spawn_blocking({
+                let database = Arc::clone(&database);
+                let prompt = job.prompt.clone();
+                let vrcx = vrcx.clone();
+                let include_vrcx = job.include_vrcx_context;
+                let vrchat_context = job.vrchat_context.clone();
+                let room_snapshot = job.room_snapshot.clone();
+                let speaker = job.subtitle.speaker.clone();
+                move || match database.lock() {
+                    Ok(database) => super::context::load_translation_context(
+                        &database,
+                        &prompt,
+                        Some(subtitle_id),
+                        &vrcx,
+                        include_vrcx,
                         &vrchat_context,
+                        &room_snapshot,
                         speaker.as_ref(),
                     ),
-                )
-            }
-        }
-    })
-    .await
-    .unwrap_or_default();
+                    Err(_) => {
+                        tracing::warn!("translation context database lock is unavailable");
+                        (
+                            Vec::new(),
+                            super::context::room_translation_context(
+                                &room_snapshot,
+                                &vrchat_context,
+                                speaker.as_ref(),
+                            ),
+                        )
+                    }
+                }
+            })
+            .await
+            .unwrap_or_default()
+        })
+        .await
+        .clone();
     if !job.is_valid() {
         return;
     }

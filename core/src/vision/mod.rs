@@ -65,12 +65,18 @@ impl VisionService {
         apply_feature_gates(&self.state.config.config.read().expect("config lock"))
     }
 
+    pub fn is_enabled_for(&self, mode: VisionMode) -> bool {
+        let config = self.state.config.config.read().expect("config lock");
+        effective_vision_enabled(&config, mode)
+    }
+
     pub fn configuration(&self) -> VisionConfig {
         self.configuration_for(VisionMode::Vr)
     }
 
     pub fn configuration_for(&self, mode: VisionMode) -> VisionConfig {
-        self.snapshot_for(mode).vision
+        let config = self.state.config.config.read().expect("config lock");
+        effective_vision_config(&config, mode)
     }
 
     pub fn profile_name(&self) -> String {
@@ -239,21 +245,38 @@ impl VisionService {
     }
 
     fn matches_session_for(&self, mode: VisionMode, snapshot: &AppConfig) -> bool {
-        let current = self.snapshot_for(mode);
-        self.matches_request(mode, snapshot)
+        if *self.state.integrations.shutdown.borrow() {
+            return false;
+        }
+        let current = self.state.config.config.read().expect("config lock");
+        Self::matches_request_locked(&current, mode, snapshot)
             && current.asr == snapshot.asr
             && current.vad.silence_seconds == snapshot.vad.silence_seconds
             && current.vision.max_capture_seconds == snapshot.vision.max_capture_seconds
             && current.vision.asr_finalize_timeout_ms == snapshot.vision.asr_finalize_timeout_ms
     }
 
+    fn matches_request_locked(current: &AppConfig, mode: VisionMode, snapshot: &AppConfig) -> bool {
+        if !effective_vision_enabled(current, mode) {
+            return false;
+        }
+        let current_vision = effective_vision_config(current, mode);
+        request_configuration(&current_vision) == request_configuration(&snapshot.vision)
+            && matches!(
+                (
+                    resolve_vision_profile(current, &current_vision),
+                    vision_profile(snapshot)
+                ),
+                (Ok(current), Ok(previous)) if current == previous
+            )
+    }
+
     fn matches_request(&self, mode: VisionMode, snapshot: &AppConfig) -> bool {
-        let current = self.snapshot_for(mode);
-        !*self.state.integrations.shutdown.borrow()
-            && current.vision.enabled
-            && request_configuration(&current.vision) == request_configuration(&snapshot.vision)
-            && matches!((vision_profile(&current), vision_profile(snapshot)),
-                (Ok(current), Ok(previous)) if current == previous)
+        if *self.state.integrations.shutdown.borrow() {
+            return false;
+        }
+        let current = self.state.config.config.read().expect("config lock");
+        Self::matches_request_locked(&current, mode, snapshot)
     }
 
     fn matches_credential(&self, snapshot: &AppConfig, api_key: &str) -> bool {
@@ -496,12 +519,42 @@ fn validate_question(question: &str) -> Result<&str, String> {
     Ok(question)
 }
 
-fn vision_profile(config: &AppConfig) -> Result<&ApiProfile, String> {
-    if config.vision.model.trim().is_empty() {
+fn effective_vision_enabled(config: &AppConfig, mode: VisionMode) -> bool {
+    config.vision.enabled
+        && config.features.visual_question_answering
+        && match mode {
+            VisionMode::Desktop => config.vision.desktop_enabled,
+            VisionMode::Vr => config.vision.vr_enabled && config.features.vr_overlay,
+        }
+}
+
+fn effective_vision_config(config: &AppConfig, mode: VisionMode) -> VisionConfig {
+    let mut vision = config.vision.clone();
+    if vision.use_default_model {
+        let default = &config.model_defaults.vision;
+        if vision.profile_id != default.profile_id || vision.model != default.model {
+            vision.reasoning_control = None;
+        }
+        vision.profile_id.clone_from(&default.profile_id);
+        vision.model.clone_from(&default.model);
+    }
+    vision.vr_enabled &= config.features.vr_overlay;
+    vision.enabled &= config.features.visual_question_answering
+        && match mode {
+            VisionMode::Desktop => vision.desktop_enabled,
+            VisionMode::Vr => vision.vr_enabled,
+        };
+    vision
+}
+
+fn resolve_vision_profile<'a>(
+    config: &'a AppConfig,
+    vision: &VisionConfig,
+) -> Result<&'a ApiProfile, String> {
+    if vision.model.trim().is_empty() {
         return Err("Select a model that supports image input".into());
     }
-    let id = config
-        .vision
+    let id = vision
         .profile_id
         .as_deref()
         .ok_or("Select an image-input API profile")?;
@@ -513,6 +566,10 @@ fn vision_profile(config: &AppConfig) -> Result<&ApiProfile, String> {
         .ok_or("The image-input API profile is unavailable")?;
     providers::resolve_profile_capability(profile, CAPABILITY_IMAGE_UNDERSTANDING)?;
     Ok(profile)
+}
+
+fn vision_profile(config: &AppConfig) -> Result<&ApiProfile, String> {
+    resolve_vision_profile(config, &config.vision)
 }
 
 fn credential(profile: &ApiProfile) -> Result<String, String> {
