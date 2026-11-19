@@ -1,10 +1,13 @@
-use crate::vr_overlay::{ocr_capture::encode_png, renderer::Texture};
+use crate::vr_overlay::{ocr_capture::encode_png_rgba, renderer::Texture};
 use vrcs_core::VisionConfig;
 
 pub(crate) fn resize(image: &Texture, max_edge: u32) -> Texture {
     let scale = (max_edge.max(1) as f64 / image.width.max(image.height) as f64).min(1.0);
     let width = (image.width as f64 * scale).floor().max(1.0) as u32;
     let height = (image.height as f64 * scale).floor().max(1.0) as u32;
+    if width == image.width && height == image.height {
+        return image.clone();
+    }
     let mut pixels = vec![0; width as usize * height as usize * 4];
     for y in 0..height {
         for x in 0..width {
@@ -29,9 +32,14 @@ pub(crate) fn prepare_image(image: Texture, config: &VisionConfig) -> Result<Vec
     if image.width == 0 || image.height == 0 || expected != Some(image.pixels.len()) {
         return Err("Invalid visual image".into());
     }
-    let mut image = resize(&image, config.image_max_edge.min(4096));
+    let max_edge = config.image_max_edge.min(4096).max(1);
+    let mut image = if image.width <= max_edge && image.height <= max_edge {
+        image
+    } else {
+        resize(&image, max_edge)
+    };
     loop {
-        let bytes = encode_png(image.clone())?;
+        let bytes = encode_png_rgba(&mut image)?;
         if bytes.len() <= config.image_max_bytes {
             return Ok(bytes);
         }

@@ -1,6 +1,6 @@
 use std::backtrace::Backtrace;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -77,6 +77,24 @@ fn clean_identifier(value: &str) -> String {
     }
 }
 
+fn redaction_prefixes() -> &'static [(String, &'static str)] {
+    static PREFIXES: OnceLock<Vec<(String, &'static str)>> = OnceLock::new();
+    PREFIXES.get_or_init(|| {
+        [
+            ("USERPROFILE", "%USERPROFILE%"),
+            ("LOCALAPPDATA", "%LOCALAPPDATA%"),
+        ]
+        .into_iter()
+        .filter_map(|(variable, replacement)| {
+            std::env::var(variable)
+                .ok()
+                .filter(|prefix| !prefix.is_empty())
+                .map(|prefix| (prefix, replacement))
+        })
+        .collect()
+    })
+}
+
 fn clean_log_text(value: &str, max_chars: usize) -> String {
     let lower = value.to_ascii_lowercase();
     if [
@@ -98,15 +116,8 @@ fn clean_log_text(value: &str, max_chars: usize) -> String {
         .replace('\r', "")
         .replace('\n', " | ")
         .replace('\t', " ");
-    for (variable, replacement) in [
-        ("USERPROFILE", "%USERPROFILE%"),
-        ("LOCALAPPDATA", "%LOCALAPPDATA%"),
-    ] {
-        if let Ok(prefix) = std::env::var(variable) {
-            if !prefix.is_empty() {
-                cleaned = cleaned.replace(&prefix, replacement);
-            }
-        }
+    for (prefix, replacement) in redaction_prefixes() {
+        cleaned = cleaned.replace(prefix.as_str(), replacement);
     }
 
     let mut chars = cleaned.chars();
@@ -272,50 +283,55 @@ fn recent_log_files(log_dir: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 #[tauri::command]
-pub(crate) fn export_error_report(
+pub(crate) async fn export_error_report(
     app: AppHandle,
     path: PathBuf,
     state: State<'_, DiagnosticState>,
 ) -> Result<(), String> {
-    let files = recent_log_files(&state.log_dir)?;
-    let generated_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| error.to_string())?
-        .as_secs();
+    let log_dir = state.log_dir.clone();
+    let session_id = state.session_id.clone();
+    let version = app.package_info().version.to_string();
     let latest_report_id = state
         .latest_report_id
         .lock()
         .map_err(|error| error.to_string())?
         .clone()
         .unwrap_or_else(|| "none".into());
-    let mut output = format!(
-        "VRCS error report\nGenerated: {generated_at}\nVersion: {}\nSession: {}\nLatest report: {latest_report_id}\n\nThis report was generated locally and is not uploaded automatically.\n",
-        app.package_info().version,
-        state.session_id,
-    );
-    let mut remaining = MAX_EXPORTED_LOG_BYTES;
-    for log_path in files {
-        if remaining == 0 {
-            break;
-        }
-        let bytes = std::fs::read(&log_path).map_err(|error| error.to_string())?;
-        let start = bytes.len().saturating_sub(remaining);
-        let text = String::from_utf8_lossy(&bytes[start..]);
-        output.push_str("\n\n===== ");
-        output.push_str(
-            log_path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("errorlog"),
+    tauri::async_runtime::spawn_blocking(move || {
+        let files = recent_log_files(&log_dir)?;
+        let generated_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| error.to_string())?
+            .as_secs();
+        let mut output = format!(
+            "VRCS error report\nGenerated: {generated_at}\nVersion: {version}\nSession: {session_id}\nLatest report: {latest_report_id}\n\nThis report was generated locally and is not uploaded automatically.\n",
         );
-        output.push_str(" =====\n");
-        for line in text.lines() {
-            output.push_str(&clean_log_text(line, MAX_STACK_TEXT));
-            output.push('\n');
+        let mut remaining = MAX_EXPORTED_LOG_BYTES;
+        for log_path in files {
+            if remaining == 0 {
+                break;
+            }
+            let bytes = std::fs::read(&log_path).map_err(|error| error.to_string())?;
+            let start = bytes.len().saturating_sub(remaining);
+            let text = String::from_utf8_lossy(&bytes[start..]);
+            output.push_str("\n\n===== ");
+            output.push_str(
+                log_path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("errorlog"),
+            );
+            output.push_str(" =====\n");
+            for line in text.lines() {
+                output.push_str(&clean_log_text(line, MAX_STACK_TEXT));
+                output.push('\n');
+            }
+            remaining = remaining.saturating_sub(bytes.len() - start);
         }
-        remaining = remaining.saturating_sub(bytes.len() - start);
-    }
-    std::fs::write(path, output).map_err(|error| error.to_string())
+        std::fs::write(path, output).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[cfg(test)]

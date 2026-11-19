@@ -1,6 +1,7 @@
 use super::renderer::Texture;
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
+use std::sync::OnceLock;
 use std::time::Instant;
 
 #[repr(C)]
@@ -21,7 +22,6 @@ struct StartupInput {
 #[link(name = "gdiplus")]
 unsafe extern "system" {
     fn GdiplusStartup(token: *mut usize, input: *const StartupInput, output: *mut c_void) -> u32;
-    fn GdiplusShutdown(token: usize);
     fn GdipCreateBitmapFromScan0(
         width: i32,
         height: i32,
@@ -292,7 +292,26 @@ pub fn region_crop(
     })
 }
 
-pub fn encode_png(image: Texture) -> Result<Vec<u8>, String> {
+fn ensure_gdiplus() -> Result<(), String> {
+    static GDIPLUS: OnceLock<Result<usize, &'static str>> = OnceLock::new();
+    let status = GDIPLUS.get_or_init(|| {
+        let input = StartupInput {
+            version: 1,
+            debug_callback: null(),
+            suppress_thread: 0,
+            suppress_codecs: 0,
+        };
+        let mut token = 0;
+        if unsafe { GdiplusStartup(&mut token, &input, null_mut()) } == 0 {
+            Ok(token)
+        } else {
+            Err("Could not start image encoder")
+        }
+    });
+    status.as_ref().map(|_| ()).map_err(|&error| error.into())
+}
+
+fn validate_png_texture(image: &Texture) -> Result<(), String> {
     let expected = image
         .width
         .checked_mul(image.height)
@@ -305,16 +324,17 @@ pub fn encode_png(image: Texture) -> Result<Vec<u8>, String> {
     {
         return Err("Invalid OCR image".into());
     }
-    let mut pixels = image.pixels;
+    Ok(())
+}
+
+fn swap_rb(pixels: &mut [u8]) {
     for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
-    let input = StartupInput {
-        version: 1,
-        debug_callback: null(),
-        suppress_thread: 0,
-        suppress_codecs: 0,
-    };
+}
+
+fn encode_bgra_png(width: u32, height: u32, pixels: &mut [u8]) -> Result<Vec<u8>, String> {
+    ensure_gdiplus()?;
     let png_encoder = Guid {
         data1: 0x557cf406,
         data2: 0x1a04,
@@ -322,17 +342,13 @@ pub fn encode_png(image: Texture) -> Result<Vec<u8>, String> {
         data4: [0x9a, 0x73, 0, 0, 0xf8, 0x1e, 0xf3, 0x2e],
     };
     unsafe {
-        let mut token = 0;
-        if GdiplusStartup(&mut token, &input, null_mut()) != 0 {
-            return Err("Could not start image encoder".into());
-        }
         let mut bitmap = null_mut();
         let mut stream = null_mut();
         let result = (|| {
             if GdipCreateBitmapFromScan0(
-                image.width as i32,
-                image.height as i32,
-                (image.width * 4) as i32,
+                width as i32,
+                height as i32,
+                (width * 4) as i32,
                 0x0026200a,
                 pixels.as_mut_ptr(),
                 &mut bitmap,
@@ -370,9 +386,23 @@ pub fn encode_png(image: Texture) -> Result<Vec<u8>, String> {
             GdipDisposeImage(bitmap);
         }
         release_stream(stream);
-        GdiplusShutdown(token);
         result
     }
+}
+
+pub(crate) fn encode_png_rgba(image: &mut Texture) -> Result<Vec<u8>, String> {
+    validate_png_texture(image)?;
+    swap_rb(&mut image.pixels);
+    let result = encode_bgra_png(image.width, image.height, &mut image.pixels);
+    swap_rb(&mut image.pixels);
+    result
+}
+
+#[cfg(test)]
+pub fn encode_png(mut image: Texture) -> Result<Vec<u8>, String> {
+    validate_png_texture(&image)?;
+    swap_rb(&mut image.pixels);
+    encode_bgra_png(image.width, image.height, &mut image.pixels)
 }
 
 #[cfg(test)]
@@ -614,6 +644,7 @@ mod tests {
     }
     #[link(name = "gdiplus")]
     unsafe extern "system" {
+        fn GdiplusShutdown(token: usize);
         fn GdipLoadImageFromStream(stream: *mut c_void, image: *mut *mut c_void) -> u32;
         fn GdipBitmapGetPixel(image: *mut c_void, x: i32, y: i32, color: *mut u32) -> u32;
     }
