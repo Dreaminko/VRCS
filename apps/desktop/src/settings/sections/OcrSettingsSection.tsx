@@ -14,7 +14,7 @@ import { VisionSettingsCard } from "./VisionSettingsCard";
 import { patchVision } from "../vision-settings";
 import { PreferenceToggle } from "../SettingsControls";
 import { localizedError } from "../../app/app-utils";
-import { usePlatformCapabilities } from "../../core-client/capabilities";
+import { CapabilityNotice, usePlatformCapabilities } from "../../core-client/capabilities";
 
 export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings, onManageLocalModels }: {
   vrAvailable: boolean;
@@ -65,6 +65,9 @@ export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings
         <HardDrive size={15} />{t("settings.modelAssignments.manageLocalModels")}
       </button>}
     </div>
+    {draft.features.vr_overlay && desktop && !desktop.vr.scene_capture.supported && (
+      <CapabilityNotice capability={desktop.vr.scene_capture} />
+    )}
     {draft.features.ocr && <div className="vr-overlay-card-actions">
       <button className="secondary-button" type="button"
         disabled={!draft.ocr.master_enabled || !draft.ocr.desktop_enabled || !desktop?.screenshot.available || ["capturing", "selecting", "recognizing", "translating"].includes(desktopStatus?.state ?? "")}

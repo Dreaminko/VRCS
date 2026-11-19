@@ -10,22 +10,22 @@ mod dashboard;
 mod dialogue;
 #[cfg(any(windows, linux_vr, test))]
 mod interaction;
-#[cfg(any(windows, linux_vr))]
+#[cfg(windows)]
 pub(crate) mod ocr_capture;
-#[cfg(any(windows, linux_vr))]
+#[cfg(windows)]
 mod ocr_geometry;
-#[cfg(any(windows, linux_vr))]
+#[cfg(windows)]
 mod ocr_gesture;
 #[cfg(any(windows, linux_vr))]
 mod ocr_input;
-#[cfg(any(windows, linux_vr))]
+#[cfg(windows)]
 mod ocr_input_state;
-#[cfg(any(windows, linux_vr))]
+#[cfg(windows)]
 mod ocr_plane;
 mod ocr_progress;
 #[cfg(windows)]
 mod ocr_runtime;
-#[cfg(any(windows, linux_vr))]
+#[cfg(windows)]
 mod ocr_selection;
 mod ocr_status;
 #[cfg(any(windows, linux_vr))]

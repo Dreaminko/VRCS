@@ -2316,11 +2316,11 @@ mod platform {
     const DASHBOARD_NAME: &str = "VRCS\0";
     const DASHBOARD_THUMBNAIL: tauri::image::Image<'_> =
         tauri::include_image!("icons/128x128@2x.png");
-    const VREVENT_MOUSE_MOVE: u32 = openvr_sys::EVREventType_VREvent_MouseMove as u32;
-    const VREVENT_MOUSE_DOWN: u32 = openvr_sys::EVREventType_VREvent_MouseButtonDown as u32;
-    const VREVENT_MOUSE_UP: u32 = openvr_sys::EVREventType_VREvent_MouseButtonUp as u32;
-    const VREVENT_SHOWN: u32 = openvr_sys::EVREventType_VREvent_OverlayShown as u32;
-    const VREVENT_HIDDEN: u32 = openvr_sys::EVREventType_VREvent_OverlayHidden as u32;
+    const VREVENT_MOUSE_MOVE: u32 = openvr_sys::EVREventType_VREvent_MouseMove;
+    const VREVENT_MOUSE_DOWN: u32 = openvr_sys::EVREventType_VREvent_MouseButtonDown;
+    const VREVENT_MOUSE_UP: u32 = openvr_sys::EVREventType_VREvent_MouseButtonUp;
+    const VREVENT_SHOWN: u32 = openvr_sys::EVREventType_VREvent_OverlayShown;
+    const VREVENT_HIDDEN: u32 = openvr_sys::EVREventType_VREvent_OverlayHidden;
 
     #[derive(Default)]
     struct SubmittedState {
@@ -2511,11 +2511,11 @@ mod platform {
             if !unsafe { poll(&mut event, std::mem::size_of_val(&event) as u32) } {
                 return (false, reset);
             }
-            let kind = event.eventType as u32;
-            reset |= kind == openvr_sys::EVREventType_VREvent_SeatedZeroPoseReset as u32
-                || kind == openvr_sys::EVREventType_VREvent_ChaperoneUniverseHasChanged as u32
-                || kind == openvr_sys::EVREventType_VREvent_ChaperoneDataHasChanged as u32;
-            if event.eventType == openvr_sys::EVREventType_VREvent_Quit as u32 {
+            let kind = event.eventType;
+            reset |= kind == openvr_sys::EVREventType_VREvent_SeatedZeroPoseReset
+                || kind == openvr_sys::EVREventType_VREvent_ChaperoneUniverseHasChanged
+                || kind == openvr_sys::EVREventType_VREvent_ChaperoneDataHasChanged;
+            if event.eventType == openvr_sys::EVREventType_VREvent_Quit {
                 unsafe {
                     system
                         .AcknowledgeQuit_Exiting
@@ -2883,35 +2883,6 @@ mod platform {
                 .update_actions()
         }
 
-        pub fn ocr_input(
-            &mut self,
-            gesture_enabled: bool,
-            reading_focus: bool,
-            vision_enabled: bool,
-        ) -> Result<ocr_input::InputActions, String> {
-            let tracking = gesture_enabled
-                .then(|| self.ocr_tracking().ok())
-                .flatten()
-                .map(|(head, _, origin)| (head, origin));
-            self.ocr_input
-                .as_mut()
-                .ok_or("OCR input is unavailable")?
-                .poll_with_vision(tracking, reading_focus, vision_enabled)
-        }
-
-        pub fn freeze_ocr_frame(&mut self) {
-            if let Some(input) = &mut self.ocr_input {
-                input.freeze_frame();
-            }
-        }
-
-        pub fn open_ocr_bindings(&mut self) -> Result<(), String> {
-            self.ocr_input
-                .as_mut()
-                .ok_or("Enable VR OCR before opening its bindings")?
-                .open_bindings()
-        }
-
         pub fn ocr_tracking(&self) -> Result<([[f32; 4]; 3], u32, i32), String> {
             let table = load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor")?
                 as *const openvr_sys::VR_IVRCompositor_FnTable;
@@ -2983,7 +2954,7 @@ mod platform {
                 } {
                     break;
                 }
-                let pointer = match event.eventType as u32 {
+                let pointer = match event.eventType {
                     VREVENT_MOUSE_MOVE => {
                         let mouse = unsafe { event.data.mouse };
                         let (x, y) = pointer_from_openvr(mouse.x, mouse.y, DASHBOARD_HEIGHT);
@@ -2992,13 +2963,13 @@ mod platform {
                     VREVENT_MOUSE_DOWN => {
                         let mouse = unsafe { event.data.mouse };
                         let (x, y) = pointer_from_openvr(mouse.x, mouse.y, DASHBOARD_HEIGHT);
-                        (mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left as u32 != 0)
+                        (mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left != 0)
                             .then_some(DashboardPointerEvent::Down { x, y })
                     }
                     VREVENT_MOUSE_UP => {
                         let mouse = unsafe { event.data.mouse };
                         let (x, y) = pointer_from_openvr(mouse.x, mouse.y, DASHBOARD_HEIGHT);
-                        (mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left as u32 != 0)
+                        (mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left != 0)
                             .then_some(DashboardPointerEvent::Up { x, y })
                     }
                     VREVENT_SHOWN => Some(DashboardPointerEvent::Shown),
@@ -3363,9 +3334,9 @@ pub struct Backend {
 }
 
 enum Inner {
-    Vr(VrBackend),
+    Vr(Box<VrBackend>),
     #[cfg(all(linux_vr, target_arch = "x86_64"))]
-    Xr(OpenXrBackend),
+    Xr(Box<OpenXrBackend>),
 }
 
 macro_rules! backend_mut {
@@ -3433,7 +3404,7 @@ impl Backend {
                 #[cfg(all(linux_vr, target_arch = "x86_64"))]
                 {
                     Ok(Self {
-                        inner: Inner::Xr(OpenXrBackend::connect()?),
+                        inner: Inner::Xr(Box::new(OpenXrBackend::connect()?)),
                     })
                 }
                 #[cfg(not(all(linux_vr, target_arch = "x86_64")))]
@@ -3445,15 +3416,15 @@ impl Backend {
                 #[cfg(all(linux_vr, target_arch = "x86_64"))]
                 if crate::vr_overlay::xr::probe().is_ok() {
                     return Ok(Self {
-                        inner: Inner::Xr(OpenXrBackend::connect()?),
+                        inner: Inner::Xr(Box::new(OpenXrBackend::connect()?)),
                     });
                 }
                 Ok(Self {
-                    inner: Inner::Vr(VrBackend::connect()?),
+                    inner: Inner::Vr(Box::new(VrBackend::connect()?)),
                 })
             }
             "openvr" => Ok(Self {
-                inner: Inner::Vr(VrBackend::connect()?),
+                inner: Inner::Vr(Box::new(VrBackend::connect()?)),
             }),
             other => Err(format!("Unsupported VR Overlay backend: {other}")),
         }
@@ -3665,6 +3636,7 @@ impl Backend {
         backend_mut!(self, update_ocr_input(path))
     }
 
+    #[cfg(windows)]
     pub fn ocr_input(
         &mut self,
         gesture_enabled: bool,
@@ -3677,10 +3649,12 @@ impl Backend {
         )
     }
 
+    #[cfg(windows)]
     pub fn freeze_ocr_frame(&mut self) {
         backend_mut!(self, freeze_ocr_frame());
     }
 
+    #[cfg(windows)]
     pub fn open_ocr_bindings(&mut self) -> Result<(), String> {
         backend_mut!(self, open_ocr_bindings())
     }

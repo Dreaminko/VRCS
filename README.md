@@ -32,11 +32,10 @@ Download `VRCS-<version>-windows-x64.exe` from [GitHub Releases](https://github.
 - Cloud recognition, translation, and learning analysis require the selected provider's API credentials. Provider charges may apply.
 - For OCR, download the local PP-OCRv6 models.
 
-Native Linux adaptation is in progress on `linux`: PipeWire capture, Secret Service,
-managed Qwen CPU/Vulkan, Portal image selection and native packaging are implemented.
+Native Linux adaptation is in progress on `linux` (targeting `x86_64`; ARM64 is deferred for now): PipeWire capture, Secret Service,
+managed Qwen CPU/Vulkan, Portal image selection (for desktop OCR and visual question answering), and native packaging are implemented.
 Use `npm run dev:vulkan` for GPU recognition; native Linux packages include Vulkan support.
-Linux GNU x86_64 also supports local PLaMo CPU translation. Linux VR remains unavailable;
-ARM64 hardware acceptance and signed publication are not complete. See [Linux development](CONTRIBUTING.md#linux-development-initial-adaptation)
+Linux GNU x86_64 also supports local PLaMo CPU translation, as well as VR subtitles, wrist overlays, dashboard, and controller input (OpenXR/OpenVR). VR scene capture for VR OCR and VR visual question answering remains disabled on Linux pending upstream OpenXR/Monado scene-capture APIs; signed publication is not complete. See [Linux development](CONTRIBUTING.md#linux-development-initial-adaptation)
 for measured results and release gates. Local artifacts are not a published release.
 
 Linux x86_64 player audio and Chatbox network reception remain experimental;

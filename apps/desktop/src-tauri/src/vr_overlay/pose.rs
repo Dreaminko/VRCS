@@ -26,10 +26,6 @@ impl PointerId {
     pub(crate) fn new(device: DeviceId, source: u64) -> Self {
         Self { device, source }
     }
-
-    pub fn device(self) -> DeviceId {
-        self.device
-    }
 }
 
 pub type Pose = [[f32; 4]; 3];

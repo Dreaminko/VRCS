@@ -193,8 +193,7 @@ impl UiRuntime {
     pub fn stop_surfaces(&mut self, app: &AppHandle, mut backend: Option<&mut Backend>) {
         self.menu_surface
             .stop(app, backend.as_deref_mut(), OverlayKind::WristMenu);
-        self.dialogue_surface
-            .stop(app, backend.as_deref_mut(), OverlayKind::Wrist);
+        self.dialogue_surface.stop(app, backend, OverlayKind::Wrist);
     }
 
     pub fn confirm_frames(&mut self, app: &AppHandle, accepted: bool) {

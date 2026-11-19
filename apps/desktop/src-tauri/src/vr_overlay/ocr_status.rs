@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-#[cfg(any(windows, linux_vr))]
+#[cfg(windows)]
 pub fn failure_code(error: &str) -> &'static str {
     if error.contains("timed out") {
         "timeout"
@@ -31,41 +31,41 @@ pub fn failure_code(error: &str) -> &'static str {
 #[serde(rename_all = "snake_case")]
 pub enum OcrState {
     Disabled,
-    #[cfg(any(windows, linux_vr))]
+    #[cfg(windows)]
     WaitingVr,
-    #[cfg(any(windows, linux_vr))]
+    #[cfg(windows)]
     Ready,
-    #[cfg(any(windows, linux_vr))]
+    #[cfg(windows)]
     Unbound,
-    #[cfg(any(windows, linux_vr))]
+    #[cfg(windows)]
     Selecting,
-    #[cfg(any(windows, linux_vr))]
+    #[cfg(windows)]
     Capturing,
-    #[cfg(any(windows, linux_vr))]
+    #[cfg(windows)]
     LoadingModel,
-    #[cfg(any(windows, linux_vr))]
+    #[cfg(windows)]
     Recognizing,
-    #[cfg(any(windows, linux_vr))]
+    #[cfg(windows)]
     Translating,
-    #[cfg(any(windows, linux_vr))]
+    #[cfg(windows)]
     Recognized,
-    #[cfg(any(windows, linux_vr, test))]
+    #[cfg(any(windows, test))]
     NoText,
-    #[cfg(any(windows, linux_vr, test))]
+    #[cfg(any(windows, test))]
     LowConfidence,
-    #[cfg(any(windows, linux_vr, test))]
+    #[cfg(any(windows, test))]
     SourceVisible,
-    #[cfg(any(windows, linux_vr, test))]
+    #[cfg(any(windows, test))]
     PartialVisible,
-    #[cfg(any(windows, linux_vr, test))]
+    #[cfg(any(windows, test))]
     TranslationFailed,
-    #[cfg(any(windows, linux_vr, test))]
+    #[cfg(any(windows, test))]
     TimedOut,
-    #[cfg(any(windows, linux_vr, test))]
+    #[cfg(any(windows, test))]
     Visible,
-    #[cfg(any(windows, linux_vr, test))]
+    #[cfg(any(windows, test))]
     Invalid,
-    #[cfg(any(windows, linux_vr, test))]
+    #[cfg(any(windows, test))]
     Error,
 }
 
@@ -93,11 +93,11 @@ pub struct OcrStatus {
 pub enum OcrWristState {
     #[default]
     Hidden,
-    #[cfg(any(windows, linux_vr))]
+    #[cfg(windows)]
     Visible,
-    #[cfg(any(windows, linux_vr))]
+    #[cfg(windows)]
     DeviceUnavailable,
-    #[cfg(any(windows, linux_vr))]
+    #[cfg(windows)]
     Error,
 }
 

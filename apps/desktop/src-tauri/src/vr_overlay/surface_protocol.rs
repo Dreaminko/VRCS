@@ -7,12 +7,13 @@ use super::ocr_wrist::{Action, Button};
 use super::{
     control_protocol::ControlSnapshot,
     dashboard::{DashboardUi, DashboardViewModel},
-    ocr_progress::ProgressView,
     placement::Mode,
     presentation::WristMessage,
 };
-#[cfg(any(windows, linux_vr))]
-use super::{ocr_plane::OcrScene, ocr_wrist::View, wrist_labels::WristLabels};
+#[cfg(windows)]
+use super::{
+    ocr_plane::OcrScene, ocr_progress::ProgressView, ocr_wrist::View, wrist_labels::WristLabels,
+};
 use serde::{Deserialize, Serialize};
 #[cfg(any(windows, linux_vr))]
 use std::sync::Arc;
@@ -130,7 +131,7 @@ pub enum SurfaceView {
         font_size: u32,
         opacity: f32,
     },
-    #[cfg(any(windows, linux_vr))]
+    #[cfg(windows)]
     Reader {
         dark: bool,
         labels: WristLabels,
@@ -149,6 +150,7 @@ pub enum SurfaceView {
         font_size: u32,
         opacity: f32,
     },
+    #[cfg(windows)]
     OcrProgress {
         dark: bool,
         progress: Option<ProgressView>,
@@ -158,25 +160,19 @@ pub enum SurfaceView {
         dashboard: Arc<DashboardViewModel>,
         ui: DashboardUi,
     },
-    #[cfg(all(debug_assertions, feature = "vr-preview"))]
-    DashboardThumbnail {
-        dark: bool,
-    },
-    OcrSelection {
-        dark: bool,
-    },
-    #[cfg(any(windows, linux_vr))]
-    OcrResult {
-        dark: bool,
-        scene: Arc<OcrScene>,
-    },
+    #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
+    DashboardThumbnail { dark: bool },
+    #[cfg(windows)]
+    OcrSelection { dark: bool },
+    #[cfg(windows)]
+    OcrResult { dark: bool, scene: Arc<OcrScene> },
 }
 
 #[cfg(any(windows, linux_vr))]
 impl SurfaceView {
     pub(crate) fn same_scroll_view(&self, other: &Self) -> bool {
         match (self, other) {
-            #[cfg(any(windows, linux_vr))]
+            #[cfg(windows)]
             (Self::Reader { .. }, Self::Reader { .. }) => {
                 reader_identity(self) == reader_identity(other)
             }
@@ -204,7 +200,7 @@ impl SurfaceView {
 
     pub(super) fn same_layout(&self, other: &Self) -> bool {
         match (self, other) {
-            #[cfg(any(windows, linux_vr))]
+            #[cfg(windows)]
             (Self::OcrResult { dark: a, scene: av }, Self::OcrResult { dark: b, scene: bv }) => {
                 a == b && (Arc::ptr_eq(av, bv) || av == bv)
             }
@@ -260,7 +256,7 @@ pub struct SurfaceActivity {
 }
 
 // Matches the fields that reset the reader viewport in VrSurface.tsx.
-#[cfg(any(windows, linux_vr))]
+#[cfg(windows)]
 #[derive(Clone, PartialEq)]
 pub(crate) struct ReaderIdentity(
     super::ocr_wrist::ViewMode,
@@ -271,7 +267,11 @@ pub(crate) struct ReaderIdentity(
     usize,
 );
 
-#[cfg(any(windows, linux_vr))]
+#[cfg(linux_vr)]
+#[derive(Clone, PartialEq)]
+pub(crate) struct ReaderIdentity;
+
+#[cfg(windows)]
 pub(crate) fn reader_identity(view: &SurfaceView) -> Option<ReaderIdentity> {
     if let SurfaceView::Reader { reader, .. } = view {
         Some(ReaderIdentity(
@@ -285,6 +285,11 @@ pub(crate) fn reader_identity(view: &SurfaceView) -> Option<ReaderIdentity> {
     } else {
         None
     }
+}
+
+#[cfg(linux_vr)]
+pub(crate) fn reader_identity(_view: &SurfaceView) -> Option<ReaderIdentity> {
+    None
 }
 
 #[cfg(any(windows, linux_vr))]

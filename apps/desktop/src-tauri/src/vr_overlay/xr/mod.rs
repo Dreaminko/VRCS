@@ -18,7 +18,9 @@ use super::pose::{pose_from_quaternion, DeviceId, PointerId, PointerInput, Space
 const VIEW_TYPE: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
 const WIDTH: u32 = 1024;
 const PANEL_Z: f32 = -1.2;
+#[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
 const PANEL_W: f32 = 0.4;
+#[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
 const PANEL_H: f32 = 0.1;
 const MAX_TEXTURE: u32 = 2048;
 const HEIGHT: u32 = 256;
@@ -61,11 +63,8 @@ pub struct PanelInfo {
     pub pose: xr::Posef,
     pub size: xr::Extent2Df,
     pub visible: bool,
+    #[allow(dead_code)] // Shared struct field; read in prototype inspection/diagnostics.
     pub has_image: bool,
-}
-
-fn emit(value: serde_json::Value) {
-    println!("{value}");
 }
 
 fn locate_in_stage(space: &xr::Space, stage: &xr::Space, time: xr::Time) -> Option<TrackedPose> {
@@ -417,6 +416,7 @@ impl XrRuntime {
         })
     }
 
+    #[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
     pub fn texture_size() -> [u32; 2] {
         [WIDTH, HEIGHT]
     }
@@ -914,6 +914,7 @@ impl XrRuntime {
     }
 
     /// Rate-limited JSON input sample for the prototype.
+    #[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
     pub fn report(&mut self, time: xr::Time) -> Option<serde_json::Value> {
         let instance = self.instance.as_ref()?;
         let xr = self.handles.as_mut()?;
@@ -1002,6 +1003,7 @@ impl Drop for XrRuntime {
 }
 
 /// Prototype driver: open a session, show one textured panel, report input.
+#[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
 pub fn run(seconds: u64) -> Result<(), String> {
     let stopping = Arc::new(AtomicBool::new(false));
     let timer = stopping.clone();
@@ -1068,7 +1070,10 @@ pub fn run(seconds: u64) -> Result<(), String> {
 
 struct Actions {
     set: xr::ActionSet,
+    // Keep OpenXR action handles alive so `spaces` and `grip_spaces` remain valid.
+    #[allow(dead_code)]
     aim: [xr::Action<xr::Posef>; 2],
+    #[allow(dead_code)]
     grip_pose: [xr::Action<xr::Posef>; 2],
     spaces: [Option<xr::Space>; 2],
     grip_spaces: [Option<xr::Space>; 2],
@@ -1077,7 +1082,9 @@ struct Actions {
     grip_value: [xr::Action<f32>; 2],
     scroll: [xr::Action<xr::Vector2f>; 2],
     menu: [xr::Action<bool>; 2],
+    #[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
     last_report: std::time::Instant,
+    #[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
     was_pressed: [bool; 2],
     menu_pressed: bool,
     focused: bool,
@@ -1237,6 +1244,7 @@ impl Actions {
 
     /// Ray/plane test in the panel's space plus a trigger rising edge: the same
     /// geometry the production `Router` will use.
+    #[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
     fn click(
         &mut self,
         session: &xr::Session<xr::Vulkan>,
@@ -1284,6 +1292,7 @@ impl Actions {
         clicked
     }
 
+    #[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
     fn poll(
         &mut self,
         instance: &xr::Instance,
@@ -1579,7 +1588,12 @@ impl Staging {
         }
         let scale = opacity.clamp(0.0, 1.0);
         let destination = unsafe { std::slice::from_raw_parts_mut(self.mapped, pixels.len()) };
-        for (target, source) in destination.chunks_exact_mut(4).zip(pixels.chunks_exact(4)) {
+        for (target, source) in destination
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(pixels.as_chunks::<4>().0)
+        {
             for channel in 0..4 {
                 target[channel] = (f32::from(source[channel]) * scale).round() as u8;
             }
@@ -1596,6 +1610,7 @@ impl Staging {
 }
 
 /// Opaque text sample so alpha, channel order and orientation are all visible.
+#[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
 fn render_sample(width: u32, height: u32, background: [f64; 3]) -> Result<Vec<u8>, String> {
     let mut surface =
         cairo::ImageSurface::create(cairo::Format::ARgb32, width as i32, height as i32)
@@ -1629,7 +1644,7 @@ fn render_sample(width: u32, height: u32, background: [f64; 3]) -> Result<Vec<u8
     let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
     for row in 0..height as usize {
         let line = &data[row * stride..row * stride + width as usize * 4];
-        for pixel in line.chunks_exact(4) {
+        for pixel in line.as_chunks::<4>().0 {
             rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
         }
     }

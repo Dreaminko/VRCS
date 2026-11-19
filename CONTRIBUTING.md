@@ -152,23 +152,28 @@ Implemented boundaries:
   connection failure can prevent restoration from being confirmed.
 - Managed Qwen CPU/Vulkan uses fixed llama.cpp b11501 assets with size/SHA checks,
   architecture-specific ELF validation, bounded archive extraction, internal-link
-  checks, staged activation and child-process cleanup. Vulkan builds select separate
-  x86_64/aarch64 Vulkan packages including CPU backends; switching from a CPU build
+  checks, staged activation and child-process cleanup. Vulkan builds select an
+  x86_64 Vulkan package including CPU backends (ARM64 is deferred for now);
+  switching from a CPU build
   requires downloading the Vulkan runtime, not the ASR model again. Auto selects an
   available GPU and retains the existing CPU fallback on startup failure; explicit
   GPU selection reports failure rather than silently using CPU. Local PLaMo remains
   CPU-only on Linux GNU x86_64, sharing the selected runtime through a separate
   authenticated loopback process; its model and license consent remain independent.
-  ARM64 PLaMo remains disabled; ARM64 Qwen CPU/Vulkan execution is not yet verified.
-  Application-only audio and Linux VR remain excluded; OSC sending is
+  ARM64 PLaMo remains disabled (ARM64 releases are deferred).
+  Application-only audio remains excluded; Linux x86_64 VR subtitles, wrist
+  overlays, dashboard, and controller input (OpenXR/OpenVR) are enabled by
+  default, while VR scene capture (`vr.scene_capture`, for VR OCR and VR
+  visual question answering) remains disabled on Linux pending upstream
+  OpenXR/Monado scene-capture APIs. Desktop OCR and desktop visual question
+  answering via XDG ScreenCast Portal remain available, and OSC sending is
   independent. Linux GNU x86_64 now has helper-backed experimental player audio
   and Chatbox network reception. The deb installs the root-owned
   `vrcs-network-helper` and its polkit policy in the same package; AppImage needs
   manual helper/policy installation or the full deb. No standalone helper package
   is currently published. Capture needs a session polkit agent and system Opus.
   Real VRChat/Proton traffic, authorization, packaging, anti-cheat behavior and
-  long-running capture are not yet accepted, and ARM64 network capture remains
-  unsupported.
+  long-running capture are not yet accepted; ARM64 is deferred for now.
   Candidate packets require a fresh inode/endpoint/target-fd confirmation; stale
   queued packets are discarded when the inventory changes. `/proc` reads are not
   atomic with packet arrival or later socket close/rebind, so this is not a
@@ -198,9 +203,10 @@ Implemented boundaries:
   require the existing signing key and public key. Complete release aggregation
   verifies every platform's package, architecture, hash and signature before
   writing `latest.json`; Windows standard and legacy CUDA targets are retained.
-- CI/Preview/Release have native `ubuntu-24.04` and `ubuntu-24.04-arm` jobs.
-  Same-commit CI reuse requires both Linux jobs. Workflow configuration is not
-  evidence that the remote jobs have run successfully.
+- CI/Preview/Release run on `ubuntu-24.04` (`x86_64`); ARM64 (`aarch64` /
+  `ubuntu-24.04-arm`) is temporarily removed until future enablement. Same-commit
+  CI reuse checks `linux (x86_64)` alongside Windows/frontend jobs. Workflow
+  configuration is not evidence that the remote jobs have run successfully.
   Changes to `packaging/linux/`, including polkit policy and installation scripts,
   select the native CI checks.
 
@@ -229,10 +235,15 @@ cargo run --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --features 
 ```
 
 `--mode static` independently exercises OpenVR raw submission; `--vr` adds it to
-the dynamic experiment. A successful offscreen PNG is not a headset test. The
-production Linux VR capability remains unavailable; ARM64 reports
-`vr.runtime_arch_unverified`. VR mirror capture is not replaced by a desktop
-Portal image. M0's static/dynamic hardware gate must pass before production M3.
+the dynamic experiment. A successful offscreen PNG is not a headset test. On
+Linux `x86_64`, VR subtitles, wrist overlays, dashboard, and controller input
+(OpenXR/OpenVR) are enabled by default in desktop builds; ARM64 reports
+`vr.runtime_arch_unverified` and is deferred. VR scene capture (`vr.scene_capture`,
+for VR OCR and VR visual question answering) remains disabled on Linux
+(`vr.scene_capture_unavailable`) pending upstream OpenXR/Monado scene-capture APIs;
+desktop OCR and desktop visual question answering via ScreenCast Portal are not
+blocked and remain available. M0/M3 headset acceptance still requires real hardware
+verification.
 
 The repeatable audio fixture is `core/tests/pipewire-smoke.conf`. Run it only in a
 private `PIPEWIRE_RUNTIME_DIR` with `PIPEWIRE_REMOTE=vrcs-test-pipewire`, a private
@@ -245,14 +256,14 @@ Current milestone gates:
 
 | Milestone | Remaining acceptance |
 | --- | --- |
-| M0 | Native ARM64 build evidence and real SteamVR static/dynamic submission; WebKit host experiment passed only on this x86_64 desktop |
-| M1 | Both architectures' clean deb install, real dual-source/cloud-ASR/translation/subtitle/VRChat OSC loop, restart persistence, GNOME X11/Wayland and long-running device tests |
-| M2 | ARM64 CPU/Vulkan model execution/performance, including CPU PLaMo; broader GPU-driver and sustained-inference acceptance |
-| M3 | Hardware-gated production subtitles, independent controller input, wrist/dashboard and runtime/host recovery; not enabled |
-| M4 | Portal end-to-end selection and cancellation across target desktops/architectures, real global-shortcut binding/activation, independent VR mirror result |
-| M5 | Both architectures' AppImage/deb install/upgrade, real signed-update rejection, offline restart and read-only installation; KDE Wayland and remote CI results |
+| M0 | Real SteamVR/OpenXR static/dynamic headset submission; WebKit host experiment passed on this x86_64 desktop (ARM64 deferred) |
+| M1 | Clean x86_64 deb install, real dual-source/cloud-ASR/translation/subtitle/VRChat OSC loop, restart persistence, GNOME X11/Wayland and long-running device tests |
+| M2 | Broader x86_64 GPU-driver and sustained-inference acceptance (ARM64 deferred) |
+| M3 | Real-headset acceptance for Linux x86_64 subtitles, wrist overlays, dashboard, independent controller input, and runtime/host recovery (enabled in default builds) |
+| M4 | Portal end-to-end desktop selection/OCR/VQA and cancellation across target desktops, real global-shortcut binding/activation (VR scene capture / VR OCR / VR VQA remain disabled on Linux pending upstream OpenXR/Monado APIs) |
+| M5 | Linux x86_64 AppImage/deb install/upgrade, real signed-update rejection, offline restart and read-only installation; KDE Wayland and remote CI results (ARM64 deferred) |
 
-Missing prerequisites are an ARM64 native host, SteamVR/headset/controllers,
+Missing prerequisites are SteamVR/OpenXR headset & controllers,
 configured provider credentials for real cloud requests, and release signing and
 publication access. No milestone's complete exit condition is claimed. Keep the
 original schema-41 backup with its matching binary when rolling back; do not

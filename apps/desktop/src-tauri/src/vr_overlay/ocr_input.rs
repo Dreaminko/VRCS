@@ -1,9 +1,16 @@
+#[cfg(windows)]
 use super::ocr_gesture::{camera_frame, gesture_frame, point_in_head, FrameCorners, HandSample};
+#[cfg(windows)]
 use super::ocr_input_state::{FrameSession, FrameTracking, HoldAction, TriggerEdge, TriggerUpdate};
+#[cfg(windows)]
 use super::ocr_wrist::Action;
+#[cfg(windows)]
 use super::pose::SpaceId;
+#[cfg(windows)]
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::{ffi::CString, mem::size_of, path::Path, time::Instant};
+#[cfg(windows)]
+use std::time::Instant;
+use std::{ffi::CString, mem::size_of, path::Path};
 
 pub struct UiInput {
     pub device: u32,
@@ -13,6 +20,7 @@ pub struct UiInput {
     pub scroll_y: f32,
 }
 
+#[cfg(windows)]
 pub struct InputActions {
     pub vision_trigger: TriggerUpdate,
     pub cancel: bool,
@@ -25,6 +33,7 @@ pub struct InputActions {
     pub navigation: Vec<Action>,
 }
 
+#[cfg(windows)]
 pub struct Frame {
     /// Hand anchors in the tracking space, sampled using head_pose.
     pub corners: [[f32; 3]; 2],
@@ -32,6 +41,7 @@ pub struct Frame {
     pub origin: SpaceId,
 }
 
+#[cfg(windows)]
 impl Frame {
     fn from_head_corners(corners: FrameCorners, head_pose: [[f32; 4]; 3], origin: i32) -> Self {
         Self {
@@ -51,19 +61,31 @@ pub struct OcrInput {
     action_set: u64,
     scan: u64,
     clear: u64,
+    #[cfg(windows)]
     cancel: u64,
+    #[cfg(windows)]
     vision_trigger: TriggerEdge,
+    #[cfg(windows)]
     vision_confirm: TriggerEdge,
+    #[cfg(windows)]
     cancel_trigger: TriggerEdge,
+    #[cfg(windows)]
     reading: [u64; 4],
+    #[cfg(windows)]
     scan_hold: HoldAction,
+    #[cfg(windows)]
     clear_hold: HoldAction,
+    #[cfg(windows)]
     hands: [u64; 2],
     grips: [u64; 2],
     scrolls: [u64; 2],
+    #[cfg(windows)]
     poses: [u64; 2],
+    #[cfg(windows)]
     frame_session: FrameSession,
+    #[cfg(windows)]
     grips_blocked: bool,
+    #[cfg(windows)]
     last_digital_state: Option<(bool, bool, bool, bool, bool, bool)>,
 }
 
@@ -252,12 +274,14 @@ impl OcrInput {
             .collect()
     }
 
+    #[cfg(windows)]
     pub fn freeze_frame(&mut self) {
         self.frame_session = FrameSession::default();
         self.scan_hold = HoldAction::default();
         self.vision_confirm = TriggerEdge::default();
     }
 
+    #[cfg(windows)]
     pub fn open_bindings(&mut self) -> Result<(), String> {
         let api = unsafe { &*self.table };
         check(unsafe {
@@ -313,14 +337,22 @@ impl OcrInput {
             action_set,
             scan: action("/actions/ocr/in/scan")?,
             clear: action("/actions/ocr/in/clear")?,
+            #[cfg(windows)]
             cancel: action("/actions/ocr/in/cancel").unwrap_or(0),
+            #[cfg(windows)]
             vision_trigger: TriggerEdge::default(),
+            #[cfg(windows)]
             vision_confirm: TriggerEdge::default(),
+            #[cfg(windows)]
             cancel_trigger: TriggerEdge::default(),
+            #[cfg(windows)]
             reading: ["previous_block", "next_block", "previous_page", "next_page"]
                 .map(|name| action(&format!("/actions/ocr/in/{name}")).unwrap_or(0)),
+            #[cfg(windows)]
             scan_hold: HoldAction::default(),
+            #[cfg(windows)]
             clear_hold: HoldAction::default(),
+            #[cfg(windows)]
             hands: [
                 action("/actions/ocr/in/left_hand").unwrap_or(0),
                 action("/actions/ocr/in/right_hand").unwrap_or(0),
@@ -333,12 +365,16 @@ impl OcrInput {
                 action("/actions/ocr/in/left_scroll").unwrap_or(0),
                 action("/actions/ocr/in/right_scroll").unwrap_or(0),
             ],
+            #[cfg(windows)]
             poses: [
                 action("/actions/ocr/in/left_pose").unwrap_or(0),
                 action("/actions/ocr/in/right_pose").unwrap_or(0),
             ],
+            #[cfg(windows)]
             frame_session: FrameSession::default(),
+            #[cfg(windows)]
             grips_blocked: false,
+            #[cfg(windows)]
             last_digital_state: None,
         })
     }
@@ -357,6 +393,7 @@ impl OcrInput {
         })
     }
 
+    #[cfg(windows)]
     pub fn poll_with_vision(
         &mut self,
         tracking: Option<([[f32; 4]; 3], i32)>,
@@ -556,6 +593,7 @@ impl OcrInput {
     }
 }
 
+#[cfg(windows)]
 fn binding_count(
     api: &openvr_sys::VR_IVRInput_FnTable,
     action: u64,
@@ -575,6 +613,7 @@ fn binding_count(
     Some(if error == 0 { Ok(count) } else { Err(error) })
 }
 
+#[cfg(windows)]
 fn read_controller(
     api: &openvr_sys::VR_IVRInput_FnTable,
     action: u64,
@@ -592,6 +631,7 @@ fn read_controller(
     Ok((data.activeOrigin, point))
 }
 
+#[cfg(windows)]
 fn read_controller_pose(
     api: &openvr_sys::VR_IVRInput_FnTable,
     action: u64,
@@ -624,6 +664,7 @@ fn read_controller_pose(
     Ok(data)
 }
 
+#[cfg(windows)]
 fn read_hand(
     api: &openvr_sys::VR_IVRInput_FnTable,
     action: u64,

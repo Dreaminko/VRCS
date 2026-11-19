@@ -441,7 +441,7 @@ impl Entry {
                 .is_some_and(|at| now.saturating_duration_since(at) >= timeout)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     fn commit(&mut self, key: SurfaceKey) -> bool {
         if self.active
             && self.state.as_ref().is_some_and(|state| state.key == key)
@@ -652,7 +652,7 @@ pub(super) enum SubmitOutcome {
     Pending(PendingFrame),
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 impl SubmitOutcome {
     fn is_some(&self) -> bool {
         matches!(self, Self::Committed(Some(_)))
@@ -1297,10 +1297,9 @@ impl SurfaceRenderer {
                 && self
                     .last_repaint
                     .is_none_or(|at| now.duration_since(at) >= Duration::from_millis(500))
+                && hub.send(app, self.surface, SurfaceEvent::Repaint).is_ok()
             {
-                if hub.send(app, self.surface, SurfaceEvent::Repaint).is_ok() {
-                    self.last_repaint = Some(now);
-                }
+                self.last_repaint = Some(now);
             }
             if let Err(error) = self.present_frame(app, backend, kind) {
                 self.capture_fault = Some(error);
@@ -1513,7 +1512,7 @@ impl SurfaceRenderer {
             if kind == OverlayKind::OcrResult && previous_bounds != Some(frame.receipt.bounds) {
                 backend.hide(kind);
             }
-            backend.upload_surface(kind, &frame, capture)
+            backend.upload_surface(kind, frame, capture)
         })
     }
 
@@ -1633,6 +1632,7 @@ impl SurfaceRenderer {
             < Duration::from_millis(250)
     }
 
+    #[cfg(windows)]
     pub fn output_bounds(&self) -> [u32; 4] {
         self.output_bounds
             .unwrap_or([0, 0, self.surface.size().0, self.surface.size().1])

@@ -277,7 +277,7 @@ impl Placement {
             self.world = pending.pose;
             self.relative = pending.relative;
         }
-        #[cfg(not(any(windows, test)))]
+        #[cfg(not(any(windows, linux_vr, test)))]
         let _ = (pending, success);
         self.error = error;
         self.revision += 1;
@@ -286,7 +286,7 @@ impl Placement {
     pub fn cancel(&mut self) {
         #[cfg(any(windows, linux_vr, test))]
         let dragging = self.drag.take().is_some();
-        #[cfg(not(any(windows, test)))]
+        #[cfg(not(any(windows, linux_vr, test)))]
         let dragging = false;
         if dragging || self.pending.take().is_some() {
             self.revision += 1;

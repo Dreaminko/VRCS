@@ -20,6 +20,7 @@ pub(super) enum Phase {
 pub(crate) enum Fault {
     Unsupported,
     Host,
+    #[cfg_attr(not(windows), allow(dead_code))]
     SourceClosed,
     Session,
     DeviceLost,

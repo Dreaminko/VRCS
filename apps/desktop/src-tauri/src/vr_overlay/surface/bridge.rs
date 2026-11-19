@@ -1,5 +1,5 @@
 use super::SurfaceHub;
-#[cfg(test)]
+#[cfg(all(test, windows))]
 use crate::vr_overlay::surface_protocol::{decode_request, SurfaceId};
 use crate::vr_overlay::surface_protocol::{
     BridgeError, DocumentSession, HostId, Operation, PageReply, PageRequest,

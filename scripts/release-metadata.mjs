@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const versionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 export const releaseTargets = [
   { os: "windows", arch: "x86_64", channel: "nsis", suffix: "windows-x64.exe", targets: ["windows-x86_64-standard", "windows-x86_64-cuda"] },
-  ...["x86_64", "aarch64"].flatMap((arch) => [
+  ...["x86_64"].flatMap((arch) => [
     { os: "linux", arch, channel: "deb", suffix: `linux-${arch}.deb`, targets: [] },
     { os: "linux", arch, channel: "appimage", suffix: `linux-${arch}.AppImage`, targets: [`linux-${arch}-standard`] },
   ]),
@@ -153,7 +153,7 @@ export function aggregateRelease({ root, version, publicKey, repository = "Dream
       for (const name of target.targets) platforms[name] = { url: `https://github.com/${repository}/releases/download/${version}/${artifact}`, signature };
     } else if (manifest.signature !== null) throw new Error("Deb packages must use package-manager updates");
   }
-  const latest = { version, notes: `VRCS ${version}. Windows x64 and Ubuntu 24.04 Linux x86_64/aarch64. Deb updates use the package manager; signed AppImage packages support in-app updates. Hardware compatibility is documented separately.`, pub_date: now.toISOString(), platforms };
+  const latest = { version, notes: `VRCS ${version}. Windows x64 and Ubuntu 24.04 Linux x86_64. Deb updates use the package manager; signed AppImage packages support in-app updates. Hardware compatibility is documented separately.`, pub_date: now.toISOString(), platforms };
   const path = join(root, "latest.json");
   writeFileSync(path, `${JSON.stringify(latest, null, 2)}\n`);
   return path;

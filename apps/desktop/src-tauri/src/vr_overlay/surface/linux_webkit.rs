@@ -20,13 +20,15 @@ pub(crate) fn ensure_capture_supported() -> Result<(), CaptureError> {
     Ok(())
 }
 
+type PendingSnapshot = (u32, [u32; 4], Receiver<Result<Snapshot, String>>);
+
 /// Construct, poll and drop on the VR worker thread. The WebView itself stays
 /// on the main thread behind `HostSlot`.
 pub struct Capture {
     slot: Arc<HostSlot>,
     width: u32,
     height: u32,
-    pending: Option<(u32, [u32; 4], Receiver<Result<Snapshot, String>>)>,
+    pending: Option<PendingSnapshot>,
     counters: Arc<CaptureCounters>,
     suspended: bool,
 }
@@ -106,6 +108,7 @@ impl Capture {
         };
         match receiver.try_recv() {
             Ok(Ok(snapshot)) => {
+                self.counters.frame();
                 let (requested, bounds) = (*requested, *bounds);
                 self.pending = None;
                 Ok(Some(Captured {

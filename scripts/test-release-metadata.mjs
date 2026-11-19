@@ -86,32 +86,32 @@ const linux = process.platform === "linux";
 test("all published architectures aggregate without dropping Windows or its CUDA alias", { skip: !linux }, (t) => {
   const root = complete(t);
   const latest = JSON.parse(readFileSync(aggregateRelease({ root, version, publicKey: encodedKey }), "utf8"));
-  assert.deepEqual(Object.keys(latest.platforms).sort(), ["windows-x86_64-standard", "windows-x86_64-cuda", "linux-x86_64-standard", "linux-aarch64-standard"].sort());
+  assert.deepEqual(Object.keys(latest.platforms).sort(), ["windows-x86_64-standard", "windows-x86_64-cuda", "linux-x86_64-standard"].sort());
   assert.deepEqual(latest.platforms["windows-x86_64-cuda"], latest.platforms["windows-x86_64-standard"]);
-  for (const arch of ["x86_64", "aarch64"]) assert.ok(latest.platforms[`linux-${arch}-standard`].url.endsWith(`linux-${arch}.AppImage`));
+  for (const arch of ["x86_64"]) assert.ok(latest.platforms[`linux-${arch}-standard`].url.endsWith(`linux-${arch}.AppImage`));
 });
 test("missing architecture never produces partial latest.json", { skip: !linux }, (t) => {
   const root = complete(t);
-  rmSync(join(root, "linux-aarch64-appimage.manifest.json"));
+  rmSync(join(root, "linux-x86_64-appimage.manifest.json"));
   assert.throws(() => aggregateRelease({ root, version, publicKey: encodedKey }), /every release target/);
 });
 for (const mutation of ["empty signature", "wrong signature", "modified package", "wrong architecture"]) {
   test(`rejects ${mutation} before publishing updater metadata`, { skip: !linux }, (t) => {
     const root = complete(t);
-    const artifact = join(root, `VRCS-${version}-linux-aarch64.AppImage`);
+    const artifact = join(root, `VRCS-${version}-linux-x86_64.AppImage`);
     if (mutation === "empty signature") writeFileSync(`${artifact}.sig`, " ");
     if (mutation === "wrong signature") writeFileSync(`${artifact}.sig`, signature(Buffer.from("different package")));
     if (mutation === "modified package") writeFileSync(artifact, Buffer.concat([readFileSync(artifact), Buffer.from("modified")]));
-    if (mutation === "wrong architecture") writeFileSync(artifact, elf("x86_64", true));
+    if (mutation === "wrong architecture") writeFileSync(artifact, elf("aarch64", true));
     assert.throws(() => aggregateRelease({ root, version, publicKey: encodedKey }), /signature|checksum|architecture/i);
   });
 }
 test("deb control architecture cannot conceal a wrong ELF payload", { skip: !linux }, (t) => {
   const root = fixture(t);
-  const target = releaseTargets.find((target) => target.channel === "deb" && target.arch === "aarch64");
+  const target = releaseTargets.find((target) => target.channel === "deb" && target.arch === "x86_64");
   const artifact = packageFixture(root, target);
-  const directory = join(root, "deb-aarch64");
-  writeFileSync(join(directory, "usr/bin/vrcs-desktop"), elf("x86_64"));
+  const directory = join(root, "deb-x86_64");
+  writeFileSync(join(directory, "usr/bin/vrcs-desktop"), elf("aarch64"));
   execFileSync("dpkg-deb", ["--build", directory, artifact], { stdio: "pipe" });
   assert.throws(() => validatePackage(artifact, target), /ELF architecture/);
 });
@@ -124,9 +124,9 @@ test("unsigned local AppImages have no fabricated signature", { skip: !linux }, 
 });
 test("AppImage runtime architecture cannot conceal a wrong payload", { skip: !linux }, (t) => {
   const root = fixture(t);
-  const target = releaseTargets.find((target) => target.channel === "appimage" && target.arch === "aarch64");
+  const target = releaseTargets.find((target) => target.channel === "appimage" && target.arch === "x86_64");
   const artifact = join(root, "wrong-payload.AppImage");
-  writeFileSync(artifact, appimage(root, "aarch64", "x86_64"));
+  writeFileSync(artifact, appimage(root, "x86_64", "aarch64"));
   assert.throws(() => validatePackage(artifact, target), /ELF architecture/);
 });
 

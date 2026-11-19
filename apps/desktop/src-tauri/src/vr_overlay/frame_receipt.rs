@@ -31,7 +31,7 @@ pub(crate) fn decode_marker_pixels(
         .then_some((words[0], words[1], words[2]))
 }
 
-#[cfg(any(windows, linux_vr))]
+#[cfg(windows)]
 pub(crate) fn decode_marker(rows: &[u8], row_pitch: usize) -> Option<(u32, u32, u32)> {
     decode_marker_pixels(|bit| {
         let offset = (bit / 64) * row_pitch + ((bit % 64) * 4 + 2) * 4;

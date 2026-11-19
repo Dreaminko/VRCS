@@ -213,10 +213,10 @@ fn hand_name(index: usize) -> &'static str {
 /// The Linux WebKit host returns straight-alpha RGBA; OpenXR layer blending
 /// consumes premultiplied colour.
 fn premultiply(pixels: &mut [u8]) {
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         let alpha = u32::from(pixel[3]);
-        for channel in 0..3 {
-            pixel[channel] = ((u32::from(pixel[channel]) * alpha + 127) / 255) as u8;
+        for channel in &mut pixel[..3] {
+            *channel = ((u32::from(*channel) * alpha + 127) / 255) as u8;
         }
     }
 }
@@ -457,21 +457,6 @@ impl OpenXrBackend {
     }
 
     pub fn update_ocr_input(&mut self, _path: &std::path::Path) -> Result<(), String> {
-        Err("vr.ocr_input_unavailable".into())
-    }
-
-    pub fn ocr_input(
-        &mut self,
-        _gesture_enabled: bool,
-        _reading_focus: bool,
-        _vision_enabled: bool,
-    ) -> Result<crate::vr_overlay::ocr_input::InputActions, String> {
-        Err("vr.ocr_input_unavailable".into())
-    }
-
-    pub fn freeze_ocr_frame(&mut self) {}
-
-    pub fn open_ocr_bindings(&mut self) -> Result<(), String> {
         Err("vr.ocr_input_unavailable".into())
     }
 

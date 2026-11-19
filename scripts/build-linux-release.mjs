@@ -7,8 +7,8 @@ import { checkProjectVersion, writeTargetManifest } from "./release-metadata.mjs
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 process.chdir(root);
-const arch = { x64: "x86_64", arm64: "aarch64" }[process.arch];
-if (process.platform !== "linux" || !arch) throw new Error("Linux releases require native Linux x86_64 or aarch64");
+const arch = { x64: "x86_64" }[process.arch];
+if (process.platform !== "linux" || !arch) throw new Error("Linux releases currently require native Linux x86_64");
 const host = execFileSync("rustc", ["-vV"], { encoding: "utf8" }).match(/^host: (.+)$/m)?.[1];
 const triple = `${arch}-unknown-linux-gnu`;
 if (host !== triple) throw new Error(`Native Rust host ${triple} required; got ${host}`);

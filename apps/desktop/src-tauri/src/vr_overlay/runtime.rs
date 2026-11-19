@@ -913,18 +913,15 @@ fn worker_loop(
             }
         }
         #[cfg(any(windows, linux_vr))]
-        let mut ui_active = state.ui.fast_tick() || state.player_audio.active();
+        let ui_active = state.ui.fast_tick() || state.player_audio.active();
         #[cfg(not(any(windows, linux_vr)))]
         let ui_active = false;
         #[cfg(windows)]
-        {
-            ui_active = ui_active
-                || state.player_audio.active()
-                || app
-                    .state::<super::surface::SurfaceHub>()
-                    .progress_animating()
-                || state.ocr.status.wrist_state == super::ocr_status::OcrWristState::Visible;
-        }
+        let ui_active = ui_active
+            || app
+                .state::<super::surface::SurfaceHub>()
+                .progress_animating()
+            || state.ocr.status.wrist_state == super::ocr_status::OcrWristState::Visible;
         let interval = if status.dashboard.visible || ui_active {
             SURFACE_FRAME_INTERVAL
         } else {
