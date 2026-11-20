@@ -318,6 +318,7 @@ pub enum DashboardPointerEvent {
     Move { x: f32, y: f32 },
     Down { x: f32, y: f32 },
     Up { x: f32, y: f32 },
+    Scroll { ydelta: f32 },
     Shown,
     Hidden,
 }

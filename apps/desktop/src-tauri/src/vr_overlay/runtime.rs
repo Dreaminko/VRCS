@@ -1326,6 +1326,14 @@ fn update_dashboard(
                 DashboardPointerEvent::Move { x, y }
                 | DashboardPointerEvent::Down { x, y }
                 | DashboardPointerEvent::Up { x, y } => (x, y),
+                DashboardPointerEvent::Scroll { ydelta } => {
+                    let _ = hub.scroll(
+                        app,
+                        SurfaceId::Dashboard,
+                        (-ydelta * 0.25).clamp(-0.85, 0.85),
+                    );
+                    continue;
+                }
                 DashboardPointerEvent::Shown | DashboardPointerEvent::Hidden => {
                     state.dashboard.clear_pointer();
                     state.dashboard_pressed_key = None;

@@ -200,6 +200,23 @@ impl SurfaceView {
                     ..
                 },
             ) => a.owner_epoch == b.owner_epoch && am == bm && av == bv && ae == be && ap == bp,
+            (
+                Self::Dashboard {
+                    dashboard: a,
+                    ui: au,
+                    ..
+                },
+                Self::Dashboard {
+                    dashboard: b,
+                    ui: bu,
+                    ..
+                },
+            ) => {
+                au == bu
+                    && a.player_audio_notice.is_some()
+                    && a.player_audio_notice.as_ref().map(|n| n.request_id)
+                        == b.player_audio_notice.as_ref().map(|n| n.request_id)
+            }
             _ => false,
         }
     }

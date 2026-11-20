@@ -815,6 +815,12 @@ mod platform {
                         (mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left as u32 != 0)
                             .then_some(DashboardPointerEvent::Up { x, y })
                     }
+                    openvr_sys::EVREventType_VREvent_ScrollSmooth
+                    | openvr_sys::EVREventType_VREvent_ScrollDiscrete => {
+                        let ydelta = unsafe { event.data.scroll }.ydelta;
+                        (ydelta.is_finite() && ydelta != 0.0)
+                            .then_some(DashboardPointerEvent::Scroll { ydelta })
+                    }
                     openvr_sys::EVREventType_VREvent_OverlayShown => {
                         Some(DashboardPointerEvent::Shown)
                     }
