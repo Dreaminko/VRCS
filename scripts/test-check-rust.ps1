@@ -19,77 +19,49 @@ function cargo {
     $global:LASTEXITCODE = if ($args[0] -eq $failCommand -or $cargoCalls.Count -eq $failCallNumber) { 17 } else { 0 }
 }
 
-function Assert-CheckCommands {
-    param([string]$Check, [string]$ExpectedCommand, [switch]$Vulkan)
+function Assert-Calls {
+    param(
+        [hashtable]$Arguments,
+        [string[]]$ExpectedCalls,
+        [int]$ExpectedRuntimeCalls = 0
+    )
 
     $script:cargoCalls.Clear()
     $runtimeCallsBefore = $global:vrcsRuntimeCalls
-    & $checkScript -Check $Check -Vulkan:$Vulkan
-    if ($script:cargoCalls.Count -ne 3) {
-        throw "$Check must check all three crates exactly once"
-    }
-    $manifests = @("core/Cargo.toml", "apps/desktop/src-tauri/Cargo.toml", "crates/player-audio-scan/Cargo.toml")
-    for ($i = 0; $i -lt $manifests.Count; $i++) {
-        $manifest = $manifests[$i]
-        $expectedCall = "$ExpectedCommand --manifest-path $manifest"
-        if ($Check -eq "clippy") { $expectedCall += " --all-targets" }
-        if ($Check -ne "format") { $expectedCall += " --locked" }
-        if ($Vulkan -and $Check -ne "format" -and $i -lt 2) { $expectedCall += " --features vulkan" }
-        if ($Check -eq "format") { $expectedCall += " -- --check" }
-        if ($Check -eq "clippy") { $expectedCall += " -- -D warnings" }
-        if ($script:cargoCalls[$i] -cne $expectedCall) {
-            throw "$Check unexpectedly ran: $($script:cargoCalls[$i])"
-        }
-    }
-    $expectedRuntimeCalls = if ($Vulkan -and $Check -ne "format") { 1 } else { 0 }
-    if ($global:vrcsRuntimeCalls - $runtimeCallsBefore -ne $expectedRuntimeCalls) { throw "Unexpected Vulkan runtime preparation" }
-}
-
-function Assert-CiVulkanCommands {
-    param([string]$Check, [string[]]$ExpectedCalls)
-
-    $script:cargoCalls.Clear()
-    $runtimeCallsBefore = $global:vrcsRuntimeCalls
-    & $checkScript -Check $Check -Vulkan -CiVulkanOnly
+    & $checkScript @Arguments
     if (($script:cargoCalls -join "`n") -cne ($ExpectedCalls -join "`n")) {
-        throw "Unexpected CI Vulkan $Check commands: $($script:cargoCalls -join '; ')"
+        throw "Unexpected cargo calls:`nActual:`n$($script:cargoCalls -join "`n")`nExpected:`n$($ExpectedCalls -join "`n")"
     }
-    $expectedRuntimeCalls = if ($Check -eq "format") { 0 } else { 1 }
-    if ($global:vrcsRuntimeCalls - $runtimeCallsBefore -ne $expectedRuntimeCalls) {
-        throw "Unexpected CI Vulkan runtime preparation"
+    if ($global:vrcsRuntimeCalls - $runtimeCallsBefore -ne $ExpectedRuntimeCalls) {
+        throw "Unexpected Vulkan runtime preparation count"
     }
 }
 
 try {
-    Assert-CheckCommands -Check format -ExpectedCommand fmt -Vulkan
-    Assert-CheckCommands -Check clippy -ExpectedCommand clippy
-    Assert-CheckCommands -Check test -ExpectedCommand test
-    Assert-CheckCommands -Check clippy -ExpectedCommand clippy -Vulkan
-    Assert-CheckCommands -Check test -ExpectedCommand test -Vulkan
+    $fmtCall = "fmt --all -- --check"
+    $cpuClippyCalls = @(
+        "clippy --workspace --all-targets --locked -- -D warnings",
+        "clippy -p vrcs-desktop --no-deps --all-targets --locked --features vr-preview -- -D warnings"
+    )
+    $cpuTestCalls = @("test --workspace --locked")
+    $vulkanClippyCoreDesktop = "clippy -p vrcs-core -p vrcs-desktop --all-targets --locked --features vulkan -- -D warnings"
+    $vulkanClippyScan = "clippy -p player-audio-scan --all-targets --locked -- -D warnings"
+    $ciVulkanTestCalls = @("test -p vrcs-core --locked --features vulkan asr::qwen_runtime::tests::")
 
-    Assert-CiVulkanCommands -Check format -ExpectedCalls @(
-        "fmt --manifest-path core/Cargo.toml -- --check",
-        "fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check",
-        "fmt --manifest-path crates/player-audio-scan/Cargo.toml -- --check"
-    )
-    Assert-CiVulkanCommands -Check clippy -ExpectedCalls @(
-        "clippy --manifest-path core/Cargo.toml --all-targets --locked --features vulkan -- -D warnings",
-        "clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets --locked --features vulkan -- -D warnings"
-    )
-    $ciVulkanTestCalls = @(
-        "test --manifest-path core/Cargo.toml --all-targets --no-run --locked --features vulkan",
-        "test --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets --no-run --locked --features vulkan",
-        "test --manifest-path core/Cargo.toml --locked --features vulkan asr::qwen_runtime::tests::"
-    )
-    Assert-CiVulkanCommands -Check test -ExpectedCalls $ciVulkanTestCalls
-    $ciVulkanAllCalls = @(
-        "fmt --manifest-path core/Cargo.toml -- --check",
-        "fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check",
-        "fmt --manifest-path crates/player-audio-scan/Cargo.toml -- --check",
-        "clippy --manifest-path core/Cargo.toml --all-targets --locked --features vulkan -- -D warnings",
-        "clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets --locked --features vulkan -- -D warnings"
-    ) + $ciVulkanTestCalls
-    Assert-CiVulkanCommands -Check all -ExpectedCalls $ciVulkanAllCalls
+    Assert-Calls -Arguments @{ Check = "format"; Vulkan = $true } -ExpectedCalls @($fmtCall)
+    Assert-Calls -Arguments @{ Check = "clippy" } -ExpectedCalls $cpuClippyCalls
+    Assert-Calls -Arguments @{ Check = "test" } -ExpectedCalls $cpuTestCalls
+    Assert-Calls -Arguments @{ Check = "clippy"; Vulkan = $true } -ExpectedCalls @($vulkanClippyCoreDesktop, $vulkanClippyScan) -ExpectedRuntimeCalls 1
+    Assert-Calls -Arguments @{ Check = "test"; Vulkan = $true } -ExpectedCalls @(
+        "test -p vrcs-core -p vrcs-desktop --locked --features vulkan",
+        "test -p player-audio-scan --locked"
+    ) -ExpectedRuntimeCalls 1
+
+    Assert-Calls -Arguments @{ Check = "format"; Vulkan = $true; CiVulkanOnly = $true } -ExpectedCalls @($fmtCall)
+    Assert-Calls -Arguments @{ Check = "clippy"; Vulkan = $true; CiVulkanOnly = $true } -ExpectedCalls @($vulkanClippyCoreDesktop) -ExpectedRuntimeCalls 1
+    Assert-Calls -Arguments @{ Check = "test"; Vulkan = $true; CiVulkanOnly = $true } -ExpectedCalls $ciVulkanTestCalls -ExpectedRuntimeCalls 1
+    Assert-Calls -Arguments @{ Check = "all"; Vulkan = $true; CiVulkanOnly = $true } -ExpectedCalls (@($fmtCall, $vulkanClippyCoreDesktop) + $ciVulkanTestCalls) -ExpectedRuntimeCalls 1
+    Assert-Calls -Arguments @{} -ExpectedCalls (@($fmtCall) + $cpuClippyCalls + $cpuTestCalls)
 
     $script:cargoCalls.Clear()
     $caughtMissingVulkan = $false
@@ -102,54 +74,23 @@ try {
         throw "CI Vulkan scope must reject CPU checks before running Cargo"
     }
 
-    $script:cargoCalls.Clear()
-    try {
-        & $checkScript -Cuda
-        throw "Removed CUDA switch must fail"
-    }
-    catch [System.Management.Automation.ParameterBindingException] {
-        if ($script:cargoCalls.Count -ne 0) { throw "Removed CUDA switch must not run Cargo" }
-    }
-
-    $script:cargoCalls.Clear()
-    & $checkScript
-    if ($script:cargoCalls.Count -ne 9) { throw "Default checks must run all three stages for all three crates" }
-
     Push-Location $PSScriptRoot
     try {
         foreach ($failure in @("fmt", "clippy", "test")) {
             $script:cargoCalls.Clear()
             $script:failCommand = $failure
-            $expectedCalls = @{ fmt = 1; clippy = 4; test = 7 }
+            $expectedCounts = @{ fmt = 1; clippy = 2; test = 4 }
             $locationBefore = (Get-Location).Path
             $caughtFailure = $false
-            try {
-                & $checkScript
-            }
+            try { & $checkScript }
             catch {
                 if ($_.Exception.Message -notlike "*failed with exit code 17*") { throw }
                 $caughtFailure = $true
             }
-            if (-not $caughtFailure -or $script:cargoCalls.Count -ne $expectedCalls[$failure]) {
+            if (-not $caughtFailure -or $script:cargoCalls.Count -ne $expectedCounts[$failure]) {
                 throw "A failed $failure command must stop subsequent checks"
             }
             if ((Get-Location).Path -ne $locationBefore) { throw "Checks must restore the caller's directory" }
-        }
-
-        foreach ($failure in @("clippy", "test")) {
-            $script:cargoCalls.Clear()
-            $script:failCommand = $failure
-            $locationBefore = (Get-Location).Path
-            $caughtFailure = $false
-            try { & $checkScript -Check $failure -Vulkan -CiVulkanOnly }
-            catch {
-                if ($_.Exception.Message -notlike "*failed with exit code 17*") { throw }
-                $caughtFailure = $true
-            }
-            if (-not $caughtFailure -or $script:cargoCalls.Count -ne 1) {
-                throw "A failed CI Vulkan $failure command must stop subsequent checks"
-            }
-            if ((Get-Location).Path -ne $locationBefore) { throw "CI checks must restore the caller's directory" }
         }
 
         $script:failCommand = $null
@@ -158,13 +99,13 @@ try {
             $script:failCallNumber = $failedCall
             $caughtFailure = $false
             $locationBefore = (Get-Location).Path
-            try { & $checkScript -Check test -Vulkan -CiVulkanOnly }
+            try { & $checkScript -Vulkan -CiVulkanOnly }
             catch {
                 if ($_.Exception.Message -notlike "*failed with exit code 17*") { throw }
                 $caughtFailure = $true
             }
             if (-not $caughtFailure -or $script:cargoCalls.Count -ne $failedCall) {
-                throw "A failed CI Vulkan test command $failedCall must propagate its failure"
+                throw "A failed CI Vulkan command $failedCall must propagate its failure"
             }
             if ((Get-Location).Path -ne $locationBefore) { throw "CI checks must restore the caller's directory" }
         }

@@ -1785,6 +1785,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec9d92d097f4749b64e8cc33d924d9f40a2d4eb91402b458014b781f5733d60f"
 
 [[package]]
+name = "hound"
+version = "3.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62adaabb884c94955b19907d60019f4e145d091c75345379e70d1ee696f7854f"
+
+[[package]]
 name = "html5ever"
 version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5500,6 +5506,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "futures-util",
+ "hound",
  "libloading 0.8.9",
  "mdns-sd",
  "ndarray",
@@ -5515,6 +5522,7 @@ dependencies = [
  "serde_ignored",
  "serde_json",
  "sha2",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
  "tokio-tungstenite",

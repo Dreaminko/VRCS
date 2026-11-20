@@ -87,21 +87,3 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
     "Wdk_System_SystemServices",
 ] }
-
-# Match ONNX Runtime's C++ runtime while retaining application debug builds.
-[profile.dev.package.openvr_sys]
-opt-level = 1
-
-[profile.dev.package.player-audio-scan]
-opt-level = 3
-
-[profile.dev.package.memchr]
-opt-level = 3
-
-[profile.dev.package.ring]
-opt-level = 3
-
-[profile.release]
-lto = "thin"
-codegen-units = 1
-strip = "symbols"

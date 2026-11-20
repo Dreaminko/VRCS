@@ -12,7 +12,18 @@ if (-not (Test-Path -LiteralPath "$resourceRoot\vulkan-1.dll") -or -not (Test-Pa
     New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
     $archive = Join-Path $cacheRoot "VulkanRT-$version-Components.zip"
     if (-not (Test-Path -LiteralPath $archive)) {
-        Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/$version/windows/VulkanRT-$version-Components.zip" -OutFile $archive
+        $uri = "https://sdk.lunarg.com/sdk/download/$version/windows/VulkanRT-$version-Components.zip"
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            try {
+                Invoke-WebRequest -Uri $uri -OutFile $archive -TimeoutSec 60
+                break
+            }
+            catch {
+                Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+                if ($attempt -eq 3) { throw }
+                Start-Sleep -Seconds 2
+            }
+        }
     }
     if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne "7d969f4d7b44e387667d3148f61559497c22d50cbe3d50adc9e5409afbce2df1") {
         throw "Vulkan runtime failed SHA-256 verification"
@@ -24,8 +35,8 @@ if (-not (Test-Path -LiteralPath "$resourceRoot\vulkan-1.dll") -or -not (Test-Pa
     Copy-Item -LiteralPath "$components\x64\vulkan-1.dll", "$components\VulkanRT-License.txt" -Destination $resourceRoot -Force
 }
 # Tests and release self-tests run before Tauri installs bundled resources.
-$targetRoots = @("$repoRoot\core\target", "$repoRoot\apps\desktop\src-tauri\target")
-if ($env:CARGO_TARGET_DIR) { $targetRoots += $env:CARGO_TARGET_DIR }
+$targetRoots = @("$repoRoot\target")
+if ($env:CARGO_TARGET_DIR -and $env:CARGO_TARGET_DIR -ne $targetRoots[0]) { $targetRoots += $env:CARGO_TARGET_DIR }
 foreach ($targetRoot in $targetRoots) {
     foreach ($profile in @("debug", "release")) {
         foreach ($directory in @("$targetRoot\$profile", "$targetRoot\$profile\deps")) {
