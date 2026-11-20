@@ -10,7 +10,13 @@ import { liveTranslationServiceName } from "../providers/recognition-services";
 import { localizedLanguageName } from "../translation/translation-languages";
 import { supportsTranslation } from "../providers/api-profile-purpose";
 import { supportsVision } from "../settings/vision-settings";
-import { VR_OVERLAY_POSITION_RANGES, type VrOverlayDisplayKind, type VrOverlayPositionField } from "../settings/vr-overlay-settings";
+import {
+  VR_OVERLAY_APPEARANCE_RANGES,
+  VR_OVERLAY_POSITION_RANGES,
+  type VrOverlayAppearanceField,
+  type VrOverlayDisplayKind,
+  type VrOverlayPositionField,
+} from "../settings/vr-overlay-settings";
 import {
   getVrOverlayStatus,
   hideVrOverlaySample,
@@ -144,6 +150,26 @@ export function useVrDashboardBridge(
         can_decrease: value > range.min, can_increase: value < range.max,
       };
     });
+    const appearanceFields = (kind: VrOverlayDisplayKind) => {
+      const labelKeys: Record<VrOverlayAppearanceField, string> = {
+        width_m: "settings.vrDashboard.width",
+        opacity: "settings.vrDashboard.opacity",
+        font_size_px: "settings.vrOverlay.fontSize",
+      };
+      return Object.entries(VR_OVERLAY_APPEARANCE_RANGES[kind]).map(([name, range]) => {
+        const field = name as VrOverlayAppearanceField;
+        const value = (overlay[kind] as unknown as Record<VrOverlayAppearanceField, number>)[field];
+        return {
+          field,
+          label: t(labelKeys[field]),
+          value: field === "width_m" ? `${value.toFixed(2)} m`
+            : field === "font_size_px" ? `${Math.round(value)} px`
+            : `${Math.round(value * 100)}%`,
+          can_decrease: value > range.min,
+          can_increase: value < range.max,
+        };
+      });
+    };
     const choices = dashboardLanguageChoices(settings, profiles);
     const languageName = (code: string) => code === "auto" ? t("languages.auto") : localizedLanguageName(code, i18n.resolvedLanguage ?? "en-US");
     const targetChoices = (key: "speaker_targets" | "microphone_targets") => settings.translation[key].map((target, index) => ({
@@ -232,6 +258,7 @@ export function useVrDashboardBridge(
         width: `${overlay.headset.width_m.toFixed(2)} m`,
         opacity: `${Math.round(overlay.headset.opacity * 100)}%`,
         position: positionFields("headset"),
+        appearance: appearanceFields("headset"),
       },
       wrist: {
         enabled: overlay.wrist.enabled,
@@ -245,6 +272,7 @@ export function useVrDashboardBridge(
         width: `${overlay.wrist.width_m.toFixed(2)} m`,
         opacity: `${Math.round(overlay.wrist.opacity * 100)}%`,
         position: positionFields("wrist"),
+        appearance: appearanceFields("wrist"),
       },
       ocr: {
         enabled: settings.ocr.master_enabled && settings.ocr.enabled,

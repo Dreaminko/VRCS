@@ -495,6 +495,14 @@ struct DialoguePublishCache {
     has_frame: bool,
 }
 
+#[cfg(windows)]
+struct DashboardRepeat {
+    region: u8,
+    command: super::dashboard::DashboardCommand,
+    next_at: Instant,
+    repeated: bool,
+}
+
 struct WorkerState {
     caption_status: super::caption_status::CaptionStatus,
     controls: Arc<Mutex<ControlHub>>,
@@ -530,6 +538,8 @@ struct WorkerState {
     dashboard_surface: super::surface::SurfaceRenderer,
     #[cfg(windows)]
     dashboard_pressed_key: Option<super::surface::SurfaceKey>,
+    #[cfg(windows)]
+    dashboard_repeat: Option<DashboardRepeat>,
     dashboard_retry_at: Option<Instant>,
     next_reconnect: Instant,
     next_probe: Instant,
@@ -552,6 +562,7 @@ impl WorkerState {
         {
             self.dashboard_surface.reset();
             self.dashboard_pressed_key = None;
+            self.dashboard_repeat = None;
         }
         self.dashboard.clear_pointer();
         self.dashboard_retry_at = None;
@@ -639,6 +650,8 @@ fn worker_loop(
         ),
         #[cfg(windows)]
         dashboard_pressed_key: None,
+        #[cfg(windows)]
+        dashboard_repeat: None,
         dashboard_retry_at: None,
         next_reconnect: Instant::now(),
         next_probe: Instant::now(),
@@ -1302,6 +1315,7 @@ fn update_dashboard(
             let _ = backend.poll_dashboard_events()?;
             state.dashboard.clear_pointer();
             state.dashboard_pressed_key = None;
+            state.dashboard_repeat = None;
             return Ok(false);
         }
         let dark = state.controls.lock().map(|hub| hub.dark()).unwrap_or(false);
@@ -1337,6 +1351,7 @@ fn update_dashboard(
                 DashboardPointerEvent::Shown | DashboardPointerEvent::Hidden => {
                     state.dashboard.clear_pointer();
                     state.dashboard_pressed_key = None;
+                    state.dashboard_repeat = None;
                     continue;
                 }
             };
@@ -1344,21 +1359,59 @@ fn update_dashboard(
             let hit = layout.as_ref().and_then(|layout| layout.hit(point));
             state.dashboard.hovered = hit;
             match event {
+                DashboardPointerEvent::Move { .. } => {
+                    if layout.is_some()
+                        && state
+                            .dashboard_repeat
+                            .as_ref()
+                            .is_some_and(|repeat| hit != Some(repeat.region))
+                    {
+                        state.dashboard_repeat = None;
+                    }
+                }
                 DashboardPointerEvent::Down { .. } => {
                     state.dashboard.pressed = hit;
                     state.dashboard_pressed_key = layout.as_ref().map(|layout| layout.key);
+                    state.dashboard_repeat = if view.player_audio_notice.is_none() {
+                        hit.and_then(|id| {
+                            layout.as_ref().and_then(|layout| {
+                                layout
+                                    .regions
+                                    .iter()
+                                    .find(|region| region.id == id)
+                                    .and_then(|region| region.dashboard.as_ref())
+                                    .filter(|command| command.is_repeatable())
+                                    .map(|command| DashboardRepeat {
+                                        region: id,
+                                        command: command.clone(),
+                                        next_at: Instant::now() + Duration::from_millis(420),
+                                        repeated: false,
+                                    })
+                            })
+                        })
+                    } else {
+                        None
+                    };
                 }
                 DashboardPointerEvent::Up { .. } => {
                     let pressed = state.dashboard.pressed.take();
                     let key = state.dashboard_pressed_key.take();
-                    let command = layout
-                        .as_ref()
-                        .filter(|layout| Some(layout.key) == key)
-                        .filter(|_| hit.is_some() && hit == pressed)
-                        .and_then(|layout| {
-                            layout.regions.iter().find(|region| Some(region.id) == hit)
+                    let repeated = state
+                        .dashboard_repeat
+                        .take()
+                        .is_some_and(|repeat| repeat.repeated);
+                    let command = (!repeated)
+                        .then(|| {
+                            layout
+                                .as_ref()
+                                .filter(|layout| Some(layout.key) == key)
+                                .filter(|_| hit.is_some() && hit == pressed)
+                                .and_then(|layout| {
+                                    layout.regions.iter().find(|region| Some(region.id) == hit)
+                                })
+                                .and_then(|region| region.dashboard.clone())
                         })
-                        .and_then(|region| region.dashboard.clone());
+                        .flatten();
                     if let Some(command) = command {
                         if let super::dashboard::DashboardCommand::PlayerAudio {
                             request_id,
@@ -1382,6 +1435,45 @@ fn update_dashboard(
                     }
                 }
                 _ => {}
+            }
+        }
+        if let Some(mut repeat) = state.dashboard_repeat.take() {
+            let keep = if view.player_audio_notice.is_some() {
+                false
+            } else {
+                match layout.or_else(|| hub.layout(SurfaceId::Dashboard)) {
+                    None => true,
+                    Some(current_layout) => {
+                        if state.dashboard.hovered != Some(repeat.region) {
+                            false
+                        } else if Instant::now() >= repeat.next_at {
+                            let matches_region = current_layout.regions.iter().any(|region| {
+                                region.id == repeat.region
+                                    && region.dashboard.as_ref() == Some(&repeat.command)
+                            });
+                            if matches_region {
+                                if let Some(action) = state
+                                    .dashboard
+                                    .activate_repeat(repeat.command.clone(), &view)
+                                {
+                                    dispatch_dashboard_action(app, state, backend, action);
+                                    repeat.repeated = true;
+                                    repeat.next_at = Instant::now() + Duration::from_millis(110);
+                                    true
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            true
+                        }
+                    }
+                }
+            };
+            if keep {
+                state.dashboard_repeat = Some(repeat);
             }
         }
         let ready = if business || previous_ui != state.dashboard.ui {

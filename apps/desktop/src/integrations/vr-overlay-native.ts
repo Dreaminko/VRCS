@@ -3,7 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { VrOverlayStatus } from "./types";
 import type { VrDashboardAction } from "../vr-dashboard/settings-actions";
-import type { VrOverlayPositionField } from "../settings/vr-overlay-settings";
+import type { VrOverlayAppearanceField, VrOverlayPositionField } from "../settings/vr-overlay-settings";
 
 export type VrOverlayKind = "headset" | "wrist";
 
@@ -17,6 +17,14 @@ export interface VrDashboardChoice {
 
 export interface VrDashboardNumberField {
   field: VrOverlayPositionField;
+  label: string;
+  value: string;
+  can_decrease: boolean;
+  can_increase: boolean;
+}
+
+export interface VrDashboardAppearanceField {
+  field: VrOverlayAppearanceField;
   label: string;
   value: string;
   can_decrease: boolean;
@@ -92,8 +100,8 @@ export interface VrDashboardViewModel {
   ocr_available: boolean;
   vision_available: boolean;
   osc_available: boolean;
-  headset: { enabled: boolean; preview_visible: boolean; width: string; opacity: string; position: VrDashboardNumberField[] };
-  wrist: { enabled: boolean; anchor_mode: string; follow_view: boolean; hand: VrDashboardChoice; preview_visible: boolean; width: string; opacity: string; position: VrDashboardNumberField[] };
+  headset: { enabled: boolean; preview_visible: boolean; width: string; opacity: string; position: VrDashboardNumberField[]; appearance?: VrDashboardAppearanceField[] };
+  wrist: { enabled: boolean; anchor_mode: string; follow_view: boolean; hand: VrDashboardChoice; preview_visible: boolean; width: string; opacity: string; position: VrDashboardNumberField[]; appearance?: VrDashboardAppearanceField[] };
   ocr: { available: boolean; enabled: boolean; backend: string; gesture: boolean };
   vision: { enabled: boolean; configured: boolean; model: string };
   language: {

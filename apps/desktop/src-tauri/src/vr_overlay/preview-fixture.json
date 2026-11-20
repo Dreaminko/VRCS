@@ -217,6 +217,29 @@
         "can_decrease": true,
         "can_increase": true
       }
+    ],
+    "appearance": [
+      {
+        "field": "width_m",
+        "label": "Width",
+        "value": "1.20 m",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "opacity",
+        "label": "Opacity",
+        "value": "92%",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "font_size_px",
+        "label": "Font size",
+        "value": "54 px",
+        "can_decrease": true,
+        "can_increase": true
+      }
     ]
   },
   "wrist": {
@@ -281,6 +304,29 @@
         "field": "roll_deg",
         "label": "roll_deg",
         "value": "0.00",
+        "can_decrease": true,
+        "can_increase": true
+      }
+    ],
+    "appearance": [
+      {
+        "field": "width_m",
+        "label": "Width",
+        "value": "0.32 m",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "opacity",
+        "label": "Opacity",
+        "value": "94%",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "font_size_px",
+        "label": "Font size",
+        "value": "32 px",
         "can_decrease": true,
         "can_increase": true
       }

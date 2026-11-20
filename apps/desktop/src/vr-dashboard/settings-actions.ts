@@ -14,7 +14,9 @@ import {
   patchVrOverlayHeadset,
   patchVrOverlayWrist,
   adjustVrOverlayPosition,
+  adjustVrOverlayAppearance,
   resetVrOverlayPosition,
+  type VrOverlayAppearanceField,
   type VrOverlayDisplayKind,
   type VrOverlayPositionField,
 } from "../settings/vr-overlay-settings.ts";
@@ -32,6 +34,7 @@ export type VrDashboardAction =
   | "headset_opacity_up"
   | "preview_headset"
   | "toggle_wrist"
+  | "toggle_wrist_follow_view"
   | "cycle_wrist_hand"
   | "cycle_wrist_content"
   | "wrist_width_down"
@@ -59,7 +62,8 @@ export type VrDashboardAction =
   | { save_language_preset: string }
   | { apply_language_preset: string }
   | { delete_language_preset: string }
-  | { adjust_display_position: { kind: VrOverlayDisplayKind; field: VrOverlayPositionField; direction: number } }
+  | { adjust_display_position: { kind: VrOverlayDisplayKind; field: VrOverlayPositionField; direction: number; coarse?: boolean } }
+  | { adjust_display_appearance: { kind: VrOverlayDisplayKind; field: VrOverlayAppearanceField; direction: number; coarse?: boolean } }
   | { reset_display_position: VrOverlayDisplayKind };
 
 export const RECOGNITION_LANGUAGES: Settings["asr"]["language"][] = ["auto", "en", "ja", "zh", "ko", "es", "fr", "de"];
@@ -116,8 +120,12 @@ export function applyVrDashboardAction(settings: Settings, action: VrDashboardAc
       return { ...settings, osc: { ...settings.osc, translation_strategy: value } };
     }
     if ("adjust_display_position" in action) {
-      const { kind, field, direction } = action.adjust_display_position;
-      return adjustVrOverlayPosition(settings, kind, field, direction);
+      const { kind, field, direction, coarse } = action.adjust_display_position;
+      return adjustVrOverlayPosition(settings, kind, field, direction, Boolean(coarse));
+    }
+    if ("adjust_display_appearance" in action) {
+      const { kind, field, direction, coarse } = action.adjust_display_appearance;
+      return adjustVrOverlayAppearance(settings, kind, field, direction, Boolean(coarse));
     }
     if ("reset_display_position" in action) return resetVrOverlayPosition(settings, action.reset_display_position);
     if ("save_language_preset" in action) return saveLanguagePreset(settings, action.save_language_preset);
@@ -208,6 +216,9 @@ export function applyVrDashboardAction(settings: Settings, action: VrDashboardAc
       });
     case "toggle_wrist":
       return patchVrOverlayWrist(settings, { enabled: !settings.vr_overlay.wrist.enabled });
+    case "toggle_wrist_follow_view":
+      if (settings.vr_overlay.wrist.anchor_mode !== "world") return settings;
+      return patchVrOverlayWrist(settings, { follow_view: !settings.vr_overlay.wrist.follow_view });
     case "cycle_wrist_hand":
       return patchVrOverlayWrist(settings, {
         hand: cycle(HANDS, settings.vr_overlay.wrist.hand),

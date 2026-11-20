@@ -1540,6 +1540,7 @@ fn apply_dashboard(view: &mut DashboardViewModel, action: DashboardAction) {
     }
     match action {
         ToggleMaster => view.enabled = !view.enabled,
+        ToggleWristFollowView => view.wrist.follow_view = !view.wrist.follow_view,
         ToggleOcr => view.ocr.enabled = !view.ocr.enabled,
         ToggleVision => view.vision.enabled = !view.vision.enabled,
         ToggleOcrGesture => view.ocr.gesture = !view.ocr.gesture,
@@ -1619,6 +1620,7 @@ fn apply_dashboard(view: &mut DashboardViewModel, action: DashboardAction) {
             kind,
             field,
             direction,
+            coarse,
         } => {
             let list = if kind == DisplayKind::Wrist {
                 &mut view.wrist.position
@@ -1634,9 +1636,84 @@ fn apply_dashboard(view: &mut DashboardViewModel, action: DashboardAction) {
             if let Some(value) = list.iter_mut().find(|v| v.field == field) {
                 step_number(
                     &mut value.value,
-                    direction as f32 * if rotation { 5. } else { 0.01 },
+                    direction as f32
+                        * if rotation { 5. } else { 0.01 }
+                        * if coarse { 5. } else { 1. },
                     if rotation { "°" } else { " m" },
                 );
+            }
+        }
+        AdjustDisplayAppearance {
+            kind,
+            field,
+            direction,
+            coarse,
+        } => {
+            let list = if kind == DisplayKind::Wrist {
+                &mut view.wrist.appearance
+            } else {
+                &mut view.headset.appearance
+            };
+            let delta = direction as f32
+                * match field {
+                    super::dashboard::AppearanceField::Width => {
+                        if kind == DisplayKind::Wrist {
+                            if coarse {
+                                0.05
+                            } else {
+                                0.01
+                            }
+                        } else if coarse {
+                            0.15
+                        } else {
+                            0.05
+                        }
+                    }
+                    super::dashboard::AppearanceField::Opacity => {
+                        if coarse {
+                            10.
+                        } else {
+                            5.
+                        }
+                    }
+                    super::dashboard::AppearanceField::FontSize => {
+                        if coarse {
+                            5.
+                        } else {
+                            1.
+                        }
+                    }
+                };
+            if let Some(item) = list.iter_mut().find(|v| v.field == field) {
+                let unit = match field {
+                    super::dashboard::AppearanceField::Width => " m",
+                    super::dashboard::AppearanceField::FontSize => " px",
+                    _ => "%",
+                };
+                let number = item
+                    .value
+                    .trim_end_matches(|c: char| !c.is_ascii_digit() && c != '.')
+                    .parse::<f32>()
+                    .unwrap_or(0.);
+                let next = number + delta;
+                item.value = if field == super::dashboard::AppearanceField::Width {
+                    format!("{next:.2}{unit}")
+                } else {
+                    format!("{}{unit}", next.round() as i32)
+                };
+                if field == super::dashboard::AppearanceField::Width {
+                    if kind == DisplayKind::Wrist {
+                        view.wrist.width = item.value.clone();
+                    } else {
+                        view.headset.width = item.value.clone();
+                    }
+                } else if field == super::dashboard::AppearanceField::Opacity {
+                    if kind == DisplayKind::Wrist {
+                        view.wrist.opacity = item.value.clone();
+                    } else {
+                        view.headset.opacity = item.value.clone();
+                    }
+                }
             }
         }
         ResetDisplayPosition(kind) => {
