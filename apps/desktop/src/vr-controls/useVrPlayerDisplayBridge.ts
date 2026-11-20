@@ -5,9 +5,11 @@ import { useTranslation } from "react-i18next";
 import type { AppWorkspace } from "../app/useAppWorkspace";
 import type { PlayerSourceOverride } from "../capture/types";
 import { playerUserId } from "../capture/player-selection";
+import { getCurrentHealth, useHealth } from "../core-client/health-store";
 import type { PlayerAudioStatus } from "../core-client/types";
 import { collectPlayerSpeakers, playerLanguageOptions, sourceMode } from "../subtitles/player-controls";
-import { defaultHiddenSourceLanguages, isAudioTrack } from "../subtitles/player-history";
+import { defaultHiddenSourceLanguages, isAudioTrack, isLanguageDetectorReady } from "../subtitles/player-history";
+import { useLanguageDetectorReady } from "../subtitles/usePlayerHistoryPreferences";
 import { useSpeakerIdentities } from "../subtitles/speaker-state";
 import type { SpeakerIdentity, Subtitle } from "../subtitles/types";
 import { localizedLanguageName } from "../translation/translation-languages";
@@ -26,6 +28,7 @@ interface CachedPlayerLists {
   names: Record<string, string>;
   defaultLanguages: string[];
   hiddenSourceLanguages: string[] | null;
+  languageDetectorReady: boolean;
   observedSpeakers: SpeakerIdentity[];
   languageOptions: string[];
 }
@@ -41,14 +44,15 @@ function playerDisplayState(workspace: AppWorkspace, optimistic = false, cached?
   const unmatchedBlocked = settings?.audio.output.player_audio?.source_mode !== "everyone";
   const proximity = settings?.audio.output.player_audio?.proximity;
   const viewPriority = settings?.audio.output.player_audio?.view_priority;
-  const roster = workspace.runtime.health?.network_players
-    ?? (playerMode ? workspace.runtime.health?.player_audio?.players : undefined)
+  const health = getCurrentHealth() ?? workspace.runtime.health;
+  const roster = health?.network_players
+    ?? (playerMode ? health?.player_audio?.players : undefined)
     ?? EMPTY_ROSTER;
   const current = roster.map(player => player.speaker);
   const distances = new Map(roster.map(player => [player.speaker.id, player.distance_m]));
   const savedIds = Object.keys(overrides);
   const preferences = workspace.playerDisplay.getCurrent();
-  const defaultLanguages = defaultHiddenSourceLanguages(settings?.translation, workspace.runtime.health?.language_session);
+  const defaultLanguages = defaultHiddenSourceLanguages(settings?.translation, health?.language_session);
   const available = workspace.onboarding.status === "complete";
   const speakers = cached
     && cached.subtitles === workspace.subtitles.items
@@ -61,6 +65,7 @@ function playerDisplayState(workspace: AppWorkspace, optimistic = false, cached?
     && cached.subtitles === workspace.subtitles.items
     && cached.defaultLanguages === defaultLanguages
     && cached.hiddenSourceLanguages === preferences.hiddenSourceLanguages
+    && cached.languageDetectorReady === isLanguageDetectorReady()
     ? cached.languageOptions
     : playerLanguageOptions(workspace.subtitles.items, defaultLanguages, preferences.hiddenSourceLanguages);
   return {
@@ -81,24 +86,26 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
   const playerMode = activeSettings?.audio.output.mode === "vrchat_players";
   const names = activeSettings?.audio.output.player_audio?.selected_user_names ?? EMPTY_NAMES;
   const overrides = activeSettings?.audio.output.player_audio?.source_overrides ?? EMPTY_OVERRIDES;
-  const roster = workspace.runtime.health?.network_players
-    ?? (playerMode ? workspace.runtime.health?.player_audio?.players : undefined)
+  const liveHealth = useHealth() ?? workspace.runtime.health;
+  const roster = liveHealth?.network_players
+    ?? (playerMode ? liveHealth?.player_audio?.players : undefined)
     ?? EMPTY_ROSTER;
-  const viewHealth = workspace.runtime.health?.player_audio?.proximity;
-  const languageSession = workspace.runtime.health?.language_session;
+  const viewHealth = liveHealth?.player_audio?.proximity;
+  const languageSession = liveHealth?.language_session;
   const subtitles = workspace.subtitles.items;
   const defaultLanguages = workspace.playerDisplay.defaultLanguages;
   const hiddenSourceLanguages = workspace.playerDisplay.preferences.hiddenSourceLanguages;
 
   const currentSpeakers = useMemo(() => (active ? roster.map((player) => player.speaker) : EMPTY_SPEAKERS), [active, roster]);
   const savedIds = useMemo(() => (active ? Object.keys(overrides) : EMPTY_LANGUAGES), [active, overrides]);
+  const languageDetectorReady = useLanguageDetectorReady();
   const observedSpeakers = useMemo(
     () => (active ? collectPlayerSpeakers(subtitles, currentSpeakers, savedIds, names) : EMPTY_SPEAKERS),
     [active, subtitles, currentSpeakers, savedIds, names],
   );
   const languageOptions = useMemo(
     () => (active ? playerLanguageOptions(subtitles, defaultLanguages, hiddenSourceLanguages) : EMPTY_LANGUAGES),
-    [active, subtitles, defaultLanguages, hiddenSourceLanguages],
+    [active, subtitles, defaultLanguages, hiddenSourceLanguages, languageDetectorReady],
   );
   const identities = useSpeakerIdentities(observedSpeakers);
   const cachedRef = useRef<CachedPlayerLists | undefined>(undefined);
@@ -110,6 +117,7 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
         names,
         defaultLanguages,
         hiddenSourceLanguages,
+        languageDetectorReady,
         observedSpeakers,
         languageOptions,
       }
@@ -151,7 +159,7 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
       .map(playerUserId)
       .filter((id): id is string => id !== null));
     const languageName = (language: string) => localizedLanguageName(language, locale);
-    const viewHealth = current.current.workspace.runtime.health?.player_audio?.proximity;
+    const viewHealth = (getCurrentHealth() ?? current.current.workspace.runtime.health)?.player_audio?.proximity;
     return {
       available: state.available,
       processing_available: state.processingAvailable,

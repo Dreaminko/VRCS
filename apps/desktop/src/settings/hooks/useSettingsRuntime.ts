@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { AudioDevice } from "../../capture/types";
+import { getCurrentHealth, subscribeHealth } from "../../core-client/health-store";
+import type { Health } from "../../core-client/types";
 import type { CoreHealthController } from "../../core-client/useCoreRuntime";
 import type { ReportRuntimeError } from "../../core-client/useRuntimeErrors";
 import { integrationsApi } from "../../integrations/api";
@@ -176,19 +178,28 @@ export function useSettingsRuntime({
   }, [settings]);
 
   const refreshingPlayerNames = useRef(false);
-  const observedPlayers = health.value?.player_audio?.players;
-  useEffect(() => {
+  const syncObservedPlayers = useCallback((players: NonNullable<Health["player_audio"]>["players"] | undefined) => {
     // This runtime stays mounted on every page. Use the shared autosave queue so
     // a name refresh cannot overwrite concurrent settings or restore a deselection.
-    if (!observedPlayers?.length || refreshingPlayerNames.current) return;
+    if (!players?.length || refreshingPlayerNames.current) return;
     const current = persistedSettingsRef.current;
-    const speakers = observedPlayers.map((player) => player.speaker);
+    const speakers = players.map((player) => player.speaker);
     if (!current || withCurrentPlayerNames(current, speakers) === current) return;
     refreshingPlayerNames.current = true;
     void settingsAutosaveRef.current!.update((latest) => withCurrentPlayerNames(latest, speakers))
       .catch(() => { /* Shared settings errors report failures; the next health update retries. */ })
       .finally(() => { refreshingPlayerNames.current = false; });
-  }, [observedPlayers]);
+  }, []);
+  const observedPlayers = health.value?.player_audio?.players;
+  useEffect(() => {
+    syncObservedPlayers(observedPlayers);
+  }, [observedPlayers, syncObservedPlayers]);
+  useEffect(() => {
+    if (settings) syncObservedPlayers(getCurrentHealth()?.player_audio?.players);
+  }, [settings, syncObservedPlayers]);
+  useEffect(() => subscribeHealth(() => {
+    syncObservedPlayers(getCurrentHealth()?.player_audio?.players);
+  }), [syncObservedPlayers]);
 
   const testOsc = useCallback(async () => {
     await integrationsApi.testOsc();

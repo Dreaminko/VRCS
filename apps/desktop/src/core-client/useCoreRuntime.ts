@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { publishHealth } from "./health-store";
 import { runtimeApi } from "./runtime-api";
 import {
   coreStartup,
@@ -16,6 +17,43 @@ export interface CoreHealthController {
   replace: (health: Health | null) => void;
   patch: (update: (current: Health | null) => Health | null) => void;
   refreshQuietly: () => Promise<Health | null>;
+}
+
+function shellHealthKey(health: Health | null): string | null {
+  if (!health) return null;
+  return JSON.stringify({
+    status: health.status,
+    config_schema: health.config_schema,
+    capture_running: health.capture_running,
+    capture_requested: health.capture_requested,
+    microphone_capture_state: health.microphone_capture_state,
+    audio_device: health.audio_device,
+    microphone_device: health.microphone_device,
+    microphone_test_running: health.microphone_test_running,
+    microphone_test_device: health.microphone_test_device,
+    asr_status: health.asr_status,
+    vad_backend: health.vad_backend,
+    vad_model_version: health.vad_model_version,
+    last_error: health.last_error,
+    osc: health.osc,
+    vrchat_mute_sync: health.vrchat_mute_sync,
+    language_session: health.language_session,
+    room_scope_id: health.room_context?.scope_id ?? null,
+    player_audio: health.player_audio
+      ? {
+          phase: health.player_audio.phase,
+          active_players: health.player_audio.active_players,
+          detail: health.player_audio.detail,
+          key_scan: health.player_audio.key_scan ?? null,
+        }
+      : null,
+    vrchat_chatbox: health.vrchat_chatbox
+      ? {
+          phase: health.vrchat_chatbox.phase,
+          detail: health.vrchat_chatbox.detail,
+        }
+      : null,
+  });
 }
 
 export function useCoreRuntime({
@@ -38,13 +76,19 @@ export function useCoreRuntime({
   const [health, setHealth] = useState<Health | null>(null);
   const healthRef = useRef<Health | null>(null);
   const healthJsonRef = useRef<string | null>(null);
+  const shellHealthJsonRef = useRef<string | null>(null);
 
   const commitHealth = useCallback((next: Health | null) => {
     const serialized = next ? JSON.stringify(next) : null;
     if (serialized === healthJsonRef.current) return;
     healthJsonRef.current = serialized;
     healthRef.current = next;
-    setHealth(next);
+    publishHealth(next);
+    const shellKey = shellHealthKey(next);
+    if (shellKey !== shellHealthJsonRef.current) {
+      shellHealthJsonRef.current = shellKey;
+      setHealth(next);
+    }
   }, []);
 
   const replaceHealth = useCallback((next: Health | null) => {

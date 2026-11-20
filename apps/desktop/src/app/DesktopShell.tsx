@@ -1,7 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { ComponentProps, CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, LoaderCircle } from "lucide-react";
+
+import { useHealth } from "../core-client/health-store";
 
 import type { Page } from "./app-types";
 import { ErrorBanner } from "./components/ErrorBanner";
@@ -51,6 +53,11 @@ const SettingsPanel = lazy(() => loadSettingsPanel().then(
 function preloadPage(page: Page) {
   if (page === "learning") void loadLearningWorkspace().catch(() => undefined);
   if (page === "settings") void loadSettingsPanel().catch(() => undefined);
+}
+
+function LiveSettingsPanel(props: ComponentProps<typeof SettingsPanel>) {
+  const liveHealth = useHealth();
+  return <SettingsPanel {...props} health={liveHealth ?? props.health} />;
 }
 
 function PageLoading() {
@@ -222,8 +229,7 @@ export function DesktopShell({
               controls={
                 <PlayerHistoryControls
                   subtitles={conversations.selectedSubtitles}
-                  status={runtime.health?.player_audio}
-                  roster={runtime.health?.network_players}
+                  useLiveHealth
                   enabled={settings.value?.audio.output.mode === "vrchat_players"}
                   selectedUserNames={settings.value?.audio.output.player_audio?.selected_user_names}
                   sourceOverrides={settings.value?.audio.output.player_audio?.source_overrides}
@@ -328,7 +334,7 @@ export function DesktopShell({
 
             {page === "settings" && settings.value && (
               <Suspense fallback={<PageLoading />}>
-                <SettingsPanel
+                <LiveSettingsPanel
                   initialCategory={settingsInitialCategory}
                   settings={settings.value}
                   playerAudioStart={capture.playerAudioStart}
