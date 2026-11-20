@@ -1,9 +1,11 @@
 use futures_util::StreamExt;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::SystemTime;
 use tokio::io::AsyncWriteExt;
 
 use crate::asr::paths_equivalent;
@@ -53,6 +55,8 @@ pub struct ModelStatus {
     pub error: Option<String>,
 }
 
+type VerifiedAssetKey = (PathBuf, u64, SystemTime);
+
 #[derive(Clone)]
 pub(super) struct ModelAssets {
     directory: Arc<RwLock<PathBuf>>,
@@ -60,6 +64,7 @@ pub(super) struct ModelAssets {
     prepare_lock: Arc<tokio::sync::Mutex<()>>,
     download_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     sources: Arc<crate::downloads::DownloadSources>,
+    verified_cache: Arc<Mutex<HashMap<&'static str, VerifiedAssetKey>>>,
 }
 
 impl ModelAssets {
@@ -75,6 +80,7 @@ impl ModelAssets {
             prepare_lock: Arc::new(tokio::sync::Mutex::new(())),
             download_task: Default::default(),
             sources: Arc::new(crate::downloads::DownloadSources::new(Default::default())),
+            verified_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -113,6 +119,7 @@ impl ModelAssets {
                 .write()
                 .unwrap_or_else(|error| error.into_inner()) = directory;
         }
+        self.clear_verified_cache();
         let bytes = self.verified_bytes()?;
         let mut status = self
             .status
@@ -204,6 +211,7 @@ impl ModelAssets {
             .prepare_lock
             .try_lock()
             .map_err(|_| "OCR models are being downloaded or verified")?;
+        self.clear_verified_cache();
         {
             let mut status = self
                 .status
@@ -227,11 +235,54 @@ impl ModelAssets {
         Ok(self.snapshot())
     }
 
+    fn clear_verified_cache(&self) {
+        self.verified_cache
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
+    }
+
+    fn verify_asset(&self, path: &Path, asset: &Asset) -> Result<bool, String> {
+        let metadata = match path.metadata() {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(_) => return Err(format!("Could not inspect OCR asset {}", asset.name)),
+        };
+        if !metadata.is_file() || metadata.len() != asset.bytes {
+            return Ok(false);
+        }
+        let modified = metadata.modified().ok();
+        if let Some(modified) = modified {
+            let cache = self
+                .verified_cache
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if cache
+                .get(asset.name)
+                .is_some_and(|(cached_path, bytes, cached_modified)| {
+                    cached_path == path && *bytes == asset.bytes && *cached_modified == modified
+                })
+            {
+                return Ok(true);
+            }
+        }
+        let verified = verify_file(path, asset)?;
+        if verified {
+            if let Some(modified) = modified {
+                self.verified_cache
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .insert(asset.name, (path.to_path_buf(), asset.bytes, modified));
+            }
+        }
+        Ok(verified)
+    }
+
     fn verified_bytes(&self) -> Result<u64, String> {
         let mut bytes = 0;
         let directory = self.directory();
         for asset in &ASSETS {
-            if verify_file(&directory.join(asset.name), asset)? {
+            if self.verify_asset(&directory.join(asset.name), asset)? {
                 bytes += asset.bytes;
             }
         }
@@ -354,7 +405,18 @@ impl ModelAssets {
         drop(file);
         tokio::fs::rename(temporary, path)
             .await
-            .map_err(|_| "Could not install the OCR model download".to_string())
+            .map_err(|_| "Could not install the OCR model download".to_string())?;
+        let modified = path.metadata().and_then(|meta| meta.modified()).ok();
+        let mut cache = self
+            .verified_cache
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(modified) = modified {
+            cache.insert(asset.name, (path.to_path_buf(), asset.bytes, modified));
+        } else {
+            cache.remove(asset.name);
+        }
+        Ok(())
     }
 
     fn add_progress(&self, bytes: u64) {
