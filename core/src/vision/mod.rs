@@ -201,7 +201,7 @@ impl VisionService {
             );
             tokio::pin!(work);
             let started = std::time::Instant::now();
-            let mut tick = tokio::time::interval(Duration::from_millis(20));
+            let mut tick = tokio::time::interval(Duration::from_millis(100));
             loop {
                 tokio::select! {
                     result = &mut work => return result,
@@ -333,7 +333,7 @@ impl VisionService {
         self.check_request(mode, snapshot, api_key)?;
         let work = self.generate(snapshot, api_key, question, image);
         tokio::pin!(work);
-        let mut tick = tokio::time::interval(Duration::from_millis(50));
+        let mut tick = tokio::time::interval(Duration::from_millis(150));
         loop {
             tokio::select! {
                 biased;
