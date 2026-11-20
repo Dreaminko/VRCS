@@ -1409,7 +1409,7 @@ fn sample_player_display(scene: Scene) -> player_display::View {
             ("sourceModeAllowlist", "Allowlist"),
             (
                 "processingUnavailable",
-                "Distance filtering requires per-player audio and a connected Core.",
+                "Distance filtering and view priority require per-player audio and a connected Core.",
             ),
             (
                 "unavailable",

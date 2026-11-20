@@ -350,7 +350,7 @@
         "languagesTab": "隐藏语言",
         "groups": "人员列表",
         "historySaved": "历史记录",
-        "processingUnavailable": "距离筛选需要分玩家音轨和已连接的 Core。",
+        "processingUnavailable": "距离筛选和视野优先需要分玩家音轨和已连接的 Core。",
         "unavailable": "请打开 VRCS 主窗口以使用这些设置。",
         "savedSelection": "已保存的选择",
         "userIdPending": "等待玩家用户 ID，暂不能选择",

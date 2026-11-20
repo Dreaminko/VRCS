@@ -350,7 +350,7 @@
         "languagesTab": "言語",
         "groups": "プレイヤー一覧",
         "historySaved": "履歴",
-        "processingUnavailable": "距離フィルターにはプレイヤー別音声と接続済みの Core が必要です",
+        "processingUnavailable": "距離フィルターと視界優先にはプレイヤー別音声と接続済みの Core が必要です。",
         "unavailable": "この設定を使うには VRCS のメイン画面を開いてください。",
         "savedSelection": "保存済みの選択",
         "userIdPending": "ユーザー ID の確認待ちのため選択できません",

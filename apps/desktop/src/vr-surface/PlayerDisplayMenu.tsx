@@ -1,10 +1,11 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Check, ChevronLeft, ChevronRight, Eye, Languages, MessageSquare, MessageSquareOff, SlidersHorizontal, UsersRound, Volume2, VolumeX, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Eye, Info, Languages, MessageSquare, MessageSquareOff, Radar, SlidersHorizontal, TriangleAlert, UsersRound, Volume2, VolumeX, X } from "lucide-react";
 import type { PlayerDisplayView, SliderCommand, WristMenuCommand, WristMenuUi } from "../vr-controls/player-display-protocol";
 import type { SurfaceState } from "./protocol";
 
 export const DEFAULT_WRIST_MENU_UI: WristMenuUi = { page: "home", group: "current", player_page: 0, language_page: 0 };
 
+const DEFAULT_PROXIMITY_RADIUS = 5;
 const PROXIMITY_SLIDER = { action: "proximity_radius", min: 0, max: 10, step: 0.1 } as const;
 const VIEW_ANGLE_SLIDER = { action: "view_horizontal_fov", min: 30, max: 180, step: 5 } as const;
 
@@ -24,55 +25,107 @@ function MenuButton({ state, id, command, children, label, active = false, press
   </button>;
 }
 
-function MenuSlider({ state, id, value, disabled, label, command, formatValue, scale, error }: {
-  state: SurfaceState; id: number; value: number; disabled: boolean; label: string; command: SliderCommand;
-  formatValue: (value: number) => string; scale: readonly [string, string]; error: string | null;
+function RuleSliderCard({
+  state, icon, title, subtitle, value, cardDisabled, sliderDisabled,
+  toggleId, toggleCommand, toggleChecked, sliderId, sliderCommand, scale,
+  formatValue, valueMuted, zeroStyled, note, error,
+}: {
+  state: SurfaceState;
+  icon: ReactNode;
+  title: string;
+  subtitle?: string;
+  value: number;
+  cardDisabled: boolean;
+  sliderDisabled: boolean;
+  toggleId: number;
+  toggleCommand: WristMenuCommand;
+  toggleChecked: boolean;
+  sliderId: number;
+  sliderCommand: SliderCommand;
+  scale: readonly [string, string];
+  formatValue: (value: number) => string;
+  valueMuted: (shown: number) => boolean;
+  zeroStyled?: (shown: number) => boolean;
+  note?: string;
+  error: string | null;
 }) {
   const track = useRef<HTMLButtonElement>(null);
   const dragging = useRef(false);
   const errorAtPress = useRef<string | null>(null);
+  const valueAtPress = useRef<number>(value);
   const [preview, setPreview] = useState<number | null>(null);
   const pointer = state.pointer;
+  const pressed = state.pressed === sliderId;
+
   useLayoutEffect(() => {
-    const pressed = state.pressed === id;
-    if (pressed && !dragging.current) errorAtPress.current = error;
-    else if (error === null) errorAtPress.current = null;
+    if (pressed && !dragging.current) {
+      errorAtPress.current = error;
+      valueAtPress.current = value;
+    } else if (error === null) {
+      errorAtPress.current = null;
+    }
     dragging.current = pressed;
     const element = track.current;
     const root = element?.closest<HTMLElement>(".vr-surface");
-    if (disabled || !pressed || !pointer || !element || !root) return;
+    if (sliderDisabled || !pressed || !pointer || !element || !root) return;
     const surface = root.getBoundingClientRect();
     const bounds = element.getBoundingClientRect();
     if (!surface.width || !bounds.width) return;
     const x = pointer[0] * surface.width - (bounds.left - surface.left);
     const fraction = Math.max(0, Math.min(1, x / bounds.width));
-    const raw = command.min + fraction * (command.max - command.min);
-    const quantized = command.min + Math.round((raw - command.min) / command.step) * command.step;
-    setPreview(Math.round(Math.max(command.min, Math.min(command.max, quantized)) * 10) / 10);
-  }, [command, disabled, error, id, pointer, state.pressed]);
+    const raw = sliderCommand.min + fraction * (sliderCommand.max - sliderCommand.min);
+    const quantized = sliderCommand.min + Math.round((raw - sliderCommand.min) / sliderCommand.step) * sliderCommand.step;
+    setPreview(Math.round(Math.max(sliderCommand.min, Math.min(sliderCommand.max, quantized)) * 10) / 10);
+  }, [error, pointer, pressed, sliderCommand, sliderDisabled, value]);
+
   useLayoutEffect(() => {
-    if (disabled || (preview !== null
-      && (value === preview || (error !== null && error !== errorAtPress.current)))) setPreview(null);
-  }, [disabled, error, preview, value]);
-  const shown = preview ?? Math.max(command.min, Math.min(command.max, value));
+    if (sliderDisabled || (preview !== null && (
+      value === preview
+      || (!pressed && value !== valueAtPress.current)
+      || (error !== null && error !== errorAtPress.current)
+    ))) setPreview(null);
+  }, [error, pressed, preview, sliderDisabled, value]);
+
+  const shown = preview ?? Math.max(sliderCommand.min, Math.min(sliderCommand.max, value));
   const text = formatValue(shown);
-  const progress = (shown - command.min) / (command.max - command.min) * 100;
-  return <div className="vr-menu-proximity-slider">
-    <button type="button" tabIndex={-1} role="slider" ref={track} disabled={disabled}
-      data-vr-region={id} data-vr-menu={JSON.stringify({ slider: command })}
-      aria-label={label} aria-orientation="horizontal"
-      aria-valuemin={command.min} aria-valuemax={command.max} aria-valuenow={shown}
-      aria-valuetext={text}
-      className="vr-menu-proximity-track"
-      style={{ "--vr-proximity-progress": `${progress}%` } as CSSProperties}>
-      <span className="vr-menu-proximity-line" aria-hidden="true">
-        <span className="vr-menu-proximity-rail"><span className="vr-menu-proximity-fill" /></span>
-        <span className="vr-menu-proximity-thumb" />
-        <span className="vr-menu-proximity-scale"><span>{scale[0]}</span><span>{scale[1]}</span></span>
-      </span>
-    </button>
-    <strong className="vr-menu-proximity-value">{text}</strong>
-  </div>;
+  const progress = (shown - sliderCommand.min) / (sliderCommand.max - sliderCommand.min) * 100;
+  const sliderHovered = !sliderDisabled && state.hovered === sliderId;
+  const sliderPressed = !sliderDisabled && pressed;
+
+  return <section className={`vr-menu-card${cardDisabled ? " is-disabled" : ""}`} aria-label={title}>
+    <div className="vr-menu-card-head">
+      <div className="vr-menu-card-title">
+        {icon}
+        <div>
+          <h2>{title}</h2>
+          {subtitle && <small>{subtitle}</small>}
+        </div>
+      </div>
+      <div className="vr-menu-card-controls">
+        <strong className={`vr-menu-value-pill${valueMuted(shown) ? " is-muted" : ""}`}>{text}</strong>
+        <MenuButton state={state} id={toggleId} active={toggleChecked} disabled={cardDisabled}
+          command={toggleCommand} label={title} className="vr-menu-switch-button">
+          <span className="vr-menu-toggle" aria-hidden="true"><i /></span>
+        </MenuButton>
+      </div>
+    </div>
+    <div className="vr-menu-slider">
+      <button type="button" tabIndex={-1} role="slider" ref={track} disabled={sliderDisabled}
+        data-vr-region={sliderId} data-vr-menu={JSON.stringify({ slider: sliderCommand })}
+        aria-label={subtitle ?? title} aria-orientation="horizontal"
+        aria-valuemin={sliderCommand.min} aria-valuemax={sliderCommand.max} aria-valuenow={shown}
+        aria-valuetext={text}
+        className={`vr-menu-slider-track${sliderHovered ? " hovered" : ""}${sliderPressed ? " pressed" : ""}${zeroStyled?.(shown) ? " is-zero" : ""}`}
+        style={{ "--vr-slider-progress": `${progress}%` } as CSSProperties}>
+        <span className="vr-menu-slider-line" aria-hidden="true">
+          <span className="vr-menu-slider-rail"><span className="vr-menu-slider-fill" /></span>
+          <span className="vr-menu-slider-thumb" />
+          <span className="vr-menu-slider-scale"><span>{scale[0]}</span><span>{scale[1]}</span></span>
+        </span>
+      </button>
+    </div>
+    {note && <p className="vr-menu-card-note" role="status"><Info aria-hidden="true" /><span>{note}</span></p>}
+  </section>;
 }
 
 function pageSlice<T>(items: readonly T[], requested: number, size: number) {
@@ -84,10 +137,17 @@ function pageSlice<T>(items: readonly T[], requested: number, size: number) {
 export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_WRIST_MENU_UI }: {
   state: SurfaceState; view?: PlayerDisplayView; ui?: WristMenuUi;
 }) {
+  const lastProximityRadius = useRef<number | null>(null);
+  const proximity = view.proximity;
+  if (proximity?.enabled && proximity.radius_m > 0) {
+    lastProximityRadius.current = Math.round(Math.max(0.1, Math.min(10, proximity.radius_m)) * 10) / 10;
+  }
   const page = ui.page;
   if (page === "home") return null;
-  const proximity = view.proximity;
   const viewPriority = view.view_priority;
+  const restoreProximityRadius = proximity && proximity.radius_m > 0
+    ? Math.round(Math.max(0.1, Math.min(10, proximity.radius_m)) * 10) / 10
+    : (lastProximityRadius.current ?? DEFAULT_PROXIMITY_RADIUS);
   const label = (key: string, fallback: string) => view.labels[key] || fallback;
   const named = (key: string, fallback: string, name: string) => label(key, fallback).replaceAll("{{name}}", name);
   const locked = !view.available;
@@ -101,7 +161,7 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
   const message = view.error || (!view.available ? label("unavailable", "Player settings are unavailable") : "");
   const ruleSummary = [
     proximity && `${label("proximityRadius", "Recognition distance")} ${proximity.enabled ? `${proximity.radius_m.toFixed(1)} m` : label("proximityOff", "Off")}`,
-    viewPriority && `${label("viewAngle", "Horizontal view")} ${viewPriority.enabled ? `${viewPriority.horizontal_fov_deg}°` : label("proximityOff", "Off")}`,
+    viewPriority && `${label("viewAngle", "Horizontal view")} ${viewPriority.enabled ? `${Math.round(viewPriority.horizontal_fov_deg)}°` : label("proximityOff", "Off")}`,
   ].filter(Boolean).join(" · ");
   const sourceModeButtons = <div className="vr-menu-segments vr-menu-source-segments" role="group" aria-label={label("sourceMode", "Player sources")}>
     {(["everyone", "allowlist"] as const).map((mode, index) => <MenuButton key={mode} state={state} id={48 + index}
@@ -163,42 +223,57 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
         {pagination}
       </footer>
     </> : page === "rules" ? <>
-      {view.available && (!view.processing_available || !view.player_mode) && <p className="vr-menu-status" role="status">{label("processingUnavailable", "Distance filtering requires per-player audio and a connected Core")}</p>}
       <div className="vr-menu-rules">
-        <section className="vr-menu-card" aria-label={label("sourceMode", "Player sources")}>
-          <div className="vr-menu-card-head"><h2>{label("sourceMode", "Player sources")}</h2></div>
+        <section className={`vr-menu-card vr-menu-card-inline${locked ? " is-disabled" : ""}`} aria-label={label("sourceMode", "Player sources")}>
+          <div className="vr-menu-card-title">
+            <UsersRound aria-hidden="true" />
+            <div><h2>{label("sourceMode", "Player sources")}</h2></div>
+          </div>
           {sourceModeButtons}
         </section>
-        {proximity && <section className="vr-menu-card" aria-label={label("proximityRadius", "Recognition distance")}>
-          <div className="vr-menu-card-head">
-            <h2>{label("proximityRadius", "Recognition distance")}</h2>
-            <MenuButton state={state} id={54} command={{ display: { set_proximity_radius: 0 } }}
-              disabled={locked || !view.player_mode || !proximity.enabled} active={!proximity.enabled} className="vr-menu-card-action">
-              {label("proximityOff", "Off")}
-            </MenuButton>
-          </div>
-          <MenuSlider state={state} id={32} value={proximity.enabled ? proximity.radius_m : 0}
-            disabled={locked || !view.player_mode} command={PROXIMITY_SLIDER} scale={["0", "10 m"]}
-            label={label("proximityRadius", "Recognition distance")}
-            formatValue={radius => radius > 0 ? `${radius.toFixed(1)} m` : label("proximityOff", "Off")} error={view.error} />
-        </section>}
-        {viewPriority && <section className="vr-menu-card" aria-label={label("viewPriority", "Prioritize players in view")}>
-          <div className="vr-menu-card-head">
-            <h2><Eye /><span>{label("viewPriority", "Prioritize players in view")}</span></h2>
-            <MenuButton state={state} id={50} active={viewPriority.enabled} disabled={locked || !view.player_mode}
-              command={{ display: { set_view_priority: { enabled: !viewPriority.enabled, horizontal_fov_deg: viewPriority.horizontal_fov_deg } } }}
-              label={label("viewPriority", "Prioritize players in view")} className="vr-menu-switch-button">
-              <span className="vr-menu-toggle" aria-hidden="true"><i /></span>
-            </MenuButton>
-          </div>
-          <div className="vr-menu-slider-row">
-            <span className="vr-menu-slider-label">{label("viewAngle", "Horizontal view")}</span>
-            <MenuSlider state={state} id={51} value={viewPriority.horizontal_fov_deg}
-              disabled={locked || !view.player_mode || !viewPriority.enabled} command={VIEW_ANGLE_SLIDER} scale={["30°", "180°"]}
-              label={label("viewAngle", "Horizontal view")} formatValue={degrees => `${degrees}°`} error={view.error} />
-          </div>
-          {viewPriority.enabled && !viewPriority.local_view && <p className="vr-menu-card-note" role="status">{label("viewWaiting", "Waiting for view data; players currently run at normal priority.")}</p>}
-        </section>}
+        {view.available && (!view.processing_available || !view.player_mode) && <div className="vr-menu-banner warning" role="status">
+          <TriangleAlert aria-hidden="true" />
+          <span>{label("processingUnavailable", "Distance filtering and view priority require per-player audio and a connected Core.")}</span>
+        </div>}
+        {proximity && <RuleSliderCard
+          state={state}
+          icon={<Radar aria-hidden="true" />}
+          title={label("proximityRadius", "Recognition distance")}
+          value={proximity.enabled ? proximity.radius_m : 0}
+          cardDisabled={locked || !view.player_mode}
+          sliderDisabled={locked || !view.player_mode}
+          toggleId={54}
+          toggleChecked={proximity.enabled}
+          toggleCommand={{ display: { set_proximity_radius: proximity.enabled ? 0 : restoreProximityRadius } }}
+          sliderId={32}
+          sliderCommand={PROXIMITY_SLIDER}
+          scale={[label("proximityOff", "Off"), "10 m"]}
+          formatValue={radius => radius > 0 ? `${radius.toFixed(1)} m` : label("proximityOff", "Off")}
+          valueMuted={shown => locked || !view.player_mode || shown <= 0}
+          zeroStyled={shown => shown <= 0}
+          error={view.error}
+        />}
+        {viewPriority && <RuleSliderCard
+          state={state}
+          icon={<Eye aria-hidden="true" />}
+          title={label("viewPriority", "Prioritize players in view")}
+          subtitle={label("viewAngle", "Horizontal view")}
+          value={viewPriority.horizontal_fov_deg}
+          cardDisabled={locked || !view.player_mode}
+          sliderDisabled={locked || !view.player_mode || !viewPriority.enabled}
+          toggleId={50}
+          toggleChecked={viewPriority.enabled}
+          toggleCommand={{ display: { set_view_priority: { enabled: !viewPriority.enabled, horizontal_fov_deg: viewPriority.horizontal_fov_deg } } }}
+          sliderId={51}
+          sliderCommand={VIEW_ANGLE_SLIDER}
+          scale={["30°", "180°"]}
+          formatValue={degrees => `${Math.round(degrees)}°`}
+          valueMuted={() => locked || !view.player_mode || !viewPriority.enabled}
+          note={view.available && view.player_mode && view.processing_available && viewPriority.enabled && !viewPriority.local_view
+            ? label("viewWaiting", "Waiting for view data; players currently run at normal priority.")
+            : undefined}
+          error={view.error}
+        />}
       </div>
     </> : <>
       <div className="vr-menu-language-list">
