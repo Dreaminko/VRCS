@@ -9,6 +9,7 @@ import type { SpeakerIdentity, Subtitle } from "../subtitles/types";
 import { contentLanguageTag } from "../app/ui-language";
 import { useSpeakerIdentity } from "../subtitles/speaker-state";
 import { livePartialVisible, subtitleVisible } from "../subtitles/player-history";
+import { useLanguageDetectorReady } from "../subtitles/usePlayerHistoryPreferences";
 import { MessageSourceIcon } from "../subtitles/components/MessageSourceIcon";
 import { selectPlayerHistory, selectPlayerPreviews } from "./player-previews";
 import { compactLivePreview } from "./compact-mode";
@@ -49,13 +50,14 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
 }) {
   const { t } = useTranslation();
   const stackRef = useRef<HTMLDivElement>(null);
+  const languageDetectorReady = useLanguageDetectorReady();
   const microphonePartials = useLivePartials("microphone");
   const speakerPartials = useLivePartials("speaker");
   const previews = useMemo(() => selectPlayerPreviews(
     speakerPartials.map(partial => compactLivePreview(partial, subtitleHistory)!)
       .filter(partial => livePartialVisible(partial, hiddenTracks, hiddenSourceLanguages)),
     microphonePartials.map(partial => compactLivePreview(partial, subtitleHistory)!), playerLimit),
-    [speakerPartials, microphonePartials, playerLimit, subtitleHistory, hiddenTracks, hiddenSourceLanguages]);
+    [speakerPartials, microphonePartials, playerLimit, subtitleHistory, hiddenTracks, hiddenSourceLanguages, languageDetectorReady]);
   const batched = useBatchedPreview(previews, "compact-previews", previews.some(partial => partial.utterance_id.includes("qwen-preview-"))) ?? EMPTY_PREVIEWS;
   // A hidden/currently filtered lane must disappear immediately, even while a
   // previous Qwen snapshot is waiting for its next display batch.
@@ -63,7 +65,7 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
     current.source === partial.source && current.utterance_id === partial.utterance_id)), [batched, previews]);
   const visibleSubtitles = useMemo(() => selectPlayerHistory(
     subtitles.filter(subtitle => subtitleVisible(subtitle, hiddenTracks, hiddenSourceLanguages)), previews, playerLimit),
-    [subtitles, previews, playerLimit, hiddenTracks, hiddenSourceLanguages]);
+    [subtitles, previews, playerLimit, hiddenTracks, hiddenSourceLanguages, languageDetectorReady]);
   const layout = useCompactLayout({ subtitles: visibleSubtitles, previews: visiblePreviews, fontSize, selectionTarget, transparentBackground, perPlayer: playerLimit !== undefined });
   const captionTracks = layout.visibleGroups.filter(group => group.source !== "chatbox").length;
   const minimumRows = captionTracks + Number(layout.visibleGroups.some(group => group.source === "chatbox"));

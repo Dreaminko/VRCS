@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { visibleCaptionMessages } from "../src/vr-surface/caption-visibility.ts";
+import { ensureLanguageDetector } from "../src/subtitles/player-history.ts";
 import type { CaptionMessage, SurfaceView } from "../src/vr-surface/protocol.ts";
+
+await ensureLanguageDetector();
 
 const message = (track: string, language: string | null, text = "Hello everyone", live = true, source = "speaker"): CaptionMessage => ({
   speaker: track, text: `${text}\nTranslated text`, side: source === "speaker" ? "left" : "right",

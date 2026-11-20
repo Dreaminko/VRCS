@@ -1,7 +1,19 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ActiveLanguageSession } from "../core-client/types";
 import type { TranslationSettings } from "../settings/types";
-import { defaultHiddenSourceLanguages, parsePlayerHistory, PLAYER_HISTORY_KEY, type PlayerHistoryPreferences } from "./player-history";
+import {
+  defaultHiddenSourceLanguages,
+  ensureLanguageDetector,
+  isLanguageDetectorReady,
+  parsePlayerHistory,
+  PLAYER_HISTORY_KEY,
+  subscribeLanguageDetector,
+  type PlayerHistoryPreferences,
+} from "./player-history";
+
+export function useLanguageDetectorReady(): boolean {
+  return useSyncExternalStore(subscribeLanguageDetector, isLanguageDetectorReady);
+}
 
 /** Owned by the workspace so switching between chat and captions keeps one policy. */
 export function usePlayerHistoryPreferences(translation?: TranslationSettings, session?: ActiveLanguageSession) {
@@ -9,6 +21,11 @@ export function usePlayerHistoryPreferences(translation?: TranslationSettings, s
     try { return parsePlayerHistory(localStorage.getItem(PLAYER_HISTORY_KEY)); }
     catch { return parsePlayerHistory(null); }
   });
+  useEffect(() => {
+    if ((preferences.hiddenSourceLanguages?.length ?? 0) > 0) {
+      void ensureLanguageDetector().catch(() => undefined);
+    }
+  }, [preferences.hiddenSourceLanguages]);
   const current = useRef(preferences);
   const getCurrent = useCallback(() => current.current, []);
   const update = useCallback((change: PlayerHistoryPreferences | ((current: PlayerHistoryPreferences) => PlayerHistoryPreferences)) => {

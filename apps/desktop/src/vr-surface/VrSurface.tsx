@@ -10,6 +10,7 @@ import { PlayerAudioPrompt } from "./PlayerAudioPrompt";
 import { DEFAULT_WRIST_MENU_UI, PlayerDisplayMenu } from "./PlayerDisplayMenu";
 import { menuStatus, pageGeometry, SURFACE_SIZE, type SurfaceLayout, type SurfaceState, type SurfaceView } from "./protocol";
 import { MessageSourceIcon } from "../subtitles/components/MessageSourceIcon";
+import { useLanguageDetectorReady } from "../subtitles/usePlayerHistoryPreferences";
 
 import "./surface.css";
 
@@ -91,7 +92,8 @@ function Menu({ state, view }: { state: SurfaceState; view: Extract<SurfaceView,
 
 function Dialogue({ state, view }: { state: SurfaceState; view: Extract<SurfaceView, { kind: "dialogue" }> }) {
   const labels = view.controls.labels;
-  const messages = useMemo(() => visibleCaptionMessages(view), [view.messages, view.visibility, view.max_visible_players, view.max_entries]);
+  const languageDetectorReady = useLanguageDetectorReady();
+  const messages = useMemo(() => visibleCaptionMessages(view), [view.messages, view.visibility, view.max_visible_players, view.max_entries, languageDetectorReady]);
   const viewport = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const followLatest = useCallback(() => {

@@ -4,6 +4,7 @@ import type { CaptionMessage, CaptionLabels, SurfaceView } from "./protocol";
 import { visibleTail } from "./headset-layout";
 import { visibleCaptionMessages } from "./caption-visibility";
 import { MessageSourceIcon } from "../subtitles/components/MessageSourceIcon";
+import { useLanguageDetectorReady } from "../subtitles/usePlayerHistoryPreferences";
 
 const CAPTION_LINE_HEIGHT = 1.3;
 
@@ -95,7 +96,8 @@ function HeadsetCaptions({ messages, labels, lines, fontSize, height }: {
 export function Headset({ view }: { view: Extract<SurfaceView, { kind: "headset" }> }) {
   const root = useRef<HTMLElement>(null);
   const [height, setHeight] = useState(0);
-  const messages = useMemo(() => visibleCaptionMessages(view), [view]);
+  const languageDetectorReady = useLanguageDetectorReady();
+  const messages = useMemo(() => visibleCaptionMessages(view), [view, languageDetectorReady]);
   const visible = messages.length > 0 || !!view.notice;
   useLayoutEffect(() => {
     const panel = root.current;
