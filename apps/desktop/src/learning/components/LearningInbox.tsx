@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { BookOpenText, RefreshCw, Search, X } from "lucide-react";
@@ -116,6 +116,14 @@ export function LearningInbox({
     };
   }, []);
 
+  const handleSelectItem = useCallback((id: number) => {
+    workspace.setSelectedId(id);
+    onDetailOpen(true);
+    requestAnimationFrame(() => {
+      if (!listRef.current?.offsetParent) detailPaneRef.current?.focus({ preventScroll: true });
+    });
+  }, [onDetailOpen, workspace.setSelectedId]);
+
   const returnToList = () => {
     onDetailOpen(false);
     requestAnimationFrame(() => {
@@ -221,13 +229,7 @@ export function LearningInbox({
                 item={candidate}
                 active={candidate.id === item?.id}
                 locale={workspace.locale}
-                onSelect={() => {
-                  workspace.setSelectedId(candidate.id);
-                  onDetailOpen(true);
-                  requestAnimationFrame(() => {
-                    if (!listRef.current?.offsetParent) detailPaneRef.current?.focus({ preventScroll: true });
-                  });
-                }}
+                onSelect={handleSelectItem}
               />
             ))
           ) : (
@@ -284,7 +286,7 @@ export function LearningInbox({
   );
 }
 
-function LearningItemRow({
+const LearningItemRow = memo(function LearningItemRow({
   item,
   active,
   locale,
@@ -293,14 +295,14 @@ function LearningItemRow({
   item: LearningItem;
   active: boolean;
   locale: string;
-  onSelect: () => void;
+  onSelect: (id: number) => void;
 }) {
   const { t } = useTranslation();
   const title = item.selected_text || item.working_text.split(/\r?\n/, 1)[0]?.trim();
   const context = item.selected_text ? item.working_text : item.working_text.slice(title?.length ?? 0).trim();
   const preview = item.source_translation || context;
   return (
-    <button className={`learning-item-row ${active ? "active" : ""}`} type="button" aria-current={active ? "true" : undefined} onClick={onSelect}>
+    <button className={`learning-item-row ${active ? "active" : ""}`} type="button" aria-current={active ? "true" : undefined} onClick={() => onSelect(item.id)}>
       <strong>{title}</strong>
       {preview && preview !== title && <p>{preview}</p>}
       <span className="learning-item-row-meta">
@@ -310,7 +312,7 @@ function LearningItemRow({
       </span>
     </button>
   );
-}
+});
 
 function statusOptions(t: (key: string) => string) {
   return [

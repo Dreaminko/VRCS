@@ -39,7 +39,7 @@ const KNOWN_LANGUAGE_LABEL_KEYS: Record<string, string> = {
   es: "languages.spanish",
 };
 
-export function LearningSourceBrowser({
+export const LearningSourceBrowser = memo(function LearningSourceBrowser({
   conversation,
   conversations = [],
   activeConversationId,
@@ -393,7 +393,7 @@ export function LearningSourceBrowser({
       </div>
     </section>
   );
-}
+});
 
 const LearningMaterialRow = memo(function LearningMaterialRow({
   subtitle,

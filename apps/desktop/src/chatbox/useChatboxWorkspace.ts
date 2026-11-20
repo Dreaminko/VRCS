@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { subtitlesApi } from "../subtitles/api";
@@ -39,7 +39,12 @@ export function useChatboxWorkspace(settings: Settings | null, roomScopeId: stri
     targetLanguage: string | null;
     roomScopeId: string | null;
   } | null>(null);
-  const [preview, setPreview] = useState<ChatboxPreview>(() => previewChatboxLocally(draft));
+  const localPreview = useMemo(() => previewChatboxLocally(draft), [draft]);
+  const [remotePreview, setRemotePreview] = useState<{
+    draft: ChatboxComposeInput;
+    value: ChatboxPreview;
+  } | null>(null);
+  const preview = remotePreview?.draft === draft ? remotePreview.value : localPreview;
   const [busy, setBusy] = useState<"translate" | "send" | null>(null);
   const [feedback, setFeedback] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const previewRequest = useRef(0);
@@ -61,14 +66,12 @@ export function useChatboxWorkspace(settings: Settings | null, roomScopeId: stri
   }, [settings]);
 
   useEffect(() => {
-    const local = previewChatboxLocally(draft);
-    setPreview(local);
     const requestId = ++previewRequest.current;
     if (!available || !open || (draft.send_mode !== "original" && !translationFresh)) return;
     const timer = window.setTimeout(() => {
       void chatboxApi.previewChatbox(draft).then(
         (value) => {
-          if (requestId === previewRequest.current) setPreview(value);
+          if (requestId === previewRequest.current) setRemotePreview({ draft, value });
         },
         () => undefined,
       );
@@ -89,7 +92,13 @@ export function useChatboxWorkspace(settings: Settings | null, roomScopeId: stri
     }
     const currentPreferences = chatboxPreferencesFromDraft(current);
     const nextPreferences = chatboxPreferencesFromDraft(next);
-    if (JSON.stringify(currentPreferences) !== JSON.stringify(nextPreferences)) {
+    if (
+      currentPreferences.target_language !== nextPreferences.target_language
+      || currentPreferences.send_mode !== nextPreferences.send_mode
+      || currentPreferences.message_format !== nextPreferences.message_format
+      || currentPreferences.custom_format !== nextPreferences.custom_format
+      || currentPreferences.overflow_policy !== nextPreferences.overflow_policy
+    ) {
       preferencesChanged.current = true;
       void saveChatboxPreferences(nextPreferences);
     }

@@ -79,14 +79,23 @@ export function useDropdownMenu(open: boolean, {
     });
 
     setFloatingSide(placement.side);
-    setFloatingPosition({
+    const nextPosition: FloatingMenuPosition = {
       bottom: "auto",
       left,
       maxHeight: placement.maxHeight,
       right: "auto",
       top: placement.top,
       width,
-    });
+    };
+    setFloatingPosition((current) => (
+      current
+      && current.top === nextPosition.top
+      && current.left === nextPosition.left
+      && current.width === nextPosition.width
+      && current.maxHeight === nextPosition.maxHeight
+        ? current
+        : nextPosition
+    ));
   }, [anchorRef, floating, floatingWidth, menuRef, open]);
 
   useEffect(() => {
@@ -101,13 +110,23 @@ export function useDropdownMenu(open: boolean, {
     if (!open) return;
 
     updateFloatingPosition();
-    window.addEventListener(INTERFACE_LAYOUT_CHANGE_EVENT, updateFloatingPosition);
-    document.addEventListener("scroll", updateFloatingPosition, true);
-    return () => {
-      window.removeEventListener(INTERFACE_LAYOUT_CHANGE_EVENT, updateFloatingPosition);
-      document.removeEventListener("scroll", updateFloatingPosition, true);
+    let frame: number | null = null;
+    const scheduleUpdate = (event: Event) => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        updateFloatingPosition();
+      });
     };
-  }, [floating, open, updateFloatingPosition]);
+    window.addEventListener(INTERFACE_LAYOUT_CHANGE_EVENT, updateFloatingPosition);
+    document.addEventListener("scroll", scheduleUpdate, true);
+    return () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      window.removeEventListener(INTERFACE_LAYOUT_CHANGE_EVENT, updateFloatingPosition);
+      document.removeEventListener("scroll", scheduleUpdate, true);
+    };
+  }, [floating, menuRef, open, updateFloatingPosition]);
 
   const floatingMenuMounted = floatingPosition !== null;
   useLayoutEffect(() => {

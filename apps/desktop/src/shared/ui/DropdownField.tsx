@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search } from "lucide-react";
@@ -13,6 +13,9 @@ export interface DropdownOption {
   searchText?: string;
   group?: string;
 }
+
+const EMPTY_OPTIONS: DropdownOption[] = [];
+const EMPTY_NORMALIZED_OPTIONS: NormalizedDropdownOption[] = [];
 
 export function DropdownField({ label, value, options, disabled = false, compact = false, floating = false, floatingLayer = "page", floatingWidth, searchable = false, searchPlaceholder, emptyLabel, createOption, icon, iconOnly = false, placeholder, onChange }: {
   label: string;
@@ -49,12 +52,21 @@ export function DropdownField({ label, value, options, disabled = false, compact
   const matched = options.find((option) => option.value === value);
   // With a placeholder, an unmatched value shows placeholder text instead of the first option.
   const selected = placeholder ? matched : matched ?? options[0];
-  const filteredOptions = filterDropdownOptions(options, query);
-  const createdOption = createOption?.(query) ?? null;
-  const visibleOptions = createdOption
-    && !filteredOptions.some((option) => option.value === createdOption.value)
-    ? [...filteredOptions, createdOption]
-    : filteredOptions;
+  const shouldRenderMenu = menuMounted && (!floating || floatingPosition !== null);
+  const normalizedOptions = useMemo(
+    () => (searchable && menuMounted ? normalizeDropdownOptions(options) : EMPTY_NORMALIZED_OPTIONS),
+    [menuMounted, options, searchable],
+  );
+  const filteredOptions = useMemo(() => {
+    if (!menuMounted) return EMPTY_OPTIONS;
+    return searchable ? filterNormalizedDropdownOptions(normalizedOptions, options, query) : options;
+  }, [menuMounted, normalizedOptions, options, query, searchable]);
+  const createdOption = menuMounted ? (createOption?.(query) ?? null) : null;
+  const visibleOptions = menuMounted
+    ? (createdOption && !filteredOptions.some((option) => option.value === createdOption.value)
+        ? [...filteredOptions, createdOption]
+        : filteredOptions)
+    : EMPTY_OPTIONS;
 
   useDismissibleLayer(open, rootRef, () => setOpen(false), menuRef);
 
@@ -128,7 +140,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
     items[nextIndex]?.focus({ preventScroll: true });
   };
 
-  const optionList = (
+  const optionList = shouldRenderMenu ? (
     <>
       {visibleOptions.map((option, index) => {
         const current = option.value === value;
@@ -154,9 +166,9 @@ export function DropdownField({ label, value, options, disabled = false, compact
       })}
       {!visibleOptions.length && <p className="dropdown-empty">{emptyLabel}</p>}
     </>
-  );
+  ) : null;
 
-  const menu = (
+  const menu = shouldRenderMenu ? (
     <div
       className={`dropdown-menu ${searchable ? "dropdown-menu-searchable" : ""} ${floating ? "dropdown-menu-floating" : ""} ${floating && floatingLayer === "dialog" ? "dropdown-menu-floating-dialog" : ""} ${compact ? "dropdown-menu-compact" : ""}`}
       id={searchable ? undefined : menuId}
@@ -194,7 +206,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
         ? <div className="dropdown-options" id={menuId} role="listbox" aria-label={label}>{optionList}</div>
         : optionList}
     </div>
-  );
+  ) : null;
 
   return (
     <div
@@ -241,11 +253,16 @@ export function DropdownField({ label, value, options, disabled = false, compact
           <ChevronDown className="dropdown-chevron" size={16} />
         </>}
       </button>
-      {menuMounted && (!floating || floatingPosition) && (
+      {menu && (
         floating ? createPortal(menu, document.body) : menu
       )}
     </div>
   );
+}
+
+interface NormalizedDropdownOption {
+  option: DropdownOption;
+  searchText: string;
 }
 
 function normalizeSearch(value: string): string {
@@ -256,13 +273,23 @@ function normalizeSearch(value: string): string {
     .trim();
 }
 
-function filterDropdownOptions(options: DropdownOption[], query: string): DropdownOption[] {
+function normalizeDropdownOptions(options: DropdownOption[]): NormalizedDropdownOption[] {
+  return options.map((option) => ({
+    option,
+    searchText: normalizeSearch(`${option.label} ${option.description ?? ""} ${option.searchText ?? ""} ${option.value}`),
+  }));
+}
+
+function filterNormalizedDropdownOptions(
+  normalizedOptions: readonly NormalizedDropdownOption[],
+  options: DropdownOption[],
+  query: string,
+): DropdownOption[] {
   const normalizedQuery = normalizeSearch(query);
-  return normalizedQuery
-    ? options.filter((option) => normalizeSearch(
-        `${option.label} ${option.description ?? ""} ${option.searchText ?? ""} ${option.value}`,
-      ).includes(normalizedQuery))
-    : options;
+  if (!normalizedQuery) return options;
+  return normalizedOptions
+    .filter((entry) => entry.searchText.includes(normalizedQuery))
+    .map((entry) => entry.option);
 }
 
 export function EditableDropdownField({
@@ -303,7 +330,15 @@ export function EditableDropdownField({
   });
   const menuId = useId();
   const listDisabled = disabled || optionsDisabled || options.length === 0;
-  const visibleOptions = filterDropdownOptions(options, query);
+  const shouldRenderMenu = menuMounted && (!floating || floatingPosition !== null);
+  const normalizedOptions = useMemo(
+    () => (options.length ? normalizeDropdownOptions(options) : EMPTY_NORMALIZED_OPTIONS),
+    [options],
+  );
+  const visibleOptions = useMemo(
+    () => filterNormalizedDropdownOptions(normalizedOptions, options, query),
+    [normalizedOptions, options, query],
+  );
   const activeIndex = visibleOptions.findIndex((option) => option.value === activeValue);
   const activeId = open && activeIndex >= 0 ? `${menuId}-option-${activeIndex}` : undefined;
 
@@ -335,7 +370,7 @@ export function EditableDropdownField({
     inputRef.current?.focus({ preventScroll: true });
   };
 
-  const menu = (
+  const menu = shouldRenderMenu ? (
     <div
       className={`dropdown-menu editable-dropdown-menu ${floating ? "dropdown-menu-floating" : ""} ${floating && floatingLayer === "dialog" ? "dropdown-menu-floating-dialog" : ""}`}
       id={menuId}
@@ -373,7 +408,7 @@ export function EditableDropdownField({
         );
       })}
     </div>
-  );
+  ) : null;
 
   return (
     <div
@@ -415,7 +450,7 @@ export function EditableDropdownField({
             setDraftValue(next);
             setQuery(next);
             setActiveValue(null);
-            setOpen(!listDisabled && filterDropdownOptions(options, next).length > 0);
+            setOpen(!listDisabled && filterNormalizedDropdownOptions(normalizedOptions, options, next).length > 0);
             if (!commitOnBlur) onChange(next);
           }}
           onKeyDown={(event) => {
@@ -455,7 +490,7 @@ export function EditableDropdownField({
           <ChevronDown className="dropdown-chevron" size={16} />
         </button>
       </div>
-      {menuMounted && (!floating || floatingPosition) && (
+      {menu && (
         floating ? createPortal(menu, document.body) : menu
       )}
     </div>
