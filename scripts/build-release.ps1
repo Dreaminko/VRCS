@@ -7,7 +7,8 @@ param(
     [string]$SourceSha,
     [string]$RepoRoot = (Join-Path $PSScriptRoot '..'),
     [switch]$SkipInstall,
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [switch]$KeepOpenVrCache
 )
 
 $ErrorActionPreference = "Stop"
@@ -103,9 +104,9 @@ function Invoke-ReleaseBuild {
     }
     $arguments += @(
         "--config", $generatedTauriConfigArgument,
-        "--bundles", "nsis"
+        "--bundles", "nsis",
+        "--", "--locked"
     )
-    if ($Channel -eq 'nightly') { $arguments += @('--', '--locked') }
 
     $previousCargoTargetDir = [Environment]::GetEnvironmentVariable("CARGO_TARGET_DIR", "Process")
     try {
@@ -132,7 +133,11 @@ function Invoke-ReleaseBuild {
     if (-not (Test-Path -LiteralPath $desktopExecutable -PathType Leaf)) {
         throw "Built desktop executable not found: $desktopExecutable"
     }
-    $selfTest = Start-Process -FilePath $desktopExecutable -ArgumentList "--release-self-test" -Wait -PassThru -WindowStyle Hidden
+    $selfTest = Start-Process -FilePath $desktopExecutable -ArgumentList "--release-self-test" -PassThru -WindowStyle Hidden
+    if (-not $selfTest.WaitForExit(120000)) {
+        try { $selfTest.Kill() } catch {}
+        throw "$Label release self-test timed out after 120 seconds"
+    }
     if ($selfTest.ExitCode -ne 0) { throw "$Label release self-test failed with exit code $($selfTest.ExitCode)" }
 
     $installers = @(Get-ChildItem -LiteralPath $bundleRoot -Filter "*.exe" -File)
@@ -172,8 +177,10 @@ Push-Location $repoRoot
 try {
     $env:CARGO_TARGET_DIR = $defaultTargetRoot
     # OpenVR's CMake cache cannot be reused after a generator or toolchain change.
-    & cargo clean --manifest-path $cargoManifestPath -p openvr_sys
-    if ($LASTEXITCODE -ne 0) { throw "OpenVR build cache cleanup failed" }
+    if (-not $KeepOpenVrCache) {
+        & cargo clean --manifest-path $cargoManifestPath -p openvr_sys
+        if ($LASTEXITCODE -ne 0) { throw "OpenVR build cache cleanup failed" }
+    }
     & (Join-Path $repoRoot 'scripts/prepare-vulkan-runtime.ps1')
     Write-ReleaseTauriConfig `
         -TemplatePath $tauriReleaseConfigTemplatePath `

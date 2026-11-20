@@ -16,12 +16,10 @@ try {
     $latestPath = & $metadataScript -Version $version -ArtifactRoot $testRoot
     $latest = Get-Content -LiteralPath $latestPath -Raw | ConvertFrom-Json
     $targets = @($latest.platforms.PSObject.Properties.Name)
-    if ($latest.version -ne $version -or $targets.Count -ne 2) { throw "Expected two update targets for this version" }
+    if ($latest.version -ne $version -or $targets.Count -ne 1 -or $targets[0] -cne "windows-x86_64-standard") { throw "Expected only the standard update target for this version" }
     $standard = $latest.platforms.'windows-x86_64-standard'
-    $legacy = $latest.platforms.'windows-x86_64-cuda'
     $expectedUrl = "https://github.com/Dreaminko/VRCS/releases/download/$version/$installerName"
     if ($standard.url -ne $expectedUrl -or $standard.signature -ne "test signature") { throw "Standard target must use the signed installer" }
-    if ($legacy.url -ne $standard.url -or $legacy.signature -ne $standard.signature) { throw "Legacy CUDA clients must receive the same signed standard installer" }
 
     function Assert-MetadataFailure {
         param([string]$ExpectedError)
@@ -33,14 +31,36 @@ try {
         throw "Metadata generation must reject $ExpectedError"
     }
 
-    [System.IO.File]::WriteAllText((Join-Path $testRoot "VRCS-$version-windows-x64-CUDA.exe"), "stale second installer")
+    [System.IO.File]::WriteAllText((Join-Path $testRoot "VRCS-$version-windows-x64-extra.exe"), "stale second installer")
     Assert-MetadataFailure "exactly one standard installer"
-    Remove-Item -LiteralPath (Join-Path $testRoot "VRCS-$version-windows-x64-CUDA.exe")
+    Remove-Item -LiteralPath (Join-Path $testRoot "VRCS-$version-windows-x64-extra.exe")
     [System.IO.File]::WriteAllText("$installer.sig", " ")
     Assert-MetadataFailure "signature"
     [System.IO.File]::WriteAllText("$installer.sig", "test signature")
     [System.IO.File]::WriteAllText($installer, "modified installer")
     Assert-MetadataFailure "checksum"
+
+    $nightlyVersion = "1.2.4-nightly.20261119"
+    $nightlyName = "VRCS-$nightlyVersion-windows-x64.exe"
+    $nightlyInstaller = Join-Path $testRoot $nightlyName
+    [System.IO.File]::WriteAllText($nightlyInstaller, "test nightly")
+    [System.IO.File]::WriteAllText("$nightlyInstaller.sig", "nightly sig")
+    $nightlyHash = (Get-FileHash -LiteralPath $nightlyInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
+    [System.IO.File]::WriteAllText("$nightlyInstaller.sha256", "$nightlyHash  $nightlyName")
+    $sha = "a" * 40
+    $nightlyPath = & $metadataScript -Version $nightlyVersion -ArtifactRoot $testRoot -Channel nightly -BuildDate "2026-11-19" -SourceSha $sha
+    $nightly = Get-Content -LiteralPath $nightlyPath -Raw | ConvertFrom-Json
+    $nightlyTargets = @($nightly.platforms.PSObject.Properties.Name)
+    if ((Split-Path -Leaf $nightlyPath) -ne "nightly.json" -or $nightly.version -ne $nightlyVersion -or $nightly.build_date -ne "2026-11-19" -or $nightly.source_sha -ne $sha -or $nightlyTargets.Count -ne 1 -or $nightlyTargets[0] -cne "windows-x86_64-standard" -or $nightly.platforms.'windows-x86_64-standard'.url -ne "https://github.com/Dreaminko/VRCS/releases/download/nightly-20261119/$nightlyName") {
+        throw "Nightly metadata did not match expected fields"
+    }
+    $caughtNightlyMismatch = $false
+    try { & $metadataScript -Version $nightlyVersion -ArtifactRoot $testRoot -Channel nightly -BuildDate "2026-11-18" -SourceSha $sha | Out-Null }
+    catch {
+        if ($_.Exception.Message -notlike "*Nightly metadata requires*") { throw }
+        $caughtNightlyMismatch = $true
+    }
+    if (-not $caughtNightlyMismatch) { throw "Nightly metadata must reject mismatched build date" }
 }
 finally {
     $resolvedTestRoot = [System.IO.Path]::GetFullPath($testRoot)

@@ -47,6 +47,8 @@ function detect({ file = "README.md", base, full = false }) {
 
 for (const [file, rust, frontend] of [
   ["README.md", false, false],
+  ["Cargo.toml", true, false],
+  ["Cargo.lock", true, false],
   ["core/src/lib.rs", true, false],
   ["crates/player-audio-scan/src/lib.rs", true, false],
   ["apps/desktop/src/App.tsx", false, true],

@@ -18,7 +18,7 @@ on:
       - main
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ inputs.target-sha || (github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref) }}
+  group: ci-${{ github.workflow }}-${{ inputs.target-sha || github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
@@ -27,19 +27,37 @@ permissions:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       frontend: ${{ steps.filter.outputs.frontend }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.target-sha || github.sha }}
+          ref: ${{ inputs.target-sha }}
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
       - name: Test CI scripts
         run: node --test scripts/test-ci-changes.mjs scripts/test-release-ci.mjs
+      - name: Verify manifest versions
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const versions = {
+              tauri: JSON.parse(fs.readFileSync("apps/desktop/src-tauri/tauri.conf.json", "utf8")).version,
+              desktop: JSON.parse(fs.readFileSync("apps/desktop/package.json", "utf8")).version,
+              core: fs.readFileSync("core/Cargo.toml", "utf8").match(/^version = "(.+)"$/m)?.[1],
+              tauriCargo: fs.readFileSync("apps/desktop/src-tauri/Cargo.toml", "utf8").match(/^version = "(.+)"$/m)?.[1],
+            };
+            const unique = new Set(Object.values(versions));
+            if (unique.size !== 1 || unique.has(undefined)) {
+              console.error("Version mismatch:", versions);
+              process.exit(1);
+            }
+          '
       - name: Detect changed areas
         id: filter
         env:
@@ -58,12 +76,12 @@ jobs:
             changed_files="$(git diff --name-only "$base"...HEAD)"
             while IFS= read -r file; do
               case "$file" in
-                core/*|crates/*|apps/desktop/src-tauri/*|rust-toolchain.toml|scripts/check-rust.ps1|scripts/test-check-rust.ps1|scripts/test-ci-changes.mjs|scripts/find-release-ci.mjs|scripts/test-release-ci.mjs|scripts/test-release-metadata.ps1|scripts/write-release-metadata.ps1|scripts/prepare-vulkan-runtime.ps1|.github/workflows/ci.yml)
+                Cargo.toml|Cargo.lock|core/*|crates/*|apps/desktop/src-tauri/*|rust-toolchain.toml|scripts/check-rust.ps1|scripts/test-check-rust.ps1|scripts/test-ci-changes.mjs|scripts/find-release-ci.mjs|scripts/test-release-ci.mjs|scripts/test-release-metadata.ps1|scripts/write-release-metadata.ps1|scripts/prepare-vulkan-runtime.ps1|scripts/build-release.ps1|scripts/run-tauri.ps1|.github/workflows/ci.yml)
                   rust=true
                   ;;
               esac
               case "$file" in
-                apps/desktop/*|package.json|package-lock.json|scripts/check-i18n.mjs|scripts/test-ci-changes.mjs|scripts/find-release-ci.mjs|scripts/test-release-ci.mjs|.github/workflows/ci.yml)
+                apps/desktop/*|package.json|package-lock.json|scripts/check-i18n.mjs|scripts/dev-vr.mjs|scripts/dev-vr.test.mjs|scripts/test-ci-changes.mjs|scripts/find-release-ci.mjs|scripts/test-release-ci.mjs|.github/workflows/ci.yml)
                   frontend=true
                   ;;
               esac
@@ -75,12 +93,14 @@ jobs:
 
   frontend:
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.frontend == 'true' }}
+    if: ${{ (github.event_name == 'push' && needs.changes.outputs.rust == 'true') || needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.target-sha || github.sha }}
+          ref: ${{ inputs.target-sha }}
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
@@ -96,25 +116,25 @@ jobs:
       - name: Test desktop
         run: npm --workspace apps/desktop test
 
+      - name: Test VR preview script
+        run: node --test scripts/dev-vr.test.mjs
+
       - name: Build frontend
         run: npm run build:frontend
 
   rustfmt:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.target-sha || github.sha }}
+          ref: ${{ inputs.target-sha }}
+          persist-credentials: false
 
       - name: Install pinned Rust toolchain
-        shell: pwsh
         run: rustup show
-
-      - name: Test Rust check script
-        shell: pwsh
-        run: ./scripts/test-check-rust.ps1
 
       - name: Test release metadata
         shell: pwsh
@@ -127,42 +147,53 @@ jobs:
   rust:
     needs: [changes, rustfmt]
     if: needs.changes.outputs.rust == 'true'
-    runs-on: windows-latest
+    runs-on: windows-2022
+    timeout-minutes: 45
     env:
+      CMAKE_GENERATOR: Visual Studio 17 2022
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
-    strategy:
-      fail-fast: false
-      matrix:
-        backend: [cpu, vulkan]
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.target-sha || github.sha }}
+          ref: ${{ inputs.target-sha }}
+          persist-credentials: false
 
       - name: Install pinned Rust toolchain
         shell: pwsh
         run: rustup show
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: ci-windows-x64-${{ matrix.backend }}
+          shared-key: ci-windows-x64
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-          workspaces: |
-            core -> ../.build
-            apps/desktop/src-tauri -> ../../../.build
+          workspaces: . -> .build
+
+      - uses: actions/cache@v6
+        with:
+          path: apps/desktop/src-tauri/resources/vulkan-runtime
+          key: vulkan-runtime-${{ hashFiles('scripts/prepare-vulkan-runtime.ps1') }}
+
+      - name: Test Rust check script
+        shell: pwsh
+        run: ./scripts/test-check-rust.ps1
 
       - name: Lint Rust
         shell: pwsh
-        run: ./scripts/check-rust.ps1 -Check clippy -Vulkan:('${{ matrix.backend }}' -eq 'vulkan') -CiVulkanOnly:('${{ matrix.backend }}' -eq 'vulkan')
+        run: |
+          ./scripts/check-rust.ps1 -Check clippy
+          ./scripts/check-rust.ps1 -Check clippy -Vulkan -CiVulkanOnly
 
       - name: Test Rust
         shell: pwsh
-        run: ./scripts/check-rust.ps1 -Check test -Vulkan:('${{ matrix.backend }}' -eq 'vulkan') -CiVulkanOnly:('${{ matrix.backend }}' -eq 'vulkan')
+        run: |
+          ./scripts/check-rust.ps1 -Check test
+          ./scripts/check-rust.ps1 -Check test -Vulkan -CiVulkanOnly
 
   gate:
     needs: [changes, frontend, rustfmt, rust]
     if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Fail if a required check did not succeed
         if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}

@@ -9,16 +9,12 @@ on:
     paths:
       - .github/workflows/release.yml
       - .cargo/**
-      - core/**
-      - crates/**
-      - apps/desktop/**
-      - package.json
-      - package-lock.json
+      - Cargo.toml
+      - Cargo.lock
+      - core/Cargo.toml
+      - apps/desktop/src-tauri/Cargo.toml
+      - crates/player-audio-scan/Cargo.toml
       - rust-toolchain.toml
-      - scripts/build-release.ps1
-      - scripts/run-tauri.ps1
-      - scripts/prepare-vulkan-runtime.ps1
-      - scripts/write-release-metadata.ps1
 
 concurrency:
   group: release-${{ github.ref }}
@@ -31,6 +27,7 @@ jobs:
   ci-status:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       actions: read
@@ -38,6 +35,8 @@ jobs:
       reuse: ${{ steps.ci.outputs.reuse }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
@@ -54,11 +53,14 @@ jobs:
 
   windows-x64:
     runs-on: windows-2022
+    timeout-minutes: 60
     env:
       CMAKE_GENERATOR: Visual Studio 17 2022
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Verify release version
         if: startsWith(github.ref, 'refs/tags/')
@@ -73,14 +75,18 @@ jobs:
         shell: pwsh
         run: rustup show
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         id: cache
         with:
           shared-key: release-windows-x64-vulkan
           save-if: ${{ github.ref == 'refs/heads/main' }}
-          workspaces: |
-            core -> ../.build
-            apps/desktop/src-tauri -> ../../../.build
+          workspaces: . -> .build
+
+      - uses: actions/cache@v6
+        if: startsWith(github.ref, 'refs/tags/') || steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: apps/desktop/src-tauri/resources/vulkan-runtime
+          key: vulkan-runtime-${{ hashFiles('scripts/prepare-vulkan-runtime.ps1') }}
 
       - uses: actions/setup-node@v6
         if: startsWith(github.ref, 'refs/tags/') || steps.cache.outputs.cache-hit != 'true'
@@ -105,7 +111,7 @@ jobs:
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
         run: |
           $version = (Get-Content -LiteralPath "apps/desktop/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
-          .\scripts\build-release.ps1 -Version $version -SkipInstall -SkipTests
+          .\scripts\build-release.ps1 -Version $version -SkipInstall -SkipTests -KeepOpenVrCache
 
       - uses: actions/upload-artifact@v7
         if: startsWith(github.ref, 'refs/tags/')
@@ -123,6 +129,7 @@ jobs:
           needs.ci-status.result == 'success' && needs.windows-x64.result == 'success' &&
           (needs.ci-status.outputs.reuse == 'true' || needs.validate.result == 'success') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     env:
@@ -146,7 +153,6 @@ jobs:
           - Existing local Whisper selections migrate to managed Qwen. Install the Qwen model and runtime in recognition settings before starting local recognition.
           - Cloud recognition failures use reconnection and no longer fall back to Whisper.
           - Existing Whisper files remain on disk. You can remove them manually after you confirm that older versions no longer need them. Keep any Qwen packages in the same directory.
-          - Older standard and CUDA clients receive this same standard installer through the updater.
           - Local recognition models and the Qwen runtime are downloaded through recognition settings. Cloud recognition does not require the Qwen runtime.
           '@
           $notes = $notes.Replace('$version', $version)

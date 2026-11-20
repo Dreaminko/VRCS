@@ -12,7 +12,7 @@ const execute = promisify(execFile);
 const script = fileURLToPath(new URL("./find-release-ci.mjs", import.meta.url));
 const repository = "example/VRCS";
 const sha = "a".repeat(40);
-const requiredJobs = ["changes", "frontend", "rustfmt", "rust (cpu)", "rust (vulkan)", "gate"];
+const requiredJobs = ["changes", "frontend", "rustfmt", "rust", "gate"];
 const successfulJobs = requiredJobs.map((name) => ({ name, status: "completed", conclusion: "success" }));
 const successfulRun = {
   id: 123,

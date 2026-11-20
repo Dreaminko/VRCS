@@ -61,8 +61,9 @@ or unavailable CI records trigger full validation. Installer builds run in
 parallel with this validation. Release assets are uploaded only after packaging
 and validation succeed. Relevant pushes to `main` warm the release dependency
 cache when no exact cache exists;
-these builds do not sign installers or create releases. CPU and Vulkan CI
-caches are separate, and only pushes to `main` save Rust caches.
+these builds do not sign installers or create releases. The workspace CI runs
+formatting on Linux and CPU plus Vulkan Rust checks in one Windows job, and only
+pushes to `main` save Rust caches.
 CI validates locale resources, then runs the frontend tests and build.
 
 Please keep commits focused and do not include generated build output.
@@ -214,6 +215,6 @@ To check the build scripts without compiling Rust or downloading runtimes, run:
 .\scripts\test-release-metadata.ps1
 ```
 
-The metadata check verifies that standard and legacy CUDA updater targets
-use one signed standard installer. The application identifier and updater
+The metadata check verifies that the updater manifest references the signed
+standard installer and matching checksum. The application identifier and updater
 signing configuration must remain compatible with existing installations.

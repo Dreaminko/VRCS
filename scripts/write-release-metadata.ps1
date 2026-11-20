@@ -51,9 +51,6 @@ if ($Channel -eq 'nightly') {
     $latest.notes = "Windows 10/11 x64 Nightly for VRCS $Version, built from the last main update on $BuildDate (Beijing time)."
     $latest['build_date'] = $BuildDate
     $latest['source_sha'] = $SourceSha
-} else {
-    # Older CUDA clients request this target. Keep the same signed upgrade.
-    $latest.platforms['windows-x86_64-cuda'] = $platform
 }
 $metadataPath = Join-Path $ArtifactRoot $metadataName
 [System.IO.File]::WriteAllText($metadataPath, ($latest | ConvertTo-Json -Depth 4), [System.Text.UTF8Encoding]::new($false))

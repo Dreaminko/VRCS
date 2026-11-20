@@ -49,7 +49,6 @@ apps/desktop/tests/.*-browser-*/
 # Rust and Tauri generated output
 target/
 /.build/
-/.cu-*/
 apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/tauri.release.generated.conf.json
 core/build-release/
