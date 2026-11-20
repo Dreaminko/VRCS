@@ -1,5 +1,6 @@
 import { lazy, memo, Suspense, useCallback, useLayoutEffect, useMemo, useRef, type ComponentType, type CSSProperties, type ReactNode } from "react";
 import { Captions, ChevronLeft, ChevronRight, Crop, Eye, GripHorizontal, Hand, Languages, MessageSquare, Mic, Pin, PinOff, Radio, ScanEye, Square, UsersRound, X } from "lucide-react";
+import "./surface.css";
 import type { WristMenuCommand } from "../vr-controls/player-display-protocol";
 import type { ControlAction } from "../vr-controls/protocol";
 import { Headset, OcrProgress } from "./PassiveSurfaces";
@@ -11,8 +12,6 @@ import { DEFAULT_WRIST_MENU_UI, PlayerDisplayMenu } from "./PlayerDisplayMenu";
 import { menuStatus, pageGeometry, SURFACE_SIZE, type SurfaceLayout, type SurfaceState, type SurfaceView } from "./protocol";
 import { MessageSourceIcon } from "../subtitles/components/MessageSourceIcon";
 import { useLanguageDetectorReady } from "../subtitles/usePlayerHistoryPreferences";
-
-import "./surface.css";
 
 type VisionMarkdownComponent = typeof import("../vision/VisionAnswerMarkdown").VisionAnswerMarkdown;
 let visionMarkdownModule: Promise<{ default: ComponentType<{ children: string }> }> | undefined;
@@ -274,7 +273,8 @@ export const VrSurface = memo(function VrSurface({ state, onLayout }: { state: S
   }, [layoutContent, state.key.generation, state.key.revision, onLayout, fontSize]);
 
   const style = { width, height, "--vr-font-size": `${fontSize}px`, "--vr-background-opacity": opacity } as CSSProperties;
-  return <div ref={root} className={`vr-surface vr-surface-${state.view.kind}`} data-theme={dark ? "dark" : "light"} style={style}>
+  const lang = state.view.kind === "dashboard" ? state.view.dashboard.locale : undefined;
+  return <div ref={root} className={`vr-surface vr-surface-${state.view.kind}`} lang={lang} data-theme={dark ? "dark" : "light"} style={style}>
     {state.view.kind === "menu" ? <Menu state={state} view={state.view} />
       : state.view.kind === "player_audio" ? <PlayerAudioPrompt notice={state.view.notice} hovered={state.hovered} pressed={state.pressed} />
       : state.view.kind === "dialogue" ? <Dialogue state={state} view={state.view} />

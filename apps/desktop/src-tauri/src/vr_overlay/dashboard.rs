@@ -10,6 +10,8 @@ pub fn pointer_from_openvr(x: f32, y: f32, height: u32) -> (f32, f32) {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DashboardViewModel {
     #[serde(default)]
+    pub locale: String,
+    #[serde(default)]
     pub player_audio_notice: Option<super::player_audio_ui::Prompt>,
     #[serde(default)]
     pub caption_visibility: CaptionVisibility,
@@ -116,6 +118,26 @@ pub struct DashboardLabels {
     pub cancel: String,
     pub position_hint: String,
     pub rotation_hint: String,
+    #[serde(default)]
+    pub back: String,
+    #[serde(default)]
+    pub preferred: String,
+    #[serde(default)]
+    pub master_off_banner: String,
+    #[serde(default)]
+    pub recognition_locked: String,
+    #[serde(default)]
+    pub translation_off_hint: String,
+    #[serde(default)]
+    pub delete_preset_title: String,
+    #[serde(default)]
+    pub no_presets: String,
+    #[serde(default)]
+    pub anchor_mode: String,
+    #[serde(default)]
+    pub anchor_world: String,
+    #[serde(default)]
+    pub follow_view: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -414,7 +436,7 @@ pub enum DashboardPicker {
     DeletePreset,
 }
 
-pub const PICKER_PAGE_SIZE: usize = 32;
+pub const PICKER_PAGE_SIZE: usize = 15;
 
 impl DashboardPicker {
     fn choice(self, view: &DashboardViewModel) -> Option<&DashboardChoice> {
@@ -585,16 +607,7 @@ impl DashboardState {
                 {
                     return None;
                 }
-                let label = match &action {
-                    DashboardAction::DeleteTarget { group, index } => view
-                        .language
-                        .targets(*group)
-                        .get(*index)
-                        .map(|choice| choice.value.clone())
-                        .unwrap_or_default(),
-                    _ => String::new(),
-                };
-                self.emit_or_confirm(action, label, view)
+                self.emit_or_confirm(action, String::new(), view)
             }
             _ => None,
         }
@@ -635,10 +648,7 @@ impl DashboardState {
         if !self.action_allowed(&action, view) {
             return None;
         }
-        if matches!(
-            action,
-            DashboardAction::DeleteTarget { .. } | DashboardAction::DeleteLanguagePreset(_)
-        ) {
+        if matches!(action, DashboardAction::DeleteLanguagePreset(_)) {
             self.ui.confirmation = Some(DashboardConfirmation { action, label });
             None
         } else {
@@ -791,6 +801,7 @@ mod tests {
             ],
         };
         DashboardViewModel {
+            locale: "en-US".into(),
             player_audio_notice: None,
             caption_notice: None,
             max_visible_players: None,
@@ -919,12 +930,12 @@ mod tests {
             DashboardCommand::Picker(DashboardPicker::Recognition),
             &view,
         );
-        assert_eq!(state.activate(DashboardCommand::Select(32), &view), None);
+        assert_eq!(state.activate(DashboardCommand::Select(15), &view), None);
         state.activate(DashboardCommand::PickerPage(1), &view);
-        let selected = state.activate(DashboardCommand::Select(32), &view).unwrap();
+        let selected = state.activate(DashboardCommand::Select(15), &view).unwrap();
         assert_eq!(
             serde_json::to_value(selected).unwrap(),
-            serde_json::json!({ "set_recognition_language": "language-32" })
+            serde_json::json!({ "set_recognition_language": "language-15" })
         );
         assert!(state.ui.picker.is_none());
         assert_eq!(
@@ -946,21 +957,10 @@ mod tests {
             group: TargetGroup::Speaker,
             index: 1,
         };
-        assert_eq!(action(&mut state, &view, remove.clone()), None);
-        assert!(state.ui.confirmation.is_some());
-        assert_eq!(
-            action(&mut state, &view, DashboardAction::ToggleMaster),
-            None
-        );
-        assert_eq!(
-            state.activate(DashboardCommand::Confirm, &view),
-            Some(remove.clone())
-        );
-        action(&mut state, &view, remove);
+        assert_eq!(action(&mut state, &view, remove.clone()), Some(remove));
+        assert!(state.ui.confirmation.is_none());
         view.language.speaker_targets.remove(1);
         state.update_view(&view);
-        assert!(state.ui.confirmation.is_none());
-        assert_eq!(state.activate(DashboardCommand::Confirm, &view), None);
         assert_eq!(
             action(
                 &mut state,
@@ -972,6 +972,26 @@ mod tests {
             ),
             None
         );
+
+        let delete_preset = DashboardAction::DeleteLanguagePreset("en".into());
+        assert_eq!(action(&mut state, &view, delete_preset.clone()), None);
+        assert!(state.ui.confirmation.is_some());
+        assert_eq!(
+            action(&mut state, &view, DashboardAction::ToggleMaster),
+            None
+        );
+        assert_eq!(
+            state.activate(DashboardCommand::Confirm, &view),
+            Some(delete_preset.clone())
+        );
+        action(&mut state, &view, delete_preset);
+        view.language
+            .presets
+            .options
+            .retain(|option| option.value != "en");
+        state.update_view(&view);
+        assert!(state.ui.confirmation.is_none());
+        assert_eq!(state.activate(DashboardCommand::Confirm, &view), None);
     }
 
     #[test]

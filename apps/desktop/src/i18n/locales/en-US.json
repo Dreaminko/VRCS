@@ -889,7 +889,14 @@
         "confirmDelete": "Confirm deletion",
         "deleteHint": "This cannot be undone.",
         "positionHint": "Left/right · Up/down · Depth (m)",
-        "rotationHint": "Pitch · Yaw · Roll (degrees)"
+        "rotationHint": "Pitch · Yaw · Roll (degrees)",
+        "back": "Back",
+        "preferred": "Primary",
+        "masterOffBanner": "VR Overlay is off — subtitles are currently hidden.",
+        "recognitionLocked": "Managed by live service",
+        "translationOffHint": "Translation mode is off.",
+        "deletePresetTitle": "Delete language preset",
+        "noPresets": "No saved presets"
       },
       "ocr": {
         "enable": "Enable OCR",

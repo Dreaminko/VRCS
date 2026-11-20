@@ -32,6 +32,7 @@ export interface VrDashboardAppearanceField {
 }
 
 export interface VrDashboardViewModel {
+  locale?: string;
   player_audio_notice?: import("../capture/player-audio-vr").PlayerAudioPrompt | null;
   caption_visibility?: { hidden_tracks: readonly string[]; hidden_source_languages: readonly string[] };
   max_visible_players?: number | null;
@@ -93,6 +94,16 @@ export interface VrDashboardViewModel {
     cancel: string;
     position_hint: string;
     rotation_hint: string;
+    back?: string;
+    preferred?: string;
+    master_off_banner?: string;
+    recognition_locked?: string;
+    translation_off_hint?: string;
+    delete_preset_title?: string;
+    no_presets?: string;
+    anchor_mode?: string;
+    anchor_world?: string;
+    follow_view?: string;
   };
   enabled: boolean;
   capture: { running: boolean; available: boolean };

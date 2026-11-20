@@ -889,7 +889,14 @@
         "confirmDelete": "確認刪除",
         "deleteHint": "刪除後無法復原。",
         "positionHint": "左右 / 上下 / 遠近 · 單位：公尺",
-        "rotationHint": "俯仰 / 偏航 / 翻滾 · 單位：度"
+        "rotationHint": "俯仰 / 偏航 / 翻滾 · 單位：度",
+        "back": "返回",
+        "preferred": "首選",
+        "masterOffBanner": "VR Overlay 總開關已關閉，頭顯與手腕字幕暫不顯示。",
+        "recognitionLocked": "由即時翻譯服務自動辨識",
+        "translationOffHint": "目前翻譯模式為關閉，目標語言暫不生效。",
+        "deletePresetTitle": "刪除語言預設",
+        "noPresets": "尚無已儲存預設"
       },
       "ocr": {
         "enable": "啟用 OCR",

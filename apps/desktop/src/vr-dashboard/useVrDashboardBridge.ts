@@ -135,6 +135,12 @@ export function useVrDashboardBridge(
   }, [t]);
 
   useEffect(() => {
+    if (saveState !== "saved") return;
+    const timer = window.setTimeout(() => setSaveState("idle"), 2500);
+    return () => window.clearTimeout(timer);
+  }, [saveState]);
+
+  useEffect(() => {
     if (!settings?.features.vr_overlay) {
       lastPublishedRef.current = "";
       return;
@@ -178,6 +184,7 @@ export function useVrDashboardBridge(
     }));
     const strategyKeys = { preferred_only: "preferredOnly", round_robin: "roundRobin", all_languages: "allLanguages" };
     const model: VrDashboardViewModel = {
+      locale: i18n.resolvedLanguage ?? "en-US",
       caption_visibility: { hidden_tracks: display.hiddenTracks, hidden_source_languages: display.hiddenSourceLanguages },
       max_visible_players: settings.audio.output.mode === "vrchat_players" ? settings.audio.output.player_audio?.max_visible_players ?? 4 : null,
       caption_notice: captionNoticeRef.current,
@@ -242,6 +249,16 @@ export function useVrDashboardBridge(
         cancel: t("common.cancel"),
         position_hint: t("settings.vrDashboard.positionHint"),
         rotation_hint: t("settings.vrDashboard.rotationHint"),
+        back: t("settings.vrDashboard.back"),
+        preferred: t("settings.vrDashboard.preferred"),
+        master_off_banner: t("settings.vrDashboard.masterOffBanner"),
+        recognition_locked: t("settings.vrDashboard.recognitionLocked"),
+        translation_off_hint: t("settings.vrDashboard.translationOffHint"),
+        delete_preset_title: t("settings.vrDashboard.deletePresetTitle"),
+        no_presets: t("settings.vrDashboard.noPresets"),
+        anchor_mode: t("settings.vrOverlay.anchorMode"),
+        anchor_world: t("settings.vrOverlay.anchorWorld"),
+        follow_view: t("settings.vrOverlay.followView"),
       },
       enabled: overlay.enabled,
       capture: { running: capture.running, available: capture.available },

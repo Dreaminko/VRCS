@@ -1,4 +1,5 @@
 {
+  "locale": "en-US",
   "labels": {
     "osc_tab": "OSC",
     "ocr_progress": {
@@ -147,7 +148,17 @@
     "delete_hint": "This cannot be undone.",
     "cancel": "Cancel",
     "position_hint": "Left/right · Up/down · Depth (m)",
-    "rotation_hint": "Pitch · Yaw · Roll (degrees)"
+    "rotation_hint": "Pitch · Yaw · Roll (degrees)",
+    "back": "Back",
+    "preferred": "Primary",
+    "master_off_banner": "VR Overlay is off — subtitles are currently hidden.",
+    "recognition_locked": "Managed by live service",
+    "translation_off_hint": "Translation mode is off.",
+    "delete_preset_title": "Delete language preset",
+    "no_presets": "No saved presets",
+    "anchor_mode": "Dialogue panel anchor",
+    "anchor_world": "Anchor in space",
+    "follow_view": "Follow view"
   },
   "enabled": true,
   "capture": {

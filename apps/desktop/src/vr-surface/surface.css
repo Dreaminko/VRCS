@@ -8,11 +8,15 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
   overflow: hidden;
   color: var(--text);
   background: transparent;
-  font: var(--vr-font-size)/1.65 var(--font-ui, "Segoe UI", "Microsoft YaHei UI", sans-serif);
+  font-size: var(--vr-font-size);
+  line-height: 1.65;
+  font-family: var(--font-ui, "Segoe UI", "Microsoft YaHei UI", sans-serif);
   user-select: none;
   pointer-events: none;
+  --vr-shell: #f4f7fb;
   --surface: #ffffff;
   --surface-subtle: #eef2f7;
+  --surface-elevated: #f8fafd;
   --text: #1d2834;
   --text-secondary: #5a6878;
   --text-quiet: #8b98a7;
@@ -21,26 +25,51 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
   --primary: #74d6ff;
   --primary-hover: #56c8f5;
   --primary-ink: #17617d;
+  --on-primary: #12394b;
   --primary-soft: #dff6ff;
   --primary-softer: #f0fbff;
   --error: #c94444;
+  --error-soft: #fdf0ee;
+  --error-border: #e8c9c5;
+  --warning: #9a6418;
+  --warning-soft: #fff7e8;
+  --warning-border: #efd6a8;
   --radius-sm: 16px;
   --font-mono: "Cascadia Mono", "Consolas", monospace;
 }
+.vr-surface:lang(zh-CN),
+.vr-surface:lang(zh-SG),
+.vr-surface:lang(zh-Hans) {
+  font-family: var(--font-ui-zh-hans, var(--font-ui));
+}
+.vr-surface:lang(ja) {
+  font-family: var(--font-ui-ja, var(--font-ui));
+}
+.vr-surface:lang(ko) {
+  font-family: var(--font-ui-ko, var(--font-ui));
+}
 .vr-surface[data-theme="dark"] {
+  --vr-shell: #232730;
   --surface: #2f343e;
-  --surface-subtle: #2e343e;
+  --surface-subtle: #272c36;
+  --surface-elevated: #39404d;
   --text: #dce0e5;
   --text-secondary: #a9afbc;
   --text-quiet: #878a98;
-  --border: #363c46;
-  --border-strong: #464b57;
+  --border: #3a404c;
+  --border-strong: #4e5564;
   --primary: #3fb9ec;
   --primary-hover: #2ba6db;
   --primary-ink: #7fd8ff;
-  --primary-soft: rgba(116, 214, 255, 0.14);
-  --primary-softer: rgba(116, 214, 255, 0.08);
-  --error: #d07277;
+  --on-primary: #0f2430;
+  --primary-soft: rgba(116, 214, 255, 0.16);
+  --primary-softer: rgba(116, 214, 255, 0.09);
+  --error: #e07b80;
+  --error-soft: rgba(208, 114, 119, 0.14);
+  --error-border: #5c3235;
+  --warning: #dec184;
+  --warning-soft: rgba(222, 193, 132, 0.12);
+  --warning-border: #5d4c2f;
 }
 .vr-surface, .vr-surface * { box-sizing: border-box; }
 .vr-player-audio-panel { position: absolute; inset: 16px; display: flex; flex-direction: column; padding: 32px; gap: 16px; border: 2px solid var(--border); border-radius: 28px; background: var(--surface); }

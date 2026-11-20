@@ -889,7 +889,14 @@
         "confirmDelete": "削除の確認",
         "deleteHint": "削除すると元に戻せません。",
         "positionHint": "左右 / 上下 / 奥行き（m）",
-        "rotationHint": "ピッチ / ヨー / ロール（度）"
+        "rotationHint": "ピッチ / ヨー / ロール（度）",
+        "back": "戻る",
+        "preferred": "優先",
+        "masterOffBanner": "VR Overlay がオフのため、字幕は表示されません。",
+        "recognitionLocked": "ライブ翻訳サービスが自動管理",
+        "translationOffHint": "翻訳モードがオフのため、翻訳先言語は適用されません。",
+        "deletePresetTitle": "言語プリセットを削除",
+        "noPresets": "保存済みのプリセットはありません"
       },
       "ocr": {
         "enable": "OCR を有効にする",
