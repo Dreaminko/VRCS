@@ -261,8 +261,7 @@ pub fn region_crop(
         let right = x as f64 + (column + 1) as f64 * scale_x;
         let start = col_offsets_weights.len();
         for source_x in left.floor() as u32..(right.ceil() as u32).min(x + width) {
-            let weight_x =
-                (right.min(source_x as f64 + 1.0) - left.max(source_x as f64)) / scale_x;
+            let weight_x = (right.min(source_x as f64 + 1.0) - left.max(source_x as f64)) / scale_x;
             col_offsets_weights.push((source_x as usize * 4, weight_x));
         }
         col_spans.push((start, col_offsets_weights.len()));

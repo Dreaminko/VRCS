@@ -182,8 +182,10 @@ impl VrOcrService {
 
     pub(super) fn matches_config(&self, snapshot: &crate::config::AppConfig) -> bool {
         self.config.read().is_ok_and(|current| {
-            let enabled =
-                current.ocr.enabled && current.features.ocr && current.features.vr_overlay && current.ocr.master_enabled;
+            let enabled = current.ocr.enabled
+                && current.features.ocr
+                && current.features.vr_overlay
+                && current.ocr.master_enabled;
             let desktop_enabled =
                 current.ocr.desktop_enabled && current.features.ocr && current.ocr.master_enabled;
             if enabled != snapshot.ocr.enabled || desktop_enabled != snapshot.ocr.desktop_enabled {

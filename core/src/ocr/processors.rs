@@ -293,9 +293,7 @@ pub fn ctc_decode(
     classes: usize,
     characters: &[String],
 ) -> Result<(String, f32), String> {
-    if classes == 0
-        || classes != characters.len()
-        || steps.checked_mul(classes) != Some(prob.len())
+    if classes == 0 || classes != characters.len() || steps.checked_mul(classes) != Some(prob.len())
     {
         return Err("Invalid OCR recognizer output or dictionary".into());
     }
