@@ -150,9 +150,6 @@ jobs:
           Windows 10/11 x64 release for VRCS.
 
           - `VRCS-$version-windows-x64.exe` supports cloud recognition and managed local Qwen ASR on CPU or Vulkan. A compatible GPU and graphics driver are required for Vulkan.
-          - Existing local Whisper selections migrate to managed Qwen. Install the Qwen model and runtime in recognition settings before starting local recognition.
-          - Cloud recognition failures use reconnection and no longer fall back to Whisper.
-          - Existing Whisper files remain on disk. You can remove them manually after you confirm that older versions no longer need them. Keep any Qwen packages in the same directory.
           - Local recognition models and the Qwen runtime are downloaded through recognition settings. Cloud recognition does not require the Qwen runtime.
           '@
           $notes = $notes.Replace('$version', $version)

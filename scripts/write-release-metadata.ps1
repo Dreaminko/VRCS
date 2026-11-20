@@ -41,7 +41,7 @@ $platform = [ordered]@{
 }
 $latest = [ordered]@{
     version = $Version
-    notes = "Windows 10/11 x64 release for VRCS $Version. Local Whisper selections migrate to managed Qwen. Cloud failures reconnect without Whisper fallback. Existing Whisper files remain on disk and can be removed manually when no longer needed by older versions."
+    notes = "Windows 10/11 x64 release for VRCS $Version."
     pub_date = [DateTime]::UtcNow.ToString("o")
     platforms = [ordered]@{
         'windows-x86_64-standard' = $platform
