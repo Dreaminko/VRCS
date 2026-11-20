@@ -32,7 +32,7 @@ pub(crate) fn prepare_image(image: Texture, config: &VisionConfig) -> Result<Vec
     if image.width == 0 || image.height == 0 || expected != Some(image.pixels.len()) {
         return Err("Invalid visual image".into());
     }
-    let max_edge = config.image_max_edge.min(4096).max(1);
+    let max_edge = config.image_max_edge.clamp(1, 4096);
     let mut image = if image.width <= max_edge && image.height <= max_edge {
         image
     } else {

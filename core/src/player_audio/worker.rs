@@ -1339,11 +1339,9 @@ impl Engine {
                     break;
                 }
                 track.next_playout += Duration::from_millis(20);
-                if std::mem::take(&mut track.buffer.reset) {
-                    if !track.decoder.reset() {
-                        if let Some(Ok(decoder)) = self.opus.as_ref().map(|opus| opus.decoder()) {
-                            track.decoder = decoder;
-                        }
+                if std::mem::take(&mut track.buffer.reset) && !track.decoder.reset() {
+                    if let Some(Ok(decoder)) = self.opus.as_ref().map(|opus| opus.decoder()) {
+                        track.decoder = decoder;
                     }
                 }
                 let samples = match track.buffer.pop() {

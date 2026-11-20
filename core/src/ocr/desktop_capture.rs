@@ -273,14 +273,7 @@ fn capture_desktop_inner(excluded_windows: &[isize]) -> windows::core::Result<De
     let _excluded = ExcludedWindows::new(excluded_windows)?;
     for &(monitor, rect) in &displays {
         let item: GraphicsCaptureItem = unsafe { interop.CreateForMonitor(monitor)? };
-        capture_monitor_into(
-            &item,
-            &capture_device,
-            &graphics.device,
-            &graphics.context,
-            &rect,
-            &mut capture,
-        )?;
+        capture_monitor_into(&item, &capture_device, graphics, &rect, &mut capture)?;
     }
     if monitors()? != displays {
         return Err(Error::new(
@@ -294,8 +287,7 @@ fn capture_desktop_inner(excluded_windows: &[isize]) -> windows::core::Result<De
 fn capture_monitor_into(
     item: &GraphicsCaptureItem,
     capture_device: &IDirect3DDevice,
-    device: &ID3D11Device,
-    context: &ID3D11DeviceContext,
+    graphics: &CaptureDevice,
     bounds: &RECT,
     capture: &mut DesktopCapture,
 ) -> windows::core::Result<()> {
@@ -342,12 +334,10 @@ fn capture_monitor_into(
         let access: IDirect3DDxgiInterfaceAccess = frame.Surface()?.cast()?;
         let texture: ID3D11Texture2D = unsafe { access.GetInterface()? };
         read_pixels_into(
-            device,
-            context,
+            graphics,
             &texture,
             bounds,
-            size.Width as u32,
-            size.Height as u32,
+            (size.Width as u32, size.Height as u32),
             deadline,
             capture,
         )
@@ -424,12 +414,10 @@ fn wait_for_frame(deadline: Instant) -> windows::core::Result<()> {
 }
 
 fn read_pixels_into(
-    device: &ID3D11Device,
-    context: &ID3D11DeviceContext,
+    graphics: &CaptureDevice,
     texture: &ID3D11Texture2D,
     bounds: &RECT,
-    width: u32,
-    height: u32,
+    (width, height): (u32, u32),
     deadline: Instant,
     capture: &mut DesktopCapture,
 ) -> windows::core::Result<()> {
@@ -447,13 +435,15 @@ fn read_pixels_into(
         desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
         desc.MiscFlags = 0;
         let mut staging = None;
-        device.CreateTexture2D(&desc, None, Some(&mut staging))?;
+        graphics
+            .device
+            .CreateTexture2D(&desc, None, Some(&mut staging))?;
         let staging = staging.ok_or_else(|| Error::from(E_POINTER))?;
-        context.CopyResource(&staging, texture);
-        context.Flush();
+        graphics.context.CopyResource(&staging, texture);
+        graphics.context.Flush();
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         loop {
-            match context.Map(
+            match graphics.context.Map(
                 &staging,
                 0,
                 D3D11_MAP_READ,
@@ -462,7 +452,7 @@ fn read_pixels_into(
             ) {
                 Ok(()) => break,
                 Err(error) if error.code() == DXGI_ERROR_WAS_STILL_DRAWING => {
-                    context.Flush();
+                    graphics.context.Flush();
                     wait_for_frame(deadline)?;
                 }
                 Err(error) => return Err(error),
@@ -481,7 +471,7 @@ fn read_pixels_into(
             width as usize,
             height as usize,
         );
-        context.Unmap(&staging, 0);
+        graphics.context.Unmap(&staging, 0);
         result.map_err(|message| Error::new(E_FAIL, message))
     }
 }

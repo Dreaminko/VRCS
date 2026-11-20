@@ -110,13 +110,13 @@ impl SmartTurnAnalyzer {
             ));
         }
         let session = (|| -> ort::Result<Session> {
-            Ok(Session::builder()?
+            Session::builder()?
                 .with_intra_threads(2)?
                 .with_inter_threads(1)?
                 .with_parallel_execution(false)?
                 .with_intra_op_spinning(false)?
                 .with_inter_op_spinning(false)?
-                .commit_from_file(model_path)?)
+                .commit_from_file(model_path)
         })()
         .map_err(|error| format!("Failed to initialize Smart Turn: {error}"))?;
         Ok(Self { session })
