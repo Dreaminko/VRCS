@@ -169,50 +169,77 @@ pub fn region_crop(
     let factor = (1536.0 / width.max(height) as f32).min(1.0);
     let output_width = ((width as f32 * factor).round() as u32).max(1);
     let output_height = ((height as f32 * factor).round() as u32).max(1);
-    let mut pixels = Vec::with_capacity(output_width as usize * output_height as usize * 4);
     let scale_x = width as f64 / output_width as f64;
     let scale_y = height as f64 / output_height as f64;
-    // Horizontal overlap is identical for every output row.
-    let columns: Vec<Vec<_>> = if output_width == width && output_height == height {
-        Vec::new()
-    } else {
-        (0..output_width)
-            .map(|column| {
-                let left = x as f64 + column as f64 * scale_x;
-                let right = x as f64 + (column + 1) as f64 * scale_x;
-                (left.floor() as u32..(right.ceil() as u32).min(x + width))
-                    .map(|source_x| {
-                        (
-                            source_x as usize * 4,
-                            right.min(source_x as f64 + 1.0) - left.max(source_x as f64),
-                        )
-                    })
-                    .collect()
-            })
-            .collect()
-    };
-    for row in 0..output_height {
-        if output_width == width && output_height == height {
+    let out_row_len = output_width as usize * 4;
+    if output_width == width && output_height == height {
+        let mut pixels = Vec::with_capacity(out_row_len * output_height as usize);
+        for row in 0..output_height {
             let offset = ((y + row) as usize * image.width as usize + x as usize) * 4;
             pixels.extend_from_slice(&image.pixels[offset..offset + width as usize * 4]);
-            continue;
         }
+        return Ok(CaptureCrop {
+            image: Texture {
+                width: output_width,
+                height: output_height,
+                pixels,
+            },
+            offset: [x as f32, y as f32],
+            scale: [
+                width as f32 / output_width as f32,
+                height as f32 / output_height as f32,
+            ],
+        });
+    }
+    let mut col_offsets_weights = Vec::with_capacity(output_width as usize * 2);
+    let mut col_spans = Vec::with_capacity(output_width as usize);
+    for column in 0..output_width {
+        let left = x as f64 + column as f64 * scale_x;
+        let right = x as f64 + (column + 1) as f64 * scale_x;
+        let start = col_offsets_weights.len();
+        for source_x in left.floor() as u32..(right.ceil() as u32).min(x + width) {
+            let weight_x = (right.min(source_x as f64 + 1.0) - left.max(source_x as f64)) / scale_x;
+            col_offsets_weights.push((source_x as usize * 4, weight_x));
+        }
+        col_spans.push((start, col_offsets_weights.len()));
+    }
+    let mut pixels = vec![0u8; out_row_len * output_height as usize];
+    let mut horiz_row = vec![0.0_f64; out_row_len];
+    let mut accum = vec![0.0_f64; out_row_len];
+    let mut cached_y: Option<u32> = None;
+    let src_stride = image.width as usize * 4;
+    let max_y = y + height;
+    for row in 0..output_height {
+        accum.fill(0.0);
         let top = y as f64 + row as f64 * scale_y;
         let bottom = y as f64 + (row + 1) as f64 * scale_y;
-        for column in &columns {
-            let mut sum = [0.0; 4];
-            // Average the source area so downsampling retains thin text strokes.
-            for source_y in top.floor() as u32..(bottom.ceil() as u32).min(y + height) {
-                let weight_y = bottom.min(source_y as f64 + 1.0) - top.max(source_y as f64);
-                let row_offset = source_y as usize * image.width as usize * 4;
-                for &(column_offset, weight_x) in column {
-                    let offset = row_offset + column_offset;
-                    for (channel, total) in sum.iter_mut().enumerate() {
-                        *total += image.pixels[offset + channel] as f64 * weight_x * weight_y;
+        for source_y in top.floor() as u32..(bottom.ceil() as u32).min(max_y) {
+            if cached_y != Some(source_y) {
+                let row_offset = source_y as usize * src_stride;
+                for (col_idx, &(start, end)) in col_spans.iter().enumerate() {
+                    let mut sum = [0.0_f64; 4];
+                    for &(col_offset, weight_x) in &col_offsets_weights[start..end] {
+                        let offset = row_offset + col_offset;
+                        sum[0] += image.pixels[offset] as f64 * weight_x;
+                        sum[1] += image.pixels[offset + 1] as f64 * weight_x;
+                        sum[2] += image.pixels[offset + 2] as f64 * weight_x;
+                        sum[3] += image.pixels[offset + 3] as f64 * weight_x;
                     }
+                    horiz_row[col_idx * 4..col_idx * 4 + 4].copy_from_slice(&sum);
                 }
+                cached_y = Some(source_y);
             }
-            pixels.extend(sum.map(|total| (total / (scale_x * scale_y)).round() as u8));
+            let weight_y = (bottom.min(source_y as f64 + 1.0) - top.max(source_y as f64)) / scale_y;
+            for (acc, &val) in accum.iter_mut().zip(&horiz_row) {
+                *acc += val * weight_y;
+            }
+        }
+        let row_out = row as usize * out_row_len;
+        for (dst, &val) in pixels[row_out..row_out + out_row_len]
+            .iter_mut()
+            .zip(&accum)
+        {
+            *dst = val.round() as u8;
         }
     }
     Ok(CaptureCrop {
@@ -229,6 +256,7 @@ pub fn region_crop(
     })
 }
 
+#[cfg(test)]
 pub fn encode_png(image: Texture) -> Result<Vec<u8>, String> {
     if image.width > 16384 || image.height > 16384 {
         return Err("Invalid OCR image dimensions".into());
@@ -478,6 +506,7 @@ mod tests {
             [[512., 384.], [3583., 384.], [3583., 2689.], [512., 2689.]]
         );
     }
+
     #[test]
     fn ocr_png_preserves_capture_dimensions_and_rgba_channels() {
         let pixels = [10, 20, 30, 255].repeat(6);

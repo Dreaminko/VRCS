@@ -16,16 +16,19 @@ import {
 
 export function useConversationSidebarResize({
   width,
+  onPreviewWidth,
   onWidthChange,
   onResizeStateChange,
   onBeforeStart,
 }: {
   width: number;
+  onPreviewWidth?: (width: number) => void;
   onWidthChange: (width: number) => void;
   onResizeStateChange: (resizing: boolean) => void;
   onBeforeStart: () => void;
 }) {
   const [resizing, setResizing] = useState(false);
+  const previewWidthRef = useRef<number | null>(null);
   const resizeStartRef = useRef<{
     pointerId: number;
     pointerX: number;
@@ -36,6 +39,11 @@ export function useConversationSidebarResize({
 
   const finish = () => {
     resizeStartRef.current = null;
+    if (previewWidthRef.current !== null) {
+      const committed = previewWidthRef.current;
+      previewWidthRef.current = null;
+      onWidthChange(committed);
+    }
     setResizing(false);
     onResizeStateChange(false);
   };
@@ -45,6 +53,7 @@ export function useConversationSidebarResize({
     event.preventDefault();
     onBeforeStart();
     const scale = readAppliedInterfaceScaleFactor();
+    previewWidthRef.current = null;
     resizeStartRef.current = {
       pointerId: event.pointerId,
       pointerX: interfaceLayoutPixels(event.clientX, scale),
@@ -63,9 +72,17 @@ export function useConversationSidebarResize({
       event.clientX,
       readAppliedInterfaceScaleFactor(),
     );
-    onWidthChange(normalizeConversationSidebarWidth(
+    const nextWidth = normalizeConversationSidebarWidth(
       initial.width + pointerX - initial.pointerX,
-    ));
+    );
+    if (onPreviewWidth) {
+      previewWidthRef.current = nextWidth;
+      onPreviewWidth(nextWidth);
+      event.currentTarget.setAttribute("aria-valuenow", String(nextWidth));
+      event.currentTarget.setAttribute("aria-valuetext", `${nextWidth}px`);
+    } else {
+      onWidthChange(nextWidth);
+    }
   };
 
   const stop = (event: ReactPointerEvent<HTMLDivElement>) => {

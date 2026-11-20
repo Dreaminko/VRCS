@@ -360,9 +360,10 @@ impl OcrRuntime {
         player_progress: Option<&super::ocr_progress::ProgressView>,
         business: bool,
     ) {
-        if self.pending_capture.is_none() {
+        if self.pending_capture.is_none() && !self.vision.capturing() {
             backend.cancel_ocr_capture();
         }
+        self.vision.poll_capture(backend);
         if business {
             self.vision.tick();
         }
@@ -487,7 +488,7 @@ impl OcrRuntime {
             backend.reset(OverlayKind::OcrProgress);
             self.status.progress_error = Some(error);
         }
-        if self.pending_capture.is_none() {
+        if self.pending_capture.is_none() && !self.vision.capturing() {
             backend.cancel_ocr_capture();
         }
     }
@@ -624,6 +625,10 @@ impl OcrRuntime {
         self.selecting
     }
 
+    pub fn needs_fast_tick(&self) -> bool {
+        self.selecting || self.vision.busy() || self.pending_capture.is_some()
+    }
+
     pub fn input_revision(&self) -> u64 {
         if self.vision.visible() {
             self.vision.input_revision()
@@ -647,6 +652,19 @@ impl OcrRuntime {
         } else {
             self.update_wrist_pointer(&events, focused)
         };
+        if !business
+            && !focused
+            && !self.selecting
+            && !self.vision.busy()
+            && self.pending_capture.is_none()
+            && !events.iter().any(|e| !matches!(e, LaserEvent::Leave))
+        {
+            if self.expired(std::time::Instant::now(), config.display_seconds) {
+                self.clear();
+                backend.hide_ocr();
+            }
+            return Ok(());
+        }
         let input = backend.ocr_input(
             config.hand_gesture_enabled,
             reading_focus,

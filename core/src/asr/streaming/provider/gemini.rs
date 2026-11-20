@@ -7,7 +7,7 @@ use crate::config::AsrConfig;
 use crate::providers::SERVICE_GEMINI_TRANSCRIBE;
 
 use super::{
-    event_language, pcm16_base64, service_settings, CloudEvent, InitializationEvent,
+    append_pcm16_base64, event_language, service_settings, CloudEvent, InitializationEvent,
     NormalizationState,
 };
 
@@ -103,18 +103,12 @@ pub(super) fn normalize_event(
 }
 
 pub(super) fn audio_message(samples: &[f32]) -> Message {
-    Message::Text(
-        json!({
-            "realtimeInput": {
-                "audio": {
-                    "data": pcm16_base64(samples),
-                    "mimeType": "audio/pcm;rate=16000"
-                }
-            }
-        })
-        .to_string()
-        .into(),
-    )
+    let b64_len = (samples.len() * 2).div_ceil(3) * 4;
+    let mut out = String::with_capacity(96 + b64_len);
+    out.push_str("{\"realtimeInput\":{\"audio\":{\"data\":\"");
+    append_pcm16_base64(samples, &mut out);
+    out.push_str("\",\"mimeType\":\"audio/pcm;rate=16000\"}}}");
+    Message::Text(out.into())
 }
 
 pub(super) fn commit_message() -> Message {

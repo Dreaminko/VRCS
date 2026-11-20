@@ -196,6 +196,7 @@ for (const mode of ["compact", "compact-qwen", "compact-filter", "headset", "wri
           const selection={visibility:{hidden_tracks:['player-0'],hidden_source_languages:['zh','ja']},max_visible_players:2,max_entries:3};
           surface(filtered,null,false,selection);
           const names=()=>[...document.querySelectorAll('.vr-caption-speaker')].map(node=>node.textContent).join(',');
+          await wait(()=>names()==='English player,French player,Me');
           check(names()==='English player,French player,Me','VR filters the same original/track policy before limiting and retains self');
           if(mode==='wrist'||mode==='headset')check([...document.querySelectorAll('.vr-caption-speaker [data-message-source]')].map(icon=>icon.dataset.messageSource).join(',')==='voice,voice,microphone','VR captions map each source to the right icon');
           const finalMessages=filtered.map(message=>({...message,original:{...message.original,live:false}}));

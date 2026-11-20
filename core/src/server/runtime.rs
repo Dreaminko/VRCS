@@ -1,6 +1,6 @@
 use std::ops::Deref;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use axum::extract::FromRef;
@@ -77,8 +77,10 @@ pub(crate) struct CaptureRuntime {
     pub(crate) qwen_runtime: Arc<asr::QwenRuntime>,
     pub(crate) capture_control: AsyncMutex<()>,
     pub(crate) capture_requested: AtomicBool,
+    pub(crate) capture_requested_tx: watch::Sender<bool>,
     /// Standalone VRChat log watcher; consumers read `snapshot()` here.
     pub(crate) vrchat_log: crate::vrchat_log::VrchatLog,
+    pub(crate) room_context: crate::room_context::RoomContextStore,
     pub(crate) network_session: AsyncMutex<crate::player_audio::session::VrchatNetworkSession>,
     pub(crate) chatbox_task: AsyncMutex<Option<tokio::task::JoinHandle<()>>>,
     pub(crate) speaker_pipeline: AsyncMutex<TranscriptionPipeline>,
@@ -94,6 +96,7 @@ pub(crate) struct CaptureRuntimeInput {
     pub(crate) vad_model_path: PathBuf,
     pub(crate) shutdown: watch::Receiver<bool>,
     pub(crate) vrchat_log: crate::vrchat_log::VrchatLog,
+    pub(crate) room_context: crate::room_context::RoomContextStore,
 }
 
 impl CaptureRuntime {
@@ -105,6 +108,8 @@ impl CaptureRuntime {
         )
         .with_download_sources(Arc::clone(&input.model_manager.download_sources));
 
+        let (capture_requested_tx, _) = watch::channel(false);
+
         Self {
             live_tx: input.live_tx,
             vad_runtime: input.vad_runtime.clone(),
@@ -112,7 +117,9 @@ impl CaptureRuntime {
             qwen_runtime: Arc::new(asr::QwenRuntime::new(input.qwen_runtime_dir)),
             capture_control: AsyncMutex::new(()),
             capture_requested: AtomicBool::new(false),
+            capture_requested_tx,
             vrchat_log: input.vrchat_log,
+            room_context: input.room_context,
             network_session: AsyncMutex::new(Default::default()),
             chatbox_task: AsyncMutex::new(None),
             speaker_pipeline: AsyncMutex::new(TranscriptionPipeline::new(
@@ -134,6 +141,15 @@ impl CaptureRuntime {
             microphone_monitor: AsyncMutex::new(MicrophoneMonitor::new()),
         }
     }
+
+    pub(crate) fn set_capture_requested(&self, requested: bool) {
+        self.capture_requested.store(requested, Ordering::SeqCst);
+        let _ = self.capture_requested_tx.send(requested);
+    }
+
+    pub(crate) fn subscribe_capture_requested(&self) -> watch::Receiver<bool> {
+        self.capture_requested_tx.subscribe()
+    }
 }
 
 pub(crate) struct ContentServices {
@@ -147,6 +163,7 @@ pub(crate) struct ContentServices {
     pub(crate) glossary: Arc<crate::glossary::GlossaryStore>,
     pub(crate) local_translation_models: Arc<crate::translation::LocalTranslationModels>,
     pub(crate) plamo_runtime: Arc<crate::translation::PlamoRuntime>,
+    pub(crate) room_context: crate::room_context::RoomContextReader,
 }
 
 pub(crate) struct ContentServicesInput {
@@ -159,6 +176,7 @@ pub(crate) struct ContentServicesInput {
     pub(crate) glossary: Arc<crate::glossary::GlossaryStore>,
     pub(crate) local_translation_models: Arc<crate::translation::LocalTranslationModels>,
     pub(crate) plamo_runtime: Arc<crate::translation::PlamoRuntime>,
+    pub(crate) room_context: crate::room_context::RoomContextReader,
 }
 
 impl ContentServices {
@@ -174,6 +192,7 @@ impl ContentServices {
             glossary: input.glossary,
             local_translation_models: input.local_translation_models,
             plamo_runtime: input.plamo_runtime,
+            room_context: input.room_context,
         }
     }
 }

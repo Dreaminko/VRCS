@@ -5,6 +5,7 @@ import {
   type MicrophoneCalibrationResult,
 } from "../../capture/microphone-calibration";
 import type { AudioLevel } from "../../capture/types";
+import { subscribeAudioLevel } from "../../core-client/realtime-state";
 
 const QUIET_PROMPT_LEAD_MS = 500;
 const QUIET_SAMPLE_MS = 2_000;
@@ -24,7 +25,7 @@ export function useMicrophoneCalibration({
   testing,
   onStartTest,
 }: {
-  level: AudioLevel | null;
+  level?: AudioLevel | null;
   testing: boolean;
   onStartTest: () => Promise<void>;
 }) {
@@ -38,10 +39,19 @@ export function useMicrophoneCalibration({
   const calibratingRef = useRef(false);
 
   useEffect(() => {
-    if (!level || !testing) return;
+    if (level === undefined || !level || !testing) return;
     if (collectionPhaseRef.current === "quiet") quietSamplesRef.current.push(level.rms_dbfs);
     if (collectionPhaseRef.current === "speech") speechSamplesRef.current.push(level.rms_dbfs);
   }, [level, testing]);
+
+  useEffect(() => {
+    if (level !== undefined || !calibrating || !testing) return;
+    return subscribeAudioLevel("microphone", (next) => {
+      if (!next) return;
+      if (collectionPhaseRef.current === "quiet") quietSamplesRef.current.push(next.rms_dbfs);
+      if (collectionPhaseRef.current === "speech") speechSamplesRef.current.push(next.rms_dbfs);
+    });
+  }, [calibrating, level, testing]);
 
   useEffect(() => () => {
     runRef.current += 1;

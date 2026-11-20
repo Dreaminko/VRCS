@@ -178,6 +178,29 @@
 .settings-switch-button[aria-checked="true"] .switch-track { background: var(--primary); }
 .settings-switch-button[aria-checked="true"] .switch-track > span { transform: translateX(16px); }
 .settings-switch-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.settings-help-trigger {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: var(--text-quiet);
+  background: transparent;
+  cursor: help;
+  transition: color 140ms ease-out, background-color 140ms ease-out;
+}
+.settings-help-trigger:hover {
+  color: var(--primary-ink);
+  background: var(--primary-softer);
+}
+.settings-help-trigger:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  color: var(--primary-ink);
+}
 .shortcut-field {
   grid-template-columns: minmax(0, 1fr) minmax(0, auto);
   align-items: center;

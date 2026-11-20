@@ -27,7 +27,7 @@ export function MicrophoneStep({
 }: {
   settings: Settings;
   health: Health | null;
-  microphoneLevel: AudioLevel | null;
+  microphoneLevel?: AudioLevel | null;
   microphoneOperationBusy: boolean;
   audioBusy: boolean;
   microphoneReviewed: boolean;

@@ -6,7 +6,7 @@ use tokio::sync::{watch, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
 use crate::asr::{
     download_model_file, paths_equivalent, verify_model_file, verify_model_file_forced,
-    verify_model_file_readonly, ModelAssetSpec,
+    ModelAssetSpec,
 };
 
 use super::plamo::{
@@ -112,7 +112,7 @@ impl LocalTranslationModels {
 
     pub(crate) fn status(&self) -> LocalTranslationModelStatus {
         let package = package_dir(&self.root());
-        let installed = verify_assets_readonly(&package, &[MODEL, LICENSE]).unwrap_or(false);
+        let installed = verify_assets(&package, &[MODEL, LICENSE]).unwrap_or(false);
         let package_exists = package.exists();
         let job = self.job.lock().expect("translation model job lock").clone();
         let (status, downloaded_bytes, error) = match job {
@@ -454,11 +454,15 @@ fn verify_package(root: &Path) -> Result<bool, String> {
 }
 
 fn verify_assets(directory: &Path, assets: &[ModelAssetSpec]) -> Result<bool, String> {
-    verify_assets_with_cache(directory, assets, true)
-}
-
-fn verify_assets_readonly(directory: &Path, assets: &[ModelAssetSpec]) -> Result<bool, String> {
-    verify_assets_with_cache(directory, assets, false)
+    if !assets_have_expected_size(directory, assets) {
+        return Ok(false);
+    }
+    for asset in assets {
+        if !verify_model_file(&directory.join(asset.name), *asset)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn verify_assets_forced(directory: &Path, assets: &[ModelAssetSpec]) -> Result<bool, String> {
@@ -467,28 +471,6 @@ fn verify_assets_forced(directory: &Path, assets: &[ModelAssetSpec]) -> Result<b
     }
     for asset in assets {
         if !verify_model_file_forced(&directory.join(asset.name), *asset)? {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
-fn verify_assets_with_cache(
-    directory: &Path,
-    assets: &[ModelAssetSpec],
-    write_cache: bool,
-) -> Result<bool, String> {
-    if !assets_have_expected_size(directory, assets) {
-        return Ok(false);
-    }
-    for asset in assets {
-        let path = directory.join(asset.name);
-        let verified = if write_cache {
-            verify_model_file(&path, *asset)?
-        } else {
-            verify_model_file_readonly(&path, *asset)?
-        };
-        if !verified {
             return Ok(false);
         }
     }

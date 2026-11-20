@@ -208,7 +208,7 @@ impl Registry {
             }
             let delta_x = f64::from(player.position.x) - f64::from(local.position.x);
             let delta_z = f64::from(player.position.z) - f64::from(local.position.z);
-            let distance = delta_x.hypot(delta_z);
+            let distance = (delta_x * delta_x + delta_z * delta_z).sqrt();
             if distance <= f64::EPSILON {
                 continue;
             }

@@ -171,13 +171,26 @@ export function validateLocalization(repositoryRoot = defaultRepositoryRoot) {
       continue;
     }
     const strings = flattenStrings(resource.translation, "", new Map(), errors, label);
-    resources.push({ label, locale, strings });
+    resources.push({ label, locale, metadata, strings });
   }
 
   const reference = resources.find((resource) => resource.locale === "en-US");
   if (!reference) {
     errors.push("The required en-US reference locale is missing");
     return errors;
+  }
+  const expectedMeta = resources
+    .map((resource) => ({
+      locale: resource.metadata.locale,
+      name: resource.metadata.name,
+      direction: resource.metadata.direction,
+      status: resource.metadata.status,
+    }))
+    .sort((left, right) => left.locale.localeCompare(right.locale));
+  const metaPath = join(repositoryRoot, "apps", "desktop", "src", "i18n", "locales-meta.json");
+  const actualMeta = readJson(metaPath, errors);
+  if (actualMeta !== null && JSON.stringify(actualMeta) !== JSON.stringify(expectedMeta)) {
+    errors.push("apps/desktop/src/i18n/locales-meta.json is out of sync with locale _meta entries");
   }
   const referenceKeys = [...reference.strings.keys()].sort();
 

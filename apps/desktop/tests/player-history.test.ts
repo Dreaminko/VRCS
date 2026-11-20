@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defaultHiddenSourceLanguages, parsePlayerHistory, trackVisible, sourceLanguageVisible, subtitleVisible, subtitleSourceLanguage, livePartialSourceLanguage, historySpeakers, isAudioTrack } from "../src/subtitles/player-history.ts";
+import { defaultHiddenSourceLanguages, ensureLanguageDetector, parsePlayerHistory, trackVisible, sourceLanguageVisible, subtitleVisible, subtitleSourceLanguage, livePartialSourceLanguage, historySpeakers, isAudioTrack } from "../src/subtitles/player-history.ts";
 import type { LiveTranscription } from "../src/capture/types.ts";
 import type { TranslationSettings } from "../src/settings/types.ts";
 import type { Subtitle } from "../src/subtitles/types.ts";
+
+await ensureLanguageDetector();
 
 test("history visibility is per track, preserves other tracks and does not hide the microphone", () => {
   const first = { id:"vrc:track-a", index:0, display_name:"Same name" };

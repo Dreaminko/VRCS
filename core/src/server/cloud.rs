@@ -226,6 +226,15 @@ async fn profile_value(
     profile: &ApiProfile,
     config: &crate::config::AppConfig,
 ) -> Result<Value, String> {
+    let mut resolved = config.clone();
+    resolved.resolve_model_assignments();
+    profile_value_resolved(profile, &resolved).await
+}
+
+async fn profile_value_resolved(
+    profile: &ApiProfile,
+    config: &crate::config::AppConfig,
+) -> Result<Value, String> {
     let status = credentials::credential_status_async(&profile.id, &profile.provider).await?;
     let provider = providers::definition(&profile.provider)
         .ok_or_else(|| format!("Unsupported API provider: {}", profile.provider))?;
@@ -267,11 +276,21 @@ async fn profile_value(
         "support_levels": providers::profile_support_levels(profile),
         "services": services,
         "status": "ready",
-        "usages": profile_usages(config, &profile.id),
+        "usages": profile_usages_resolved(config, &profile.id),
     }))
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn unavailable_profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Value {
+    let mut resolved = config.clone();
+    resolved.resolve_model_assignments();
+    unavailable_profile_value_resolved(profile, &resolved)
+}
+
+fn unavailable_profile_value_resolved(
+    profile: &ApiProfile,
+    config: &crate::config::AppConfig,
+) -> Value {
     let provider = providers::definition(&profile.provider);
     let mut value = json!(profile);
     let object = value.as_object_mut().expect("profile object");
@@ -289,7 +308,7 @@ fn unavailable_profile_value(profile: &ApiProfile, config: &crate::config::AppCo
             "is_local": false, "supports_custom_translation_language": false, "supported_languages": []
         }), |capabilities| json!(capabilities)),
         "support_levels": { "asr": null, "translation": null },
-        "usages": profile_usages(config, &profile.id),
+        "usages": profile_usages_resolved(config, &profile.id),
     }).as_object().expect("profile status object").clone());
     value
 }
@@ -297,6 +316,10 @@ fn unavailable_profile_value(profile: &ApiProfile, config: &crate::config::AppCo
 fn profile_usages(config: &crate::config::AppConfig, profile_id: &str) -> Vec<Value> {
     let mut config = config.clone();
     config.resolve_model_assignments();
+    profile_usages_resolved(&config, profile_id)
+}
+
+fn profile_usages_resolved(config: &crate::config::AppConfig, profile_id: &str) -> Vec<Value> {
     let mut usages = Vec::new();
     if config.asr.active_profile_id.as_deref() == Some(profile_id) {
         usages.push(json!({ "kind": "transcription", "capability": CAPABILITY_SPEECH_TO_TEXT }));
@@ -472,13 +495,14 @@ pub(super) async fn profile_list(State(state): State<SettingsContext>) -> ApiRes
 }
 
 async fn profile_list_response(state: &SettingsContext) -> ApiResult<Json<Value>> {
-    let config = state.config.config.read().expect("config lock").clone();
+    let mut config = state.config.config.read().expect("config lock").clone();
+    config.resolve_model_assignments();
     let mut profiles = Vec::with_capacity(config.asr.api_profiles.len());
     for profile in &config.asr.api_profiles {
         profiles.push(
-            profile_value(profile, &config)
+            profile_value_resolved(profile, &config)
                 .await
-                .unwrap_or_else(|_| unavailable_profile_value(profile, &config)),
+                .unwrap_or_else(|_| unavailable_profile_value_resolved(profile, &config)),
         );
     }
     Ok(Json(json!({ "profiles": profiles })))

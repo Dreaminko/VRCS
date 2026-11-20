@@ -13,7 +13,7 @@ use crate::{vision_image::resize, vr_overlay::renderer::Texture};
 use std::{sync::mpsc, time::Instant};
 use tauri::{AppHandle, Manager as _};
 use vrcs_core::{
-    vision::{VisionAnswer, VisionProgress, VisionService, VisionSession},
+    vision::{VisionAnswer, VisionMode, VisionProgress, VisionService, VisionSession},
     VisionConfig, VrOcrConfig, VrOcrDisplayMode,
 };
 
@@ -22,10 +22,16 @@ enum Update {
     Finished(u64, Result<VisionAnswer, String>),
 }
 
+struct PendingCapture {
+    selection: Selection,
+    sender: tokio::sync::oneshot::Sender<Result<super::ocr_capture::EyeCapture, String>>,
+}
+
 pub struct VisionRuntime {
     service: Option<VisionService>,
     configuration: Option<VisionConfig>,
     session: Option<VisionSession>,
+    pending_capture: Option<PendingCapture>,
     image: Option<tauri::async_runtime::JoinHandle<Result<Vec<u8>, String>>>,
     task: Option<tauri::async_runtime::JoinHandle<()>>,
     started: Option<Instant>,
@@ -48,6 +54,7 @@ impl VisionRuntime {
             service: None,
             configuration: None,
             session: None,
+            pending_capture: None,
             image: None,
             task: None,
             started: None,
@@ -78,14 +85,19 @@ impl VisionRuntime {
     pub fn enabled(&self) -> bool {
         self.service
             .as_ref()
-            .is_some_and(|service| service.configuration().enabled)
+            .is_some_and(|service| service.is_enabled_for(VisionMode::Vr))
     }
 
     pub fn visible(&self) -> bool {
         self.view.is_some()
     }
+
+    pub fn capturing(&self) -> bool {
+        self.pending_capture.is_some()
+    }
+
     pub fn busy(&self) -> bool {
-        self.session.is_some() || self.task.is_some()
+        self.session.is_some() || self.task.is_some() || self.pending_capture.is_some()
     }
 
     pub fn draft(&self) -> Option<String> {
@@ -95,6 +107,7 @@ impl VisionRuntime {
     pub fn clear(&mut self) {
         self.id = self.id.wrapping_add(1);
         self.session = None;
+        self.pending_capture = None;
         if let Some(task) = self.image.take() {
             task.abort();
         }
@@ -250,37 +263,31 @@ impl VisionRuntime {
             display_mode: VrOcrDisplayMode::Wrist,
             ..VrOcrConfig::default()
         };
-        let result = backend
-            .capture_ocr(&capture_config, Some(selection))
-            .and_then(|capture| {
-                if capture.scene_pid != selection.scene_pid || capture.origin != selection.origin {
-                    return Err("Scene changed before visual capture".into());
-                }
-                capture
-                    .eyes
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| "Missing left eye capture".into())
-            });
-        let eye = match result {
-            Ok(eye) => eye,
-            Err(error) => {
-                self.fail(error);
-                return;
-            }
-        };
+        if let Err(error) = backend.begin_ocr_capture(&capture_config, Some(selection)) {
+            self.fail(error);
+            return;
+        }
         let session = match service.begin() {
             Ok(session) => session,
             Err(error) => {
+                backend.cancel_ocr_capture();
                 self.fail(error);
                 return;
             }
         };
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        self.pending_capture = Some(PendingCapture {
+            selection: selection.clone(),
+            sender,
+        });
         self.session = Some(session);
         self.started = Some(Instant::now());
         self.view = Some(Self::view("listening", "", ""));
         let selection = selection.clone();
         self.image = Some(tauri::async_runtime::spawn(async move {
+            let eye = receiver
+                .await
+                .map_err(|_| "Visual image unavailable".to_string())??;
             tauri::async_runtime::spawn_blocking(move || {
                 let image = selection.crop(&eye)?.image;
                 prepare_image(image, &config)
@@ -288,6 +295,39 @@ impl VisionRuntime {
             .await
             .map_err(|error| format!("Image encoding failed: {error}"))?
         }));
+    }
+
+    pub fn poll_capture(&mut self, backend: &mut Backend) {
+        if self.pending_capture.is_none() {
+            return;
+        }
+        match backend.poll_ocr_capture() {
+            Ok(None) => {}
+            Ok(Some(capture)) => {
+                let pending = self.pending_capture.take().expect("pending capture");
+                let eye = if capture.scene_pid != pending.selection.scene_pid
+                    || capture.origin != pending.selection.origin
+                {
+                    Err("Scene changed before visual capture".into())
+                } else {
+                    capture
+                        .eyes
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| "Missing left eye capture".into())
+                };
+                let failure = eye.as_ref().err().cloned();
+                let _ = pending.sender.send(eye);
+                if let Some(error) = failure {
+                    self.fail(error);
+                }
+            }
+            Err(error) => {
+                let pending = self.pending_capture.take().expect("pending capture");
+                let _ = pending.sender.send(Err(error.clone()));
+                self.fail(error);
+            }
+        }
     }
 
     pub fn trigger(&mut self, trigger: &TriggerUpdate) {

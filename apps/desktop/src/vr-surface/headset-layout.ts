@@ -4,7 +4,9 @@ const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 export function visibleTail(text: string, fits: (candidate: string) => boolean): string {
   if (!text || fits(text)) return text;
   if (!fits("…")) return "";
-  const starts = [...graphemes.segment(text)].map(({ index }) => index).concat(text.length);
+  const starts: number[] = [];
+  for (const { index } of graphemes.segment(text)) starts.push(index);
+  starts.push(text.length);
   let low = 0;
   let high = starts.length - 1;
   while (low < high) {

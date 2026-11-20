@@ -34,8 +34,115 @@ struct Picker {
     dpi: u32,
     start: Option<(i32, i32)>,
     end: (i32, i32),
+    last_rect: Option<RECT>,
+    cache: Option<PaintCache>,
     selected: Option<Region>,
     finished: bool,
+}
+
+struct CachedSurface {
+    dc: HDC,
+    bitmap: HBITMAP,
+    previous: HGDIOBJ,
+}
+
+impl CachedSurface {
+    unsafe fn new(screen_dc: HDC, width: i32, height: i32, pixels: Option<&[u8]>) -> Option<Self> {
+        let dc = CreateCompatibleDC(screen_dc);
+        let bitmap = CreateCompatibleBitmap(screen_dc, width, height);
+        if dc.is_null() || bitmap.is_null() {
+            if !bitmap.is_null() {
+                DeleteObject(bitmap);
+            }
+            if !dc.is_null() {
+                DeleteDC(dc);
+            }
+            return None;
+        }
+        if let Some(pixels) = pixels {
+            let info = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: width,
+                    biHeight: -height,
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB,
+                    ..zeroed()
+                },
+                ..zeroed()
+            };
+            let copied = SetDIBits(
+                dc,
+                bitmap,
+                0,
+                height as u32,
+                pixels.as_ptr().cast(),
+                &info,
+                DIB_RGB_COLORS,
+            );
+            if copied == 0 {
+                DeleteObject(bitmap);
+                DeleteDC(dc);
+                return None;
+            }
+        }
+        let previous = SelectObject(dc, bitmap);
+        Some(Self {
+            dc,
+            bitmap,
+            previous,
+        })
+    }
+}
+
+impl Drop for CachedSurface {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.dc.is_null() {
+                SelectObject(self.dc, self.previous);
+                if !self.bitmap.is_null() {
+                    DeleteObject(self.bitmap);
+                }
+                DeleteDC(self.dc);
+            }
+        }
+    }
+}
+
+struct PaintCache {
+    buffer: CachedSurface,
+    dimmed: CachedSurface,
+    bgra: CachedSurface,
+    border_brush: HBRUSH,
+    font: HFONT,
+    font_dpi: u32,
+}
+
+impl PaintCache {
+    unsafe fn font_for_dpi(&mut self, dpi: u32) -> HFONT {
+        if self.font_dpi != dpi {
+            if !self.font.is_null() {
+                DeleteObject(self.font);
+            }
+            self.font = create_hint_font(dpi);
+            self.font_dpi = dpi;
+        }
+        self.font
+    }
+}
+
+impl Drop for PaintCache {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.border_brush.is_null() {
+                DeleteObject(self.border_brush);
+            }
+            if !self.font.is_null() {
+                DeleteObject(self.font);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -121,6 +228,8 @@ pub fn select_region_reserved(
             dpi: 96,
             start: None,
             end: (0, 0),
+            last_rect: None,
+            cache: None,
             selected: None,
             finished: false,
         };
@@ -205,6 +314,91 @@ fn mouse_point(position: LPARAM) -> (i32, i32) {
     (position as i16 as i32, (position >> 16) as i16 as i32)
 }
 
+fn selection_rect(picker: &Picker) -> Option<RECT> {
+    picker
+        .start
+        .and_then(|start| Region::from_drag(start, picker.end, picker.width, picker.height))
+        .map(|region| RECT {
+            left: region.left as i32,
+            top: region.top as i32,
+            right: (region.left + region.width) as i32,
+            bottom: (region.top + region.height) as i32,
+        })
+}
+
+fn rect_intersect(a: RECT, b: RECT) -> Option<RECT> {
+    let rect = RECT {
+        left: a.left.max(b.left),
+        top: a.top.max(b.top),
+        right: a.right.min(b.right),
+        bottom: a.bottom.min(b.bottom),
+    };
+    (rect.left < rect.right && rect.top < rect.bottom).then_some(rect)
+}
+
+fn dirty_union_inflated(
+    a: Option<RECT>,
+    b: Option<RECT>,
+    pad: i32,
+    width: i32,
+    height: i32,
+) -> Option<RECT> {
+    let rect = match (a, b) {
+        (Some(a), Some(b)) => RECT {
+            left: a.left.min(b.left),
+            top: a.top.min(b.top),
+            right: a.right.max(b.right),
+            bottom: a.bottom.max(b.bottom),
+        },
+        (Some(r), None) | (None, Some(r)) => r,
+        (None, None) => return None,
+    };
+    rect_intersect(
+        RECT {
+            left: rect.left.saturating_sub(pad),
+            top: rect.top.saturating_sub(pad),
+            right: rect.right.saturating_add(pad),
+            bottom: rect.bottom.saturating_add(pad),
+        },
+        RECT {
+            left: 0,
+            top: 0,
+            right: width,
+            bottom: height,
+        },
+    )
+}
+
+fn hint_rect_for(picker: &Picker) -> RECT {
+    let scale = |value: i32| value * picker.dpi as i32 / 96;
+    RECT {
+        left: scale(16),
+        top: scale(16),
+        right: picker.width as i32 - scale(16),
+        bottom: scale(80),
+    }
+}
+
+unsafe fn create_hint_font(dpi: u32) -> HFONT {
+    let scale = |value: i32| value * dpi as i32 / 96;
+    CreateFontW(
+        -scale(18),
+        0,
+        0,
+        0,
+        FW_NORMAL as i32,
+        0,
+        0,
+        0,
+        DEFAULT_CHARSET as u32,
+        OUT_DEFAULT_PRECIS as u32,
+        CLIP_DEFAULT_PRECIS as u32,
+        CLEARTYPE_QUALITY as u32,
+        DEFAULT_PITCH as u32,
+        windows_sys::core::w!("Segoe UI"),
+    )
+}
+
 unsafe extern "system" fn window_proc(
     window: HWND,
     message: u32,
@@ -225,14 +419,26 @@ unsafe extern "system" fn window_proc(
         WM_LBUTTONDOWN => {
             (*picker).start = Some(mouse_point(lparam));
             (*picker).end = mouse_point(lparam);
+            (*picker).last_rect = None;
             SetCapture(window);
             InvalidateRect(window, null(), 0);
             0
         }
         WM_MOUSEMOVE => {
             if (*picker).start.is_some() {
+                let prev = (*picker).last_rect;
                 (*picker).end = mouse_point(lparam);
-                InvalidateRect(window, null(), 0);
+                let curr = selection_rect(&*picker);
+                (*picker).last_rect = curr;
+                if let Some(dirty) = dirty_union_inflated(
+                    prev,
+                    curr,
+                    2,
+                    (*picker).width as i32,
+                    (*picker).height as i32,
+                ) {
+                    InvalidateRect(window, &dirty, 0);
+                }
             }
             0
         }
@@ -245,6 +451,7 @@ unsafe extern "system" fn window_proc(
                     (*picker).height,
                 );
                 (*picker).finished = (*picker).selected.is_some();
+                (*picker).last_rect = None;
                 ReleaseCapture();
                 InvalidateRect(window, null(), 0);
             }
@@ -252,6 +459,7 @@ unsafe extern "system" fn window_proc(
         }
         WM_CAPTURECHANGED => {
             (*picker).start = None;
+            (*picker).last_rect = None;
             InvalidateRect(window, null(), 0);
             0
         }
@@ -279,7 +487,7 @@ unsafe extern "system" fn window_proc(
         }
         WM_ERASEBKGND => 1,
         WM_PAINT => {
-            paint(window, &*picker);
+            paint(window, &mut *picker);
             0
         }
         WM_NCDESTROY => {
@@ -290,10 +498,119 @@ unsafe extern "system" fn window_proc(
     }
 }
 
-unsafe fn paint(window: HWND, picker: &Picker) {
+unsafe fn ensure_paint_cache(dc: HDC, picker: &mut Picker) -> Option<&mut PaintCache> {
+    if picker.cache.is_none() {
+        let (width, height) = (picker.width as i32, picker.height as i32);
+        let buffer = CachedSurface::new(dc, width, height, None)?;
+        let dimmed = CachedSurface::new(dc, width, height, Some(&picker.dimmed))?;
+        let bgra = CachedSurface::new(dc, width, height, Some(&picker.bgra))?;
+        let border_brush = CreateSolidBrush(0x00f0bf80);
+        if border_brush.is_null() {
+            return None;
+        }
+        let font = create_hint_font(picker.dpi);
+        picker.cache = Some(PaintCache {
+            buffer,
+            dimmed,
+            bgra,
+            border_brush,
+            font,
+            font_dpi: picker.dpi,
+        });
+        picker.bgra = Vec::new();
+        picker.dimmed = Vec::new();
+    }
+    picker.cache.as_mut()
+}
+
+unsafe fn paint_cached_dirty(dc: HDC, picker: &mut Picker, dirty: RECT) -> bool {
+    let selection = selection_rect(picker);
+    let hint_empty = picker.hint.is_empty();
+    let hint_box = hint_rect_for(picker);
+    let dpi = picker.dpi;
+    let Some(cache) = ensure_paint_cache(dc, picker) else {
+        return false;
+    };
+    let buf_dc = cache.buffer.dc;
+    let dirty_w = dirty.right - dirty.left;
+    let dirty_h = dirty.bottom - dirty.top;
+    BitBlt(
+        buf_dc,
+        dirty.left,
+        dirty.top,
+        dirty_w,
+        dirty_h,
+        cache.dimmed.dc,
+        dirty.left,
+        dirty.top,
+        SRCCOPY,
+    );
+    if let Some(rect) = selection {
+        let saved = SaveDC(buf_dc);
+        IntersectClipRect(buf_dc, dirty.left, dirty.top, dirty.right, dirty.bottom);
+        if let Some(hit) = rect_intersect(rect, dirty) {
+            BitBlt(
+                buf_dc,
+                hit.left,
+                hit.top,
+                hit.right - hit.left,
+                hit.bottom - hit.top,
+                cache.bgra.dc,
+                hit.left,
+                hit.top,
+                SRCCOPY,
+            );
+        }
+        FrameRect(buf_dc, &rect, cache.border_brush);
+        RestoreDC(buf_dc, saved);
+    }
+    if !hint_empty && rect_intersect(hint_box, dirty).is_some() {
+        let saved = SaveDC(buf_dc);
+        IntersectClipRect(buf_dc, dirty.left, dirty.top, dirty.right, dirty.bottom);
+        let font = cache.font_for_dpi(dpi);
+        let previous = SelectObject(
+            buf_dc,
+            if font.is_null() {
+                GetStockObject(DEFAULT_GUI_FONT)
+            } else {
+                font
+            },
+        );
+        SetBkMode(buf_dc, TRANSPARENT as i32);
+        SetTextColor(buf_dc, 0x00ffffff);
+        let mut text_rect = hint_box;
+        DrawTextW(
+            buf_dc,
+            picker.hint.as_ptr(),
+            picker.hint.len() as i32,
+            &mut text_rect,
+            DT_CENTER | DT_WORDBREAK | DT_NOPREFIX,
+        );
+        SelectObject(buf_dc, previous);
+        RestoreDC(buf_dc, saved);
+    }
+    BitBlt(
+        dc, dirty.left, dirty.top, dirty_w, dirty_h, buf_dc, dirty.left, dirty.top, SRCCOPY,
+    );
+    true
+}
+
+unsafe fn paint(window: HWND, picker: &mut Picker) {
     let mut paint: PAINTSTRUCT = zeroed();
     let dc = BeginPaint(window, &mut paint);
-    paint_buffered_frame(dc, picker);
+    if let Some(dirty) = rect_intersect(
+        paint.rcPaint,
+        RECT {
+            left: 0,
+            top: 0,
+            right: picker.width as i32,
+            bottom: picker.height as i32,
+        },
+    ) {
+        if !paint_cached_dirty(dc, picker, dirty) {
+            paint_buffered_frame(dc, picker);
+        }
+    }
     EndPaint(window, &paint);
 }
 
@@ -464,6 +781,8 @@ mod tests {
                     dpi: 96,
                     start: Some((20, 70)),
                     end: (80, 90),
+                    last_rect: None,
+                    cache: None,
                     selected: None,
                     finished: false,
                 };
@@ -503,6 +822,8 @@ mod tests {
                 dpi: 96,
                 start: None,
                 end: (0, 0),
+                last_rect: None,
+                cache: None,
                 selected: None,
                 finished: false,
             };
@@ -585,6 +906,8 @@ mod tests {
                 dpi: 96,
                 start: Some((20, 70)),
                 end: (80, 90),
+                last_rect: None,
+                cache: None,
                 selected: None,
                 finished: false,
             };

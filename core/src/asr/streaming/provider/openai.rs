@@ -6,8 +6,8 @@ use crate::config::AsrConfig;
 use crate::providers::SERVICE_OPENAI_REALTIME;
 
 use super::{
-    authenticated_request, event_language, pcm16_base64, resample_16k_to_24k, service_settings,
-    CloudEvent, NormalizationState,
+    append_pcm16_base64, authenticated_request, event_language, resample_16k_to_24k,
+    service_settings, CloudEvent, NormalizationState,
 };
 
 const REALTIME_SESSION_URL: &str = "wss://api.openai.com/v1/realtime?intent=transcription";
@@ -112,14 +112,13 @@ pub(super) fn normalize_event(
 }
 
 pub(super) fn audio_message(samples: &[f32]) -> Message {
-    Message::Text(
-        json!({
-            "type": "input_audio_buffer.append",
-            "audio": pcm16_base64(&resample_16k_to_24k(samples)),
-        })
-        .to_string()
-        .into(),
-    )
+    let resampled = resample_16k_to_24k(samples);
+    let b64_len = (resampled.len() * 2).div_ceil(3) * 4;
+    let mut out = String::with_capacity(64 + b64_len);
+    out.push_str("{\"type\":\"input_audio_buffer.append\",\"audio\":\"");
+    append_pcm16_base64(&resampled, &mut out);
+    out.push_str("\"}");
+    Message::Text(out.into())
 }
 
 pub(super) fn commit_message() -> Message {

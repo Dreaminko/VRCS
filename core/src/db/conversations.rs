@@ -343,8 +343,12 @@ pub(super) fn initialize_conversations(conn: &Connection) -> AppResult<()> {
     Ok(())
 }
 
-pub(super) fn active_conversation_id(conn: &Connection) -> AppResult<String> {
-    Ok(active_conversation(conn)?.id)
+pub(super) fn active_conversation_title_state(conn: &Connection) -> AppResult<(String, bool)> {
+    Ok(conn.query_row(
+        "SELECT id, automatic_title IS NULL FROM conversations WHERE ended_at IS NULL",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?)
 }
 
 pub(super) fn reset_after_history_clear(conn: &Connection) -> AppResult<()> {

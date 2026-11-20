@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { Globe2, LoaderCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { subtitleVisible } from "../player-history";
+import { useLanguageDetectorReady } from "../usePlayerHistoryPreferences";
 
 import type { LookupOrigin } from "../../app/app-types";
 import {
@@ -74,8 +75,9 @@ export const LiveView = memo(function LiveView({
   focusedSubtitleId?: number | null;
 }) {
   const { t } = useTranslation();
+  const languageDetectorReady = useLanguageDetectorReady();
   const chronological = useMemo(() => [...subtitles].reverse().filter((subtitle) =>
-    subtitleVisible(subtitle, hiddenTracks, hiddenSourceLanguages)), [subtitles, hiddenTracks, hiddenSourceLanguages]);
+    subtitleVisible(subtitle, hiddenTracks, hiddenSourceLanguages)), [subtitles, hiddenTracks, hiddenSourceLanguages, languageDetectorReady]);
   const selectableIds = useMemo(
     () => chronological.flatMap((subtitle) => (
       subtitle.id === null || subtitle.source === "world" ? [] : [subtitle.id]
@@ -201,7 +203,6 @@ export const LiveView = memo(function LiveView({
                 subtitle={subtitle}
                 focused={subtitle.id === focusedSubtitleId}
                 selected={selected}
-                selectionActive={selectedIds.size > 0}
                 selection={selected && selectedSubtitles.length > 1 ? selectedSubtitles : null}
                 onClearSelection={clearSelection}
                 onSelect={onSelect}

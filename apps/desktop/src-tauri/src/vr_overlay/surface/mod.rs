@@ -27,7 +27,6 @@ use crate::vr_overlay::surface_protocol::{
     reader_identity, DocumentSession, HostId, ReaderIdentity, SurfaceActivity, SurfaceEvent,
     SurfaceId, SurfaceKey, SurfaceLayout, SurfacePointer, SurfaceScroll, SurfaceState, SurfaceView,
 };
-#[cfg(windows)]
 use std::sync::Arc;
 use std::{
     cell::RefCell,
@@ -68,8 +67,8 @@ struct Entry {
     navigation_id: u64,
     document: Option<DocumentSession>,
     state: Option<SurfaceState>,
-    layout: Option<SurfaceLayout>,
-    displayed_layout: Option<SurfaceLayout>,
+    layout: Option<Arc<SurfaceLayout>>,
+    displayed_layout: Option<Arc<SurfaceLayout>>,
     displayed_scroll_key: Option<SurfaceKey>,
     submitted: Option<SurfaceKey>,
     endpoint: Option<endpoint::CaptureEndpoint>,
@@ -189,7 +188,22 @@ impl Entry {
         true
     }
 
+    #[cfg(all(windows, any(test, all(debug_assertions, feature = "vr-preview"))))]
     fn publish(&mut self, view: SurfaceView, hovered: Option<u8>, pressed: Option<u8>) -> bool {
+        let changed = self
+            .state
+            .as_ref()
+            .is_none_or(|state| !state.view.same_layout(&view));
+        self.publish_with_content_changed(view, hovered, pressed, changed)
+    }
+
+    fn publish_with_content_changed(
+        &mut self,
+        view: SurfaceView,
+        hovered: Option<u8>,
+        pressed: Option<u8>,
+        changed: bool,
+    ) -> bool {
         if matches!(
             self.recovery.phase,
             recovery::Phase::Failed | recovery::Phase::Closing
@@ -197,10 +211,6 @@ impl Entry {
             return false;
         }
         // Hold progress changes pixels without invalidating the menu's hit regions.
-        let changed = self
-            .state
-            .as_ref()
-            .is_none_or(|state| !state.view.same_layout(&view));
         let feedback = changed
             || self.state.as_ref().is_some_and(|state| {
                 state.hovered != hovered
@@ -366,7 +376,7 @@ impl Entry {
                 return Err("Unknown OCR overflow block".into());
             }
         }
-        self.layout = Some(layout);
+        self.layout = Some(Arc::new(layout));
         Ok(true)
     }
 
@@ -605,7 +615,7 @@ impl Entry {
         true
     }
 
-    fn active_layout(&self) -> Option<&SurfaceLayout> {
+    fn active_layout(&self) -> Option<&Arc<SurfaceLayout>> {
         self.layout.as_ref().filter(|layout| {
             self.active
                 && self.error.is_none()
@@ -630,7 +640,7 @@ impl Entry {
         .then_some(state.scroll_key)
     }
 
-    fn pointer_layout(&self) -> Option<&SurfaceLayout> {
+    fn pointer_layout(&self) -> Option<&Arc<SurfaceLayout>> {
         // Keep the contour of the visible texture while new pixels and hit regions are pending.
         self.displayed_layout.as_ref().filter(|layout| {
             self.active
@@ -669,14 +679,31 @@ pub(super) struct PendingFrame {
 pub struct SurfaceHub(Mutex<[Entry; 10]>);
 
 impl SurfaceHub {
-    #[cfg(windows)]
-    pub(super) fn progress_animating(&self) -> bool {
+    pub(super) fn needs_surface_maintenance(&self) -> bool {
         let entries = self.0.lock().unwrap_or_else(|error| error.into_inner());
-        let entry = &entries[SurfaceId::OcrProgress.index()];
-        entry.active
-            && matches!(entry.state.as_ref().map(|state| &state.view),
-                Some(SurfaceView::OcrProgress { progress: Some(progress), .. })
-                    if progress.stages.contains(&Stage::Active))
+        entries
+            .iter()
+            .any(|entry| entry.active || entry.endpoint.is_some())
+    }
+
+    pub(super) fn needs_fast_tick(&self) -> bool {
+        let entries = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        #[cfg(windows)]
+        let progress_animating = {
+            let progress = &entries[SurfaceId::OcrProgress.index()];
+            progress.active
+                && matches!(
+                    progress.state.as_ref().map(|state| &state.view),
+                    Some(SurfaceView::OcrProgress { progress: Some(progress), .. })
+                        if progress.stages.contains(&Stage::Active)
+                )
+        };
+        #[cfg(not(windows))]
+        let progress_animating = false;
+        progress_animating
+            || entries
+                .iter()
+                .any(|entry| entry.active && (!entry.has_frame || entry.needs_paint()))
     }
 
     fn submit_frame(
@@ -809,13 +836,13 @@ impl SurfaceHub {
             == recovery::Phase::Failed
     }
 
-    pub fn layout(&self, surface: SurfaceId) -> Option<SurfaceLayout> {
+    pub fn layout(&self, surface: SurfaceId) -> Option<Arc<SurfaceLayout>> {
         self.0.lock().ok()?[surface.index()]
             .active_layout()
             .cloned()
     }
 
-    pub fn pointer_layout(&self, surface: SurfaceId) -> Option<SurfaceLayout> {
+    pub fn pointer_layout(&self, surface: SurfaceId) -> Option<Arc<SurfaceLayout>> {
         self.0.lock().ok()?[surface.index()]
             .pointer_layout()
             .cloned()
@@ -922,7 +949,8 @@ impl SurfaceHub {
                 // present runs on every business tick with the latest view, including the final result.
                 return Ok(None);
             }
-            let changed = entry.publish(view, hovered, pressed);
+            let changed =
+                entry.publish_with_content_changed(view, hovered, pressed, content_changed);
             if changed && entry.active {
                 entry.last_publish = Some(Instant::now());
                 if metrics::enabled() {
@@ -1045,15 +1073,45 @@ impl SurfaceRenderer {
             self.visible_frame = false;
             self.capture_fault = None;
             self.pending_action = None;
-            if let Err(error) = hub.set_active(app, self.surface, false) {
-                tracing::warn!(surface = self.surface.name(), %error, "Surface sleep failed");
-            }
-            let (cold, release_host) = {
-                let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
-                let entry = &entries[self.surface.index()];
-                let cold = entry.cold(self.surface, Instant::now());
-                (cold, cold && entry.endpoint.is_some())
+            let now = Instant::now();
+            let (activity_request, cold, release_host) = {
+                let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                let entry = &mut entries[self.surface.index()];
+                let activity_request = entry
+                    .set_active(false, now)
+                    .then_some((entry.host_epoch, entry.activity()));
+                let cold = entry.cold(self.surface, now);
+                let release_host = cold && entry.endpoint.is_some();
+                if activity_request.is_none() && !release_host && (!cold || self.capture.is_none())
+                {
+                    let state = if entry.endpoint.is_some() {
+                        "warm_hidden"
+                    } else {
+                        "dormant"
+                    };
+                    entry.metrics.report(
+                        self.surface.name(),
+                        state,
+                        entry.endpoint.is_some(),
+                        self.capture
+                            .as_ref()
+                            .is_some_and(|capture| capture.borrow().active()),
+                    );
+                    return;
+                }
+                (activity_request, cold, release_host)
             };
+            if let Some((epoch, activity)) = activity_request {
+                if let Err(error) = app.state::<NativeHostManager>().set_activity(
+                    HostId {
+                        surface: self.surface,
+                        host_epoch: epoch,
+                    },
+                    activity,
+                ) {
+                    tracing::warn!(surface = self.surface.name(), %error, "Surface sleep failed");
+                }
+            }
             if cold && self.capture.is_some() {
                 // Keep textures alive if OpenVR refuses to detach its reference.
                 let detached =
@@ -1192,6 +1250,10 @@ impl SurfaceRenderer {
         self.published_key.is_some()
             && self.published_key == self.retained_key
             && self.fade_frame_ready(&entries[self.surface.index()])
+    }
+
+    pub fn has_published_key(&self) -> bool {
+        self.published_key.is_some()
     }
 
     pub fn hold_for_fade(&mut self, app: &AppHandle, backend: &Backend, kind: OverlayKind) -> bool {
@@ -2804,7 +2866,8 @@ mod tests {
             .is_some());
         let mut value = hub.0.lock().unwrap()[surface.index()]
             .layout
-            .clone()
+            .as_deref()
+            .cloned()
             .unwrap();
         value.capture_bounds = Some([200, 200, 600, 600]);
         assert!(hub

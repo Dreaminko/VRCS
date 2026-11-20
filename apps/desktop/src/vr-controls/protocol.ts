@@ -23,6 +23,7 @@ export interface ControlItem {
   busy: boolean;
   label: string;
   reason: string | null;
+  hidden?: boolean;
 }
 
 export interface ControlSnapshot {

@@ -4,10 +4,17 @@ import { classifyChanges } from "./ci-changes.mjs";
 
 for (const [file, rust, frontend] of [
   ["README.md", false, false],
+  ["Cargo.toml", true, false],
+  ["Cargo.lock", true, false],
   ["core/src/lib.rs", true, false],
   ["crates/player-audio-scan/src/lib.rs", true, false],
+  ["crates/player-audio-helper/src/lib.rs", true, false],
+  ["scripts/run-tauri.ps1", true, false],
+  ["scripts/run-tauri.mjs", true, false],
   ["packaging/linux/app.vrcs.network-capture.policy", true, false],
   ["packaging/linux/postinst", true, false],
+  ["scripts/dev-vr.mjs", false, true],
+  ["scripts/dev-vr.test.mjs", false, true],
   ["apps/desktop/src/App.tsx", false, true],
   ["apps/desktop/src-tauri/src/lib.rs", true, true],
   ...["ci", "preview", "release"].map((name) => [`.github/workflows/${name}.yml`, true, true]),

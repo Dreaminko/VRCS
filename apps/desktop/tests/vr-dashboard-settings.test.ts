@@ -229,8 +229,35 @@ test("VR position adjustments use desktop steps and clamp every coordinate and r
   assert.equal(applyVrDashboardAction(settings, { adjust_display_position: { kind: "headset", field: "offset_z_m", direction: 1 } }), settings);
   assert.equal(applyVrDashboardAction(settings, { adjust_display_position: { kind: "wrist", field: "distance_m", direction: 1 } }), settings);
   assert.equal(applyVrDashboardAction(settings, { adjust_display_position: { kind: "headset", field: "pitch_deg", direction: 2 } }), settings);
+  assert.equal(applyVrDashboardAction(settings, { adjust_display_position: { kind: "headset", field: "offset_x_m", direction: 1, coarse: true } }).vr_overlay.headset.offset_x_m, 0.05);
+  assert.equal(applyVrDashboardAction(settings, { adjust_display_position: { kind: "headset", field: "pitch_deg", direction: 1, coarse: true } }).vr_overlay.headset.pitch_deg, -3);
   assert.equal(applyVrDashboardAction(settings, "headset_width_up").vr_overlay.headset.width_m, 1.25);
   assert.equal(applyVrDashboardAction(settings, "wrist_width_up").vr_overlay.wrist.width_m, 0.33);
+});
+
+test("dashboard appearance adjustments and wrist follow-view toggle clamp and respect anchor mode", () => {
+  const font = applyVrDashboardAction(settings, { adjust_display_appearance: { kind: "headset", field: "font_size_px", direction: 1 } });
+  assert.equal(font.vr_overlay.headset.font_size_px, 55);
+  const fontCoarse = applyVrDashboardAction(settings, { adjust_display_appearance: { kind: "headset", field: "font_size_px", direction: 1, coarse: true } });
+  assert.equal(fontCoarse.vr_overlay.headset.font_size_px, 59);
+  const opacity = applyVrDashboardAction(font, { adjust_display_appearance: { kind: "wrist", field: "opacity", direction: -1 } });
+  assert.equal(opacity.vr_overlay.wrist.opacity, 0.89);
+  const opacityCoarse = applyVrDashboardAction(settings, { adjust_display_appearance: { kind: "wrist", field: "opacity", direction: -1, coarse: true } });
+  assert.equal(opacityCoarse.vr_overlay.wrist.opacity, 0.84);
+  const widthCoarse = applyVrDashboardAction(settings, { adjust_display_appearance: { kind: "headset", field: "width_m", direction: 1, coarse: true } });
+  assert.equal(widthCoarse.vr_overlay.headset.width_m, 1.35);
+  assert.equal(
+    applyVrDashboardAction(settings, { adjust_display_appearance: { kind: "wrist", field: "background_opacity" as never, direction: -1 } }),
+    settings,
+  );
+  const clamped = applyVrDashboardAction(
+    { ...settings, vr_overlay: { ...settings.vr_overlay, wrist: { ...settings.vr_overlay.wrist, font_size_px: 19 } } },
+    { adjust_display_appearance: { kind: "wrist", field: "font_size_px", direction: -1, coarse: true } },
+  );
+  assert.equal(clamped.vr_overlay.wrist.font_size_px, 18);
+  assert.equal(applyVrDashboardAction(settings, "toggle_wrist_follow_view"), settings);
+  const world = { ...settings, vr_overlay: { ...settings.vr_overlay, wrist: { ...settings.vr_overlay.wrist, anchor_mode: "world" as const } } };
+  assert.equal(applyVrDashboardAction(world, "toggle_wrist_follow_view").vr_overlay.wrist.follow_view, true);
 });
 
 test("restoring VR position preserves visibility, appearance, sources and the other overlay", () => {

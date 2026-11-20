@@ -306,7 +306,8 @@ impl Device {
             return Err("Invalid mapped mirror row pitch".into());
         }
         let row_bytes = staging.width as usize * 4;
-        let mut pixels = Vec::with_capacity(row_bytes * staging.height as usize);
+        let mut pixels = vec![0u8; row_bytes * staging.height as usize];
+        let bgra = readback.bgra;
         for row in 0..staging.height as usize {
             let data = unsafe {
                 std::slice::from_raw_parts(
@@ -317,16 +318,29 @@ impl Device {
                     row_bytes,
                 )
             };
-            pixels.extend_from_slice(data);
+            let dst = &mut pixels[row * row_bytes..(row + 1) * row_bytes];
+            if bgra {
+                for (pixel, out) in data
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(dst.as_chunks_mut::<4>().0)
+                {
+                    *out = [pixel[2], pixel[1], pixel[0], 255];
+                }
+            } else {
+                for (pixel, out) in data
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(dst.as_chunks_mut::<4>().0)
+                {
+                    *out = [pixel[0], pixel[1], pixel[2], 255];
+                }
+            }
         }
         unsafe {
             unmap(self.context.0, staging.texture.0, 0);
-        }
-        for pixel in pixels.as_chunks_mut::<4>().0 {
-            if readback.bgra {
-                pixel.swap(0, 2);
-            }
-            pixel[3] = 255;
         }
         Ok(Some(Texture {
             width: staging.width,

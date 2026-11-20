@@ -10,6 +10,7 @@ import type { Settings } from "./types";
 
 export type VrOverlayDisplayKind = "headset" | "wrist";
 export type VrOverlayPositionField = "offset_x_m" | "offset_y_m" | "offset_z_m" | "distance_m" | "pitch_deg" | "yaw_deg" | "roll_deg";
+export type VrOverlayAppearanceField = "width_m" | "opacity" | "font_size_px";
 
 export const VR_OVERLAY_POSITION_RANGES = {
   headset: {
@@ -30,16 +31,45 @@ export const VR_OVERLAY_POSITION_RANGES = {
   },
 } as const;
 
-export function adjustVrOverlayPosition(settings: Settings, kind: VrOverlayDisplayKind, field: VrOverlayPositionField, direction: number): Settings {
+export const VR_OVERLAY_APPEARANCE_RANGES = {
+  headset: {
+    width_m: { min: 0.25, max: 3, step: 0.05, coarseStep: 0.15 },
+    opacity: { min: 0.1, max: 1, step: 0.05, coarseStep: 0.1 },
+    font_size_px: { min: 24, max: 96, step: 1 },
+  },
+  wrist: {
+    width_m: { min: 0.1, max: 1, step: 0.01 },
+    opacity: { min: 0.1, max: 1, step: 0.05, coarseStep: 0.1 },
+    font_size_px: { min: 18, max: 72, step: 1 },
+  },
+} as const;
+
+function adjustVrOverlayField(
+  settings: Settings,
+  kind: VrOverlayDisplayKind,
+  ranges: Partial<Record<string, { min: number; max: number; step: number; coarseStep?: number }>>,
+  field: string,
+  direction: number,
+  coarse: boolean,
+): Settings {
   if ((kind !== "headset" && kind !== "wrist") || ![-1, 1].includes(direction)) return settings;
-  const ranges: Partial<Record<VrOverlayPositionField, { min: number; max: number; step: number }>> = VR_OVERLAY_POSITION_RANGES[kind];
   const range = ranges[field];
   if (!range) return settings;
   const current = (settings.vr_overlay[kind] as unknown as Record<string, unknown>)[field];
   if (typeof current !== "number" || !Number.isFinite(current)) return settings;
-  const value = Math.round(Math.min(range.max, Math.max(range.min, current + direction * range.step)) * 100) / 100;
+  const step = coarse ? (range.coarseStep ?? range.step * 5) : range.step;
+  const clamped = Math.min(range.max, Math.max(range.min, current + direction * step));
+  const value = range.step >= 1 ? Math.round(clamped) : Math.round(clamped * 100) / 100;
   if (current === value) return settings;
   return kind === "headset" ? patchVrOverlayHeadset(settings, { [field]: value }) : patchVrOverlayWrist(settings, { [field]: value });
+}
+
+export function adjustVrOverlayPosition(settings: Settings, kind: VrOverlayDisplayKind, field: VrOverlayPositionField, direction: number, coarse = false): Settings {
+  return adjustVrOverlayField(settings, kind, VR_OVERLAY_POSITION_RANGES[kind], field, direction, coarse);
+}
+
+export function adjustVrOverlayAppearance(settings: Settings, kind: VrOverlayDisplayKind, field: VrOverlayAppearanceField, direction: number, coarse = false): Settings {
+  return adjustVrOverlayField(settings, kind, VR_OVERLAY_APPEARANCE_RANGES[kind], field, direction, coarse);
 }
 
 export function resetVrOverlayPosition(settings: Settings, kind: VrOverlayDisplayKind): Settings {

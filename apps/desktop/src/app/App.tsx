@@ -15,6 +15,11 @@ import { PlayerAudioStartDialog } from "../capture/PlayerAudioStartDialog";
 import { MemoryCompressionDialog } from "../capture/MemoryCompressionControls";
 import { PlatformCapabilitiesContext } from "../core-client/capabilities";
 
+function VrPlayerDisplayBridge({ epoch, workspace }: { epoch: number; workspace: ReturnType<typeof useAppWorkspace> }) {
+  useVrPlayerDisplayBridge(epoch, workspace);
+  return null;
+}
+
 function App() {
   const [page, setPage] = useState<Page>("live");
   const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>("system");
@@ -37,7 +42,6 @@ function App() {
     playerAudioStatus: workspace.runtime.health?.player_audio,
     chatboxStatus: workspace.runtime.health?.vrchat_chatbox,
   });
-  useVrPlayerDisplayBridge(controlEpoch, workspace);
   useVrDashboardBridge(workspace.settings.value, workspace.settings.update, workspace.providers.catalog.profiles, {
     playerAudio: workspace.runtime.health?.player_audio,
     running: workspace.runtime.health?.capture_requested ?? false,
@@ -90,6 +94,7 @@ function App() {
 
   return (
     <PlatformCapabilitiesContext.Provider value={workspace.runtime.capabilities}>
+      {controlEpoch > 0 && <VrPlayerDisplayBridge epoch={controlEpoch} workspace={workspace} />}
       {view}
       {workspace.capture.playerAudioStart.notice && <PlayerAudioStartDialog
         openedAt={workspace.capture.playerAudioStart.notice.openedAt} onDecision={workspace.capture.playerAudioStart.decide} />}

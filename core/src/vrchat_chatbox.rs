@@ -90,6 +90,7 @@ pub(crate) struct ChatboxConsumer {
     dispatcher: TranslationDispatcher,
     config: Arc<RwLock<AppConfig>>,
     language_session: Arc<RwLock<ActiveLanguageSession>>,
+    room_context: crate::room_context::RoomContextReader,
 }
 
 #[cfg(any(windows, target_os = "linux", test))]
@@ -109,7 +110,17 @@ impl ChatboxConsumer {
             dispatcher,
             config,
             language_session,
+            room_context: crate::room_context::RoomContextReader::default(),
         }
+    }
+
+    #[cfg(any(windows, target_os = "linux"))]
+    pub(crate) fn with_room_context(
+        mut self,
+        room_context: crate::room_context::RoomContextReader,
+    ) -> Self {
+        self.room_context = room_context;
+        self
     }
 
     #[cfg(any(windows, target_os = "linux"))]
@@ -159,6 +170,7 @@ impl ChatboxConsumer {
             created_at: message.received_at,
             translations: Vec::new(),
         };
+        let context_scope_id = self.room_context.snapshot().scope_id;
         let saved = tokio::task::spawn_blocking({
             let database = Arc::clone(&self.database);
             let validity = validity.clone();
@@ -170,7 +182,7 @@ impl ChatboxConsumer {
                 validity
                     .with_current(|| {
                         database
-                            .add_subtitle(&subtitle)
+                            .add_subtitle_in_scope(&subtitle, context_scope_id.as_deref(), None)
                             .map_err(|error| error.to_string())
                     })
                     .transpose()

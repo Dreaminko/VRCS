@@ -401,7 +401,7 @@
         "languagesTab": "隐藏语言",
         "groups": "人员列表",
         "historySaved": "历史记录",
-        "processingUnavailable": "距离筛选需要分玩家音轨和已连接的 Core。",
+        "processingUnavailable": "距离筛选和视野优先需要分玩家音轨和已连接的 Core。",
         "unavailable": "请打开 VRCS 主窗口以使用这些设置。",
         "savedSelection": "已保存的选择",
         "userIdPending": "等待玩家用户 ID，暂不能选择",
@@ -940,7 +940,14 @@
         "confirmDelete": "确认删除",
         "deleteHint": "删除后无法撤销。",
         "positionHint": "左右 / 上下 / 远近 · 单位：米",
-        "rotationHint": "俯仰 / 偏航 / 翻滚 · 单位：度"
+        "rotationHint": "俯仰 / 偏航 / 翻滚 · 单位：度",
+        "back": "返回",
+        "preferred": "首选",
+        "masterOffBanner": "VR Overlay 总开关已关闭，头显与手腕字幕暂不显示。",
+        "recognitionLocked": "由实时翻译服务自动识别",
+        "translationOffHint": "当前翻译模式为关闭，目标语言暂不生效。",
+        "deletePresetTitle": "删除语言预设",
+        "noPresets": "暂无已保存预设"
       },
       "ocr": {
         "enable": "启用 OCR",
@@ -2035,6 +2042,16 @@
             "streaming": "正在接收 VRChat Chatbox",
             "failed": "Chatbox 接收因错误停止"
           }
+        },
+        "roomContext": {
+          "title": "上下文优化",
+          "description": "使用当前 VRChat 世界名与房间成员名称提升语音识别和翻译准确度。未开启网络采集时可通过本地日志获取世界名与房间历史隔离，开启网络采集后可进一步获取成员名单与发言人。",
+          "asr": "加入语音识别（ASR）上下文",
+          "asrDescription": "在支持上下文或热词的识别服务中注入当前世界名与玩家名。",
+          "translation": "加入翻译模型上下文",
+          "translationDescription": "按房间隔离翻译历史，并向翻译模型提供当前世界与成员参考信息。",
+          "worldName": "包含世界名",
+          "worldNameDescription": "启用房间上下文时附带当前所在 VRChat 世界名。"
         }
       },
       "modelAssignments": {

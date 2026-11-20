@@ -3,6 +3,7 @@ use crate::desktop_capture::image::{encode_png, Image};
 pub(crate) trait ImageSource {
     fn dimensions(&self) -> (u32, u32);
     fn pixels(&self) -> &[u8];
+    fn into_image(self) -> Image;
 }
 impl ImageSource for Image {
     fn dimensions(&self) -> (u32, u32) {
@@ -10,6 +11,9 @@ impl ImageSource for Image {
     }
     fn pixels(&self) -> &[u8] {
         &self.pixels
+    }
+    fn into_image(self) -> Image {
+        self
     }
 }
 #[cfg(windows)]
@@ -20,25 +24,34 @@ impl ImageSource for crate::vr_overlay::renderer::Texture {
     fn pixels(&self) -> &[u8] {
         &self.pixels
     }
+    fn into_image(self) -> Image {
+        Image {
+            width: self.width,
+            height: self.height,
+            pixels: self.pixels,
+        }
+    }
 }
 use vrcs_core::VisionConfig;
 
 pub(crate) fn resize(source: &impl ImageSource, max_edge: u32) -> Image {
-    let (width, height) = source.dimensions();
-    let image = Image {
-        width,
-        height,
-        pixels: Vec::new(),
-    };
-    let scale = (max_edge.max(1) as f64 / image.width.max(image.height) as f64).min(1.0);
-    let width = (image.width as f64 * scale).floor().max(1.0) as u32;
-    let height = (image.height as f64 * scale).floor().max(1.0) as u32;
+    let (source_width, source_height) = source.dimensions();
+    let scale = (max_edge.max(1) as f64 / source_width.max(source_height) as f64).min(1.0);
+    let width = (source_width as f64 * scale).floor().max(1.0) as u32;
+    let height = (source_height as f64 * scale).floor().max(1.0) as u32;
+    if width == source_width && height == source_height {
+        return Image {
+            width,
+            height,
+            pixels: source.pixels().to_vec(),
+        };
+    }
     let mut pixels = vec![0; width as usize * height as usize * 4];
     for y in 0..height {
         for x in 0..width {
-            let source_x = u64::from(x) * u64::from(image.width) / u64::from(width);
-            let source_y = u64::from(y) * u64::from(image.height) / u64::from(height);
-            let source_offset = (source_y as usize * image.width as usize + source_x as usize) * 4;
+            let source_x = u64::from(x) * u64::from(source_width) / u64::from(width);
+            let source_y = u64::from(y) * u64::from(source_height) / u64::from(height);
+            let source_offset = (source_y as usize * source_width as usize + source_x as usize) * 4;
             let target = (y as usize * width as usize + x as usize) * 4;
             pixels[target..target + 4]
                 .copy_from_slice(&source.pixels()[source_offset..source_offset + 4]);
@@ -62,7 +75,12 @@ pub(crate) fn prepare_image(
     if width == 0 || height == 0 || expected != Some(image.pixels().len()) {
         return Err("Invalid visual image".into());
     }
-    let mut image = resize(&image, config.image_max_edge.min(4096));
+    let max_edge = config.image_max_edge.clamp(1, 4096);
+    let mut image = if width <= max_edge && height <= max_edge {
+        image.into_image()
+    } else {
+        resize(&image, max_edge)
+    };
     loop {
         let bytes = encode_png(&image)?;
         if bytes.len() <= config.image_max_bytes {

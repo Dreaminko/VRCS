@@ -9,7 +9,6 @@
   color: var(--text);
   background: var(--canvas);
   font-synthesis: none;
-  text-rendering: optimizeLegibility;
   --canvas: #f5f8fb;
   --surface: #ffffff;
   --surface-subtle: #eef2f7;

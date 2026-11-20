@@ -6,7 +6,7 @@
 #[cfg(any(windows, target_os = "linux", test))]
 mod watcher;
 
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
@@ -22,13 +22,21 @@ pub(crate) struct Snapshot {
     pub process: Option<ProcessIdentity>,
     pub ready: bool,
     pub room_token: Option<u64>,
+    pub world_session_token: Option<u64>,
     pub world_name: Option<String>,
     pub error: Option<String>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct VrchatLog {
-    shared: Arc<RwLock<Snapshot>>,
+    tx: Arc<watch::Sender<Snapshot>>,
+}
+
+impl Default for VrchatLog {
+    fn default() -> Self {
+        let (tx, _) = watch::channel(Snapshot::default());
+        Self { tx: Arc::new(tx) }
+    }
 }
 
 impl VrchatLog {
@@ -36,10 +44,10 @@ impl VrchatLog {
         let log = Self::default();
         #[cfg(any(windows, target_os = "linux"))]
         {
-            let shared = Arc::clone(&log.shared);
+            let tx = Arc::clone(&log.tx);
             if let Err(error) = std::thread::Builder::new()
                 .name("vrcs-vrchat-log".into())
-                .spawn(move || run(shared, shutdown))
+                .spawn(move || run(tx, shutdown))
             {
                 tracing::warn!(%error, "VRChat log watcher could not start");
             }
@@ -50,22 +58,23 @@ impl VrchatLog {
     }
 
     pub(crate) fn snapshot(&self) -> Snapshot {
-        self.shared
-            .read()
-            .expect("VRChat log snapshot lock")
-            .clone()
+        self.tx.borrow().clone()
+    }
+
+    pub(crate) fn subscribe(&self) -> watch::Receiver<Snapshot> {
+        self.tx.subscribe()
     }
 }
 
 #[cfg(any(windows, target_os = "linux"))]
-fn run(shared: Arc<RwLock<Snapshot>>, shutdown: watch::Receiver<bool>) {
+fn run(tx: Arc<watch::Sender<Snapshot>>, shutdown: watch::Receiver<bool>) {
     let mut active: Option<(ProcessIdentity, watcher::WorldWatcher)> = None;
     let mut discovered_at = Instant::now()
         .checked_sub(DISCOVERY_INTERVAL)
         .unwrap_or_else(Instant::now);
     loop {
         if *shutdown.borrow() {
-            publish(&shared, Snapshot::default());
+            publish(&tx, Snapshot::default());
             return;
         }
         if active
@@ -73,7 +82,7 @@ fn run(shared: Arc<RwLock<Snapshot>>, shutdown: watch::Receiver<bool>) {
             .is_some_and(|(owner, _)| !crate::vrchat_process::is_alive(*owner))
         {
             active = None;
-            publish(&shared, Snapshot::default());
+            publish(&tx, Snapshot::default());
         }
         if active.is_none() && discovered_at.elapsed() >= DISCOVERY_INTERVAL {
             match crate::vrchat_process::game() {
@@ -90,14 +99,16 @@ fn run(shared: Arc<RwLock<Snapshot>>, shutdown: watch::Receiver<bool>) {
         if let Some((owner, watcher)) = active.as_mut() {
             let ready = watcher.poll();
             let room_token = watcher.room_token();
+            let world_session_token = watcher.world_session_token();
             let world_name = watcher.world_name().map(str::to_owned);
             let error = watcher.error().map(str::to_owned);
             publish(
-                &shared,
+                &tx,
                 Snapshot {
                     process: Some(*owner),
                     ready,
                     room_token,
+                    world_session_token,
                     world_name,
                     error,
                 },
@@ -107,11 +118,15 @@ fn run(shared: Arc<RwLock<Snapshot>>, shutdown: watch::Receiver<bool>) {
     }
 }
 
-fn publish(shared: &RwLock<Snapshot>, next: Snapshot) {
-    let mut current = shared.write().expect("VRChat log snapshot lock");
-    if *current != next {
-        *current = next;
-    }
+fn publish(tx: &watch::Sender<Snapshot>, next: Snapshot) {
+    tx.send_if_modified(|current| {
+        if *current == next {
+            false
+        } else {
+            *current = next;
+            true
+        }
+    });
 }
 
 #[cfg(test)]
@@ -126,14 +141,18 @@ mod tests {
     #[test]
     fn published_snapshots_replace_the_shared_value() {
         let log = VrchatLog::default();
+        let mut rx = log.subscribe();
         let next = Snapshot {
             process: Some(ProcessIdentity { pid: 7, created: 9 }),
             ready: true,
             room_token: Some(11),
+            world_session_token: Some(22),
             world_name: Some("Test World".into()),
             error: None,
         };
-        publish(&log.shared, next.clone());
+        publish(&log.tx, next.clone());
         assert_eq!(log.snapshot(), next);
+        assert!(rx.has_changed().unwrap());
+        assert_eq!(rx.borrow_and_update().clone(), next);
     }
 }

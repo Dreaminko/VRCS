@@ -47,7 +47,12 @@ for (const width of [1200, 380]) {
           updateReducedMotionPreference(true);
 
           let persisted = {
-            schema_version: 45,
+            schema_version: 46,
+            vrchat_context: {
+              include_in_asr_context: false,
+              include_in_translation_context: false,
+              include_world_name: true,
+            },
             features: { ...DEFAULT_FEATURE_SETTINGS },
             storage: {
               database_path: 'data/vrcs.db',

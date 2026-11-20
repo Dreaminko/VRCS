@@ -1,3 +1,5 @@
+import localeMetadata from "./locales-meta.json";
+
 export interface LocaleMetadata {
   locale: string;
   name: string;
@@ -10,32 +12,18 @@ export interface LocaleResource {
   translation: Record<string, unknown>;
 }
 
-const modules = import.meta.glob("./locales/*.json", {
-  eager: true,
+const loaders = import.meta.glob("./locales/*.json", {
   import: "default",
-}) as Record<string, LocaleResource>;
+}) as Record<string, () => Promise<LocaleResource>>;
 
-export const localeCatalog = Object.entries(modules)
-  .map(([path, resource]) => {
-    const filename = path.split("/").pop()?.replace(/\.json$/, "");
-    if (!filename || filename !== resource._meta.locale) {
-      throw new Error(`Locale filename and metadata differ: ${path}`);
-    }
-    return resource;
-  })
-  .sort((left, right) => left._meta.locale.localeCompare(right._meta.locale));
-
-if (!localeCatalog.some((resource) => resource._meta.locale === "en-US")) {
-  throw new Error("The en-US fallback locale is required");
-}
+export const localeCatalog = (localeMetadata as readonly LocaleMetadata[]).map((_meta) => ({ _meta }));
 
 export const supportedUiLocales = localeCatalog.map(
   (resource) => resource._meta.locale,
 );
 
-export const localeResources = Object.fromEntries(
-  localeCatalog.map((resource) => [
-    resource._meta.locale,
-    { translation: resource.translation },
-  ]),
-);
+export function loadLocaleResource(locale: string): Promise<LocaleResource> {
+  const loader = loaders[`./locales/${locale}.json`];
+  if (!loader) throw new Error(`Unsupported locale: ${locale}`);
+  return loader();
+}

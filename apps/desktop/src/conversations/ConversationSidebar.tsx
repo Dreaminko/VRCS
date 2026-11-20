@@ -27,6 +27,7 @@ type SidebarProps = {
   activeId?: string;
   selectedId?: string;
   width: number;
+  onPreviewWidth?: (width: number) => void;
   onWidthChange: (width: number) => void;
   onResizeStateChange: (resizing: boolean) => void;
   onToggle: () => void;
@@ -64,6 +65,7 @@ export const ConversationSidebar = memo(function ConversationSidebar({
   activeId,
   selectedId,
   width,
+  onPreviewWidth,
   onWidthChange,
   onResizeStateChange,
   onToggle,
@@ -100,6 +102,7 @@ export const ConversationSidebar = memo(function ConversationSidebar({
 
   const resize = useConversationSidebarResize({
     width,
+    onPreviewWidth,
     onWidthChange,
     onResizeStateChange,
     onBeforeStart: () => closeActions(),

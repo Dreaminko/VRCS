@@ -3,7 +3,7 @@ use std::time::Instant;
 use tauri::{AppHandle, Manager};
 
 use super::{activate, Action, Prompt};
-use crate::vr_overlay::backend::{Backend, OverlayKind};
+use crate::vr_overlay::backend::{Backend, CursorTarget, OverlayKind};
 use crate::vr_overlay::control_protocol::ControlHub;
 use crate::vr_overlay::interaction::{Hit, Key, Kind, Router, Sample, Surface};
 use crate::vr_overlay::pose::SpaceId;
@@ -16,7 +16,7 @@ pub struct Runtime {
     identity: Option<(u32, u32, SpaceId)>,
     pose: Option<[[f32; 4]; 3]>,
     notice: Option<Prompt>,
-    pointer: Option<([f32; 3], SpaceId)>,
+    pointer: Option<CursorTarget>,
     last_input: Instant,
     error: Option<String>,
     snapshot: Arc<(u32, bool, Option<Prompt>)>,
@@ -65,22 +65,19 @@ impl Runtime {
         self.renderer.confirm_frame(app, accepted);
     }
 
+    pub fn sync_cursor(&mut self, backend: &mut Backend) {
+        if let Err(error) = backend.update_cursor(self.pointer) {
+            tracing::debug!(%error, "VR consent cursor unavailable");
+        }
+    }
+
     pub fn update_pointer(&mut self, app: &AppHandle, backend: &mut Backend) {
         if backend.system_dashboard_visible() || !backend.visible(OverlayKind::PlayerAudio) {
             self.pointer = None;
         } else {
             self.sample(app, backend);
         }
-        if let Err(error) = backend.update_cursor(self.pointer.map(|(point, origin)| {
-            (
-                OverlayKind::PlayerAudio,
-                point,
-                origin,
-                SurfaceId::PlayerAudio.size().0,
-            )
-        })) {
-            tracing::debug!(%error, "VR consent cursor unavailable");
-        }
+        self.sync_cursor(backend);
     }
 
     fn sample(&mut self, app: &AppHandle, backend: &Backend) -> Option<(Vec<Sample>, Key)> {
@@ -102,24 +99,26 @@ impl Runtime {
                 if ray.space != origin {
                     return None;
                 }
-                let (point, position, distance) =
-                    backend.intersect(OverlayKind::PlayerAudio, input.device, ray)?;
-                contour.pointer_contains(point).then_some((
-                    input.device.0,
-                    point,
-                    position,
-                    distance,
-                    input.scroll_y,
-                ))
+                let hit = backend.intersect(OverlayKind::PlayerAudio, input.device, ray)?;
+                contour
+                    .pointer_contains(hit.point)
+                    .then_some((input.device.0, hit, input.scroll_y))
             })
             .collect();
-        let candidates: Vec<_> = pointers.iter().map(|p| (p.0, p.3)).collect();
+        let candidates: Vec<_> = pointers.iter().map(|p| (p.0, p.1.distance)).collect();
         let selected = self.router.select_pointer_device(&candidates);
         let pointer = pointers.iter().find(|p| Some(p.0) == selected);
-        self.pointer = pointer.map(|p| (p.2, origin));
+        self.pointer = pointer.map(|p| CursorTarget {
+            kind: OverlayKind::PlayerAudio,
+            position: p.1.position,
+            origin,
+            panel: p.1.panel,
+            panel_width: p.1.panel_width,
+            texture_width: SurfaceId::PlayerAudio.size().0,
+        });
         let now = Instant::now();
         if let Some(pointer) = pointer {
-            let delta = -pointer.4
+            let delta = -pointer.2
                 * now
                     .saturating_duration_since(self.last_input)
                     .as_secs_f32()
@@ -138,11 +137,11 @@ impl Runtime {
                     .iter()
                     .find(|p| p.0 == input.device.0)
                     .and_then(|p| {
-                        layout.hit(p.1).map(|region| Hit {
+                        layout.hit(p.1.point).map(|region| Hit {
                             key,
                             region,
-                            point: p.1,
-                            distance: p.3,
+                            point: p.1.point,
+                            distance: p.1.distance,
                         })
                     }),
             })

@@ -17,6 +17,8 @@ pub struct DatabaseStorageStats {
 impl Database {
     pub fn set_subtitle_history_max_bytes(&mut self, max_bytes: u64) -> AppResult<bool> {
         self.subtitle_history_max_bytes = max_bytes;
+        self.cached_subtitle_bytes.set(None);
+        self.pending_subtitle_bytes.set(0);
         self.trim_subtitle_history_to_size()
     }
 
@@ -27,6 +29,8 @@ impl Database {
         let allocated_bytes = page_count.saturating_mul(page_size);
         let reclaimable_bytes = freelist_count.saturating_mul(page_size);
         let used_bytes = self.subtitle_history_bytes()?;
+        self.cached_subtitle_bytes.set(Some(used_bytes));
+        self.pending_subtitle_bytes.set(0);
         Ok(DatabaseStorageStats {
             used_bytes,
             allocated_bytes,
@@ -42,22 +46,38 @@ impl Database {
         super::conversations::reset_after_history_clear(&transaction)?;
         transaction.commit()?;
         self.conn.execute_batch("VACUUM")?;
+        self.cached_subtitle_bytes.set(None);
+        self.pending_subtitle_bytes.set(0);
         self.storage_stats()
+    }
+
+    pub(super) fn trim_subtitle_history_after_write(
+        &self,
+        written_bytes_estimate: u64,
+    ) -> AppResult<bool> {
+        if self.cached_subtitle_bytes.get().is_some() {
+            self.pending_subtitle_bytes.set(
+                self.pending_subtitle_bytes
+                    .get()
+                    .saturating_add(written_bytes_estimate),
+            );
+        }
+        self.trim_subtitle_history_to_size()
     }
 
     pub(super) fn trim_subtitle_history_to_size(&self) -> AppResult<bool> {
         let mut catalog_changed = false;
         while self.subtitle_history_over_limit()? {
+            let transaction = self.conn.unchecked_transaction()?;
             let subtitle_count =
-                self.conn
-                    .query_row("SELECT COUNT(*) FROM subtitles", [], |row| {
-                        row.get::<_, u64>(0)
-                    })?;
+                transaction.query_row("SELECT COUNT(*) FROM subtitles", [], |row| {
+                    row.get::<_, u64>(0)
+                })?;
             if subtitle_count <= 1 {
                 break;
             }
             let delete_count = DELETE_BATCH_SIZE.min(subtitle_count - 1);
-            let deleted = self.conn.execute(
+            let deleted = transaction.execute(
                 "DELETE FROM subtitles
                  WHERE id IN (SELECT id FROM subtitles ORDER BY id ASC LIMIT ?)",
                 [delete_count],
@@ -65,8 +85,11 @@ impl Database {
             if deleted == 0 {
                 break;
             }
+            super::conversations::cleanup_empty_ended(&transaction)?;
+            transaction.commit()?;
+            self.cached_subtitle_bytes.set(None);
+            self.pending_subtitle_bytes.set(0);
             catalog_changed = true;
-            super::conversations::cleanup_empty_ended(&self.conn)?;
         }
         Ok(catalog_changed)
     }
@@ -81,7 +104,17 @@ impl Database {
         if used_pages.saturating_mul(page_size) <= self.subtitle_history_max_bytes {
             return Ok(false);
         }
-        Ok(self.subtitle_history_bytes()? > self.subtitle_history_max_bytes)
+        if let Some(cached) = self.cached_subtitle_bytes.get() {
+            if cached.saturating_add(self.pending_subtitle_bytes.get())
+                <= self.subtitle_history_max_bytes
+            {
+                return Ok(false);
+            }
+        }
+        let actual = self.subtitle_history_bytes()?;
+        self.cached_subtitle_bytes.set(Some(actual));
+        self.pending_subtitle_bytes.set(0);
+        Ok(actual > self.subtitle_history_max_bytes)
     }
 
     /// Bytes used by subtitle tables, their indexes and search index, excluding

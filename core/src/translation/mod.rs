@@ -13,6 +13,7 @@ use crate::llm::{LlmClient, LlmProgress, LlmRequest};
 use crate::models::{now_iso8601, SubtitleTranslation};
 use crate::providers::{self, ServiceAdapter, CAPABILITY_TEXT_TRANSLATION, OPENAI_PROVIDER};
 
+pub(crate) mod context;
 mod deepl;
 mod dispatcher;
 mod local_models;
@@ -24,10 +25,12 @@ mod prompt;
 pub use dispatcher::TranslationDispatcher;
 pub(crate) use local_models::LocalTranslationModels;
 pub(crate) use plamo::{
-    build_prompt as build_plamo_prompt, supports_language as plamo_supports_language, MODEL_ID,
-    MODEL_REVISION, PROMPT_VERSION, SUPPORTED_LANGUAGE_CODES,
+    build_prompt_with_room_context as build_plamo_prompt_with_room_context,
+    supports_language as plamo_supports_language, MODEL_ID, MODEL_REVISION, PROMPT_VERSION,
+    SUPPORTED_LANGUAGE_CODES,
 };
 pub(crate) use plamo_runtime::PlamoRuntime;
+pub(crate) use prompt::RoomTranslationContext;
 pub use prompt::{TranslationContextEntry, TranslationPromptBuilder};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -154,7 +157,7 @@ impl TranslationService {
         source_language: Option<&str>,
         context: &[TranslationContextEntry],
     ) -> Result<TranslationResult, TranslationError> {
-        self.translate_with_progress(
+        self.translate_with_progress_and_room_context(
             target_config,
             prompt,
             profiles,
@@ -162,11 +165,36 @@ impl TranslationService {
             source_language,
             context,
             None,
+            None,
         )
         .await
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn translate_with_room_context(
+        &self,
+        target_config: &TranslationTargetConfig,
+        prompt: &TranslationPromptConfig,
+        profiles: &[ApiProfile],
+        text: &str,
+        source_language: Option<&str>,
+        context: &[TranslationContextEntry],
+        room_context: Option<&RoomTranslationContext>,
+    ) -> Result<TranslationResult, TranslationError> {
+        self.translate_with_progress_and_room_context(
+            target_config,
+            prompt,
+            profiles,
+            text,
+            source_language,
+            context,
+            room_context,
+            None,
+        )
+        .await
+    }
+
+    #[allow(dead_code, clippy::too_many_arguments)]
     pub async fn translate_with_progress(
         &self,
         target_config: &TranslationTargetConfig,
@@ -175,6 +203,31 @@ impl TranslationService {
         text: &str,
         source_language: Option<&str>,
         context: &[TranslationContextEntry],
+        on_progress: Option<&LlmProgress>,
+    ) -> Result<TranslationResult, TranslationError> {
+        self.translate_with_progress_and_room_context(
+            target_config,
+            prompt,
+            profiles,
+            text,
+            source_language,
+            context,
+            None,
+            on_progress,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn translate_with_progress_and_room_context(
+        &self,
+        target_config: &TranslationTargetConfig,
+        prompt: &TranslationPromptConfig,
+        profiles: &[ApiProfile],
+        text: &str,
+        source_language: Option<&str>,
+        context: &[TranslationContextEntry],
+        room_context: Option<&RoomTranslationContext>,
         on_progress: Option<&LlmProgress>,
     ) -> Result<TranslationResult, TranslationError> {
         let text = text.trim();
@@ -210,6 +263,7 @@ impl TranslationService {
                     text,
                     source_language,
                     context,
+                    room_context,
                     on_progress,
                 )
                 .await;
@@ -280,6 +334,7 @@ impl TranslationService {
                     target,
                     prompt,
                     context,
+                    room_context,
                     on_progress,
                 )
                 .await
@@ -292,6 +347,7 @@ impl TranslationService {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn translate_local(
         &self,
         target_config: &TranslationTargetConfig,
@@ -299,6 +355,7 @@ impl TranslationService {
         text: &str,
         source_language: Option<&str>,
         context: &[TranslationContextEntry],
+        room_context: Option<&RoomTranslationContext>,
         on_progress: Option<&LlmProgress>,
     ) -> Result<TranslationResult, TranslationError> {
         let (local, model_path, lifecycle) = self.checked_local_model().await?;
@@ -328,6 +385,7 @@ impl TranslationService {
                     context,
                     glossary: &glossary,
                     max_chars: prompt.max_chars as usize,
+                    room_context,
                 },
                 on_progress,
             )
@@ -394,6 +452,7 @@ impl TranslationService {
         target: &str,
         prompt_config: &crate::config::TranslationPromptConfig,
         context: &[TranslationContextEntry],
+        room_context: Option<&RoomTranslationContext>,
         on_progress: Option<&LlmProgress>,
     ) -> Result<TranslationResult, TranslationError> {
         let glossary = self
@@ -403,6 +462,10 @@ impl TranslationService {
         let builder = TranslationPromptBuilder::new(prompt_config);
         let builder = match glossary.as_ref() {
             Some(glossary) => builder.with_formatted_glossary(glossary.formatted()),
+            None => builder,
+        };
+        let builder = match room_context {
+            Some(room) => builder.with_room_context(room),
             None => builder,
         };
         let prompt = builder.build(source, target, context, text);

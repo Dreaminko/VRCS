@@ -157,14 +157,15 @@ impl Capture {
         log: crate::vrchat_log::VrchatLog,
         #[cfg(any(windows, target_os = "linux"))] cache: Arc<SessionCache>,
         settings: Arc<std::sync::RwLock<crate::config::AppConfig>>,
+        room_context: crate::room_context::NetworkCapturePublisher,
     ) -> Result<Self, String> {
         #[cfg(any(windows, target_os = "linux"))]
         {
-            worker::start(config, status, outputs, cache, settings, log)
+            worker::start(config, status, outputs, cache, settings, log, room_context)
         }
         #[cfg(not(any(windows, target_os = "linux")))]
         {
-            let _ = (config, status, outputs, log, settings);
+            let _ = (config, status, outputs, log, settings, room_context);
             Err("VRChat network capture is available only on Windows and Linux".into())
         }
     }

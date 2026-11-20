@@ -7,13 +7,24 @@ use crate::error::AppResult;
 const MESSAGE_HISTORY_LIMIT: i64 = 200;
 
 impl Database {
+    #[allow(dead_code)]
     pub fn add_chatbox_message(&self, message: &NewChatboxMessage) -> AppResult<ChatboxMessage> {
+        self.add_chatbox_message_in_scope(message, None, None)
+    }
+
+    pub(crate) fn add_chatbox_message_in_scope(
+        &self,
+        message: &NewChatboxMessage,
+        context_scope_id: Option<&str>,
+        context_sequence: Option<i64>,
+    ) -> AppResult<ChatboxMessage> {
         self.conn.execute(
             "INSERT INTO chatbox_messages(
                 source, original, translation, source_language, target_language,
                 send_mode, message_format, custom_format, rendered_text, char_count,
-                truncated, status, error_code, error_detail, resent_from_id, created_at, sent_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                truncated, status, error_code, error_detail, resent_from_id, created_at, sent_at,
+                context_scope_id, context_sequence
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 message.source,
                 message.original,
@@ -32,6 +43,8 @@ impl Database {
                 message.resent_from_id,
                 message.created_at,
                 message.sent_at,
+                context_scope_id,
+                context_sequence,
             ],
         )?;
         let id = self.conn.last_insert_rowid();

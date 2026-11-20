@@ -10,7 +10,13 @@ import { liveTranslationServiceName } from "../providers/recognition-services";
 import { localizedLanguageName } from "../translation/translation-languages";
 import { supportsTranslation } from "../providers/api-profile-purpose";
 import { supportsVision } from "../settings/vision-settings";
-import { VR_OVERLAY_POSITION_RANGES, type VrOverlayDisplayKind, type VrOverlayPositionField } from "../settings/vr-overlay-settings";
+import {
+  VR_OVERLAY_APPEARANCE_RANGES,
+  VR_OVERLAY_POSITION_RANGES,
+  type VrOverlayAppearanceField,
+  type VrOverlayDisplayKind,
+  type VrOverlayPositionField,
+} from "../settings/vr-overlay-settings";
 import {
   getVrOverlayStatus,
   hideVrOverlaySample,
@@ -42,6 +48,16 @@ export function useVrDashboardBridge(
   const saveRef = useRef(save);
   const saveVersionRef = useRef(0);
   const profilesRef = useRef(profiles);
+  const lastPublishedRef = useRef("");
+  const statusState = status?.state ?? null;
+  const headsetSampleVisible = status?.headset.sample_visible ?? false;
+  const wristSampleVisible = status?.wrist.sample_visible ?? false;
+  const captionNotice = settings?.features.vr_overlay
+    ? playerAudioNotice(capture.playerAudio, capture.running, t)
+    : null;
+  const captionNoticeKey = captionNotice ? JSON.stringify(captionNotice) : "";
+  const captionNoticeRef = useRef(captionNotice);
+  captionNoticeRef.current = captionNotice;
 
   settingsRef.current = settings;
   statusRef.current = status;
@@ -120,7 +136,16 @@ export function useVrDashboardBridge(
   }, [t]);
 
   useEffect(() => {
-    if (!settings?.features.vr_overlay) return;
+    if (saveState !== "saved") return;
+    const timer = window.setTimeout(() => setSaveState("idle"), 2500);
+    return () => window.clearTimeout(timer);
+  }, [saveState]);
+
+  useEffect(() => {
+    if (!settings?.features.vr_overlay) {
+      lastPublishedRef.current = "";
+      return;
+    }
     const overlay = settings.vr_overlay;
     const positionFields = (kind: VrOverlayDisplayKind) => Object.entries(VR_OVERLAY_POSITION_RANGES[kind]).map(([name, range]) => {
       const field = name as VrOverlayPositionField;
@@ -132,6 +157,26 @@ export function useVrDashboardBridge(
         can_decrease: value > range.min, can_increase: value < range.max,
       };
     });
+    const appearanceFields = (kind: VrOverlayDisplayKind) => {
+      const labelKeys: Record<VrOverlayAppearanceField, string> = {
+        width_m: "settings.vrDashboard.width",
+        opacity: "settings.vrDashboard.opacity",
+        font_size_px: "settings.vrOverlay.fontSize",
+      };
+      return Object.entries(VR_OVERLAY_APPEARANCE_RANGES[kind]).map(([name, range]) => {
+        const field = name as VrOverlayAppearanceField;
+        const value = (overlay[kind] as unknown as Record<VrOverlayAppearanceField, number>)[field];
+        return {
+          field,
+          label: t(labelKeys[field]),
+          value: field === "width_m" ? `${value.toFixed(2)} m`
+            : field === "font_size_px" ? `${Math.round(value)} px`
+            : `${Math.round(value * 100)}%`,
+          can_decrease: value > range.min,
+          can_increase: value < range.max,
+        };
+      });
+    };
     const choices = dashboardLanguageChoices(settings, profiles);
     const languageName = (code: string) => code === "auto" ? t("languages.auto") : localizedLanguageName(code, i18n.resolvedLanguage ?? "en-US");
     const targetChoices = (key: "speaker_targets" | "microphone_targets") => settings.translation[key].map((target, index) => ({
@@ -140,9 +185,10 @@ export function useVrDashboardBridge(
     }));
     const strategyKeys = { preferred_only: "preferredOnly", round_robin: "roundRobin", all_languages: "allLanguages" };
     const model: VrDashboardViewModel = {
+      locale: i18n.resolvedLanguage ?? "en-US",
       caption_visibility: { hidden_tracks: display.hiddenTracks, hidden_source_languages: display.hiddenSourceLanguages },
       max_visible_players: settings.audio.output.mode === "vrchat_players" ? settings.audio.output.player_audio?.max_visible_players ?? 4 : null,
-      caption_notice: playerAudioNotice(capture.playerAudio, capture.running, t),
+      caption_notice: captionNoticeRef.current,
       labels: {
         captions: { me: t("live.microphoneMe"), other: t("live.speakerOther") },
         ocr_progress: i18n.t("settings.vrOcr.progress", { returnObjects: true }) as Record<string, string>,
@@ -204,6 +250,16 @@ export function useVrDashboardBridge(
         cancel: t("common.cancel"),
         position_hint: t("settings.vrDashboard.positionHint"),
         rotation_hint: t("settings.vrDashboard.rotationHint"),
+        back: t("settings.vrDashboard.back"),
+        preferred: t("settings.vrDashboard.preferred"),
+        master_off_banner: t("settings.vrDashboard.masterOffBanner"),
+        recognition_locked: t("settings.vrDashboard.recognitionLocked"),
+        translation_off_hint: t("settings.vrDashboard.translationOffHint"),
+        delete_preset_title: t("settings.vrDashboard.deletePresetTitle"),
+        no_presets: t("settings.vrDashboard.noPresets"),
+        anchor_mode: t("settings.vrOverlay.anchorMode"),
+        anchor_world: t("settings.vrOverlay.anchorWorld"),
+        follow_view: t("settings.vrOverlay.followView"),
       },
       enabled: overlay.enabled,
       capture: { running: capture.running, available: capture.available },
@@ -216,16 +272,17 @@ export function useVrDashboardBridge(
       osc_available: true,
       headset: {
         enabled: overlay.headset.enabled,
-        preview_visible: status?.headset.sample_visible ?? false,
+        preview_visible: headsetSampleVisible,
         width: `${overlay.headset.width_m.toFixed(2)} m`,
         opacity: `${Math.round(overlay.headset.opacity * 100)}%`,
         position: positionFields("headset"),
+        appearance: appearanceFields("headset"),
       },
       wrist: {
         enabled: overlay.wrist.enabled,
         anchor_mode: overlay.wrist.anchor_mode,
         follow_view: overlay.wrist.follow_view,
-        preview_visible: status?.wrist.sample_visible ?? false,
+        preview_visible: wristSampleVisible,
         hand: {
           value: t(`settings.vrDashboard.hands.${overlay.wrist.hand}`),
           options: ["left", "right", "dominant"].map((value) => ({ value, label: t(`settings.vrDashboard.hands.${value}`) })),
@@ -233,6 +290,7 @@ export function useVrDashboardBridge(
         width: `${overlay.wrist.width_m.toFixed(2)} m`,
         opacity: `${Math.round(overlay.wrist.opacity * 100)}%`,
         position: positionFields("wrist"),
+        appearance: appearanceFields("wrist"),
       },
       ocr: {
         enabled: settings.ocr.master_enabled && settings.ocr.enabled,
@@ -271,12 +329,15 @@ export function useVrDashboardBridge(
         },
         endpoint: `127.0.0.1:${settings.osc.port}`,
       },
-      status: status
-        ? t(`settings.vrOverlay.runtimeStates.${status.state}`)
+      status: statusState
+        ? t(`settings.vrOverlay.runtimeStates.${statusState}`)
         : t("settings.vrDashboard.connecting"),
       save_state: saveState,
       error: saveError,
     };
+    const serialized = JSON.stringify(model);
+    if (serialized === lastPublishedRef.current) return;
+    lastPublishedRef.current = serialized;
     void updateVrDashboardView(model);
-  }, [capture.running, capture.available, capture.playerAudio, display.hiddenTracks, display.hiddenSourceLanguages, i18n.resolvedLanguage, profiles, saveError, saveState, sceneCapture, settings, status, t]);
+  }, [capture.running, capture.available, captionNoticeKey, display.hiddenTracks, display.hiddenSourceLanguages, headsetSampleVisible, i18n.resolvedLanguage, profiles, saveError, saveState, sceneCapture, settings, statusState, t, wristSampleVisible]);
 }

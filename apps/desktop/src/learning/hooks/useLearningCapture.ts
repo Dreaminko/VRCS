@@ -111,11 +111,14 @@ export function useLearningCapture(
     }
   }, []);
 
+  const isCollecting = useCallback((key: string) => captureBusyRef.current.has(key), []);
+  const isCaptured = useCallback((key: string) => capturedKeys.has(key), [capturedKeys]);
+
   return {
     error,
     clearError: () => setError(""),
-    isCollecting: (key: string) => captureBusyRef.current.has(key),
-    isCaptured: (key: string) => capturedKeys.has(key),
+    isCollecting,
+    isCaptured,
     captureBusyKeys,
     collectSubtitle,
     collectSubtitles,

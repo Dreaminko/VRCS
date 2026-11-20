@@ -1,4 +1,5 @@
 #[cfg(target_os = "linux")]
+#[allow(dead_code)]
 #[path = "../vr_overlay/linux/mod.rs"]
 mod linux;
 

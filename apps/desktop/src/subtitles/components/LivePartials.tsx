@@ -6,6 +6,7 @@ import { livePartialHasSubtitle, useLivePartials } from "../../core-client/realt
 import type { SpeakerIdentity, Subtitle } from "../types";
 import { useSpeakerIdentity } from "../speaker-state";
 import { isAudioTrack, livePartialVisible } from "../player-history";
+import { useLanguageDetectorReady } from "../usePlayerHistoryPreferences";
 import { MessageSourceIcon } from "./MessageSourceIcon";
 
 function PartialMeta({ identity, source }: { identity?: SpeakerIdentity | null; source: Subtitle["source"] }) {
@@ -21,6 +22,7 @@ function PartialMeta({ identity, source }: { identity?: SpeakerIdentity | null; 
 
 export function LivePartials({ subtitles, hiddenTracks = [], hiddenSourceLanguages }: { subtitles: Subtitle[]; hiddenTracks?: readonly string[]; hiddenSourceLanguages?: readonly string[] }) {
   const { t } = useTranslation();
+  useLanguageDetectorReady();
   const speaker = useLivePartials("speaker");
   const microphone = useLivePartials("microphone");
   const partials = [...speaker, ...microphone];

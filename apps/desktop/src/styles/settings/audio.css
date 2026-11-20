@@ -7,19 +7,26 @@
 .device-group-title h3 { margin: 0; font-size: var(--settings-text-group-title); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-tight); }
 .audio-section .device-group-title h3 { color: var(--text); }
 .device-group-title > div > span { display: block; margin-top: 2px; color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
+.device-group-title-heading { min-width: 0; line-height: 20px; }
+.device-group-title-heading h3 { line-height: inherit; }
+.device-group-title-tail { white-space: nowrap; }
+.device-group-title-heading .settings-help-trigger { margin-inline-start: 4px; vertical-align: top; }
 .device-group + .device-group { margin-top: 24px; }
 .device-group-content { display: grid; grid-column: 2; min-width: 0; gap: 16px; }
 .device-group-content > * { min-width: 0; margin: 0; }
-.audio-section > :is(.device-group, .capture-chatbox-settings) {
+.audio-section > :is(.device-group, .capture-chatbox-settings),
+.audio-section > .platform-capability-section > :is(.device-group, .capture-chatbox-settings) {
   min-width: 0;
   padding: var(--settings-card-padding);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
 }
-.audio-section > .device-group + :is(.device-group, .capture-chatbox-settings) { margin-top: var(--settings-group-gap); }
+.audio-section > :is(.device-group, .capture-chatbox-settings, .platform-capability-section) + :is(.device-group, .capture-chatbox-settings, .platform-capability-section),
+.audio-section > .platform-capability-section > :is(.device-group, .capture-chatbox-settings) + :is(.device-group, .capture-chatbox-settings) { margin-top: var(--settings-group-gap); }
 .player-audio-settings { margin: 16px 0 24px; }
-.audio-section > .player-audio-settings { margin: var(--settings-group-gap) 0 0; }
+.audio-section > .player-audio-settings,
+.audio-section > .platform-capability-section > .player-audio-settings { margin: var(--settings-group-gap) 0 0; }
 .device-group-content > .player-audio-settings { margin: 0; }
 .player-audio-settings .settings-field-note,
 .capture-chatbox-settings .settings-field-note { margin: 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
@@ -27,6 +34,8 @@
 .capture-chatbox-settings [role="status"] p { margin: 6px 0 0; overflow-wrap: anywhere; }
 .capture-chatbox-settings > .device-group-heading { grid-template-columns: minmax(0, 1fr) auto; }
 .capture-chatbox-settings .settings-toggle-row { min-height: 0; padding: 0; }
+.capture-room-context-settings > .device-group-title { align-self: start; align-items: start; }
+.capture-room-context-settings > .device-group-title > .device-group-icon { height: 20px; }
 .capture-chatbox-translation { display: grid; justify-items: start; gap: 10px; }
 
 .microphone-level-setting {
@@ -67,7 +76,8 @@
   transition: transform 80ms linear, background-color 120ms ease-out;
 }
 .microphone-level-setting.triggered .microphone-live-fill { background: var(--primary-hover); }
-.microphone-live-peak { position: absolute; z-index: 1; top: 1px; bottom: 1px; left: var(--microphone-peak); width: 2px; border-radius: var(--radius-pill); background: var(--surface); box-shadow: 0 0 0 1px rgb(29 40 52 / 22%); transform: translateX(-1px); }
+.microphone-live-peak { position: absolute; z-index: 1; inset: 1px 0; transform: translateX(var(--microphone-peak)); pointer-events: none; }
+.microphone-live-peak::after { content: ""; position: absolute; top: 0; bottom: 0; left: -1px; width: 2px; border-radius: var(--radius-pill); background: var(--surface); box-shadow: 0 0 0 1px rgb(29 40 52 / 22%); }
 .microphone-test-control { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; }
 
 .microphone-test-button { flex: 0 0 auto; min-width: 128px; }

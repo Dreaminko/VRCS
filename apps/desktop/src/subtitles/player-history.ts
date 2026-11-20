@@ -1,4 +1,3 @@
-import { detectAll } from "tinyld";
 import type { LiveTranscription } from "../capture/types";
 import type { SpeakerIdentity, Subtitle } from "./types";
 import type { ActiveLanguageSession } from "../core-client/types";
@@ -8,13 +7,47 @@ import { TRANSLATION_LANGUAGES } from "../translation/translation-languages.ts";
 const languageNames = new Map(TRANSLATION_LANGUAGES.flatMap(({ code, englishName }) =>
   [englishName, englishName.replace(/\s*\([^)]*\)$/, "")].map((name) => [name.toLowerCase(), code] as const)));
 const textLanguages = new Map<string, string | null>();
+type DetectAll = typeof import("tinyld").detectAll;
+let detectAllFn: DetectAll | null = null;
+let detectorPromise: Promise<void> | null = null;
+const detectorListeners = new Set<() => void>();
+
+export function isLanguageDetectorReady(): boolean {
+  return detectAllFn !== null;
+}
+
+export function subscribeLanguageDetector(listener: () => void): () => void {
+  detectorListeners.add(listener);
+  return () => {
+    detectorListeners.delete(listener);
+  };
+}
+
+export function ensureLanguageDetector(): Promise<void> {
+  if (detectAllFn) return Promise.resolve();
+  if (!detectorPromise) {
+    detectorPromise = import("tinyld").then((module) => {
+      detectAllFn = module.detectAll;
+      textLanguages.clear();
+      for (const listener of detectorListeners) listener();
+    }).catch((error) => {
+      detectorPromise = null;
+      throw error;
+    });
+  }
+  return detectorPromise;
+}
 
 function inferOriginalLanguage(original: string): string | null {
   // Only the original is sampled. Bound work and cache size for growing live previews.
   const text = original.trim().slice(0, 512);
   if (!/\p{Letter}/u.test(text)) return null;
+  if (!detectAllFn) {
+    void ensureLanguageDetector().catch(() => undefined);
+    return null;
+  }
   if (textLanguages.has(text)) return textLanguages.get(text)!;
-  const [first, second] = detectAll(text);
+  const [first, second] = detectAllFn(text);
   let language = first && first.accuracy >= 0.6 && first.accuracy - (second?.accuracy ?? 0) >= 0.2
     ? sourceLanguageKey(first.lang) : null;
   // Shared Han characters are insufficient evidence for hiding Japanese or mixed speech.
@@ -73,13 +106,23 @@ export function trackVisible(source: string | undefined, speaker: SpeakerIdentit
   return key === null || !hidden.includes(key);
 }
 
+const sourceLanguageKeys = new Map<string, string | null>();
+const UNSPECIFIED_LANGUAGE_TAGS = new Set(["auto", "und", "unknown", "mul", "zxx"]);
+
 export function sourceLanguageKey(value: string | null | undefined): string | null {
   const tag = value?.trim().replaceAll("_", "-");
   if (!tag) return null;
+  if (sourceLanguageKeys.has(tag)) return sourceLanguageKeys.get(tag)!;
+  let result: string | null = null;
   try {
     const language = new Intl.Locale(languageNames.get(tag.toLowerCase()) ?? tag).language;
-    return ["auto", "und", "unknown", "mul", "zxx"].includes(language) ? null : language;
-  } catch { return null; }
+    result = UNSPECIFIED_LANGUAGE_TAGS.has(language) ? null : language;
+  } catch {
+    result = null;
+  }
+  if (sourceLanguageKeys.size >= 256) sourceLanguageKeys.clear();
+  sourceLanguageKeys.set(tag, result);
+  return result;
 }
 
 export function originalSourceLanguage(original: string, explicit?: string | null, translationSources: readonly (string | null | undefined)[] = []): string | null {

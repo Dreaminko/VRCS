@@ -18,13 +18,14 @@ export function useSelectionTools({
   enabledRef.current = enabled;
   const [tool, setTool] = useState<"dictionary" | "ai" | null>(null);
   const dictionary = useDictionaryLookup({ reportError });
+  const { clearLookup, lookupSelection } = dictionary;
   const textSelection = useTextSelection();
 
   const clear = useCallback(() => {
     setTool(null);
-    dictionary.clearLookup();
+    clearLookup();
     textSelection.clearSelection();
-  }, [dictionary.clearLookup, textSelection.clearSelection]);
+  }, [clearLookup, textSelection.clearSelection]);
 
   useEffect(() => {
     if (!enabled) clear();
@@ -38,10 +39,10 @@ export function useSelectionTools({
       return;
     }
 
-    dictionary.clearLookup();
+    clearLookup();
     setTool(dictionaryLookupEnabled ? "dictionary" : "ai");
-    if (dictionaryLookupEnabled) await dictionary.lookupSelection(target);
-  }, [clear, dictionary, dictionaryLookupEnabled, textSelection.captureSelection]);
+    if (dictionaryLookupEnabled) await lookupSelection(target);
+  }, [clear, clearLookup, dictionaryLookupEnabled, lookupSelection, textSelection.captureSelection]);
 
   const openAi = useCallback(async () => {
     if (!enabledRef.current) return;

@@ -133,20 +133,34 @@ test("the wrist photo gesture control exposes saved state and gates unavailable 
         assert.equal(await commandButton(page, { control: { set_ocr_gesture_enabled: !enabled } }).isDisabled(), true);
         assert.equal(await page.evaluate(() => window.menuLayout.regions.some(region => region.id === 30)), false);
       }
+      await render(page, { dark, page: "home", gesture: { requested: enabled, effective: enabled, hidden: true } });
+      assert.equal(await page.locator('[data-vr-region="30"]').count(), 0);
+      assert.equal(await commandButton(page, { control: { set_ocr_gesture_enabled: !enabled } }).count(), 0);
+      assert.deepEqual(await page.locator(".vr-menu-capsule").boundingBox(), { x: 16, y: 1032, width: 1248, height: 240 });
+      const hiddenCapsule = await page.locator(".vr-menu-capsule [data-vr-region]").evaluateAll(nodes => nodes.map(node => ({ id: +node.dataset.vrRegion, width: node.offsetWidth, height: node.offsetHeight })));
+      assert.deepEqual(hiddenCapsule.map(item => item.id), [0, 1, 2, 4, 3]);
+      assert.deepEqual(hiddenCapsule.map(item => [item.width, item.height]), Array(5).fill([160, 160]));
+      assert.equal(await page.evaluate(() => window.menuLayout.regions.some(region => region.id === 30)), false);
+
+      await render(page, { dark, page: "home", gesture: { requested: enabled, effective: enabled, hidden: false } });
+      assert.equal(await page.locator('[data-vr-region="30"]').count(), 1);
+      assert.equal(await page.evaluate(() => window.menuLayout.regions.some(region => region.id === 30)), true);
     }
   } finally { await browser.close(); }
 });
 
-test("spatial rules live on the Rules tab with full-width sliders and quick-off action", { timeout: 60000 }, async () => {
+test("spatial rules live on the Rules tab with unified cards, toggles, and aligned sliders", { timeout: 60000 }, async () => {
   const { browser, page } = await setup();
   try {
     await render(page, { page: "players" });
-    assert.equal(await page.locator(".vr-menu-proximity-track").count(), 0, "Sliders move off the People page");
+    assert.equal(await page.locator(".vr-menu-slider-track").count(), 0, "Sliders move off the People page");
     assert.equal(await commandButton(page, { page: "rules" }).count(), 2, "People exposes Rules tab and footer summary shortcut");
 
     await render(page, { page: "rules" });
     const slider = page.locator('[data-vr-region="32"]');
     const fovSlider = page.locator('[data-vr-region="51"]');
+    const proxToggle = page.locator('[data-vr-region="54"]');
+    const viewToggle = page.locator('[data-vr-region="50"]');
     assert.equal(await slider.count(), 1);
     assert.equal(await fovSlider.count(), 1);
     assert.equal(await slider.getAttribute("role"), "slider");
@@ -155,20 +169,39 @@ test("spatial rules live on the Rules tab with full-width sliders and quick-off 
     assert.equal(await slider.isDisabled(), false, "The slider stays usable while filtering is off");
     assert.equal(await slider.getAttribute("aria-valuenow"), "0", "Filtering off parks the slider at zero");
     assert.equal(await slider.getAttribute("aria-valuetext"), "Off");
-    assert.equal(await page.locator('[data-vr-region="54"]').isDisabled(), true, "Quick-off button disables while already off");
+    assert.equal(await proxToggle.isDisabled(), false, "Proximity toggle stays enabled to turn filtering back on");
+    assert.equal(await proxToggle.getAttribute("aria-pressed"), "false");
+    assert.deepEqual(JSON.parse(await proxToggle.getAttribute("data-vr-menu")),
+      { display: { set_proximity_radius: 10 } });
     assert.deepEqual(JSON.parse(await slider.getAttribute("data-vr-menu")),
       { slider: { action: "proximity_radius", min: 0, max: 10, step: 0.1 } });
     assert.deepEqual(JSON.parse(await fovSlider.getAttribute("data-vr-menu")),
       { slider: { action: "view_horizontal_fov", min: 30, max: 180, step: 5 } });
 
-    const track = await slider.boundingBox();
-    assert.ok(track && track.height >= 72 && track.width >= 900, "Full-width proximity slider stays easy to drag");
+    const proxTrack = await slider.boundingBox();
+    const fovTrack = await fovSlider.boundingBox();
+    assert.ok(proxTrack && proxTrack.height >= 72 && proxTrack.width >= 900, "Full-width proximity slider stays easy to drag");
+    assert.ok(fovTrack && fovTrack.height >= 72 && fovTrack.width >= 900, "Full-width view FOV slider stays easy to drag");
+    assert.ok(Math.abs(proxTrack.x - fovTrack.x) < 1 && Math.abs(proxTrack.width - fovTrack.width) < 1, "Both rule sliders align horizontally");
+
+    await render(page, { page: "rules", hovered: 32 });
+    assert.equal(await slider.evaluate(el => el.classList.contains("hovered") && !el.classList.contains("pressed")), true);
+    await render(page, { page: "rules", pressed: 32 });
+    assert.equal(await slider.evaluate(el => el.classList.contains("pressed")), true);
 
     await render(page, { page: "rules", players: { proximity: { enabled: true, radius_m: 5 }, view_priority: { enabled: true, horizontal_fov_deg: 110, local_view: false } } });
-    assert.equal(await page.locator('[data-vr-region="54"]').isDisabled(), false);
+    assert.equal(await proxToggle.isDisabled(), false);
+    assert.equal(await proxToggle.getAttribute("aria-pressed"), "true");
+    assert.deepEqual(JSON.parse(await proxToggle.getAttribute("data-vr-menu")),
+      { display: { set_proximity_radius: 0 } });
     assert.equal(await slider.getAttribute("aria-valuenow"), "5");
-    assert.equal(await page.locator(".vr-menu-proximity-value").first().innerText(), "5.0 m");
+    assert.equal(await page.locator(".vr-menu-value-pill").first().innerText(), "5.0 m");
     assert.match(await page.locator(".vr-menu-card-note").innerText(), /Waiting for view data/);
+
+    await render(page, { page: "rules", players: { proximity: { enabled: false, radius_m: 0 } } });
+    assert.equal(await proxToggle.getAttribute("aria-pressed"), "false");
+    assert.deepEqual(JSON.parse(await proxToggle.getAttribute("data-vr-menu")),
+      { display: { set_proximity_radius: 5 } }, "Turning proximity back on restores the last positive radius");
 
     const surface = await page.locator(".vr-surface").boundingBox();
     const dragTrack = await slider.boundingBox();
@@ -179,20 +212,23 @@ test("spatial rules live on the Rules tab with full-width sliders and quick-off 
     ];
     await render(page, { page: "rules", pressed: 32, pointer: dragPointer, players: { proximity: { enabled: true, radius_m: 5 } } });
     assert.equal(await slider.getAttribute("aria-valuenow"), "7");
-    assert.equal(await page.locator(".vr-menu-proximity-value").first().innerText(), "7.0 m");
+    assert.equal(await page.locator(".vr-menu-value-pill").first().innerText(), "7.0 m");
     await render(page, { page: "rules", players: { proximity: { enabled: true, radius_m: 5 } } });
-    assert.equal(await page.locator(".vr-menu-proximity-value").first().innerText(), "7.0 m", "Release keeps the dragged value until it is confirmed");
+    assert.equal(await page.locator(".vr-menu-value-pill").first().innerText(), "7.0 m", "Release keeps the dragged value until it is confirmed");
 
     const failed = "Distance filter was not applied";
     await render(page, { page: "rules", players: { proximity: { enabled: true, radius_m: 5 }, error: failed } });
     await render(page, { page: "rules", pressed: 32, pointer: dragPointer, players: { proximity: { enabled: true, radius_m: 5 }, error: failed } });
     await render(page, { page: "rules", players: { proximity: { enabled: true, radius_m: 5 }, error: null } });
     await render(page, { page: "rules", players: { proximity: { enabled: true, radius_m: 5 }, error: failed } });
-    assert.equal(await page.locator(".vr-menu-proximity-value").first().innerText(), "5.0 m", "A repeated failure restores the confirmed value");
+    assert.equal(await page.locator(".vr-menu-value-pill").first().innerText(), "5.0 m", "A repeated failure restores the confirmed value");
 
-    await render(page, { page: "rules", players: { player_mode: false } });
+    await render(page, { page: "rules", players: { player_mode: false, view_priority: { enabled: true, horizontal_fov_deg: 110, local_view: false } } });
+    assert.equal(await proxToggle.isDisabled(), true);
+    assert.equal(await viewToggle.isDisabled(), true);
     assert.equal(await slider.isDisabled(), true);
     assert.equal(await fovSlider.isDisabled(), true);
+    assert.equal(await page.locator(".vr-menu-card-note").count(), 0, "View waiting note hides when player mode is inactive");
     assert.match(await page.locator('.vr-player-display-panel [role="status"]').innerText(), /per-player audio/);
 
     await render(page, { page: "rules", players: { proximity: undefined, view_priority: undefined } });

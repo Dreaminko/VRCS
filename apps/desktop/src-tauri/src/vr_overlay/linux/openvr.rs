@@ -176,9 +176,7 @@ mod native {
                     let point = [f64::from(mouse.x), 1. - f64::from(mouse.y)];
                     if kind == openvr_sys::EVREventType_VREvent_MouseMove {
                         inputs.push(Input::Move(point));
-                    } else if mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left as u32
-                        != 0
-                    {
+                    } else if mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left != 0 {
                         inputs.push(
                             if kind == openvr_sys::EVREventType_VREvent_MouseButtonDown {
                                 Input::Down(point)

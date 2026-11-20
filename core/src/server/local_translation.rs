@@ -111,8 +111,12 @@ pub(super) async fn delete(
 }
 
 async fn status_value(state: &ServiceContext) -> Value {
+    let models = Arc::clone(&state.content.local_translation_models);
+    let model = tokio::task::spawn_blocking(move || models.status())
+        .await
+        .unwrap_or_else(|_| state.content.local_translation_models.status());
     json!({
-        "model": state.content.local_translation_models.status(),
+        "model": model,
         "runtime": state.content.plamo_runtime.snapshot().await,
         "languages": crate::translation::SUPPORTED_LANGUAGE_CODES.as_slice(),
         "license": {

@@ -1,5 +1,7 @@
 //! One visual cursor shared by the in-game panels. It never requests input focus.
-use openvr_sys::{HmdMatrix34_t, HmdVector2_t, VR_IVROverlay_FnTable};
+#[cfg(all(test, windows))]
+use openvr_sys::HmdVector2_t;
+use openvr_sys::{HmdMatrix34_t, VR_IVROverlay_FnTable};
 
 const CURSOR_SORT_ORDER: u32 = 100;
 const CURSOR_SURFACE_OFFSET_M: f32 = 0.003;
@@ -18,6 +20,7 @@ pub struct CursorOverlay {
     handle: Option<u64>,
     pub target: Option<u64>,
     visible: bool,
+    last_width: Option<f32>,
 }
 
 fn check(error: openvr_sys::EVROverlayError) -> Result<(), String> {
@@ -73,6 +76,7 @@ impl CursorOverlay {
         Ok(handle)
     }
 
+    #[cfg(all(test, windows))]
     pub fn update(
         &mut self,
         api: &VR_IVROverlay_FnTable,
@@ -82,11 +86,10 @@ impl CursorOverlay {
         texture_width: u32,
         diameter_px: u32,
     ) -> Result<(), String> {
-        let result = (|| unsafe {
+        let query = (|| unsafe {
             if texture_width == 0 || !position.iter().all(|v| v.is_finite()) {
                 return Err("Invalid cursor coordinates".into());
             }
-            let handle = self.ensure(api)?;
             let mut pose = HmdMatrix34_t { m: [[0.; 4]; 3] };
             // Only use the panel orientation; the ray hit supplies the position.
             check(api
@@ -103,13 +106,58 @@ impl CursorOverlay {
                 .ok_or("Cursor target width unavailable")?(
                 target, &mut width
             ))?;
+            Ok((pose.m, width))
+        })();
+        match query {
+            Ok((panel, width)) => self.update_with_panel(
+                api,
+                target,
+                position,
+                origin,
+                panel,
+                width,
+                texture_width,
+                diameter_px,
+            ),
+            Err(error) => {
+                let _ = self.hide(api);
+                Err(error)
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_with_panel(
+        &mut self,
+        api: &VR_IVROverlay_FnTable,
+        target: u64,
+        position: [f32; 3],
+        origin: i32,
+        panel: [[f32; 4]; 3],
+        panel_width: f32,
+        texture_width: u32,
+        diameter_px: u32,
+    ) -> Result<(), String> {
+        let result = (|| unsafe {
+            if texture_width == 0
+                || !panel_width.is_finite()
+                || panel_width <= 0.
+                || !position.iter().all(|v| v.is_finite())
+            {
+                return Err("Invalid cursor coordinates".into());
+            }
+            let handle = self.ensure(api)?;
+            let cursor_width = panel_width * diameter_px as f32 / texture_width as f32;
             // Match the preview's ring and outline at the requested diameter.
-            check(api
-                .SetOverlayWidthInMeters
-                .ok_or("Cursor width unavailable")?(
-                handle,
-                width * diameter_px as f32 / texture_width as f32,
-            ))?;
+            if self.last_width != Some(cursor_width) {
+                check(api
+                    .SetOverlayWidthInMeters
+                    .ok_or("Cursor width unavailable")?(
+                    handle, cursor_width
+                ))?;
+                self.last_width = Some(cursor_width);
+            }
+            let mut pose = HmdMatrix34_t { m: panel };
             // SteamVR returns the panel's +Z-facing normal here.
             for (row, coordinate) in pose.m.iter_mut().zip(position) {
                 row[3] = coordinate + row[2] * CURSOR_SURFACE_OFFSET_M;
@@ -159,6 +207,7 @@ impl CursorOverlay {
         }
         self.target = None;
         self.visible = false;
+        self.last_width = None;
     }
 }
 

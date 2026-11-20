@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
 import { Check, Maximize2, MessageSquare, Mic, Square, X } from "lucide-react";
 
 import type { LookupOrigin, SelectionTarget } from "../app/app-types";
@@ -9,6 +9,7 @@ import type { SpeakerIdentity, Subtitle } from "../subtitles/types";
 import { contentLanguageTag } from "../app/ui-language";
 import { useSpeakerIdentity } from "../subtitles/speaker-state";
 import { livePartialVisible, subtitleVisible } from "../subtitles/player-history";
+import { useLanguageDetectorReady } from "../subtitles/usePlayerHistoryPreferences";
 import { MessageSourceIcon } from "../subtitles/components/MessageSourceIcon";
 import { selectPlayerHistory, selectPlayerPreviews } from "./player-previews";
 import { compactLivePreview } from "./compact-mode";
@@ -50,13 +51,14 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
 }) {
   const { t } = useTranslation();
   const stackRef = useRef<HTMLDivElement>(null);
+  const languageDetectorReady = useLanguageDetectorReady();
   const microphonePartials = useLivePartials("microphone");
   const speakerPartials = useLivePartials("speaker");
   const previews = useMemo(() => selectPlayerPreviews(
     speakerPartials.map(partial => compactLivePreview(partial, subtitleHistory)!)
       .filter(partial => livePartialVisible(partial, hiddenTracks, hiddenSourceLanguages)),
     microphonePartials.map(partial => compactLivePreview(partial, subtitleHistory)!), playerLimit),
-    [speakerPartials, microphonePartials, playerLimit, subtitleHistory, hiddenTracks, hiddenSourceLanguages]);
+    [speakerPartials, microphonePartials, playerLimit, subtitleHistory, hiddenTracks, hiddenSourceLanguages, languageDetectorReady]);
   const batched = useBatchedPreview(previews, "compact-previews", previews.some(partial => partial.utterance_id.includes("qwen-preview-"))) ?? EMPTY_PREVIEWS;
   // A hidden/currently filtered lane must disappear immediately, even while a
   // previous Qwen snapshot is waiting for its next display batch.
@@ -64,7 +66,7 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
     current.source === partial.source && current.utterance_id === partial.utterance_id)), [batched, previews]);
   const visibleSubtitles = useMemo(() => selectPlayerHistory(
     subtitles.filter(subtitle => subtitleVisible(subtitle, hiddenTracks, hiddenSourceLanguages)), previews, playerLimit),
-    [subtitles, previews, playerLimit, hiddenTracks, hiddenSourceLanguages]);
+    [subtitles, previews, playerLimit, hiddenTracks, hiddenSourceLanguages, languageDetectorReady]);
   const layout = useCompactLayout({ subtitles: visibleSubtitles, previews: visiblePreviews, fontSize, selectionTarget, transparentBackground, perPlayer: playerLimit !== undefined });
   const captionTracks = layout.visibleGroups.filter(group => group.source !== "chatbox").length;
   const minimumRows = captionTracks + Number(layout.visibleGroups.some(group => group.source === "chatbox"));
@@ -264,22 +266,30 @@ function CompactText({ className, lang, text, streaming = false, height, frozen,
   onMouseUp?: () => void;
 }) {
   const ref = useRef<HTMLParagraphElement>(null);
-  useLayoutEffect(() => {
+  const followTail = useCallback(() => {
     const element = ref.current;
     if (!element || frozen) return;
     if (height === undefined) { element.scrollTop = 0; return; }
-    const followTail = () => {
-      const selection = window.getSelection();
-      if (selection && !selection.isCollapsed
-        && (element.contains(selection.anchorNode) || element.contains(selection.focusNode))) return;
-      element.scrollTop = element.scrollHeight;
-      element.scrollLeft = 0;
-    };
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed
+      && (element.contains(selection.anchorNode) || element.contains(selection.focusNode))) return;
+    element.scrollTop = element.scrollHeight;
+    element.scrollLeft = 0;
+  }, [height, frozen]);
+  const followTailRef = useRef(followTail);
+  followTailRef.current = followTail;
+
+  useLayoutEffect(() => {
     followTail();
-    const observer = new ResizeObserver(followTail);
+  }, [text, streaming, followTail]);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || frozen || height === undefined) return;
+    const observer = new ResizeObserver(() => followTailRef.current());
     observer.observe(element);
     return () => observer.disconnect();
-  }, [text, streaming, height, frozen]);
+  }, [height !== undefined, frozen]);
 
   return (
     <p ref={ref} className={className} lang={lang} onMouseUp={onMouseUp} style={height === undefined ? undefined : { height }}>

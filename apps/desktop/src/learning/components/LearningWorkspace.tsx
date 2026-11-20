@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { prefersReducedMotion } from "../../app/app-motion";
@@ -46,10 +46,13 @@ export const LearningWorkspace = memo(function LearningWorkspace({
   onLoadOlder: () => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const [materialsMounted, setMaterialsMounted] = useState(false);
   const [showMaterials, setShowMaterials] = useState(false);
   const [transition, setTransition] = useState<"to-materials" | "to-inbox" | null>(null);
   const [detailOpen, setDetailOpen] = useState(workspace.selectedId !== null);
   const [collectedId, setCollectedId] = useState<number | null>(null);
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
 
   useEffect(() => {
     if (!transition) return;
@@ -57,24 +60,46 @@ export const LearningWorkspace = memo(function LearningWorkspace({
     return () => globalThis.clearTimeout(timer);
   }, [transition]);
 
-  const openMaterials = () => {
+  const openMaterials = useCallback(() => {
+    setMaterialsMounted(true);
     setTransition(prefersReducedMotion() ? null : "to-materials");
     setShowMaterials(true);
-  };
+  }, []);
 
-  const closeMaterials = () => {
+  const closeMaterials = useCallback(() => {
     setTransition(prefersReducedMotion() ? null : "to-inbox");
     setShowMaterials(false);
-  };
+  }, []);
 
-  const openItemInInbox = (itemId: number) => {
-    if (workspace.statusFilter !== "all" && workspace.statusFilter !== "collected") {
-      workspace.setStatusFilter("all");
+  const openItemInInbox = useCallback((itemId: number) => {
+    const currentWorkspace = workspaceRef.current;
+    if (currentWorkspace.statusFilter !== "all" && currentWorkspace.statusFilter !== "collected") {
+      currentWorkspace.setStatusFilter("all");
     }
-    workspace.setSelectedId(itemId);
+    currentWorkspace.setSelectedId(itemId);
     setDetailOpen(true);
     closeMaterials();
-  };
+  }, [closeMaterials]);
+
+  const handleOpenCollected = useCallback(() => {
+    if (collectedId !== null) openItemInInbox(collectedId);
+  }, [collectedId, openItemInInbox]);
+
+  const handleDismissCollected = useCallback(() => {
+    setCollectedId(null);
+  }, []);
+
+  const handleOpenItem = useCallback((item: LearningItem) => {
+    openItemInInbox(item.id);
+  }, [openItemInInbox]);
+
+  const handleCollected = useCallback((item: LearningItem) => {
+    setCollectedId(item.id);
+    const currentWorkspace = workspaceRef.current;
+    if (currentWorkspace.statusFilter !== "all" && currentWorkspace.statusFilter !== "collected") {
+      currentWorkspace.setStatusFilter("all");
+    }
+  }, []);
 
   const inboxTransitionState = transition === "to-materials"
     ? "exit-to-materials"
@@ -124,34 +149,29 @@ export const LearningWorkspace = memo(function LearningWorkspace({
           }
         }}
       >
-        <LearningSourceBrowser
-          conversation={conversation}
-          conversations={conversations}
-          activeConversationId={activeConversationId}
-          onSelectConversation={onSelectConversation}
-          subtitles={subtitles}
-          workspace={workspace}
-          onSelect={onSelect}
-          onTranslate={onTranslate}
-          translatingSubtitleIds={translatingSubtitleIds}
-          hasOlder={hasOlder}
-          loading={loading}
-          loadingOlder={loadingOlder}
-          onLoadOlder={onLoadOlder}
-          onBackToInbox={closeMaterials}
-          collectedId={collectedId}
-          onOpenCollected={() => {
-            if (collectedId !== null) openItemInInbox(collectedId);
-          }}
-          onDismissCollected={() => setCollectedId(null)}
-          onOpenItem={(item: LearningItem) => openItemInInbox(item.id)}
-          onCollected={(item) => {
-            setCollectedId(item.id);
-            if (workspace.statusFilter !== "all" && workspace.statusFilter !== "collected") {
-              workspace.setStatusFilter("all");
-            }
-          }}
-        />
+        {materialsMounted && (
+          <LearningSourceBrowser
+            conversation={conversation}
+            conversations={conversations}
+            activeConversationId={activeConversationId}
+            onSelectConversation={onSelectConversation}
+            subtitles={subtitles}
+            workspace={workspace}
+            onSelect={onSelect}
+            onTranslate={onTranslate}
+            translatingSubtitleIds={translatingSubtitleIds}
+            hasOlder={hasOlder}
+            loading={loading}
+            loadingOlder={loadingOlder}
+            onLoadOlder={onLoadOlder}
+            onBackToInbox={closeMaterials}
+            collectedId={collectedId}
+            onOpenCollected={handleOpenCollected}
+            onDismissCollected={handleDismissCollected}
+            onOpenItem={handleOpenItem}
+            onCollected={handleCollected}
+          />
+        )}
       </div>
     </section>
   );

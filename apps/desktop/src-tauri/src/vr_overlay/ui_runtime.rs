@@ -3,12 +3,12 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager as _};
 use vrcs_core::VrOverlayConfig;
 
-use super::backend::{menu_config, Backend, BackendKind, OverlayKind};
+use super::backend::{menu_config, Backend, BackendKind, CursorTarget, OverlayKind};
 use super::control_protocol::{ControlHub, ControlSource};
 use super::interaction::{Hit, Key, Kind, Router, Sample, Surface};
 use super::ocr_wrist::LaserEvent;
 use super::placement::{Mode, Placement, Request};
-use super::pose::{DeviceId, PointerInput, SpaceId};
+use super::pose::{DeviceId, PointerId, PointerInput, SpaceId};
 use super::surface::{SurfaceHub, SurfaceRenderer};
 use super::surface_protocol::{SurfaceId, SurfaceLayout, SurfaceView};
 use super::visibility::Fade;
@@ -23,6 +23,8 @@ struct Pointer {
     distance: f32,
     scroll_y: f32,
     origin: SpaceId,
+    panel: [[f32; 4]; 3],
+    panel_width: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -51,7 +53,7 @@ fn pointer_overlay(surface: Surface) -> (OverlayKind, SurfaceId) {
 
 fn nearest_pointer(
     pointers: impl Iterator<Item = Pointer>,
-    layouts: &[Option<SurfaceLayout>; 3],
+    layouts: &[Option<Arc<SurfaceLayout>>; 3],
 ) -> Option<Pointer> {
     pointers
         .filter(|pointer| {
@@ -109,6 +111,45 @@ pub fn dispatch_placement(
     }
 }
 
+#[derive(Default)]
+struct UiContext {
+    initialized: bool,
+    menu_hand: String,
+    wrist_hand: String,
+    dominant_hand: String,
+    owner_epoch: u32,
+    owner_active: bool,
+    wrist_enabled: bool,
+    menu_enabled: bool,
+}
+
+impl UiContext {
+    fn matches(&self, config: &VrOverlayConfig, owner_epoch: u32, owner_active: bool) -> bool {
+        self.initialized
+            && self.menu_hand == config.wrist_menu.hand
+            && self.wrist_hand == config.wrist.hand
+            && self.dominant_hand == config.wrist.dominant_hand
+            && self.owner_epoch == owner_epoch
+            && self.owner_active == owner_active
+            && self.wrist_enabled == (config.enabled && config.wrist.enabled)
+            && self.menu_enabled == config.wrist_menu.enabled
+    }
+
+    fn update(&mut self, config: &VrOverlayConfig, owner_epoch: u32, owner_active: bool) {
+        self.initialized = true;
+        self.menu_hand.clear();
+        self.menu_hand.push_str(&config.wrist_menu.hand);
+        self.wrist_hand.clear();
+        self.wrist_hand.push_str(&config.wrist.hand);
+        self.dominant_hand.clear();
+        self.dominant_hand.push_str(&config.wrist.dominant_hand);
+        self.owner_epoch = owner_epoch;
+        self.owner_active = owner_active;
+        self.wrist_enabled = config.enabled && config.wrist.enabled;
+        self.menu_enabled = config.wrist_menu.enabled;
+    }
+}
+
 pub struct UiRuntime {
     pub placement: Arc<Mutex<Placement>>,
     router: Router,
@@ -129,16 +170,19 @@ pub struct UiRuntime {
     pub dialogue_visible: bool,
     pub dialogue_revision: Option<u64>,
     pub generation: u64,
-    context: (String, String, u32, bool, bool, bool),
+    context: UiContext,
     origin: Option<SpaceId>,
+    current_origin: Option<SpaceId>,
     pressed: Option<u8>,
     menu_error: Option<String>,
     last_input: Instant,
     pointer_targets: Vec<(OverlayKind, Key, Option<u32>)>,
+    pointer_devices: Vec<(DeviceId, PointerId)>,
     pointer: Option<Pointer>,
     cursor_error: Option<String>,
     menu_surface: SurfaceRenderer,
     pub dialogue_surface: SurfaceRenderer,
+    snapshot_version: Option<u64>,
     snapshot: Arc<(
         super::control_protocol::ControlSnapshot,
         super::player_display::View,
@@ -171,16 +215,23 @@ impl UiRuntime {
             generation: 1,
             context: Default::default(),
             origin: None,
+            current_origin: None,
             pressed: None,
             menu_error: None,
             last_input: Instant::now(),
             pointer_targets: Vec::new(),
+            pointer_devices: Vec::new(),
             pointer: None,
             cursor_error: None,
             menu_surface: SurfaceRenderer::new(SurfaceId::Menu),
             dialogue_surface: SurfaceRenderer::new(SurfaceId::Dialogue),
+            snapshot_version: None,
             snapshot: Default::default(),
         }
+    }
+
+    pub fn current_origin(&self) -> Option<SpaceId> {
+        self.current_origin
     }
 
     pub fn finish_surfaces(&mut self, app: &AppHandle, mut backend: Option<&mut Backend>) {
@@ -202,7 +253,15 @@ impl UiRuntime {
     }
 
     pub fn fast_tick(&self) -> bool {
-        self.menu_visible || self.menu_fade.active() || self.dialogue_active || self.router.active()
+        self.menu_visible
+            || self.menu_fade.animating()
+            || self.dialogue_fade.animating()
+            || self.router.active()
+            || self.pointer.is_some()
+    }
+
+    pub fn pointer_fast_tick(&self) -> bool {
+        self.pointer.is_some() || self.menu_visible || self.router.active()
     }
 
     pub fn reset_dialogue_visibility(&mut self) {
@@ -224,6 +283,7 @@ impl UiRuntime {
     fn suspend_input(&mut self) {
         self.router.cancel();
         self.pointer_targets.clear();
+        self.pointer_devices.clear();
         self.pointer = None;
         self.last_input = Instant::now();
         self.pressed = None;
@@ -235,11 +295,14 @@ impl UiRuntime {
     pub fn reset(&mut self) {
         self.router.cancel();
         self.pointer_targets.clear();
+        self.pointer_devices.clear();
         self.pointer = None;
         self.cursor_error = None;
         self.last_input = Instant::now();
         self.generation += 1;
         self.origin = None;
+        self.current_origin = None;
+        self.snapshot_version = None;
         self.menu_frame = None;
         self.menu_ui = Default::default();
         self.menu_surface.reset();
@@ -297,68 +360,88 @@ impl UiRuntime {
         }
     }
 
+    fn probe_device_pointer(
+        &self,
+        backend: &Backend,
+        layouts: &[Option<Arc<SurfaceLayout>>; 3],
+        device: DeviceId,
+        pointer: PointerId,
+        scroll_y: f32,
+    ) -> Option<Option<Pointer>> {
+        let ray = backend.pointer_pose(pointer)?;
+        if self.origin != Some(ray.space) {
+            return None;
+        }
+        Some(nearest_pointer(
+            self.pointer_targets
+                .iter()
+                .filter(|(_, _, bound)| *bound != Some(device.0))
+                .filter_map(|&(kind, key, _)| {
+                    let hit = backend.intersect(kind, device, ray)?;
+                    Some(Pointer {
+                        device: device.0,
+                        key,
+                        point: hit.point,
+                        position: hit.position,
+                        distance: hit.distance,
+                        scroll_y,
+                        origin: ray.space,
+                        panel: hit.panel,
+                        panel_width: hit.panel_width,
+                    })
+                }),
+            layouts,
+        ))
+    }
+
+    fn finish_pointer_selection(&mut self, pointers: Vec<Pointer>) {
+        let candidates: Vec<_> = pointers.iter().map(|p| (p.device, p.distance)).collect();
+        let device = self.router.select_pointer_device(&candidates);
+        self.pointer = pointers.into_iter().find(|p| Some(p.device) == device);
+    }
+
     fn sample_pointer(
         &mut self,
         backend: &Backend,
-        layouts: &[Option<SurfaceLayout>; 3],
+        layouts: &[Option<Arc<SurfaceLayout>>; 3],
     ) -> Vec<PointerInput> {
         let mut inputs = backend.pointer_inputs();
         let mut pointers = Vec::with_capacity(inputs.len());
         inputs.retain(|input| {
-            let Some(ray) = backend.pointer_pose(input.pointer) else {
-                return false;
-            };
-            if self.origin != Some(ray.space) {
-                return false;
-            }
-            if let Some(pointer) = nearest_pointer(
-                self.pointer_targets
-                    .iter()
-                    .filter(|(_, _, bound)| *bound != Some(input.device.0))
-                    .filter_map(|&(kind, key, _)| {
-                        let (point, position, distance) =
-                            backend.intersect(kind, input.device, ray)?;
-                        Some(Pointer {
-                            device: input.device.0,
-                            key,
-                            point,
-                            position,
-                            distance,
-                            scroll_y: input.scroll_y,
-                            origin: ray.space,
-                        })
-                    }),
+            match self.probe_device_pointer(
+                backend,
                 layouts,
+                input.device,
+                input.pointer,
+                input.scroll_y,
             ) {
-                pointers.push(pointer);
+                None => false,
+                Some(hit) => {
+                    if let Some(pointer) = hit {
+                        pointers.push(pointer);
+                    }
+                    true
+                }
             }
-            true
         });
-        let candidates: Vec<_> = pointers.iter().map(|p| (p.device, p.distance)).collect();
-        let device = self.router.select_pointer_device(&candidates);
-        self.pointer = pointers.into_iter().find(|p| Some(p.device) == device);
+        self.pointer_devices.clear();
+        self.pointer_devices
+            .extend(inputs.iter().map(|input| (input.device, input.pointer)));
+        self.finish_pointer_selection(pointers);
         inputs
     }
 
-    /// Updates only the shared cursor; panel content stays on the regular render tick.
-    pub fn update_pointer(&mut self, app: &AppHandle, backend: &mut Backend) {
-        if self.pointer_targets.is_empty()
-            || backend.system_dashboard_visible()
-            || backend.ocr_tracking().is_err()
-        {
-            self.pointer = None;
-        } else {
-            let surfaces = app.state::<SurfaceHub>();
-            let layouts = [
-                surfaces.pointer_layout(SurfaceId::Menu),
-                surfaces.pointer_layout(SurfaceId::Dialogue),
-                surfaces.pointer_layout(SurfaceId::Reader),
-            ];
-            self.sample_pointer(backend, &layouts);
-        }
+    pub fn sync_cursor(&mut self, app: &AppHandle, backend: &mut Backend) {
         let target = self.pointer.map(|p| {
             let (kind, surface) = pointer_overlay(p.key.surface);
-            (kind, p.position, p.origin, surface.size().0)
+            CursorTarget {
+                kind,
+                position: p.position,
+                origin: p.origin,
+                panel: p.panel,
+                panel_width: p.panel_width,
+                texture_width: surface.size().0,
+            }
         });
         match backend.update_cursor(target) {
             Ok(()) => self.cursor_error = None,
@@ -394,6 +477,34 @@ impl UiRuntime {
         }
     }
 
+    /// Updates only the shared cursor; panel content stays on the regular render tick.
+    pub fn update_pointer(&mut self, app: &AppHandle, backend: &mut Backend) {
+        if self.pointer_targets.is_empty()
+            || self.pointer_devices.is_empty()
+            || backend.system_dashboard_visible()
+            || backend.ocr_tracking().is_err()
+        {
+            self.pointer = None;
+        } else {
+            let surfaces = app.state::<SurfaceHub>();
+            let layouts = [
+                surfaces.pointer_layout(SurfaceId::Menu),
+                surfaces.pointer_layout(SurfaceId::Dialogue),
+                surfaces.pointer_layout(SurfaceId::Reader),
+            ];
+            let mut pointers = Vec::with_capacity(self.pointer_devices.len());
+            for &(device, pointer) in &self.pointer_devices {
+                if let Some(Some(pointer)) =
+                    self.probe_device_pointer(backend, &layouts, device, pointer, 0.0)
+                {
+                    pointers.push(pointer);
+                }
+            }
+            self.finish_pointer_selection(pointers);
+        }
+        self.sync_cursor(app, backend);
+    }
+
     pub fn tick_with_cadence(
         &mut self,
         app: &AppHandle,
@@ -412,19 +523,21 @@ impl UiRuntime {
         } = tick;
         let now = Instant::now();
         if business {
-            self.snapshot = Arc::new(
-                controls
-                    .lock()
-                    .map(|hub| {
-                        (
-                            hub.snapshot(),
-                            hub.player_display().clone(),
-                            hub.player_display_revision(),
-                            hub.active(),
-                        )
-                    })
-                    .unwrap_or_default(),
-            );
+            if let Ok(hub) = controls.lock() {
+                let version = hub.ui_version();
+                if self.snapshot_version != Some(version) {
+                    self.snapshot = Arc::new((
+                        hub.snapshot(),
+                        hub.player_display().clone(),
+                        hub.player_display_revision(),
+                        hub.active(),
+                    ));
+                    self.snapshot_version = Some(version);
+                }
+            } else {
+                self.snapshot = Default::default();
+                self.snapshot_version = None;
+            }
         }
         let snapshot = self.snapshot.clone();
         let (view, players, players_revision, owner_active) = snapshot.as_ref();
@@ -435,14 +548,7 @@ impl UiRuntime {
                     .lock()
                     .is_ok_and(|hub| hub.owns_epoch(view.owner_epoch)),
         );
-        let context = (
-            config.wrist_menu.hand.clone(),
-            format!("{}:{}", config.wrist.hand, config.wrist.dominant_hand),
-            view.owner_epoch,
-            owner_active,
-            config.enabled && config.wrist.enabled,
-            config.wrist_menu.enabled,
-        );
+        let context_changed = !self.context.matches(config, view.owner_epoch, owner_active);
         let tracking = backend.ocr_tracking().ok();
         let origin = tracking.as_ref().map(|t| t.2);
         if backend.tracking_reset()
@@ -450,11 +556,12 @@ impl UiRuntime {
         {
             self.reset();
         }
+        self.current_origin = origin;
         self.origin = origin.or(self.origin);
         let dashboard = backend.system_dashboard_visible();
-        if context != self.context || dashboard || content_owns_input {
+        if context_changed || dashboard || content_owns_input {
             self.suspend_input();
-            if context != self.context {
+            if context_changed {
                 self.menu_fade.reset();
                 self.reset_dialogue_visibility();
                 self.lift = Default::default();
@@ -464,8 +571,8 @@ impl UiRuntime {
                     p.cancel();
                 }
                 self.generation += 1;
+                self.context.update(config, view.owner_epoch, owner_active);
             }
-            self.context = context;
         }
         let mut placement = self.placement.lock().unwrap_or_else(|e| e.into_inner());
         if let Some((head, _, _)) = tracking {
@@ -483,10 +590,10 @@ impl UiRuntime {
                 placement.cancel_drag();
             }
         }
+        let head = tracking.map(|t| t.0);
         let menu_config = menu_config(&config.wrist_menu.hand);
-        let menu_angle = backend
-            .wrist_angle(&menu_config)
-            .filter(|angle| angle.is_finite());
+        let (menu_device, menu_angle) = backend.wrist_device_and_angle(&menu_config, head);
+        let menu_angle = menu_angle.filter(|angle| angle.is_finite());
         if menu_angle.is_none() || !config.wrist_menu.enabled {
             self.menu_ui = Default::default();
             self.menu_fade.reset();
@@ -495,9 +602,8 @@ impl UiRuntime {
         self.menu_ui.clamp(players);
         self.menu_visible =
             config.wrist_menu.enabled && self.lift.update(menu_angle, self.pressed.is_some(), now);
-        let dialogue_angle = backend
-            .wrist_angle(&config.wrist)
-            .filter(|angle| angle.is_finite());
+        let (dialogue_device, dialogue_angle) = backend.wrist_device_and_angle(&config.wrist, head);
+        let dialogue_angle = dialogue_angle.filter(|angle| angle.is_finite());
         self.dialogue_available = match placement.display_mode() {
             Mode::World => placement.absolute_pose().is_some() && tracking.is_some(),
             Mode::Wrist => dialogue_angle.is_some(),
@@ -599,20 +705,15 @@ impl UiRuntime {
             (
                 OverlayKind::WristMenu,
                 menu_key,
-                backend
-                    .controller_device(&menu_config)
-                    .map(|device| device.0),
+                menu_device.map(|device| device.0),
             ),
             (
                 OverlayKind::Wrist,
                 dialogue_key,
-                if placement.display_mode() == Mode::Wrist {
-                    backend
-                        .controller_device(&config.wrist)
-                        .map(|device| device.0)
-                } else {
-                    None
-                },
+                (placement.display_mode() == Mode::Wrist)
+                    .then_some(dialogue_device)
+                    .flatten()
+                    .map(|device| device.0),
             ),
             (OverlayKind::OcrWrist, reader_key, None),
         ]
@@ -951,6 +1052,8 @@ mod tests {
             distance: 1.,
             scroll_y: 0.,
             origin: SpaceId(1),
+            panel: [[0.; 4]; 3],
+            panel_width: 1.,
         };
         let reader = Pointer {
             key: Key {
@@ -968,7 +1071,11 @@ mod tests {
             "page_count": 1
         }))
         .unwrap();
-        let mut layouts = [Some(layout.clone()), None, Some(reader_layout)];
+        let mut layouts = [
+            Some(Arc::new(layout.clone())),
+            None,
+            Some(Arc::new(reader_layout)),
+        ];
         let selected = nearest_pointer([menu, reader].into_iter(), &layouts).unwrap();
         assert_eq!(selected.key.surface, Surface::Menu);
 
@@ -987,7 +1094,7 @@ mod tests {
         assert!(nearest_pointer([menu].into_iter(), &[None, None, None]).is_none());
         assert!(nearest_pointer([reader].into_iter(), &[None, None, None]).is_none());
         layout.regions.clear();
-        layouts[0] = Some(layout);
+        layouts[0] = Some(Arc::new(layout));
         assert!(nearest_pointer([menu].into_iter(), &layouts).is_some());
     }
 
@@ -1015,6 +1122,8 @@ mod tests {
             distance: 1.,
             scroll_y: 0.,
             origin: SpaceId(1),
+            panel: [[0.; 4]; 3],
+            panel_width: 1.,
         };
         let reader = Pointer {
             key: Key {
@@ -1031,7 +1140,7 @@ mod tests {
             "page_count": 1
         }))
         .unwrap();
-        let layouts = [None, Some(layout), Some(reader_layout)];
+        let layouts = [None, Some(Arc::new(layout)), Some(Arc::new(reader_layout))];
         for point in [[0.005, 0.5], [0.5, 0.135], [0.011, 0.011], [0.021, 0.146]] {
             let front = Pointer { point, ..dialogue };
             let selected = nearest_pointer([front, reader].into_iter(), &layouts).unwrap();

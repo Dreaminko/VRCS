@@ -9,8 +9,8 @@ export function classifyChanges(files, full = false) {
   for (const file of files) {
     const workflow = /^\.github\/workflows\/(ci|release|preview)\.yml$/.test(file);
     const releaseScript = /^scripts\/(?:build-.*release|install-linux-deps|release-metadata|write-release-metadata|test-release-metadata|find-release-ci|test-release-ci|ci-changes|test-ci-changes)\.(?:ps1|mjs|sh)$/.test(file);
-    if (workflow || releaseScript || /^(core\/|crates\/|apps\/desktop\/src-tauri\/|packaging\/linux\/)/.test(file) || file === "rust-toolchain.toml" || /^scripts\/(?:check-rust|test-check-rust|prepare-vulkan-runtime)\.ps1$/.test(file)) rust = true;
-    if (workflow || releaseScript || file.startsWith("apps/desktop/") || ["package.json", "package-lock.json", "scripts/check-i18n.mjs"].includes(file)) frontend = true;
+    if (workflow || releaseScript || /^(core\/|crates\/|apps\/desktop\/src-tauri\/|packaging\/linux\/)/.test(file) || ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "scripts/run-tauri.ps1", "scripts/run-tauri.mjs"].includes(file) || /^scripts\/(?:check-rust|test-check-rust|prepare-vulkan-runtime)\.ps1$/.test(file)) rust = true;
+    if (workflow || releaseScript || file.startsWith("apps/desktop/") || ["package.json", "package-lock.json", "scripts/check-i18n.mjs", "scripts/dev-vr.mjs", "scripts/dev-vr.test.mjs"].includes(file)) frontend = true;
   }
   return { rust, frontend };
 }

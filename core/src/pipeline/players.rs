@@ -131,24 +131,34 @@ async fn run_players(
         let event = tokio::select! {
             _ = input.shutdown.changed() => break,
             _ = input.stop.changed() => break,
-            _ = sweep.tick() => {
+            _ = sweep.tick(), if !tasks.is_empty() || !retry_after.is_empty() => {
                 retry_after.retain(|_, until| *until > Instant::now());
-                let blocked = input
-                    .status
-                    .lock()
-                    .expect("player status")
-                    .proximity
-                    .blocked_players
-                    .clone();
-                let expired: Vec<_> = tasks.iter().filter(|(id, t)| !t.dependencies.current_player_selected() || blocked.contains(*id) || t.last_frame.elapsed() > if keep_warm { WARM_PLAYER_SESSION } else { Duration::from_secs(16) })
-                    .map(|(id, _)| id.clone()).collect();
-                for id in expired {
-                    let task = tasks.remove(&id).unwrap();
-                    if !task.dependencies.current_player_selected() || blocked.contains(&id) {
-                        task.dependencies.invalidate_player();
-                        task.discard.store(true, Ordering::SeqCst);
+                if !tasks.is_empty() {
+                    let max_idle = if keep_warm {
+                        WARM_PLAYER_SESSION
+                    } else {
+                        Duration::from_secs(16)
+                    };
+                    let expired: Vec<_> = {
+                        let status = input.status.lock().expect("player status");
+                        tasks
+                            .iter()
+                            .filter_map(|(id, t)| {
+                                let blocked = status.proximity.blocked_players.contains(id.as_str());
+                                let deselected = !t.dependencies.current_player_selected();
+                                (deselected || blocked || t.last_frame.elapsed() > max_idle)
+                                    .then(|| (id.clone(), deselected || blocked))
+                            })
+                            .collect()
+                    };
+                    for (id, invalidate) in expired {
+                        let task = tasks.remove(&id).unwrap();
+                        if invalidate {
+                            task.dependencies.invalidate_player();
+                            task.discard.store(true, Ordering::SeqCst);
+                        }
+                        retire_player(id, task, &mut retired, &mut retiring);
                     }
-                    retire_player(id, task, &mut retired, &mut retiring);
                 }
                 continue;
             }
@@ -400,6 +410,8 @@ async fn run_player(
         return Ok(());
     }
     let managed_qwen = dependencies.managed_qwen();
+    let asr_context_source =
+        dependencies.asr_context_source(dependencies.player_identity().as_ref());
     let controlled = crate::asr::connection_rate_controlled(&asr);
     let connect_timeout = if asr.backend == crate::config::QWEN_MANAGED_BACKEND {
         Duration::from_secs(120)
@@ -419,7 +431,8 @@ async fn run_player(
             let (runtime, manager) = managed_qwen.ok_or("Managed Qwen runtime is unavailable")?;
             spawn_managed_qwen_session(asr, runtime, manager).await
         } else {
-            spawn_cloud_recognition_session(asr, silence_seconds).await
+            spawn_cloud_recognition_session_with_context(asr, silence_seconds, asr_context_source)
+                .await
         }?;
         Ok::<_, String>((session, smart_turn))
     };

@@ -8,6 +8,7 @@ mod question;
 mod qwen_models;
 mod qwen_runtime;
 mod qwen_runtime_download;
+mod runtime_context;
 mod segmented_upload;
 mod session;
 mod streaming;
@@ -28,11 +29,14 @@ pub(crate) use question::{
 pub(crate) use qwen_models::is_supported as is_supported_qwen_package;
 pub(crate) use qwen_models::{
     download_file as download_model_file, verify_file as verify_model_file,
-    verify_file_forced as verify_model_file_forced,
-    verify_file_readonly as verify_model_file_readonly, AssetSpec as ModelAssetSpec,
+    verify_file_forced as verify_model_file_forced, AssetSpec as ModelAssetSpec,
 };
 pub(crate) use qwen_runtime::QwenRuntime;
-pub(crate) use session::{prepare_managed_qwen, spawn_managed_qwen_session};
+pub(crate) use runtime_context::{AsrContextSource, AsrEchoGuard};
+pub(crate) use session::{
+    prepare_managed_qwen, spawn_cloud_recognition_session_with_context, spawn_managed_qwen_session,
+};
+#[allow(unused_imports)]
 pub use session::{
     spawn_cloud_recognition_session, test_cloud_service, validate_cloud_connection,
     CloudRecognitionSession,

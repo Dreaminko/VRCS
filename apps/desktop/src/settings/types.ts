@@ -12,10 +12,11 @@ export type ModelDownloadSource = "auto" | "official" | "modelscope";
 export type TranslationBackend = "api" | "plamo_local";
 
 export interface Settings {
-  schema_version: 45;
+  schema_version: 46;
   model_defaults: ModelDefaults;
   learning_ai: LearningAiSettings;
   vrchat_chatbox: VrchatChatboxConfig;
+  vrchat_context: VrchatContextConfig;
   conversation_titles: ConversationTitleSettings;
   features: FeatureSettings;
   server: {
@@ -61,6 +62,12 @@ export interface Settings {
 
 export interface VrchatChatboxConfig {
   enabled: boolean;
+}
+
+export interface VrchatContextConfig {
+  include_in_asr_context: boolean;
+  include_in_translation_context: boolean;
+  include_world_name: boolean;
 }
 
 export interface ConversationTitleSettings {

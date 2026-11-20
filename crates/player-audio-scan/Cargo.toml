@@ -9,6 +9,3 @@ publish = false
 memchr = "2"
 ring = "0.17"
 zeroize = "1"
-
-[profile.dev]
-opt-level = 3

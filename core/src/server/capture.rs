@@ -396,11 +396,16 @@ fn validate_capture_sources(config: &AppConfig) -> ApiResult<bool> {
     Ok(true)
 }
 
-fn effective_asr_config(
-    state: &CaptureContext,
-    config: &AppConfig,
-    source: &str,
-) -> (AsrConfig, AsrEchoGuard) {
+fn asr_context_source(state: &CaptureContext) -> crate::asr::AsrContextSource {
+    crate::asr::AsrContextSource::new(
+        Arc::clone(&state.config.config),
+        state.capture.room_context.reader(),
+        Arc::clone(&state.content.glossary),
+        state.integrations.vrcx.clone(),
+    )
+}
+
+fn effective_asr_config(config: &AppConfig, source: &str) -> (AsrConfig, AsrEchoGuard) {
     let mut asr = config.asr.clone();
     if crate::providers::is_live_translation(&asr.backend) {
         let targets = if source == "microphone" {
@@ -410,24 +415,7 @@ fn effective_asr_config(
         };
         asr.live_translation_target = targets.first().map(|target| target.target_language.clone());
     }
-    if supports_live_translation_glossary(&asr) {
-        asr.live_translation_phrases = state
-            .content
-            .glossary
-            .phrases_for_live_translation(&config.glossary);
-    }
-    let terms = state
-        .content
-        .glossary
-        .terms_for_asr(&config.glossary)
-        .join("\n");
-    crate::glossary::append_asr_context(&mut asr, &terms);
-    let signatures = if config.vrcx.enabled && config.vrcx.include_in_asr_context {
-        state.integrations.vrcx.apply_asr_context(&mut asr)
-    } else {
-        Vec::new()
-    };
-    (asr, AsrEchoGuard::new(signatures))
+    (asr, AsrEchoGuard::default())
 }
 
 fn pipeline_dependencies(state: &CaptureContext) -> PipelineDependencies {
@@ -444,6 +432,8 @@ fn pipeline_dependencies(state: &CaptureContext) -> PipelineDependencies {
         Arc::clone(&state.capture.qwen_runtime),
         Arc::clone(&state.capture.model_manager),
     )
+    .with_room_context(state.capture.room_context.reader())
+    .with_asr_context_source(asr_context_source(state))
 }
 
 async fn start_speaker_pipeline(
@@ -459,7 +449,7 @@ async fn start_speaker_pipeline(
         .then_some(output.device_id)
         .flatten();
     let process_name = (output.mode == "vrchat").then_some("VRChat.exe");
-    let (asr, echo_guard) = effective_asr_config(state, config, "speaker");
+    let (asr, echo_guard) = effective_asr_config(config, "speaker");
     if output.mode == "vrchat_players" {
         #[cfg(not(any(windows, target_os = "linux")))]
         {
@@ -543,7 +533,7 @@ async fn start_microphone_pipeline(
     let microphone_id = (config.audio.microphone.mode == "device")
         .then_some(config.audio.microphone.device_id)
         .flatten();
-    let (asr, echo_guard) = effective_asr_config(state, config, "microphone");
+    let (asr, echo_guard) = effective_asr_config(config, "microphone");
     state
         .capture
         .microphone_pipeline
@@ -724,6 +714,7 @@ pub(crate) async fn reconcile_network(
             consumers,
             Arc::clone(&state.config.config),
             state.capture.vrchat_log.clone(),
+            state.capture.room_context.network_publisher(),
         )
         .await
         .map_err(|detail| {
@@ -746,7 +737,8 @@ pub(crate) async fn reconcile_network(
             state.content.translation_dispatcher.clone(),
             Arc::clone(&state.config.config),
             Arc::clone(&state.config.language_session),
-        );
+        )
+        .with_room_context(state.capture.room_context.reader());
         *state.capture.chatbox_task.lock().await = Some(tokio::spawn(consumer.run(receiver)));
     }
     Ok(subscriptions.voice)
@@ -902,10 +894,7 @@ pub(super) async fn capture_start(
             return Err(error);
         }
     };
-    state
-        .capture
-        .capture_requested
-        .store(true, Ordering::SeqCst);
+    state.capture.set_capture_requested(true);
     Ok(Json(json!({
         "running": true,
         "device": device,
@@ -918,10 +907,7 @@ pub(super) async fn capture_stop(State(state): State<CaptureContext>) -> Json<Va
         tracing::warn!(%error, "could not cancel Qwen ASR startup");
     }
     let _control = state.capture.capture_control.lock().await;
-    state
-        .capture
-        .capture_requested
-        .store(false, Ordering::SeqCst);
+    state.capture.set_capture_requested(false);
     stop_pipelines(&state, CaptureReloadPlan::all()).await;
     if let Err(error) = state.capture.qwen_runtime.stop().await {
         tracing::warn!(%error, "could not stop managed Qwen ASR runtime after capture");
@@ -966,7 +952,7 @@ pub(crate) async fn resume_microphone(state: &CaptureContext) -> Result<(), Stri
         .then_some(config.audio.microphone.device_id)
         .flatten();
     let dependencies = pipeline_dependencies(state);
-    let (asr, echo_guard) = effective_asr_config(state, &config, "microphone");
+    let (asr, echo_guard) = effective_asr_config(&config, "microphone");
     state
         .capture
         .microphone_pipeline
@@ -1402,5 +1388,16 @@ mod tests {
             CaptureReloadPlan::between(&current, &candidate),
             CaptureReloadPlan::audio()
         );
+    }
+
+    #[test]
+    fn vrchat_context_changes_do_not_require_capture_reload() {
+        let current = AppConfig::default();
+        let mut candidate = current.clone();
+        candidate.vrchat_context.include_in_asr_context = true;
+        candidate.vrchat_context.include_in_translation_context = true;
+        candidate.vrchat_context.include_world_name = false;
+
+        assert!(CaptureReloadPlan::between(&current, &candidate).is_empty());
     }
 }

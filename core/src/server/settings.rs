@@ -70,6 +70,7 @@ pub(super) async fn update_settings(
         .await?
         .apply(&state)
         .await?;
+        state.capture.room_context.notify_settings_changed();
         Ok((
             revision_headers(&state, result.revision),
             Json(json!(result.config)),
@@ -96,6 +97,7 @@ fn config_from_update(update: SettingsUpdate) -> AppConfig {
         conversation_titles: update.conversation_titles,
         audio: update.audio,
         vrchat_chatbox: update.vrchat_chatbox,
+        vrchat_context: update.vrchat_context,
         vad: update.vad,
         asr: update.asr,
         glossary: update.glossary,

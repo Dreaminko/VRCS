@@ -12,11 +12,15 @@ permissions:
 
 jobs:
   windows-x64:
-    runs-on: windows-latest
+    runs-on: windows-2022
+    timeout-minutes: 45
     env:
+      CMAKE_GENERATOR: Visual Studio 17 2022
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
@@ -27,13 +31,16 @@ jobs:
         shell: pwsh
         run: rustup show
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: ci-windows-x64-vulkan
+          shared-key: ci-windows-x64
           save-if: false
-          workspaces: |
-            core -> ../.build
-            apps/desktop/src-tauri -> ../../../.build
+          workspaces: . -> .build
+
+      - uses: actions/cache@v6
+        with:
+          path: apps/desktop/src-tauri/resources/vulkan-runtime
+          key: vulkan-runtime-${{ hashFiles('scripts/prepare-vulkan-runtime.ps1') }}
 
       - name: Install frontend dependencies
         run: npm ci
@@ -66,7 +73,11 @@ jobs:
           This unsigned debug build has no automatic updates and uses the existing VRCS data directory.
           Close VRCS before starting the preview.
           "@ | Set-Content -LiteralPath "$artifactRoot/README.txt" -Encoding utf8
-          $process = Start-Process -FilePath "$artifactRoot/VRCS-preview.exe" -ArgumentList "--release-self-test" -WorkingDirectory $artifactRoot -Wait -PassThru -WindowStyle Hidden
+          $process = Start-Process -FilePath "$artifactRoot/VRCS-preview.exe" -ArgumentList "--release-self-test" -WorkingDirectory $artifactRoot -PassThru -WindowStyle Hidden
+          if (-not $process.WaitForExit(120000)) {
+            try { $process.Kill() } catch {}
+            throw "Preview self-test timed out after 120 seconds"
+          }
           if ($process.ExitCode -ne 0) {
             throw "Preview self-test failed with exit code $($process.ExitCode)"
           }
@@ -87,11 +98,14 @@ jobs:
           - arch: x86_64
             runner: ubuntu-24.04
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
       VRCS_PACKAGE_CHANNEL: development
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
@@ -100,15 +114,11 @@ jobs:
         run: bash scripts/install-linux-deps.sh
       - name: Install pinned Rust toolchain
         run: rustup show
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: preview-linux-${{ matrix.arch }}-vulkan-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: ci-linux-${{ matrix.arch }}-cpu-vulkan
           save-if: false
-          workspaces: |
-            core -> ../.build
-            apps/desktop/src-tauri -> ../../../.build
-            crates/player-audio-helper -> ../../.build
-            crates/player-audio-scan -> ../../.build
+          workspaces: . -> .build
       - run: npm ci
       - name: Collect native runtime and load ONNX session
         run: node scripts/build-linux-release.mjs --preview

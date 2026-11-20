@@ -58,6 +58,12 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
   const [totalBytes, setTotalBytes] = useState<number | null>(null);
   const [noticeVisible, setNoticeVisible] = useState(false);
   const busyRef = useRef(false);
+  const downloadedBytesRef = useRef(0);
+  const progressFlushTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (progressFlushTimerRef.current !== null) window.clearTimeout(progressFlushTimerRef.current);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,20 +128,40 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
     busyRef.current = true;
     setPhase("downloading");
     setErrorCode(null);
+    downloadedBytesRef.current = 0;
+    if (progressFlushTimerRef.current !== null) {
+      window.clearTimeout(progressFlushTimerRef.current);
+      progressFlushTimerRef.current = null;
+    }
     setDownloadedBytes(0);
     setTotalBytes(null);
+    const flushProgress = () => {
+      if (progressFlushTimerRef.current !== null) {
+        window.clearTimeout(progressFlushTimerRef.current);
+        progressFlushTimerRef.current = null;
+      }
+      setDownloadedBytes(downloadedBytesRef.current);
+    };
     try {
       await downloadAndInstallAppUpdate(update.version, (event) => {
         if (event.event === "started") {
           setTotalBytes(event.data.contentLength);
         } else if (event.event === "progress") {
-          setDownloadedBytes((current) => current + event.data.chunkLength);
+          downloadedBytesRef.current += event.data.chunkLength;
+          if (progressFlushTimerRef.current === null) {
+            progressFlushTimerRef.current = window.setTimeout(() => {
+              progressFlushTimerRef.current = null;
+              setDownloadedBytes(downloadedBytesRef.current);
+            }, 100);
+          }
         } else {
+          flushProgress();
           setPhase("installing");
         }
       });
       setPhase("idle");
     } catch (reason) {
+      flushProgress();
       setErrorCode(updaterErrorCode(reason));
       setPhase("error");
     } finally {

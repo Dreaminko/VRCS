@@ -194,6 +194,23 @@ impl SurfaceView {
                     ..
                 },
             ) => a.owner_epoch == b.owner_epoch && am == bm && av == bv && ae == be && ap == bp,
+            (
+                Self::Dashboard {
+                    dashboard: a,
+                    ui: au,
+                    ..
+                },
+                Self::Dashboard {
+                    dashboard: b,
+                    ui: bu,
+                    ..
+                },
+            ) => {
+                au == bu
+                    && a.player_audio_notice.is_some()
+                    && a.player_audio_notice.as_ref().map(|n| n.request_id)
+                        == b.player_audio_notice.as_ref().map(|n| n.request_id)
+            }
             _ => false,
         }
     }
@@ -229,7 +246,15 @@ impl SurfaceView {
                     ui: bu,
                     ..
                 },
-            ) => a == b && ap == bp && au == bu,
+            ) => {
+                a == b
+                    && au == bu
+                    && if au.page == super::wrist_menu::Page::Home {
+                        ap.labels.get("title") == bp.labels.get("title")
+                    } else {
+                        ap == bp
+                    }
+            }
             _ => self == other,
         }
     }
@@ -1289,5 +1314,22 @@ mod tests {
             policy.route("GET", "https://example.com/assets/surface.js"),
             ResourceRoute::Reject(403)
         );
+    }
+
+    #[cfg(any(windows, linux_vr))]
+    #[test]
+    fn menu_same_layout_detects_photo_gesture_visibility_changes() {
+        let mut shown = ControlSnapshot::default();
+        shown.items[4].hidden = false;
+        let mut hidden = shown.clone();
+        hidden.items[4].hidden = true;
+        let view = |controls| SurfaceView::Menu {
+            players: Default::default(),
+            ui: Default::default(),
+            controls,
+            hold_progress: None,
+        };
+        assert!(view(shown.clone()).same_layout(&view(shown.clone())));
+        assert!(!view(shown).same_layout(&view(hidden)));
     }
 }

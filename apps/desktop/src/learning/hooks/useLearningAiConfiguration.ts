@@ -16,16 +16,24 @@ export function useLearningAiConfiguration(settings: Settings | null | undefined
   const serialized = useSyncExternalStore(subscribeLearningPreferences, learningPreferencesSnapshot);
   const saved = useMemo(() => readLearningPreferences(serialized), [serialized]);
   const binding = learningModelSelection(settings);
+  const preferences = useMemo(() => ({
+    ...saved,
+    profileId: binding.profile_id ?? "",
+    model: binding.model,
+    thinkingEnabled: binding.thinking_enabled,
+    reasoningControl: binding.reasoning_control ?? null,
+    explanationLanguage: saved.explanationLanguage === "ui"
+      ? explanationLanguageForUiLocale(i18n.resolvedLanguage) : saved.explanationLanguage,
+  }), [
+    saved,
+    binding.profile_id,
+    binding.model,
+    binding.thinking_enabled,
+    binding.reasoning_control,
+    i18n.resolvedLanguage,
+  ]);
   return {
-    preferences: {
-      ...saved,
-      profileId: binding.profile_id ?? "",
-      model: binding.model,
-      thinkingEnabled: binding.thinking_enabled,
-      reasoningControl: binding.reasoning_control ?? null,
-      explanationLanguage: saved.explanationLanguage === "ui"
-        ? explanationLanguageForUiLocale(i18n.resolvedLanguage) : saved.explanationLanguage,
-    },
+    preferences,
     explanationLanguagePreference: saved.explanationLanguage,
     setExplanationLanguage: (explanationLanguage: string) => setPreferences((current) => ({ ...current, explanationLanguage })),
     setExplanationLevel: (explanationLevel: string) => setPreferences((current) => ({

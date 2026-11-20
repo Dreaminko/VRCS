@@ -3,7 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { VrOverlayStatus } from "./types";
 import type { VrDashboardAction } from "../vr-dashboard/settings-actions";
-import type { VrOverlayPositionField } from "../settings/vr-overlay-settings";
+import type { VrOverlayAppearanceField, VrOverlayPositionField } from "../settings/vr-overlay-settings";
 
 export type VrOverlayKind = "headset" | "wrist";
 
@@ -23,7 +23,16 @@ export interface VrDashboardNumberField {
   can_increase: boolean;
 }
 
+export interface VrDashboardAppearanceField {
+  field: VrOverlayAppearanceField;
+  label: string;
+  value: string;
+  can_decrease: boolean;
+  can_increase: boolean;
+}
+
 export interface VrDashboardViewModel {
+  locale?: string;
   player_audio_notice?: import("../capture/player-audio-vr").PlayerAudioPrompt | null;
   caption_visibility?: { hidden_tracks: readonly string[]; hidden_source_languages: readonly string[] };
   max_visible_players?: number | null;
@@ -85,6 +94,16 @@ export interface VrDashboardViewModel {
     cancel: string;
     position_hint: string;
     rotation_hint: string;
+    back?: string;
+    preferred?: string;
+    master_off_banner?: string;
+    recognition_locked?: string;
+    translation_off_hint?: string;
+    delete_preset_title?: string;
+    no_presets?: string;
+    anchor_mode?: string;
+    anchor_world?: string;
+    follow_view?: string;
   };
   enabled: boolean;
   capture: { running: boolean; available: boolean };
@@ -92,8 +111,8 @@ export interface VrDashboardViewModel {
   ocr_available: boolean;
   vision_available: boolean;
   osc_available: boolean;
-  headset: { enabled: boolean; preview_visible: boolean; width: string; opacity: string; position: VrDashboardNumberField[] };
-  wrist: { enabled: boolean; anchor_mode: string; follow_view: boolean; hand: VrDashboardChoice; preview_visible: boolean; width: string; opacity: string; position: VrDashboardNumberField[] };
+  headset: { enabled: boolean; preview_visible: boolean; width: string; opacity: string; position: VrDashboardNumberField[]; appearance?: VrDashboardAppearanceField[] };
+  wrist: { enabled: boolean; anchor_mode: string; follow_view: boolean; hand: VrDashboardChoice; preview_visible: boolean; width: string; opacity: string; position: VrDashboardNumberField[]; appearance?: VrDashboardAppearanceField[] };
   ocr: { available: boolean; enabled: boolean; backend: string; gesture: boolean };
   vision: { enabled: boolean; configured: boolean; model: string };
   language: {

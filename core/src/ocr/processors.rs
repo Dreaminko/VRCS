@@ -16,18 +16,64 @@ pub fn det_input(rgba: &[u8], width: u32, height: u32) -> Result<Array4<f32>, St
         .min(1536.0 / width.max(height) as f32);
     let resize = |side: u32| ((side as f32 * ratio / 32.0).round() as usize * 32).max(32);
     let (w, h) = (resize(width), resize(height));
-    let mean = [0.485, 0.456, 0.406];
-    let std = [0.229, 0.224, 0.225];
+    let mean = [0.485_f32, 0.456, 0.406];
+    let inv_std = [1.0 / 0.229_f32, 1.0 / 0.224, 1.0 / 0.225];
+    let max_x = width as isize - 1;
+    let max_y = height as isize - 1;
+    let x_table: Vec<(usize, usize, f32, f32)> = (0..w)
+        .map(|x| {
+            let sx = (x as f32 + 0.5) * width as f32 / w as f32 - 0.5;
+            let ix = sx.floor() as isize;
+            let fx = sx - sx.floor();
+            (
+                ix.clamp(0, max_x) as usize * 4,
+                (ix + 1).clamp(0, max_x) as usize * 4,
+                1.0 - fx,
+                fx,
+            )
+        })
+        .collect();
     let mut input = Array4::zeros((1, 3, h, w));
     let data = input.as_slice_mut().expect("OCR input is contiguous");
+    let plane = h * w;
+    let (plane_b, rest) = data.split_at_mut(plane);
+    let (plane_g, plane_r) = rest.split_at_mut(plane);
+    let row_stride = width as usize * 4;
     for y in 0..h {
         let sy = (y as f32 + 0.5) * height as f32 / h as f32 - 0.5;
-        for x in 0..w {
-            let sx = (x as f32 + 0.5) * width as f32 / w as f32 - 0.5;
-            let color = bilinear(rgba, width as usize, height as usize, 4, sx, sy);
-            for c in 0..3 {
-                data[c * h * w + y * w + x] = (color[2 - c].round() / 255.0 - mean[c]) / std[c];
-            }
+        let iy = sy.floor() as isize;
+        let fy = sy - sy.floor();
+        let inv_fy = 1.0 - fy;
+        let row0 = iy.clamp(0, max_y) as usize * row_stride;
+        let row1 = (iy + 1).clamp(0, max_y) as usize * row_stride;
+        let out_row = y * w;
+        let dst_b = &mut plane_b[out_row..out_row + w];
+        let dst_g = &mut plane_g[out_row..out_row + w];
+        let dst_r = &mut plane_r[out_row..out_row + w];
+        for (x, &(x0, x1, inv_fx, fx)) in x_table.iter().enumerate() {
+            let w00 = inv_fx * inv_fy;
+            let w01 = fx * inv_fy;
+            let w10 = inv_fx * fy;
+            let w11 = fx * fy;
+            let o00 = row0 + x0;
+            let o01 = row0 + x1;
+            let o10 = row1 + x0;
+            let o11 = row1 + x1;
+            let r = rgba[o00] as f32 * w00
+                + rgba[o01] as f32 * w01
+                + rgba[o10] as f32 * w10
+                + rgba[o11] as f32 * w11;
+            let g = rgba[o00 + 1] as f32 * w00
+                + rgba[o01 + 1] as f32 * w01
+                + rgba[o10 + 1] as f32 * w10
+                + rgba[o11 + 1] as f32 * w11;
+            let b = rgba[o00 + 2] as f32 * w00
+                + rgba[o01 + 2] as f32 * w01
+                + rgba[o10 + 2] as f32 * w10
+                + rgba[o11 + 2] as f32 * w11;
+            dst_b[x] = (b.round() / 255.0 - mean[0]) * inv_std[0];
+            dst_g[x] = (g.round() / 255.0 - mean[1]) * inv_std[1];
+            dst_r[x] = (r.round() / 255.0 - mean[2]) * inv_std[2];
         }
     }
     Ok(input)
@@ -45,12 +91,18 @@ pub fn det_boxes(
         || width == 0
         || height == 0
         || map_width.checked_mul(map_height) != Some(prob.len())
-        || prob.iter().any(|p| !p.is_finite())
     {
         return Err("Invalid OCR detector output".into());
     }
-    let bitmap: Vec<bool> = prob.iter().map(|&p| p > 0.2).collect();
+    let mut bitmap = Vec::with_capacity(prob.len());
+    for &p in prob {
+        if !p.is_finite() {
+            return Err("Invalid OCR detector output".into());
+        }
+        bitmap.push(p > 0.2);
+    }
     let mut visited = vec![false; prob.len()];
+    let mut queue = VecDeque::new();
     let mut boxes = Vec::new();
     let mut candidates = 0;
     for seed in 0..prob.len() {
@@ -61,14 +113,15 @@ pub fn det_boxes(
         if candidates > 3000 || boxes.len() == 256 {
             break;
         }
-        let mut queue = VecDeque::from([seed]);
+        queue.clear();
+        queue.push_back(seed);
         visited[seed] = true;
         let mut count = 0;
         while let Some(index) = queue.pop_front() {
             count += 1;
+            let (x, y) = ((index % map_width) as isize, (index / map_width) as isize);
             for [dx, dy] in NEIGHBORS {
-                let (x, y) = (index % map_width, index / map_width);
-                let (nx, ny) = (x as isize + dx, y as isize + dy);
+                let (nx, ny) = (x + dx, y + dy);
                 if nx < 0 || ny < 0 || nx >= map_width as isize || ny >= map_height as isize {
                     continue;
                 }
@@ -175,14 +228,60 @@ pub fn crop_and_rec_input(
     let input_w = resized_w.max(320);
     let mut input = Array4::zeros((1, 3, 48, input_w));
     let data = input.as_slice_mut().expect("OCR input is contiguous");
+    let max_x = crop_w as isize - 1;
+    let max_y = crop_h as isize - 1;
+    let x_table: Vec<(usize, usize, f32, f32)> = (0..resized_w)
+        .map(|x| {
+            let sx = (x as f32 + 0.5) * crop_w as f32 / resized_w as f32 - 0.5;
+            let ix = sx.floor() as isize;
+            let fx = sx - sx.floor();
+            (
+                ix.clamp(0, max_x) as usize * 3,
+                (ix + 1).clamp(0, max_x) as usize * 3,
+                1.0 - fx,
+                fx,
+            )
+        })
+        .collect();
+    let plane = 48 * input_w;
+    let (plane0, rest) = data.split_at_mut(plane);
+    let (plane1, plane2) = rest.split_at_mut(plane);
+    let row_stride = crop_w * 3;
     for y in 0..48 {
         let sy = (y as f32 + 0.5) * crop_h as f32 / 48.0 - 0.5;
-        for x in 0..resized_w {
-            let sx = (x as f32 + 0.5) * crop_w as f32 / resized_w as f32 - 0.5;
-            let color = bilinear(&crop, crop_w, crop_h, 3, sx, sy);
-            for (c, value) in color.into_iter().enumerate() {
-                data[c * 48 * input_w + y * input_w + x] = value.round() / 127.5 - 1.0;
-            }
+        let iy = sy.floor() as isize;
+        let fy = sy - sy.floor();
+        let inv_fy = 1.0 - fy;
+        let row0 = iy.clamp(0, max_y) as usize * row_stride;
+        let row1 = (iy + 1).clamp(0, max_y) as usize * row_stride;
+        let out_row = y * input_w;
+        let dst0 = &mut plane0[out_row..out_row + resized_w];
+        let dst1 = &mut plane1[out_row..out_row + resized_w];
+        let dst2 = &mut plane2[out_row..out_row + resized_w];
+        for (x, &(x0, x1, inv_fx, fx)) in x_table.iter().enumerate() {
+            let w00 = inv_fx * inv_fy;
+            let w01 = fx * inv_fy;
+            let w10 = inv_fx * fy;
+            let w11 = fx * fy;
+            let o00 = row0 + x0;
+            let o01 = row0 + x1;
+            let o10 = row1 + x0;
+            let o11 = row1 + x1;
+            let c0 = crop[o00] as f32 * w00
+                + crop[o01] as f32 * w01
+                + crop[o10] as f32 * w10
+                + crop[o11] as f32 * w11;
+            let c1 = crop[o00 + 1] as f32 * w00
+                + crop[o01 + 1] as f32 * w01
+                + crop[o10 + 1] as f32 * w10
+                + crop[o11 + 1] as f32 * w11;
+            let c2 = crop[o00 + 2] as f32 * w00
+                + crop[o01 + 2] as f32 * w01
+                + crop[o10 + 2] as f32 * w10
+                + crop[o11 + 2] as f32 * w11;
+            dst0[x] = c0.round() / 127.5 - 1.0;
+            dst1[x] = c1.round() / 127.5 - 1.0;
+            dst2[x] = c2.round() / 127.5 - 1.0;
         }
     }
     Ok(input)
@@ -194,10 +293,7 @@ pub fn ctc_decode(
     classes: usize,
     characters: &[String],
 ) -> Result<(String, f32), String> {
-    if classes == 0
-        || classes != characters.len()
-        || steps.checked_mul(classes) != Some(prob.len())
-        || prob.iter().any(|p| !p.is_finite())
+    if classes == 0 || classes != characters.len() || steps.checked_mul(classes) != Some(prob.len())
     {
         return Err("Invalid OCR recognizer output or dictionary".into());
     }
@@ -205,14 +301,22 @@ pub fn ctc_decode(
     let (mut previous, mut score, mut count) = (0, 0.0, 0);
     for row in prob.chunks_exact(classes) {
         let mut best = 0;
-        for id in 1..classes {
-            if row[id] > row[best] {
+        let mut best_value = row[0];
+        if !best_value.is_finite() {
+            return Err("Invalid OCR recognizer output or dictionary".into());
+        }
+        for (id, &value) in row.iter().enumerate().skip(1) {
+            if !value.is_finite() {
+                return Err("Invalid OCR recognizer output or dictionary".into());
+            }
+            if value > best_value {
                 best = id;
+                best_value = value;
             }
         }
         if best != 0 && best != previous {
             text.push_str(&characters[best]);
-            score += row[best];
+            score += best_value;
             count += 1;
         }
         previous = best;
@@ -240,6 +344,7 @@ pub(super) fn validate_image(rgba: &[u8], width: u32, height: u32) -> Result<(),
     Ok(())
 }
 
+#[cfg(test)]
 fn bilinear(
     image: &[u8],
     width: usize,
@@ -266,9 +371,10 @@ fn bicubic(image: &[u8], width: usize, height: usize, x: f32, y: f32) -> [f32; 3
     let weight = |t: f32| {
         let t = t.abs();
         if t <= 1.0 {
-            1.25 * t.powi(3) - 2.25 * t.powi(2) + 1.0
+            let t2 = t * t;
+            (1.25 * t - 2.25) * t2 + 1.0
         } else if t < 2.0 {
-            -0.75 * t.powi(3) + 3.75 * t.powi(2) - 6.0 * t + 3.0
+            ((-0.75 * t + 3.75) * t - 6.0) * t + 3.0
         } else {
             0.0
         }
@@ -291,10 +397,11 @@ fn bicubic(image: &[u8], width: usize, height: usize, x: f32, y: f32) -> [f32; 3
     let mut result = [0.0; 3];
     for (row, wy) in ys {
         for (column, wx) in xs {
+            let w = wx * wy;
             let offset = (row + column) * 4;
-            for (c, value) in result.iter_mut().enumerate() {
-                *value += image[offset + c] as f32 * wx * wy;
-            }
+            result[0] += image[offset] as f32 * w;
+            result[1] += image[offset + 1] as f32 * w;
+            result[2] += image[offset + 2] as f32 * w;
         }
     }
     result

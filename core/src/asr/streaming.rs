@@ -1,4 +1,7 @@
-use std::{collections::VecDeque, time::Duration};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
@@ -68,6 +71,9 @@ pub enum CloudEvent {
         utterance_id: String,
         text: String,
         language: Option<String>,
+    },
+    EchoFiltered {
+        utterance_id: String,
     },
     Failed {
         utterance_id: Option<String>,
@@ -269,10 +275,26 @@ pub fn validate_cloud_connection(config: &AsrConfig) -> Result<(), String> {
     provider.build_request(config, profile, &key).map(|_| ())
 }
 
+#[allow(dead_code)]
 pub async fn spawn_streaming_session(
     config: AsrConfig,
     silence_seconds: f64,
 ) -> Result<StreamingSession, String> {
+    spawn_streaming_session_with_context(config, silence_seconds, None).await
+}
+
+pub(crate) async fn spawn_streaming_session_with_context(
+    base_config: AsrConfig,
+    silence_seconds: f64,
+    context_source: Option<super::runtime_context::AsrContextSource>,
+) -> Result<StreamingSession, String> {
+    let prepared = context_source
+        .as_ref()
+        .map(|source| source.prepare(&base_config));
+    let config = prepared
+        .as_ref()
+        .map(|prepared| prepared.asr_config.clone())
+        .unwrap_or_else(|| base_config.clone());
     let provider = Provider::from_config(&config)?;
     let profile = active_profile(&config)?.clone();
     let key = crate::credentials::read_credential_async(&profile.id, &profile.provider)
@@ -283,14 +305,15 @@ pub async fn spawn_streaming_session(
     let (audio_tx, audio_rx) = mpsc::channel(32);
     let (event_tx, event_rx) = mpsc::channel(32);
     let (stop_tx, stop_rx) = watch::channel(false);
-    let task_config = config.clone();
     let priority = crate::work_priority::Context::current();
     let task = tokio::spawn(async move {
         priority
             .scope(async move {
-                run_with_reconnect(
+                run_with_reconnect_context(
                     provider,
-                    task_config,
+                    base_config,
+                    prepared,
+                    context_source,
                     profile,
                     silence_seconds,
                     key,
@@ -400,10 +423,43 @@ pub async fn test_streaming_connection(
     .await
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 async fn run_with_reconnect(
     provider: Provider,
     config: AsrConfig,
+    profile: ApiProfile,
+    silence_seconds: f64,
+    key: String,
+    socket: Socket,
+    task_id: Option<String>,
+    audio: mpsc::Receiver<StreamingInput>,
+    events: mpsc::Sender<CloudEvent>,
+    stop: watch::Receiver<bool>,
+) {
+    run_with_reconnect_context(
+        provider,
+        config,
+        None,
+        None,
+        profile,
+        silence_seconds,
+        key,
+        socket,
+        task_id,
+        audio,
+        events,
+        stop,
+    )
+    .await;
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_with_reconnect_context(
+    provider: Provider,
+    base_config: AsrConfig,
+    initial_prepared: Option<super::runtime_context::PreparedAsrContext>,
+    context_source: Option<super::runtime_context::AsrContextSource>,
     profile: ApiProfile,
     silence_seconds: f64,
     key: String,
@@ -413,10 +469,30 @@ async fn run_with_reconnect(
     events: mpsc::Sender<CloudEvent>,
     mut stop: watch::Receiver<bool>,
 ) {
+    let mut active = initial_prepared;
+    let mut config = active
+        .as_ref()
+        .map(|prepared| prepared.asr_config.clone())
+        .unwrap_or_else(|| base_config.clone());
+    let mut context_rx = context_source.as_ref().map(|source| source.subscribe());
     let quota = rate_limit::gate(&config, &profile);
     let mut backoff = Duration::from_millis(500);
     let mut replay = VecDeque::new();
+    let mut last_intra_refresh = None;
     loop {
+        let context_state = context_source
+            .as_ref()
+            .zip(active.as_ref())
+            .zip(context_rx.as_mut())
+            .map(|((source, prepared), rx)| SessionContextState {
+                source,
+                base_config: &base_config,
+                rx,
+                conn_scope: &prepared.scope_id,
+                conn_fingerprint: prepared.fingerprint,
+                echo_guard: &prepared.echo_guard,
+                last_intra_refresh,
+            });
         let outcome = run_session_buffered(
             provider,
             &config,
@@ -426,9 +502,24 @@ async fn run_with_reconnect(
             &events,
             &mut stop,
             &mut replay,
+            context_state,
         )
         .await;
-        let outcome = match outcome {
+        let (is_refresh, outcome) = match outcome {
+            Ok(SessionEnd::RefreshContext) => {
+                if let Some(source) = &context_source {
+                    let next = source.prepare(&base_config);
+                    if active
+                        .as_ref()
+                        .is_some_and(|prev| prev.scope_id == next.scope_id)
+                    {
+                        last_intra_refresh = Some(Instant::now());
+                    }
+                    config = next.asr_config.clone();
+                    active = Some(next);
+                }
+                (true, Err(String::new()))
+            }
             Ok(SessionEnd::Idle(mut resume)) => {
                 while !resume.ready && !*stop.borrow() && !resume.closed {
                     tokio::select! {
@@ -438,6 +529,11 @@ async fn run_with_reconnect(
                 }
                 if !resume.ready {
                     break;
+                }
+                if let Some(source) = &context_source {
+                    let next = source.prepare(&base_config);
+                    config = next.asr_config.clone();
+                    active = Some(next);
                 }
                 // Planned resumption is independent of the network failure policy.
                 let mut resume_backoff = Duration::from_millis(500);
@@ -491,47 +587,57 @@ async fn run_with_reconnect(
                     }
                 }
             }
-            other => other,
+            other => (false, other),
         };
         if matches!(&outcome, Ok(SessionEnd::QuestionFinished)) {
             break;
         }
         if *stop.borrow() || audio.is_closed() {
             if let Err(detail) = outcome {
-                let _ = events
-                    .send(CloudEvent::Failed {
-                        utterance_id: None,
-                        reset_session: true,
-                        code: "asr.cloud_drain_failed".into(),
-                        detail,
-                    })
-                    .await;
+                if !detail.is_empty() {
+                    let _ = events
+                        .send(CloudEvent::Failed {
+                            utterance_id: None,
+                            reset_session: true,
+                            code: "asr.cloud_drain_failed".into(),
+                            detail,
+                        })
+                        .await;
+                }
             }
             break;
         }
-        let detail = match outcome {
-            Ok(_) => "Cloud recognition connection was closed".to_string(),
-            Err(error) => error,
-        };
-        if let Some(quota) = &quota {
-            quota.failed(&detail);
+        if !is_refresh {
+            let detail = match outcome {
+                Ok(_) => "Cloud recognition connection was closed".to_string(),
+                Err(error) => error,
+            };
+            if let Some(quota) = &quota {
+                quota.failed(&detail);
+            }
+            let _ = events
+                .send(CloudEvent::Failed {
+                    utterance_id: None,
+                    reset_session: true,
+                    code: "asr.cloud_disconnected".into(),
+                    detail,
+                })
+                .await;
+            if let Some(source) = &context_source {
+                let next = source.prepare(&base_config);
+                config = next.asr_config.clone();
+                active = Some(next);
+            }
         }
-        let _ = events
-            .send(CloudEvent::Failed {
-                utterance_id: None,
-                reset_session: true,
-                code: "asr.cloud_disconnected".into(),
-                detail,
-            })
-            .await;
         // Retry on a fresh socket only; keep draining input so the pipeline never stalls.
         let mut pending = if quota.is_some() {
             reconnect::ReconnectBuffer::realtime()
         } else {
             reconnect::ReconnectBuffer::default()
         };
+        let mut immediate_refresh = is_refresh;
         let connection = loop {
-            if quota.is_some() && config.single_speaker {
+            if !immediate_refresh && quota.is_some() && config.single_speaker {
                 // An idle player's closed socket should not consume another
                 // request until that player speaks again.
                 let ready = tokio::select! {
@@ -542,8 +648,15 @@ async fn run_with_reconnect(
                     break None;
                 }
             }
+            let wait_before_attempt = if std::mem::take(&mut immediate_refresh) {
+                Duration::ZERO
+            } else {
+                backoff
+            };
             let attempt = async {
-                tokio::time::sleep(backoff).await;
+                if !wait_before_attempt.is_zero() {
+                    tokio::time::sleep(wait_before_attempt).await;
+                }
                 connect_initialized(provider, &config, &profile, silence_seconds, &key).await
             };
             let result = tokio::select! {
@@ -585,6 +698,63 @@ enum SessionEnd {
     Closed,
     QuestionFinished,
     Idle(idle::ResumeBuffer),
+    RefreshContext,
+}
+
+struct SessionContextState<'a> {
+    source: &'a super::runtime_context::AsrContextSource,
+    base_config: &'a AsrConfig,
+    rx: &'a mut watch::Receiver<crate::room_context::RoomContextSnapshot>,
+    conn_scope: &'a Option<String>,
+    conn_fingerprint: u64,
+    echo_guard: &'a super::runtime_context::AsrEchoGuard,
+    last_intra_refresh: Option<Instant>,
+}
+
+const CONTEXT_REFRESH_DEBOUNCE: Duration = Duration::from_secs(2);
+const CONTEXT_REFRESH_THROTTLE: Duration = Duration::from_secs(30);
+
+fn filter_echo_event(
+    event: CloudEvent,
+    guard: Option<&super::runtime_context::AsrEchoGuard>,
+) -> Option<CloudEvent> {
+    let Some(guard) = guard else {
+        return Some(event);
+    };
+    match event {
+        CloudEvent::Final {
+            utterance_id,
+            text,
+            language: _,
+        } if guard.is_echo(&text) => Some(CloudEvent::EchoFiltered { utterance_id }),
+        CloudEvent::Partial {
+            utterance_id: _,
+            text,
+            language: _,
+        } if guard.suppresses_partial(&text) => None,
+        other => Some(other),
+    }
+}
+
+fn event_updates_transcript_state(event: &CloudEvent, in_transcript: &mut bool) {
+    match event {
+        CloudEvent::Partial { .. } => *in_transcript = true,
+        CloudEvent::Final { .. } | CloudEvent::EchoFiltered { .. } | CloudEvent::Failed { .. } => {
+            *in_transcript = false
+        }
+        CloudEvent::LiveTranslation {
+            snapshot,
+            completed,
+            translations,
+            ..
+        } => {
+            if !completed.is_empty() && translations.is_empty() && snapshot.text.is_empty() {
+                *in_transcript = false;
+            } else if !snapshot.text.is_empty() || !translations.is_empty() {
+                *in_transcript = true;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -606,6 +776,7 @@ async fn run_session(
         events,
         stop,
         &mut VecDeque::new(),
+        None,
     )
     .await
 }
@@ -620,6 +791,7 @@ async fn run_session_buffered(
     events: &mpsc::Sender<CloudEvent>,
     stop: &mut watch::Receiver<bool>,
     replay: &mut VecDeque<StreamingInput>,
+    context_state: Option<SessionContextState<'_>>,
 ) -> Result<SessionEnd, String> {
     let mut normalization = NormalizationState::default();
     let outcome = run_session_inner(
@@ -633,6 +805,7 @@ async fn run_session_buffered(
             events,
             stop,
             replay,
+            context_state,
         },
     )
     .await;
@@ -654,6 +827,7 @@ struct SessionIo<'a> {
     events: &'a mpsc::Sender<CloudEvent>,
     stop: &'a mut watch::Receiver<bool>,
     replay: &'a mut VecDeque<StreamingInput>,
+    context_state: Option<SessionContextState<'a>>,
 }
 
 async fn run_session_inner(
@@ -669,16 +843,81 @@ async fn run_session_inner(
         events,
         stop,
         replay,
+        mut context_state,
     } = io;
     let mut audio_buffer = Vec::with_capacity(2048);
+    let mut audio_head = 0usize;
     let mut pending_audio = false;
+    let mut in_transcript = false;
+    let mut last_audio_at = Instant::now() - CONTEXT_REFRESH_DEBOUNCE;
+    let mut pending_room_switch = false;
+    let mut intra_change_since: Option<Instant> = None;
     let mut activity = idle::Activity::default();
     let mut translation_tick = tokio::time::interval(Duration::from_millis(100));
+    let mut context_tick = tokio::time::interval(Duration::from_millis(250));
     loop {
+        let refresh_pending = pending_room_switch || intra_change_since.is_some();
         tokio::select! {
             _ = translation_tick.tick(), if provider.segmentation_mode() == SegmentationMode::Continuous => {
                 if let Some(event) = provider.poll_translation(config, normalization) {
-                    if events.send(event).await.is_err() { return Ok(SessionEnd::Closed); }
+                    event_updates_transcript_state(&event, &mut in_transcript);
+                    if let Some(event) = filter_echo_event(event, context_state.as_ref().map(|c| c.echo_guard)) {
+                        if events.send(event).await.is_err() { return Ok(SessionEnd::Closed); }
+                    }
+                }
+            }
+            changed = async {
+                match context_state.as_mut() {
+                    Some(ctx) => ctx.rx.changed().await.is_ok(),
+                    None => std::future::pending::<bool>().await,
+                }
+            } => {
+                if !changed {
+                    context_state = None;
+                    pending_room_switch = false;
+                    intra_change_since = None;
+                } else if let Some(ctx) = context_state.as_mut() {
+                    let _ = ctx.rx.borrow_and_update();
+                    let next = ctx.source.prepare(ctx.base_config);
+                    if next.fingerprint == ctx.conn_fingerprint {
+                        pending_room_switch = false;
+                        intra_change_since = None;
+                    } else if &next.scope_id != ctx.conn_scope {
+                        pending_room_switch = true;
+                        intra_change_since = None;
+                    } else if intra_change_since.is_none() {
+                        intra_change_since = Some(Instant::now());
+                    }
+                }
+            }
+            _ = context_tick.tick(), if refresh_pending => {
+                let quiet_required = if pending_room_switch {
+                    Duration::from_millis(500)
+                } else {
+                    CONTEXT_REFRESH_DEBOUNCE
+                };
+                let safe_boundary = !in_transcript
+                    && audio_head == audio_buffer.len()
+                    && match provider.segmentation_mode() {
+                        SegmentationMode::LocalCommit => !pending_audio,
+                        SegmentationMode::ServerVad | SegmentationMode::Continuous => {
+                            last_audio_at.elapsed() >= quiet_required
+                        }
+                    };
+                let timing_ready = if pending_room_switch {
+                    true
+                } else if let Some(since) = intra_change_since {
+                    since.elapsed() >= CONTEXT_REFRESH_DEBOUNCE
+                        && context_state
+                            .as_ref()
+                            .and_then(|ctx| ctx.last_intra_refresh)
+                            .is_none_or(|at| at.elapsed() >= CONTEXT_REFRESH_THROTTLE)
+                } else {
+                    false
+                };
+                if safe_boundary && timing_ready {
+                    let _ = socket.close(None).await;
+                    return Ok(SessionEnd::RefreshContext);
                 }
             }
             _ = async { if provider.segmentation_mode() != SegmentationMode::Continuous || !*stop.borrow() { let _ = stop.changed().await; } } => {
@@ -689,15 +928,19 @@ async fn run_session_inner(
                         StreamingInput::Audio(samples) | StreamingInput::AudioActivity(samples, _) => {
                             pending_audio = true;
                             audio_buffer.extend_from_slice(&samples);
-                            while let Some(packet) = take_audio_packet(&mut audio_buffer, provider.audio_packet_samples()) {
-                                send_audio(provider, socket, packet).await?;
-                            }
+                            send_ready_packets(
+                                provider,
+                                socket,
+                                &mut audio_buffer,
+                                &mut audio_head,
+                            )
+                            .await?;
                         }
                         StreamingInput::Commit(result) => { let _ = result.send(Ok(())); }
                         StreamingInput::FinishQuestion(result) => { let _ = result.send(Err("Question session was stopped".into())); }
                     }
                 }
-                flush_audio_buffer(provider, socket, &mut audio_buffer).await?;
+                flush_audio_buffer(provider, socket, &mut audio_buffer, &mut audio_head).await?;
                 if pending_audio {
                     let _ = commit_utterance(provider, socket).await;
                 }
@@ -712,14 +955,19 @@ async fn run_session_inner(
                             StreamingInput::AudioActivity(samples, speech) => (samples, speech),
                             _ => unreachable!(),
                         };
+                        last_audio_at = Instant::now();
                         let idle = provider.segmentation_mode() == SegmentationMode::Continuous && activity.push(samples.len(), speech);
                         pending_audio = true;
                         audio_buffer.extend_from_slice(samples.as_slice());
-                        while let Some(packet) = take_audio_packet(&mut audio_buffer, provider.audio_packet_samples()) {
-                            send_audio(provider, socket, packet).await?;
-                        }
+                        send_ready_packets(
+                            provider,
+                            socket,
+                            &mut audio_buffer,
+                            &mut audio_head,
+                        )
+                        .await?;
                         if idle {
-                            flush_audio_buffer(provider, socket, &mut audio_buffer).await?;
+                            flush_audio_buffer(provider, socket, &mut audio_buffer, &mut audio_head).await?;
                             let mut resume = if connection_rate_controlled(config) { idle::ResumeBuffer::realtime() } else { idle::ResumeBuffer::default() };
                             let closing = finish_aligned(provider, socket, config, task_id, normalization, events, pending_audio);
                             if let Err(error) = idle::collect_until(closing, audio, &mut resume).await {
@@ -741,7 +989,7 @@ async fn run_session_inner(
                     }
                     Some(StreamingInput::Commit(result)) => {
                         let commit = async {
-                            flush_audio_buffer(provider, socket, &mut audio_buffer).await?;
+                            flush_audio_buffer(provider, socket, &mut audio_buffer, &mut audio_head).await?;
                             commit_utterance(provider, socket).await
                         }
                         .await;
@@ -757,7 +1005,7 @@ async fn run_session_inner(
                         }
                     }
                     None => {
-                        flush_audio_buffer(provider, socket, &mut audio_buffer).await?;
+                        flush_audio_buffer(provider, socket, &mut audio_buffer, &mut audio_head).await?;
                         if pending_audio {
                             let _ = commit_utterance(provider, socket).await;
                         }
@@ -779,8 +1027,11 @@ async fn run_session_inner(
                     if provider.segmentation_mode() == SegmentationMode::Continuous && normalization.live_source_len() > source_len {
                         activity.push(0, true);
                     }
-                    if events.send(event).await.is_err() {
-                        return Ok(SessionEnd::Closed);
+                    event_updates_transcript_state(&event, &mut in_transcript);
+                    if let Some(event) = filter_echo_event(event, context_state.as_ref().map(|c| c.echo_guard)) {
+                        if events.send(event).await.is_err() {
+                            return Ok(SessionEnd::Closed);
+                        }
                     }
                 }
             }
@@ -918,32 +1169,60 @@ fn normalize_event(
 #[cfg(test)]
 const AUDIO_PACKET_SAMPLES: usize = 1600;
 
+#[cfg(test)]
 fn take_audio_packet(buffer: &mut Vec<f32>, packet_samples: usize) -> Option<Vec<f32>> {
     (buffer.len() >= packet_samples).then(|| buffer.drain(..packet_samples).collect())
 }
 
+#[cfg(test)]
 fn take_buffered_audio(buffer: &mut Vec<f32>) -> Option<Vec<f32>> {
     (!buffer.is_empty()).then(|| std::mem::take(buffer))
+}
+
+async fn send_ready_packets(
+    provider: Provider,
+    socket: &mut Socket,
+    buffer: &mut Vec<f32>,
+    head: &mut usize,
+) -> Result<(), String> {
+    let packet_samples = provider.audio_packet_samples();
+    while buffer.len() - *head >= packet_samples {
+        send_audio(provider, socket, &buffer[*head..*head + packet_samples]).await?;
+        *head += packet_samples;
+    }
+    if *head == buffer.len() {
+        buffer.clear();
+        *head = 0;
+    } else if *head >= 4096 {
+        let remaining = buffer.len() - *head;
+        buffer.copy_within(*head.., 0);
+        buffer.truncate(remaining);
+        *head = 0;
+    }
+    Ok(())
 }
 
 async fn flush_audio_buffer(
     provider: Provider,
     socket: &mut Socket,
     buffer: &mut Vec<f32>,
+    head: &mut usize,
 ) -> Result<(), String> {
-    let Some(samples) = take_buffered_audio(buffer) else {
-        return Ok(());
-    };
-    send_audio(provider, socket, samples).await
+    if *head < buffer.len() {
+        send_audio(provider, socket, &buffer[*head..]).await?;
+        buffer.clear();
+        *head = 0;
+    }
+    Ok(())
 }
 
 async fn send_audio(
     provider: Provider,
     socket: &mut Socket,
-    samples: Vec<f32>,
+    samples: &[f32],
 ) -> Result<(), String> {
     socket
-        .send(provider.audio_message(&samples))
+        .send(provider.audio_message(samples))
         .await
         .map_err(|error| format!("Failed to send cloud recognition audio: {error}"))
 }
@@ -1036,7 +1315,7 @@ async fn finish_aligned(
         // The continuous translator needs audio frames to emit its buffered tail.
         // audioStreamEnd alone did not flush the final words in live probes.
         for _ in 0..5 {
-            send_audio(provider, socket, vec![0.0; 1600]).await?;
+            send_audio(provider, socket, &[0.0; 1600]).await?;
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }

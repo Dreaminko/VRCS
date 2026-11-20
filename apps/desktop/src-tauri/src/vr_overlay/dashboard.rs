@@ -13,6 +13,8 @@ pub fn pointer_from_openvr(x: f32, y: f32, height: u32) -> (f32, f32) {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DashboardViewModel {
     #[serde(default)]
+    pub locale: String,
+    #[serde(default)]
     pub player_audio_notice: Option<super::player_audio_ui::Prompt>,
     #[serde(default)]
     pub caption_visibility: CaptionVisibility,
@@ -119,6 +121,26 @@ pub struct DashboardLabels {
     pub cancel: String,
     pub position_hint: String,
     pub rotation_hint: String,
+    #[serde(default)]
+    pub back: String,
+    #[serde(default)]
+    pub preferred: String,
+    #[serde(default)]
+    pub master_off_banner: String,
+    #[serde(default)]
+    pub recognition_locked: String,
+    #[serde(default)]
+    pub translation_off_hint: String,
+    #[serde(default)]
+    pub delete_preset_title: String,
+    #[serde(default)]
+    pub no_presets: String,
+    #[serde(default)]
+    pub anchor_mode: String,
+    #[serde(default)]
+    pub anchor_world: String,
+    #[serde(default)]
+    pub follow_view: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -184,6 +206,8 @@ pub struct DashboardHeadset {
     pub width: String,
     pub opacity: String,
     pub position: Vec<DashboardNumberField>,
+    #[serde(default)]
+    pub appearance: Vec<DashboardAppearanceField>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -199,6 +223,8 @@ pub struct DashboardWrist {
     pub width: String,
     pub opacity: String,
     pub position: Vec<DashboardNumberField>,
+    #[serde(default)]
+    pub appearance: Vec<DashboardAppearanceField>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -229,6 +255,25 @@ pub enum PositionField {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DashboardNumberField {
     pub field: PositionField,
+    pub label: String,
+    pub value: String,
+    pub can_decrease: bool,
+    pub can_increase: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AppearanceField {
+    #[serde(rename = "width_m")]
+    Width,
+    #[serde(rename = "opacity")]
+    Opacity,
+    #[serde(rename = "font_size_px")]
+    FontSize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashboardAppearanceField {
+    pub field: AppearanceField,
     pub label: String,
     pub value: String,
     pub can_decrease: bool,
@@ -277,6 +322,7 @@ pub enum DashboardAction {
     WristOpacityDown,
     WristOpacityUp,
     PreviewWrist,
+    ToggleWristFollowView,
     ToggleOcr,
     ToggleVision,
     ToggleOcrGesture,
@@ -311,6 +357,15 @@ pub enum DashboardAction {
         kind: DisplayKind,
         field: PositionField,
         direction: i32,
+        #[serde(default)]
+        coarse: bool,
+    },
+    AdjustDisplayAppearance {
+        kind: DisplayKind,
+        field: AppearanceField,
+        direction: i32,
+        #[serde(default)]
+        coarse: bool,
     },
     ResetDisplayPosition(DisplayKind),
     RecenterDialogue,
@@ -360,6 +415,27 @@ pub enum DashboardCommand {
     Action(DashboardAction),
 }
 
+#[cfg(any(windows, linux_vr, test))]
+impl DashboardCommand {
+    pub fn is_repeatable(&self) -> bool {
+        matches!(
+            self,
+            Self::Action(
+                DashboardAction::AdjustDisplayPosition { .. }
+                    | DashboardAction::AdjustDisplayAppearance { .. }
+                    | DashboardAction::HeadsetWidthDown
+                    | DashboardAction::HeadsetWidthUp
+                    | DashboardAction::HeadsetOpacityDown
+                    | DashboardAction::HeadsetOpacityUp
+                    | DashboardAction::WristWidthDown
+                    | DashboardAction::WristWidthUp
+                    | DashboardAction::WristOpacityDown
+                    | DashboardAction::WristOpacityUp
+            )
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DashboardPage {
@@ -380,7 +456,7 @@ pub enum DashboardPicker {
 }
 
 #[cfg(any(windows, linux_vr, test))]
-pub const PICKER_PAGE_SIZE: usize = 32;
+pub const PICKER_PAGE_SIZE: usize = 15;
 
 #[cfg(any(windows, linux_vr, test))]
 impl DashboardPicker {
@@ -555,19 +631,37 @@ impl DashboardState {
                 {
                     return None;
                 }
-                let label = match &action {
-                    DashboardAction::DeleteTarget { group, index } => view
-                        .language
-                        .targets(*group)
-                        .get(*index)
-                        .map(|choice| choice.value.clone())
-                        .unwrap_or_default(),
-                    _ => String::new(),
-                };
-                self.emit_or_confirm(action, label, view)
+                self.emit_or_confirm(action, String::new(), view)
             }
             _ => None,
         }
+    }
+
+    #[cfg(any(windows, linux_vr, test))]
+    pub fn activate_repeat(
+        &mut self,
+        command: DashboardCommand,
+        view: &DashboardViewModel,
+    ) -> Option<DashboardAction> {
+        if !self.interactive || !command.is_repeatable() {
+            return None;
+        }
+        self.update_view(view);
+        if self.ui.confirmation.is_some() || self.ui.picker.is_some() {
+            return None;
+        }
+        let DashboardCommand::Action(mut action) = command else {
+            return None;
+        };
+        if !self.action_allowed(&action, view) {
+            return None;
+        }
+        match &mut action {
+            DashboardAction::AdjustDisplayPosition { coarse, .. }
+            | DashboardAction::AdjustDisplayAppearance { coarse, .. } => *coarse = true,
+            _ => {}
+        }
+        Some(action)
     }
 
     #[cfg(any(windows, linux_vr, test))]
@@ -580,10 +674,7 @@ impl DashboardState {
         if !self.action_allowed(&action, view) {
             return None;
         }
-        if matches!(
-            action,
-            DashboardAction::DeleteTarget { .. } | DashboardAction::DeleteLanguagePreset(_)
-        ) {
+        if matches!(action, DashboardAction::DeleteLanguagePreset(_)) {
             self.ui.confirmation = Some(DashboardConfirmation { action, label });
             None
         } else {
@@ -663,6 +754,7 @@ impl DashboardState {
                 kind,
                 field,
                 direction,
+                ..
             } => {
                 let fields = if *kind == DisplayKind::Headset {
                     &view.headset.position
@@ -679,8 +771,33 @@ impl DashboardState {
                             }
                     })
             }
+            AdjustDisplayAppearance {
+                kind,
+                field,
+                direction,
+                ..
+            } => {
+                let fields = if *kind == DisplayKind::Headset {
+                    &view.headset.appearance
+                } else {
+                    &view.wrist.appearance
+                };
+                self.ui.display_editor.is_none_or(|editor| editor == *kind)
+                    && fields.iter().any(|item| {
+                        item.field == *field
+                            && match direction {
+                                -1 => item.can_decrease,
+                                1 => item.can_increase,
+                                _ => false,
+                            }
+                    })
+            }
             ResetDisplayPosition(kind) => self.ui.display_editor == Some(*kind),
             RecenterDialogue | AttachDialogue => self.ui.display_editor == Some(DisplayKind::Wrist),
+            ToggleWristFollowView => {
+                self.ui.display_editor == Some(DisplayKind::Wrist)
+                    && view.wrist.anchor_mode == "world"
+            }
             _ => true,
         }
     }
@@ -711,6 +828,7 @@ mod tests {
             ],
         };
         DashboardViewModel {
+            locale: "en-US".into(),
             player_audio_notice: None,
             caption_notice: None,
             max_visible_players: None,
@@ -737,6 +855,13 @@ mod tests {
                     can_decrease: false,
                     can_increase: true,
                 }],
+                appearance: vec![DashboardAppearanceField {
+                    field: AppearanceField::FontSize,
+                    label: "Font size".into(),
+                    value: "54 px".into(),
+                    can_decrease: true,
+                    can_increase: false,
+                }],
             },
             wrist: DashboardWrist {
                 enabled: true,
@@ -747,6 +872,7 @@ mod tests {
                 width: "1 m".into(),
                 opacity: "80%".into(),
                 position: vec![],
+                appearance: vec![],
             },
             ocr: DashboardOcr {
                 available: true,
@@ -831,12 +957,12 @@ mod tests {
             DashboardCommand::Picker(DashboardPicker::Recognition),
             &view,
         );
-        assert_eq!(state.activate(DashboardCommand::Select(32), &view), None);
+        assert_eq!(state.activate(DashboardCommand::Select(15), &view), None);
         state.activate(DashboardCommand::PickerPage(1), &view);
-        let selected = state.activate(DashboardCommand::Select(32), &view).unwrap();
+        let selected = state.activate(DashboardCommand::Select(15), &view).unwrap();
         assert_eq!(
             serde_json::to_value(selected).unwrap(),
-            serde_json::json!({ "set_recognition_language": "language-32" })
+            serde_json::json!({ "set_recognition_language": "language-15" })
         );
         assert!(state.ui.picker.is_none());
         assert_eq!(
@@ -858,21 +984,10 @@ mod tests {
             group: TargetGroup::Speaker,
             index: 1,
         };
-        assert_eq!(action(&mut state, &view, remove.clone()), None);
-        assert!(state.ui.confirmation.is_some());
-        assert_eq!(
-            action(&mut state, &view, DashboardAction::ToggleMaster),
-            None
-        );
-        assert_eq!(
-            state.activate(DashboardCommand::Confirm, &view),
-            Some(remove.clone())
-        );
-        action(&mut state, &view, remove);
+        assert_eq!(action(&mut state, &view, remove.clone()), Some(remove));
+        assert!(state.ui.confirmation.is_none());
         view.language.speaker_targets.remove(1);
         state.update_view(&view);
-        assert!(state.ui.confirmation.is_none());
-        assert_eq!(state.activate(DashboardCommand::Confirm, &view), None);
         assert_eq!(
             action(
                 &mut state,
@@ -884,6 +999,26 @@ mod tests {
             ),
             None
         );
+
+        let delete_preset = DashboardAction::DeleteLanguagePreset("en".into());
+        assert_eq!(action(&mut state, &view, delete_preset.clone()), None);
+        assert!(state.ui.confirmation.is_some());
+        assert_eq!(
+            action(&mut state, &view, DashboardAction::ToggleMaster),
+            None
+        );
+        assert_eq!(
+            state.activate(DashboardCommand::Confirm, &view),
+            Some(delete_preset.clone())
+        );
+        action(&mut state, &view, delete_preset);
+        view.language
+            .presets
+            .options
+            .retain(|option| option.value != "en");
+        state.update_view(&view);
+        assert!(state.ui.confirmation.is_none());
+        assert_eq!(state.activate(DashboardCommand::Confirm, &view), None);
     }
 
     #[test]
@@ -929,13 +1064,93 @@ mod tests {
             kind: DisplayKind::Headset,
             field: PositionField::Horizontal,
             direction,
+            coarse: false,
         };
         assert_eq!(action(&mut state, &view, adjust(-1)), None);
         assert_eq!(action(&mut state, &view, adjust(1)), Some(adjust(1)));
         assert_eq!(action(&mut state, &view, adjust(2)), None);
+        let appearance = |direction| DashboardAction::AdjustDisplayAppearance {
+            kind: DisplayKind::Headset,
+            field: AppearanceField::FontSize,
+            direction,
+            coarse: true,
+        };
+        assert_eq!(
+            action(&mut state, &view, appearance(-1)),
+            Some(appearance(-1))
+        );
+        assert_eq!(action(&mut state, &view, appearance(1)), None);
+        assert_eq!(
+            action(&mut state, &view, DashboardAction::ToggleWristFollowView),
+            None
+        );
+        state.activate(DashboardCommand::Position(DisplayKind::Wrist), &view);
+        assert_eq!(
+            action(&mut state, &view, DashboardAction::ToggleWristFollowView),
+            None
+        );
+        view.wrist.anchor_mode = "world".into();
+        assert_eq!(
+            action(&mut state, &view, DashboardAction::ToggleWristFollowView),
+            Some(DashboardAction::ToggleWristFollowView)
+        );
         view.osc_available = false;
         state.activate(DashboardCommand::Page(DashboardPage::Osc), &view);
         assert_eq!(state.ui.page, DashboardPage::Display);
+    }
+
+    #[test]
+    fn repeatable_commands_stay_active_without_clearing_pointer_and_stop_at_limits() {
+        let mut state = DashboardState::new();
+        let mut view = view();
+        state.activate(DashboardCommand::Position(DisplayKind::Headset), &view);
+        state.hovered = Some(4);
+        state.pressed = Some(4);
+        let cmd = DashboardCommand::Action(DashboardAction::AdjustDisplayPosition {
+            kind: DisplayKind::Headset,
+            field: PositionField::Horizontal,
+            direction: 1,
+            coarse: false,
+        });
+        assert!(cmd.is_repeatable());
+        assert_eq!(
+            state.activate_repeat(cmd.clone(), &view),
+            Some(DashboardAction::AdjustDisplayPosition {
+                kind: DisplayKind::Headset,
+                field: PositionField::Horizontal,
+                direction: 1,
+                coarse: true,
+            })
+        );
+        let appearance_cmd = DashboardCommand::Action(DashboardAction::AdjustDisplayAppearance {
+            kind: DisplayKind::Headset,
+            field: AppearanceField::FontSize,
+            direction: -1,
+            coarse: false,
+        });
+        assert_eq!(
+            state.activate_repeat(appearance_cmd.clone(), &view),
+            Some(DashboardAction::AdjustDisplayAppearance {
+                kind: DisplayKind::Headset,
+                field: AppearanceField::FontSize,
+                direction: -1,
+                coarse: true,
+            })
+        );
+        assert_eq!(state.hovered, Some(4));
+        assert_eq!(state.pressed, Some(4));
+        assert_eq!(
+            state.activate(appearance_cmd, &view),
+            Some(DashboardAction::AdjustDisplayAppearance {
+                kind: DisplayKind::Headset,
+                field: AppearanceField::FontSize,
+                direction: -1,
+                coarse: false,
+            })
+        );
+        view.headset.position[0].can_increase = false;
+        assert_eq!(state.activate_repeat(cmd, &view), None);
+        assert!(!DashboardCommand::Action(DashboardAction::ToggleMaster).is_repeatable());
     }
 
     #[test]

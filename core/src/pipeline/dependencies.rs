@@ -50,6 +50,8 @@ pub(crate) struct PipelineDependencies {
     #[cfg(any(windows, target_os = "linux", test))]
     player_identities: PlayerIdentities,
     player_previews: Arc<Mutex<HashSet<String>>>,
+    room_context: crate::room_context::RoomContextReader,
+    asr_context_source: Option<crate::asr::AsrContextSource>,
 }
 
 impl PipelineDependencies {
@@ -105,7 +107,33 @@ impl PipelineDependencies {
             #[cfg(any(windows, target_os = "linux", test))]
             player_identities: Arc::default(),
             player_previews: Arc::default(),
+            room_context: crate::room_context::RoomContextReader::default(),
+            asr_context_source: None,
         }
+    }
+
+    pub(crate) fn with_asr_context_source(mut self, source: crate::asr::AsrContextSource) -> Self {
+        self.asr_context_source = Some(source);
+        self
+    }
+
+    pub(super) fn asr_context_source(
+        &self,
+        speaker: Option<&crate::models::SpeakerIdentity>,
+    ) -> Option<crate::asr::AsrContextSource> {
+        let source = self.asr_context_source.as_ref()?;
+        Some(match speaker {
+            Some(speaker) => source.for_player(speaker.clone()),
+            None => source.clone(),
+        })
+    }
+
+    pub(crate) fn with_room_context(
+        mut self,
+        room_context: crate::room_context::RoomContextReader,
+    ) -> Self {
+        self.room_context = room_context;
+        self
     }
 
     pub(crate) fn with_managed_qwen(
@@ -165,7 +193,7 @@ impl PipelineDependencies {
         }
     }
 
-    fn player_identity(&self) -> Option<crate::models::SpeakerIdentity> {
+    pub(super) fn player_identity(&self) -> Option<crate::models::SpeakerIdentity> {
         self.player
             .as_ref()
             .map(|(speaker, _)| speaker.read().expect("player identity").clone())
@@ -238,7 +266,8 @@ impl PipelineDependencies {
         };
         match &mut event {
             crate::asr::CloudEvent::Partial { utterance_id, .. }
-            | crate::asr::CloudEvent::Final { utterance_id, .. } => {
+            | crate::asr::CloudEvent::Final { utterance_id, .. }
+            | crate::asr::CloudEvent::EchoFiltered { utterance_id } => {
                 *utterance_id = self.scope_id(utterance_id)
             }
             crate::asr::CloudEvent::Failed { utterance_id, .. } => {
@@ -822,6 +851,7 @@ impl PipelineDependencies {
             .clone()
             .filter(|translation| !translation.text.is_empty());
         let task_validity = self.player_validity();
+        let context_scope_id = self.room_context.snapshot().scope_id;
         let (saved, native_error) = match tokio::task::spawn_blocking(move || {
             let save = || {
                 let database = database
@@ -833,7 +863,7 @@ impl PipelineDependencies {
                     subtitle.speaker = Some(player.read().expect("player identity").clone());
                 }
                 let mut saved = database
-                    .add_subtitle(&subtitle)
+                    .add_subtitle_in_scope(&subtitle, context_scope_id.as_deref(), None)
                     .map_err(|error| error.to_string())?;
                 let mut native_error = None;
                 if let Some(translation) = native_record {

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const versionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 export const releaseTargets = [
-  { os: "windows", arch: "x86_64", channel: "nsis", suffix: "windows-x64.exe", targets: ["windows-x86_64-standard", "windows-x86_64-cuda"] },
+  { os: "windows", arch: "x86_64", channel: "nsis", suffix: "windows-x64.exe", targets: ["windows-x86_64-standard"] },
   ...["x86_64"].flatMap((arch) => [
     { os: "linux", arch, channel: "deb", suffix: `linux-${arch}.deb`, targets: [] },
     { os: "linux", arch, channel: "appimage", suffix: `linux-${arch}.AppImage`, targets: [`linux-${arch}-standard`] },

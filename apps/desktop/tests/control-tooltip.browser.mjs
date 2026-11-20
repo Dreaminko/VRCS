@@ -9,11 +9,18 @@ import test from "node:test";
 import { build } from "esbuild";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
-const browser = [process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], process.env.LOCALAPPDATA]
-  .filter(Boolean).flatMap(root => [
-    join(root, "Google/Chrome/Application/chrome.exe"),
-    join(root, "Microsoft/Edge/Application/msedge.exe"),
-  ]).find(existsSync);
+const browser = [
+  process.env.VRCS_BROWSER_PATH,
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  ...[process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], process.env.LOCALAPPDATA]
+    .filter(Boolean).flatMap(root => [
+      join(root, "Google/Chrome/Application/chrome.exe"),
+      join(root, "Microsoft/Edge/Application/msedge.exe"),
+    ]),
+].filter(Boolean).find(existsSync);
 
 test("compact controls use themed tooltips instead of native titles", {
   timeout: 60000, skip: !browser && "Chrome or Edge is required",
@@ -138,6 +145,85 @@ test("compact controls use themed tooltips instead of native titles", {
       "--disable-background-networking", "--disable-extensions", "--disable-software-rasterizer", "--no-sandbox",
       ...(process.env.VRCS_TOOLTIP_SCREENSHOT ? ["--screenshot=" + process.env.VRCS_TOOLTIP_SCREENSHOT] : []),
       "--window-size=500,300", "--user-data-dir=" + join(directory, "profile"), pathToFileURL(html).href,
+    ], { encoding: "utf8", timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+    const report = result.stdout.match(/<pre id="result"[^>]*>([^<]*)<\/pre>/)?.[1];
+    assert.equal(report, "PASS", `${report || "No result"}\n${result.stderr}\n${result.stdout.slice(-2000)}`);
+  } finally {
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test("VRChat room context help trigger displays prose tooltip on hover", {
+  timeout: 60000, skip: !browser && "Chrome or Edge is required",
+}, async () => {
+  const bundle = await build({
+    stdin: { resolveDir: join(testDirectory, ".."), loader: "tsx", contents: `
+      import React from 'react';
+      import {createRoot} from 'react-dom/client';
+      import i18next from 'i18next';
+      import {initReactI18next} from 'react-i18next';
+      import locale from './src/i18n/locales/zh-CN.json';
+      import {VrchatRoomContextSettings} from './src/settings/sections/VrchatRoomContextSettings';
+      import {ControlTooltip} from './src/shared/ui/ControlTooltip';
+      import './src/styles.css';
+      await i18next.use(initReactI18next).init({lng:'zh-CN',resources:{'zh-CN':{translation:locale.translation}}});
+      const draft={vrchat_context:{include_in_asr_context:false,include_in_translation_context:false,include_world_name:true}};
+      createRoot(document.getElementById('root')).render(
+        <div className="settings-surface audio-section" style={{padding:'16px'}}>
+          <VrchatRoomContextSettings draft={draft} applySettings={()=>{}} />
+          <ControlTooltip />
+        </div>
+      );
+      const check=(condition,message)=>{if(!condition)throw new Error(message)};
+      const wait=async predicate=>{for(let i=0;i<100;i++){if(predicate())return;await new Promise(resolve=>setTimeout(resolve,20))}throw new Error('Timed out')};
+      const tooltip=()=>document.querySelector('.control-tooltip');
+      const description=locale.translation.settings.capture.roomContext.description;
+      try {
+        await wait(()=>document.querySelector('#vrchat-room-context-title'));
+        const section=document.querySelector('[aria-labelledby="vrchat-room-context-title"]');
+        const titleBox=section.querySelector('.device-group-title');
+        const firstToggle=section.querySelector('.device-group-content .settings-toggle-row');
+        const heading=document.getElementById('vrchat-room-context-title');
+        const trigger=section.querySelector('.settings-help-trigger');
+        check(section && !section.textContent.includes(description),'Room context description is not shown inline');
+        check(!section.querySelector('[role="status"]'),'Room context status indicator is removed');
+        check(trigger && !trigger.hasAttribute('title'),'Help trigger exists without a native title attribute');
+        const titleBoxRect=titleBox.getBoundingClientRect();
+        const firstToggleRect=firstToggle.getBoundingClientRect();
+        check(firstToggleRect.left>=titleBoxRect.right,'Room context toggles sit to the right of the title on desktop');
+        check(Math.abs(firstToggleRect.top-titleBoxRect.top)<2,'Room context toggles align flush at the top with the title');
+        check(heading.textContent===locale.translation.settings.capture.roomContext.title,'Heading text stays exact');
+        const tailRect=heading.querySelector('.device-group-title-tail-text').getBoundingClientRect();
+        const triggerRect=trigger.getBoundingClientRect();
+        check(triggerRect.left>=tailRect.right && triggerRect.left-tailRect.right<=8,'Help trigger sits tightly to the right of the heading');
+        check(Math.abs((triggerRect.top+triggerRect.bottom)/2-(tailRect.top+tailRect.bottom)/2)<3,'Help trigger aligns vertically on the same row as the heading');
+        trigger.dispatchEvent(new PointerEvent('pointerover',{bubbles:true,pointerType:'mouse'}));
+        await wait(()=>tooltip()?.classList.contains('prose'));
+        const tip=tooltip();
+        check(tip.getAttribute('role')==='tooltip' && tip.textContent===description,'Hovering help trigger shows the exact room context description');
+        const rect=tip.getBoundingClientRect();
+        check(rect.left>=4 && rect.right<=innerWidth-4 && rect.top>=4 && rect.bottom<=innerHeight-4,'Prose tooltip stays within viewport bounds');
+        trigger.dispatchEvent(new PointerEvent('pointerout',{bubbles:true,pointerType:'mouse',relatedTarget:document.body}));
+        await wait(()=>!tooltip());
+        document.getElementById('result').textContent='PASS';
+      } catch(error) {document.getElementById('result').textContent='FAIL: '+error.message}
+    ` },
+    bundle: true, write: false, outfile: "room-context-tooltip-test.js", format: "esm", platform: "browser", jsx: "automatic",
+    define: { "import.meta.env.VITE_VRCS_SESSION_TOKEN": '""' },
+  });
+  const directory = mkdtempSync(join(tmpdir(), "vrcs-room-context-tooltip-"));
+  try {
+    const html = join(directory, "index.html");
+    const javascript = bundle.outputFiles.find(file => file.path.endsWith(".js")).text;
+    const stylesheet = bundle.outputFiles.find(file => file.path.endsWith(".css"))?.text ?? "";
+    writeFileSync(html, '<style>' + stylesheet + '</style><div id="root"></div><pre id="result" hidden>PENDING</pre>'
+      + '<script type="module">' + javascript.replace(/<\/script/gi, "<\\/script") + '</script>');
+    const result = spawnSync(browser, [
+      "--headless=new", "--dump-dom", "--virtual-time-budget=12000", "--disable-gpu", "--no-first-run",
+      "--disable-background-networking", "--disable-extensions", "--disable-software-rasterizer", "--no-sandbox",
+      "--window-size=960,420", "--user-data-dir=" + join(directory, "profile"), pathToFileURL(html).href,
     ], { encoding: "utf8", timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr);

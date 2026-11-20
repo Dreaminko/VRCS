@@ -27,7 +27,7 @@ impl NetworkConsumers {
         }
     }
 
-    fn any(self) -> bool {
+    pub(crate) fn any(self) -> bool {
         self.voice || self.chatbox
     }
 }
@@ -181,6 +181,7 @@ pub(crate) struct VrchatNetworkSession {
     status: SharedStatus,
     outputs: SharedOutputs,
     consumers: NetworkConsumers,
+    room_context: Option<crate::room_context::NetworkCapturePublisher>,
     #[cfg(any(windows, target_os = "linux"))]
     cache: Arc<super::SessionCache>,
 }
@@ -237,7 +238,9 @@ impl VrchatNetworkSession {
         consumers: NetworkConsumers,
         settings: Arc<RwLock<AppConfig>>,
         log: VrchatLog,
+        room_context: crate::room_context::NetworkCapturePublisher,
     ) -> Result<Subscriptions, String> {
+        self.room_context = Some(room_context.clone());
         let options = config.audio.output.player_audio.clone();
         {
             let mut outputs = self.outputs.lock().expect("network outputs");
@@ -257,6 +260,7 @@ impl VrchatNetworkSession {
                 #[cfg(any(windows, target_os = "linux"))]
                 cache,
                 settings,
+                room_context,
             )
         })
         .await
@@ -312,11 +316,17 @@ impl VrchatNetworkSession {
         }
         outputs.keepalive_until = None;
         self.consumers = consumers;
+        if let Some(publisher) = &self.room_context {
+            publisher.set_consumers(consumers);
+        }
         subscriptions
     }
 
     pub(crate) async fn stop(&mut self) {
         self.attach(NetworkConsumers::default());
+        if let Some(publisher) = &self.room_context {
+            publisher.end_capture();
+        }
         if let Some(capture) = self.capture.take() {
             capture.shutdown().await;
         }
@@ -333,17 +343,22 @@ impl VrchatNetworkSession {
     /// Remove consumer channels without tearing down an authorized capture.
     /// Pipeline reloads call this before their replacement consumers attach.
     pub(crate) fn detach_outputs(&mut self, consumers: NetworkConsumers) {
-        let mut outputs = self.outputs.lock().expect("network outputs");
-        outputs.keepalive_until = Some(Instant::now() + std::time::Duration::from_secs(30));
-        if !consumers.voice {
-            outputs.voice.take();
-            super::clear_view_priority();
-            self.consumers.voice = false;
+        {
+            let mut outputs = self.outputs.lock().expect("network outputs");
+            outputs.keepalive_until = Some(Instant::now() + std::time::Duration::from_secs(30));
+            if !consumers.voice {
+                outputs.voice.take();
+                super::clear_view_priority();
+                self.consumers.voice = false;
+            }
+            if !consumers.chatbox {
+                outputs.invalidate_text();
+                outputs.chatbox.take();
+                self.consumers.chatbox = false;
+            }
         }
-        if !consumers.chatbox {
-            outputs.invalidate_text();
-            outputs.chatbox.take();
-            self.consumers.chatbox = false;
+        if let Some(publisher) = &self.room_context {
+            publisher.set_consumers(self.consumers);
         }
     }
 }

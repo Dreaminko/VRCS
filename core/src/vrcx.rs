@@ -151,6 +151,7 @@ impl VrcxIntegration {
             source: "vrcx_room".into(),
             text,
             created_at: chrono::Utc::now().to_rfc3339(),
+            speaker: None,
         })
     }
 
@@ -495,7 +496,7 @@ fn format_room_for_asr(room: &VrcxRoomContext) -> String {
         .join("\n")
 }
 
-fn asr_echo_signatures(generated: &str) -> Vec<String> {
+pub(crate) fn asr_echo_signatures(generated: &str) -> Vec<String> {
     let names = generated.lines().collect::<Vec<_>>();
     let mut signatures = vec![format!("Names: {}", names.join(", "))];
     if names.len() > 1 {

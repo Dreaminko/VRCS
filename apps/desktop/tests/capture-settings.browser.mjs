@@ -96,6 +96,35 @@ for (const width of [1100, 860, 380]) {
           check(tooltipBounds.left>=0&&tooltipBounds.right<=innerWidth&&tooltipBounds.width>0,'the custom tooltip stays within the window');
           flushSync(()=>toggle().dispatchEvent(new PointerEvent('pointerout',{bubbles:true,pointerType:'mouse',relatedTarget:document.body})));
           await wait(()=>!document.querySelector('.control-tooltip'));
+          const roomContext=document.querySelector('[aria-labelledby=vrchat-room-context-title]');
+          const roomTitleBox=roomContext?.querySelector('.device-group-title');
+          const roomFirstToggle=roomContext?.querySelector('.device-group-content .settings-toggle-row');
+          const roomTitle=document.getElementById('vrchat-room-context-title');
+          const roomHelp=roomContext?.querySelector('.settings-help-trigger');
+          check(roomContext&&!roomContext.textContent.includes(text.capture.roomContext.description),'Room context description is not shown inline');
+          check(!roomContext.querySelector('[role=status]'),'Room context status indicator is removed');
+          check(roomHelp&&!roomHelp.hasAttribute('title'),'Room context help trigger has no native title');
+          const roomTitleBoxBounds=roomTitleBox.getBoundingClientRect();
+          const firstToggleBounds=roomFirstToggle.getBoundingClientRect();
+          if(innerWidth>860){
+            check(firstToggleBounds.left>=roomTitleBoxBounds.right,'Room context toggles sit to the right of the title');
+            check(Math.abs(firstToggleBounds.top-roomTitleBoxBounds.top)<2,'Room context toggles align flush at the top with the title');
+          }else{
+            check(firstToggleBounds.top>=roomTitleBoxBounds.bottom,'Room context toggles stack below the title in narrow windows');
+          }
+          const roomTitleTail=roomTitle.querySelector('.device-group-title-tail-text');
+          const roomTitleBounds=roomTitleTail.getBoundingClientRect();
+          const roomHelpBounds=roomHelp.getBoundingClientRect();
+          check(roomHelpBounds.left>=roomTitleBounds.right
+            &&roomHelpBounds.left-roomTitleBounds.right<=8
+            &&Math.abs((roomHelpBounds.top+roomHelpBounds.bottom)/2-(roomTitleBounds.top+roomTitleBounds.bottom)/2)<3,
+            'Room context help trigger sits to the right of its title on the same row');
+          flushSync(()=>roomHelp.dispatchEvent(new PointerEvent('pointerover',{bubbles:true,pointerType:'mouse'})));
+          await wait(()=>document.querySelector('.control-tooltip.prose[role=tooltip]')?.textContent===text.capture.roomContext.description);
+          const roomTooltipBounds=document.querySelector('.control-tooltip').getBoundingClientRect();
+          check(roomTooltipBounds.left>=0&&roomTooltipBounds.right<=innerWidth&&roomTooltipBounds.width>0,'Room context prose tooltip stays within the window');
+          flushSync(()=>roomHelp.dispatchEvent(new PointerEvent('pointerout',{bubbles:true,pointerType:'mouse',relatedTarget:document.body})));
+          await wait(()=>!document.querySelector('.control-tooltip'));
           click(toggle());check(saves===0&&!latest.vrchat_chatbox.enabled,'disabled Chatbox cannot save or enable reception');
           await selectPlayers();
           await wait(()=>document.querySelector('[role=dialog]'));

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { subtitlesApi } from "../subtitles/api";
 import type { SubtitleSearchHit } from "../subtitles/types";
@@ -89,9 +89,11 @@ export function useConversationSearch(enabled: boolean) {
     }
   }, [enabled, hasMore, items.length, loading, loadingMore, normalizedQuery, searchable]);
 
+  const clear = useCallback(() => setQuery(""), []);
+
   useEffect(() => cancelRequest, [cancelRequest]);
 
-  return {
+  return useMemo(() => ({
     query,
     setQuery,
     items,
@@ -101,7 +103,7 @@ export function useConversationSearch(enabled: boolean) {
     failed,
     searchable,
     active: query.length > 0,
-    clear: () => setQuery(""),
+    clear,
     loadMore,
-  };
+  }), [clear, failed, hasMore, items, loadMore, loading, loadingMore, query, searchable]);
 }

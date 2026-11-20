@@ -74,10 +74,7 @@ impl CaptureChange {
             if self.resume {
                 capture::start_pipelines(state, candidate, self.plan).await?;
             } else {
-                state
-                    .capture
-                    .capture_requested
-                    .store(false, Ordering::SeqCst);
+                state.capture.set_capture_requested(false);
             }
         }
         Ok(())
@@ -89,10 +86,7 @@ impl CaptureChange {
         previous: &AppConfig,
     ) -> Result<(), String> {
         if self.reload {
-            state
-                .capture
-                .capture_requested
-                .store(true, Ordering::SeqCst);
+            state.capture.set_capture_requested(true);
             let effective = state
                 .config
                 .language_session

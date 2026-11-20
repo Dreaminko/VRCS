@@ -1,3 +1,24 @@
+#[cfg(any(windows, linux_vr))]
+#[derive(Debug, Clone, Copy)]
+pub struct CursorTarget {
+    pub kind: OverlayKind,
+    pub position: [f32; 3],
+    pub origin: SpaceId,
+    pub panel: Pose,
+    pub panel_width: f32,
+    pub texture_width: u32,
+}
+
+#[cfg(any(windows, linux_vr))]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RayHit {
+    pub point: [f32; 2],
+    pub position: [f32; 3],
+    pub distance: f32,
+    pub panel: Pose,
+    pub panel_width: f32,
+}
+
 #[cfg(windows)]
 mod platform {
     use openvr::overlay::OverlayHandle;
@@ -6,7 +27,7 @@ mod platform {
     use openvr::{ApplicationType, Context, Overlay, System, TrackedControllerRole};
     use vrcs_core::{VrOcrWristConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig};
 
-    use super::{menu_config, ControllerBinding, OverlayKind};
+    use super::{menu_config, ControllerBinding, CursorTarget, OverlayKind, RayHit};
     use crate::vr_overlay::d3d11_texture::{Device, Readback};
     use crate::vr_overlay::dashboard::{
         pointer_from_openvr, DashboardPointerEvent, DASHBOARD_HEIGHT, DASHBOARD_WIDTH,
@@ -20,7 +41,9 @@ mod platform {
     use crate::vr_overlay::surface::windows_wgc::Capture;
     use crate::vr_overlay::surface_protocol::SurfaceId;
     use crate::vr_overlay::transform;
-    use std::{cell::RefCell, rc::Rc};
+    use std::{cell::RefCell, collections::HashMap, rc::Rc};
+
+    type TipPoseMap = HashMap<(u32, u64), Option<[[f32; 4]; 3]>>;
 
     const HEADSET_KEY: &str = "org.vrcs.overlay.headset\0";
     const HEADSET_NAME: &str = "VRCS Headset Subtitles\0";
@@ -33,6 +56,8 @@ mod platform {
     const VREVENT_MOUSE_MOVE: u32 = openvr_sys::EVREventType_VREvent_MouseMove as u32;
     const VREVENT_MOUSE_DOWN: u32 = openvr_sys::EVREventType_VREvent_MouseButtonDown as u32;
     const VREVENT_MOUSE_UP: u32 = openvr_sys::EVREventType_VREvent_MouseButtonUp as u32;
+    const VREVENT_SCROLL_SMOOTH: u32 = openvr_sys::EVREventType_VREvent_ScrollSmooth as u32;
+    const VREVENT_SCROLL_DISCRETE: u32 = openvr_sys::EVREventType_VREvent_ScrollDiscrete as u32;
     const VREVENT_SHOWN: u32 = openvr_sys::EVREventType_VREvent_OverlayShown as u32;
     const VREVENT_HIDDEN: u32 = openvr_sys::EVREventType_VREvent_OverlayHidden as u32;
 
@@ -58,6 +83,10 @@ mod platform {
         context: Context,
         system: System,
         raw_system: *const openvr_sys::VR_IVRSystem_FnTable,
+        raw_compositor: Option<*const openvr_sys::VR_IVRCompositor_FnTable>,
+        raw_render_models: Option<*const openvr_sys::VR_IVRRenderModels_FnTable>,
+        adapter_index: Option<u32>,
+        tip_cache: RefCell<TipPoseMap>,
         overlay: Overlay,
         raw_overlay: *const openvr_sys::VR_IVROverlay_FnTable,
         capture_resources: CaptureResources,
@@ -116,10 +145,19 @@ mod platform {
         }
     }
 
+    #[derive(Clone, Copy, PartialEq)]
+    enum OverlayTransform {
+        DeviceRelative(u32, [[f32; 4]; 3]),
+        Absolute(i32, [[f32; 4]; 3]),
+    }
+
     #[derive(Default)]
     struct SubmittedState {
         visible: bool,
         opacity: Option<f32>,
+        width_m: Option<f32>,
+        premultiplied: bool,
+        transform: Option<OverlayTransform>,
         interactive: Option<bool>,
         plane: Option<(crate::vr_overlay::ocr_plane::PlaneOverlay, i32)>,
     }
@@ -297,8 +335,9 @@ mod platform {
         }
 
         pub fn ocr_tracking(&self) -> Result<([[f32; 4]; 3], u32, i32), String> {
-            let table = load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor")?
-                as *const openvr_sys::VR_IVRCompositor_FnTable;
+            let table = self
+                .raw_compositor
+                .ok_or_else(|| "OpenVR raw compositor interface is unavailable".to_string())?;
             unsafe {
                 let table = &*table;
                 let mut pose: openvr_sys::TrackedDevicePose_t = std::mem::zeroed();
@@ -365,7 +404,7 @@ mod platform {
         /// Projection metadata for crop validation; no mirror readback needed.
         pub fn ocr_view(&self) -> Result<([EyeCapture; 2], u32, i32), String> {
             let (head, pid, origin) = self.ocr_tracking()?;
-            let system = load_raw_system()?;
+            let system = self.raw_system;
             let mut eyes = Vec::with_capacity(2);
             for eye in [openvr_sys::EVREye_Eye_Left, openvr_sys::EVREye_Eye_Right] {
                 let mut projection = [0.; 4];
@@ -402,20 +441,6 @@ mod platform {
                 pid,
                 origin,
             ))
-        }
-
-        pub fn capture_ocr(
-            &mut self,
-            config: &vrcs_core::VrOcrConfig,
-            selection: Option<&crate::vr_overlay::ocr_selection::Selection>,
-        ) -> Result<StereoCapture, String> {
-            self.begin_ocr_capture(config, selection)?;
-            loop {
-                if let Some(capture) = self.poll_ocr_capture()? {
-                    return Ok(capture);
-                }
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
         }
 
         pub fn cancel_ocr_capture(&mut self) {
@@ -474,11 +499,13 @@ mod platform {
         ) -> Result<(), String> {
             self.cancel_ocr_capture();
             if self.capture_resources.device.is_none() {
-                self.capture_resources.device = create_texture_device();
+                let adapter_index = self.surface_adapter_index();
+                self.capture_resources.device = create_texture_device(adapter_index);
             }
-            let system = load_raw_system()?;
-            let compositor = load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor")?
-                as *const openvr_sys::VR_IVRCompositor_FnTable;
+            let system = self.raw_system;
+            let compositor = self
+                .raw_compositor
+                .ok_or_else(|| "OpenVR raw compositor interface is unavailable".to_string())?;
             let device = self
                 .capture_resources
                 .device
@@ -678,7 +705,15 @@ mod platform {
                 .map_err(|error| format!("OpenVR overlay interface failed: {error:?}"))?;
             let raw_overlay = load_raw_overlay()?;
             let raw_system = load_raw_system()?;
-            let texture_device = create_texture_device();
+            let raw_compositor =
+                load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor")
+                    .ok()
+                    .map(|pointer| pointer as *const openvr_sys::VR_IVRCompositor_FnTable);
+            let raw_render_models =
+                load_raw_interface(openvr_sys::IVRRenderModels_Version, "render models")
+                    .ok()
+                    .map(|pointer| pointer as *const openvr_sys::VR_IVRRenderModels_FnTable);
+            let adapter_index = dxgi_adapter_index_from(raw_system).ok();
             let cursor_interval = crate::vr_overlay::cursor::frame_interval(
                 system
                     .float_tracked_device_property(
@@ -691,12 +726,13 @@ mod platform {
                 context,
                 system,
                 raw_system,
+                raw_compositor,
+                raw_render_models,
+                adapter_index,
+                tip_cache: RefCell::new(HashMap::new()),
                 overlay,
                 raw_overlay,
-                capture_resources: CaptureResources {
-                    device: texture_device,
-                    ..Default::default()
-                },
+                capture_resources: CaptureResources::default(),
                 headset: None,
                 wrist: None,
                 wrist_menu: None,
@@ -725,8 +761,11 @@ mod platform {
         }
 
         pub fn quit_requested(&mut self) -> bool {
-            let (quit, reset) = poll_runtime_events(unsafe { &*self.raw_system });
+            let (quit, reset, devices_changed) = poll_runtime_events(unsafe { &*self.raw_system });
             self.tracking_reset |= reset;
+            if devices_changed {
+                self.tip_cache.borrow_mut().clear();
+            }
             quit
         }
 
@@ -787,6 +826,14 @@ mod platform {
                         (mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left as u32 != 0)
                             .then_some(DashboardPointerEvent::Up { x, y })
                     }
+                    VREVENT_SCROLL_SMOOTH | VREVENT_SCROLL_DISCRETE => {
+                        let ydelta = unsafe { event.data.scroll }.ydelta;
+                        (ydelta.is_finite() && ydelta != 0.0).then_some(
+                            DashboardPointerEvent::Scroll {
+                                delta: (-ydelta * 0.25).clamp(-0.85, 0.85),
+                            },
+                        )
+                    }
                     VREVENT_SHOWN => Some(DashboardPointerEvent::Shown),
                     VREVENT_HIDDEN => Some(DashboardPointerEvent::Hidden),
                     _ => None,
@@ -807,13 +854,27 @@ mod platform {
                 self.headset = Some(handle);
             }
             let handle = self.headset.expect("headset overlay exists");
-            self.overlay
-                .set_width(handle, config.width_m)
-                .map_err(|error| format!("Configure headset overlay failed: {error:?}"))?;
-            let matrix = Matrix3x4(transform::headset(config));
-            self.overlay
-                .set_transform_tracked_device_relative(handle, tracked_device_index::HMD, &matrix)
-                .map_err(|error| format!("Position headset overlay failed: {error:?}"))
+            if self.headset_state.width_m != Some(config.width_m) {
+                self.overlay
+                    .set_width(handle, config.width_m)
+                    .map_err(|error| format!("Configure headset overlay failed: {error:?}"))?;
+                self.headset_state.width_m = Some(config.width_m);
+            }
+            let raw_matrix = transform::headset(config);
+            let target_transform =
+                OverlayTransform::DeviceRelative(tracked_device_index::HMD.0, raw_matrix);
+            if self.headset_state.transform != Some(target_transform) {
+                let matrix = Matrix3x4(raw_matrix);
+                self.overlay
+                    .set_transform_tracked_device_relative(
+                        handle,
+                        tracked_device_index::HMD,
+                        &matrix,
+                    )
+                    .map_err(|error| format!("Position headset overlay failed: {error:?}"))?;
+                self.headset_state.transform = Some(target_transform);
+            }
+            Ok(())
         }
 
         pub fn ensure_player_audio(
@@ -827,19 +888,27 @@ mod platform {
                     .create_overlay("org.vrcs.overlay.player.audio\0", "VRCS Player Audio\0")
                     .map_err(|e| format!("Create player audio overlay failed: {e:?}"))?;
                 self.player_audio = Some(handle);
+            }
+            let handle = self.player_audio.expect("player audio overlay");
+            if self.player_audio_state.width_m != Some(0.75) {
                 self.overlay
                     .set_width(handle, 0.75)
                     .map_err(|e| format!("Set player audio overlay width failed: {e:?}"))?;
+                self.player_audio_state.width_m = Some(0.75);
             }
-            let handle = self.player_audio.expect("player audio overlay");
-            let mut matrix = openvr_sys::HmdMatrix34_t { m: pose };
-            check_wrist_input(unsafe {
-                (*self.raw_overlay)
-                    .SetOverlayTransformAbsolute
-                    .ok_or("Absolute overlays unavailable")?(
-                    handle.0, origin, &mut matrix
-                )
-            })
+            let target_transform = OverlayTransform::Absolute(origin, pose);
+            if self.player_audio_state.transform != Some(target_transform) {
+                let mut matrix = openvr_sys::HmdMatrix34_t { m: pose };
+                check_wrist_input(unsafe {
+                    (*self.raw_overlay)
+                        .SetOverlayTransformAbsolute
+                        .ok_or("Absolute overlays unavailable")?(
+                        handle.0, origin, &mut matrix
+                    )
+                })?;
+                self.player_audio_state.transform = Some(target_transform);
+            }
+            Ok(())
         }
 
         pub fn ensure_ocr_progress(&mut self) -> Result<(), String> {
@@ -1008,13 +1077,21 @@ mod platform {
                 *slot = Some(handle);
             }
             let handle = slot.expect("controller overlay exists");
-            self.overlay
-                .set_width(handle, config.width_m)
-                .map_err(|error| format!("Configure wrist overlay failed: {error:?}"))?;
-            let matrix = Matrix3x4(transform::wrist(config));
-            self.overlay
-                .set_transform_tracked_device_relative(handle, device, &matrix)
-                .map_err(|error| format!("Position wrist overlay failed: {error:?}"))?;
+            if self.state(kind).width_m != Some(config.width_m) {
+                self.overlay
+                    .set_width(handle, config.width_m)
+                    .map_err(|error| format!("Configure wrist overlay failed: {error:?}"))?;
+                self.state_mut(kind).width_m = Some(config.width_m);
+            }
+            let raw_matrix = transform::wrist(config);
+            let target_transform = OverlayTransform::DeviceRelative(device.0, raw_matrix);
+            if self.state(kind).transform != Some(target_transform) {
+                let matrix = Matrix3x4(raw_matrix);
+                self.overlay
+                    .set_transform_tracked_device_relative(handle, device, &matrix)
+                    .map_err(|error| format!("Position wrist overlay failed: {error:?}"))?;
+                self.state_mut(kind).transform = Some(target_transform);
+            }
             Ok(ControllerBinding {
                 role: Some(role_name),
                 available: true,
@@ -1022,8 +1099,7 @@ mod platform {
         }
 
         pub fn controller_pose(&self, device: u32) -> Option<([[f32; 4]; 3], i32)> {
-            let table = load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor").ok()?
-                as *const openvr_sys::VR_IVRCompositor_FnTable;
+            let table = self.raw_compositor?;
             let table = unsafe { &*table };
             let mut pose: openvr_sys::TrackedDevicePose_t = unsafe { std::mem::zeroed() };
             let error = unsafe {
@@ -1044,32 +1120,39 @@ mod platform {
         ) -> Option<([[f32; 4]; 3], i32)> {
             let (pose, origin) = self.controller_pose(device.0)?;
             // The raw tracking axis is not the pointing axis on every controller.
-            let tip = (|| {
-                let model = self
-                    .system
-                    .string_tracked_device_property(
-                        device,
-                        openvr::property::RenderModelName_String,
-                    )
-                    .ok()?;
-                let models =
-                    load_raw_interface(openvr_sys::IVRRenderModels_Version, "render models").ok()?
-                        as *const openvr_sys::VR_IVRRenderModels_FnTable;
-                let mut mode: openvr_sys::RenderModel_ControllerMode_State_t =
-                    unsafe { std::mem::zeroed() };
-                let mut tip: openvr_sys::RenderModel_ComponentState_t =
-                    unsafe { std::mem::zeroed() };
-                let found = unsafe {
-                    (*models).GetComponentStateForDevicePath?(
-                        model.as_ptr().cast_mut(),
-                        c"tip".as_ptr().cast_mut(),
-                        source,
-                        &mut mode,
-                        &mut tip,
-                    )
-                };
-                found.then_some(tip.mTrackingToComponentLocal.m)
-            })();
+            let cache_key = (device.0, source);
+            let cached = self.tip_cache.borrow().get(&cache_key).copied();
+            let tip = match cached {
+                Some(tip) => tip,
+                None => {
+                    let resolved = (|| {
+                        let models = self.raw_render_models?;
+                        let model = self
+                            .system
+                            .string_tracked_device_property(
+                                device,
+                                openvr::property::RenderModelName_String,
+                            )
+                            .ok()?;
+                        let mut mode: openvr_sys::RenderModel_ControllerMode_State_t =
+                            unsafe { std::mem::zeroed() };
+                        let mut tip: openvr_sys::RenderModel_ComponentState_t =
+                            unsafe { std::mem::zeroed() };
+                        let found = unsafe {
+                            (*models).GetComponentStateForDevicePath?(
+                                model.as_ptr().cast_mut(),
+                                c"tip".as_ptr().cast_mut(),
+                                source,
+                                &mut mode,
+                                &mut tip,
+                            )
+                        };
+                        found.then_some(tip.mTrackingToComponentLocal.m)
+                    })();
+                    self.tip_cache.borrow_mut().insert(cache_key, resolved);
+                    resolved
+                }
+            };
             Some((
                 tip.map(|tip| transform::compose(pose, tip)).unwrap_or(pose),
                 origin,
@@ -1088,35 +1171,45 @@ mod platform {
             self.state(kind).visible
         }
 
-        pub fn controller_device(&self, config: &VrOverlayWristConfig) -> Option<u32> {
+        pub fn wrist_pose(&self, config: &VrOverlayWristConfig) -> Option<[[f32; 4]; 3]> {
             let device = self
                 .system
                 .tracked_device_index_for_controller_role(controller_role(config).1)?;
-            self.controller_pose(device.0)?;
-            Some(device.0)
-        }
-
-        pub fn wrist_pose(&self, config: &VrOverlayWristConfig) -> Option<[[f32; 4]; 3]> {
-            let (controller, _) = self.controller_pose(self.controller_device(config)?)?;
+            let (controller, _) = self.controller_pose(device.0)?;
             Some(transform::compose(controller, transform::wrist(config)))
         }
 
-        pub fn wrist_angle(&self, config: &VrOverlayWristConfig) -> Option<f32> {
-            let panel = self.wrist_pose(config)?;
-            let (head, _, _) = self.ocr_tracking().ok()?;
-            let toward: [f32; 3] = std::array::from_fn(|i| head[i][3] - panel[i][3]);
-            let length = toward.iter().map(|v| v * v).sum::<f32>().sqrt();
-            (length > 0.001).then(|| {
-                (toward
-                    .iter()
-                    .enumerate()
-                    .map(|(i, v)| v * panel[i][2])
-                    .sum::<f32>()
-                    / length)
-                    .clamp(-1., 1.)
-                    .acos()
-                    .to_degrees()
-            })
+        pub fn wrist_device_and_angle(
+            &self,
+            config: &VrOverlayWristConfig,
+            head: Option<[[f32; 4]; 3]>,
+        ) -> (Option<u32>, Option<f32>) {
+            let Some(device) = self
+                .system
+                .tracked_device_index_for_controller_role(controller_role(config).1)
+            else {
+                return (None, None);
+            };
+            let Some((controller, _)) = self.controller_pose(device.0) else {
+                return (None, None);
+            };
+            let angle = head.and_then(|head| {
+                let panel = transform::compose(controller, transform::wrist(config));
+                let toward: [f32; 3] = std::array::from_fn(|i| head[i][3] - panel[i][3]);
+                let length = toward.iter().map(|v| v * v).sum::<f32>().sqrt();
+                (length > 0.001).then(|| {
+                    (toward
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| v * panel[i][2])
+                        .sum::<f32>()
+                        / length)
+                        .clamp(-1., 1.)
+                        .acos()
+                        .to_degrees()
+                })
+            });
+            (Some(device.0), angle)
         }
 
         pub fn ensure_wrist_menu(&mut self, hand: &str) -> Result<(), String> {
@@ -1146,27 +1239,40 @@ mod platform {
                 self.wrist = Some(handle);
             }
             let handle = self.wrist.expect("dialogue overlay");
-            self.overlay
-                .set_width(handle, config.width_m)
-                .map_err(|e| format!("Set dialogue width failed: {e:?}"))?;
-            if let Some(relative) = head_relative {
-                return self
-                    .overlay
-                    .set_transform_tracked_device_relative(
-                        handle,
-                        tracked_device_index::HMD,
-                        &Matrix3x4(relative),
-                    )
-                    .map_err(|e| format!("Set dialogue follow transform failed: {e:?}"));
+            if self.wrist_state.width_m != Some(config.width_m) {
+                self.overlay
+                    .set_width(handle, config.width_m)
+                    .map_err(|e| format!("Set dialogue width failed: {e:?}"))?;
+                self.wrist_state.width_m = Some(config.width_m);
             }
-            let mut matrix = openvr_sys::HmdMatrix34_t { m: pose };
-            check_wrist_input(unsafe {
-                (*self.raw_overlay)
-                    .SetOverlayTransformAbsolute
-                    .ok_or("Absolute overlays unavailable")?(
-                    handle.0, origin, &mut matrix
-                )
-            })
+            if let Some(relative) = head_relative {
+                let target_transform =
+                    OverlayTransform::DeviceRelative(tracked_device_index::HMD.0, relative);
+                if self.wrist_state.transform != Some(target_transform) {
+                    self.overlay
+                        .set_transform_tracked_device_relative(
+                            handle,
+                            tracked_device_index::HMD,
+                            &Matrix3x4(relative),
+                        )
+                        .map_err(|e| format!("Set dialogue follow transform failed: {e:?}"))?;
+                    self.wrist_state.transform = Some(target_transform);
+                }
+                return Ok(());
+            }
+            let target_transform = OverlayTransform::Absolute(origin, pose);
+            if self.wrist_state.transform != Some(target_transform) {
+                let mut matrix = openvr_sys::HmdMatrix34_t { m: pose };
+                check_wrist_input(unsafe {
+                    (*self.raw_overlay)
+                        .SetOverlayTransformAbsolute
+                        .ok_or("Absolute overlays unavailable")?(
+                        handle.0, origin, &mut matrix
+                    )
+                })?;
+                self.wrist_state.transform = Some(target_transform);
+            }
+            Ok(())
         }
 
         pub fn ui_inputs(&self) -> Vec<crate::vr_overlay::ocr_input::UiInput> {
@@ -1181,7 +1287,7 @@ mod platform {
             kind: OverlayKind,
             device: u32,
             ray: ([[f32; 4]; 3], i32),
-        ) -> Option<([f32; 2], [f32; 3], f32)> {
+        ) -> Option<RayHit> {
             if !self.state(kind).visible {
                 return None;
             }
@@ -1207,21 +1313,26 @@ mod platform {
             self.cursor_interval
         }
 
-        pub fn update_cursor(
-            &mut self,
-            target: Option<(OverlayKind, [f32; 3], i32, u32)>,
-        ) -> Result<(), String> {
+        pub fn update_cursor(&mut self, target: Option<CursorTarget>) -> Result<(), String> {
             let api = unsafe { &*self.raw_overlay };
-            if let Some((kind, position, origin, width)) = target {
-                if self.visible(kind) {
-                    if let Some(handle) = self.handle(kind) {
-                        let diameter_px = if kind == OverlayKind::WristMenu {
+            if let Some(target) = target {
+                if self.visible(target.kind) {
+                    if let Some(handle) = self.handle(target.kind) {
+                        let diameter_px = if target.kind == OverlayKind::WristMenu {
                             30
                         } else {
                             24
                         };
-                        self.cursor
-                            .update(api, handle.0, position, origin, width, diameter_px)?;
+                        self.cursor.update_with_panel(
+                            api,
+                            handle.0,
+                            target.position,
+                            target.origin.0 as i32,
+                            target.panel,
+                            target.panel_width,
+                            target.texture_width,
+                            diameter_px,
+                        )?;
                         return Ok(());
                     }
                 }
@@ -1230,7 +1341,8 @@ mod platform {
         }
 
         pub fn surface_adapter_index(&self) -> Result<u32, String> {
-            dxgi_adapter_index()
+            self.adapter_index
+                .map_or_else(|| dxgi_adapter_index_from(self.raw_system), Ok)
         }
 
         pub fn has_surface_texture(&self, kind: OverlayKind) -> bool {
@@ -1250,10 +1362,12 @@ mod platform {
                 self.clear_surface_texture(kind)?;
             }
             let handle = self.handle(kind).ok_or("Overlay is not created")?;
-            submit_shared_texture(
-                self.raw_overlay,
+            let raw_overlay = self.raw_overlay;
+            submit_shared_texture_checked(
+                raw_overlay,
                 handle,
                 frame.shared_handle as *mut std::ffi::c_void,
+                &mut self.state_mut(kind).premultiplied,
             )?;
             self.surface_captures[kind as usize] = Some(capture);
             if kind == OverlayKind::Dashboard {
@@ -1446,33 +1560,44 @@ mod platform {
         }
     }
 
-    fn poll_runtime_events(system: &openvr_sys::VR_IVRSystem_FnTable) -> (bool, bool) {
+    fn poll_runtime_events(system: &openvr_sys::VR_IVRSystem_FnTable) -> (bool, bool, bool) {
         let mut reset = false;
+        let mut devices_changed = false;
         let poll = system
             .PollNextEvent
             .expect("OpenVR event polling available");
         loop {
             let mut event = openvr_sys::VREvent_t::default();
             if !unsafe { poll(&mut event, std::mem::size_of_val(&event) as u32) } {
-                return (false, reset);
+                return (false, reset, devices_changed);
             }
-            let kind = event.eventType as u32;
-            reset |= kind == openvr_sys::EVREventType_VREvent_SeatedZeroPoseReset as u32
-                || kind == openvr_sys::EVREventType_VREvent_ChaperoneUniverseHasChanged as u32
-                || kind == openvr_sys::EVREventType_VREvent_ChaperoneDataHasChanged as u32;
+            let event_type = event.eventType as i32;
+            reset |= matches!(
+                event_type,
+                openvr_sys::EVREventType_VREvent_SeatedZeroPoseReset
+                    | openvr_sys::EVREventType_VREvent_ChaperoneUniverseHasChanged
+                    | openvr_sys::EVREventType_VREvent_ChaperoneDataHasChanged
+            );
+            devices_changed |= matches!(
+                event_type,
+                openvr_sys::EVREventType_VREvent_TrackedDeviceActivated
+                    | openvr_sys::EVREventType_VREvent_TrackedDeviceDeactivated
+                    | openvr_sys::EVREventType_VREvent_TrackedDeviceUpdated
+                    | openvr_sys::EVREventType_VREvent_TrackedDeviceRoleChanged
+            );
             if event.eventType == openvr_sys::EVREventType_VREvent_Quit as u32 {
                 unsafe {
                     system
                         .AcknowledgeQuit_Exiting
                         .expect("OpenVR quit acknowledgement available")();
                 }
-                return (true, reset);
+                return (true, reset, devices_changed);
             }
         }
     }
 
-    fn create_texture_device() -> Option<Device> {
-        let adapter_index = match dxgi_adapter_index() {
+    fn create_texture_device(adapter_index: Result<u32, String>) -> Option<Device> {
+        let adapter_index = match adapter_index {
             Ok(index) => index,
             Err(error) => {
                 tracing::warn!(error, "Unable to select SteamVR GPU for OCR capture");
@@ -1539,7 +1664,7 @@ mod platform {
         origin: i32,
         matrix: [[f32; 4]; 3],
         texture_size: (u32, u32),
-    ) -> Option<([f32; 2], [f32; 3], f32)> {
+    ) -> Option<RayHit> {
         let intersection = overlay.ComputeOverlayIntersection?;
         let mut ray = openvr_sys::VROverlayIntersectionParams_t {
             vSource: openvr_sys::HmdVector3_t {
@@ -1585,11 +1710,18 @@ mod platform {
         point
             .iter()
             .all(|v| v.is_finite() && (0. ..=1.).contains(v))
-            .then_some((point, hit.vPoint.v, hit.fDistance))
+            .then_some(RayHit {
+                point,
+                position: hit.vPoint.v,
+                distance: hit.fDistance,
+                panel: panel.m,
+                panel_width: width,
+            })
     }
 
-    fn dxgi_adapter_index() -> Result<u32, String> {
-        let raw_system = load_raw_system()?;
+    fn dxgi_adapter_index_from(
+        raw_system: *const openvr_sys::VR_IVRSystem_FnTable,
+    ) -> Result<u32, String> {
         let mut adapter_index = -1;
         unsafe {
             (&*raw_system)
@@ -1602,22 +1734,36 @@ mod platform {
             .map_err(|_| "OpenVR did not provide a DXGI adapter".to_string())
     }
 
+    #[cfg(test)]
     fn submit_shared_texture(
         raw_overlay: *const openvr_sys::VR_IVROverlay_FnTable,
         handle: OverlayHandle,
         shared_handle: *mut std::ffi::c_void,
     ) -> Result<(), String> {
+        let mut premultiplied = false;
+        submit_shared_texture_checked(raw_overlay, handle, shared_handle, &mut premultiplied)
+    }
+
+    fn submit_shared_texture_checked(
+        raw_overlay: *const openvr_sys::VR_IVROverlay_FnTable,
+        handle: OverlayHandle,
+        shared_handle: *mut std::ffi::c_void,
+        premultiplied: &mut bool,
+    ) -> Result<(), String> {
         let api = unsafe { &*raw_overlay };
-        let error = unsafe {
-            api.SetOverlayFlag
-                .ok_or("OpenVR overlay alpha mode is unavailable")?(
-                handle.0,
-                openvr_sys::VROverlayFlags_IsPremultiplied,
-                true,
-            )
-        };
-        if error != openvr_sys::EVROverlayError_VROverlayError_None {
-            return Err(format!("Set overlay alpha mode failed with code {error}"));
+        if !*premultiplied {
+            let error = unsafe {
+                api.SetOverlayFlag
+                    .ok_or("OpenVR overlay alpha mode is unavailable")?(
+                    handle.0,
+                    openvr_sys::VROverlayFlags_IsPremultiplied,
+                    true,
+                )
+            };
+            if error != openvr_sys::EVROverlayError_VROverlayError_None {
+                return Err(format!("Set overlay alpha mode failed with code {error}"));
+            }
+            *premultiplied = true;
         }
         let mut texture = openvr_sys::Texture_t {
             handle: shared_handle,
@@ -2110,7 +2256,8 @@ mod platform {
                         assert!(hit.is_none(), "outside texture: {x}, {y}");
                         continue;
                     }
-                    let (uv, point, distance) = hit.expect("hit inside the texture");
+                    let hit = hit.expect("hit inside the texture");
+                    let (uv, point, distance) = (hit.point, hit.position, hit.distance);
                     for i in 0..2 {
                         assert!(
                             (uv[i] - expected[i]).abs() < 0.0001,
@@ -2179,6 +2326,7 @@ mod platform {
                     super::transform::matrix(0., 0., 0., [1., 2., 3.]),
                     (1024, 1024),
                 )
+                .map(|hit| (hit.point, hit.position, hit.distance))
             };
             assert_eq!(sample(), Some(([0.75, 0.75], [1., 2., 2.25], 0.75)));
             POSITION.set([f32::NAN, 2., 2.25]);
@@ -2288,6 +2436,7 @@ mod platform {
             Err("VR Overlay is not available on this platform".into())
         }
         pub fn hide(&mut self, _: OverlayKind) {}
+        pub fn close_dashboard(&mut self) {}
         pub fn hide_all(&mut self) {}
         pub fn reset(&mut self, _: OverlayKind) {}
     }
@@ -2301,7 +2450,7 @@ mod platform {
     use openvr::{ApplicationType, Context, Overlay, System, TrackedControllerRole};
     use vrcs_core::{VrOverlayHeadsetConfig, VrOverlayWristConfig};
 
-    use super::{menu_config, ControllerBinding, OverlayKind};
+    use super::{menu_config, ControllerBinding, CursorTarget, OverlayKind, RayHit};
     use crate::vr_overlay::dashboard::{
         pointer_from_openvr, DashboardPointerEvent, DASHBOARD_HEIGHT,
     };
@@ -2309,8 +2458,11 @@ mod platform {
     use crate::vr_overlay::surface_protocol::SurfaceId;
     use crate::vr_overlay::{cursor, ocr_input, transform};
     use std::cell::RefCell;
+    use std::collections::HashMap;
     use std::rc::Rc;
     use std::time::Duration;
+
+    type TipPoseMap = HashMap<(u32, u64), Option<[[f32; 4]; 3]>>;
 
     const HEADSET_KEY: &str = "org.vrcs.overlay.headset\0";
     const HEADSET_NAME: &str = "VRCS Headset Subtitles\0";
@@ -2323,13 +2475,24 @@ mod platform {
     const VREVENT_MOUSE_MOVE: u32 = openvr_sys::EVREventType_VREvent_MouseMove;
     const VREVENT_MOUSE_DOWN: u32 = openvr_sys::EVREventType_VREvent_MouseButtonDown;
     const VREVENT_MOUSE_UP: u32 = openvr_sys::EVREventType_VREvent_MouseButtonUp;
+    const VREVENT_SCROLL_SMOOTH: u32 = openvr_sys::EVREventType_VREvent_ScrollSmooth;
+    const VREVENT_SCROLL_DISCRETE: u32 = openvr_sys::EVREventType_VREvent_ScrollDiscrete;
     const VREVENT_SHOWN: u32 = openvr_sys::EVREventType_VREvent_OverlayShown;
     const VREVENT_HIDDEN: u32 = openvr_sys::EVREventType_VREvent_OverlayHidden;
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum OverlayTransform {
+        DeviceRelative(u32, [[f32; 4]; 3]),
+        Absolute(i32, [[f32; 4]; 3]),
+    }
 
     #[derive(Default)]
     struct SubmittedState {
         visible: bool,
         opacity: Option<f32>,
+        width_m: Option<f32>,
+        premultiplied: bool,
+        transform: Option<OverlayTransform>,
     }
 
     #[derive(Default)]
@@ -2477,6 +2640,9 @@ mod platform {
         overlay: Overlay,
         raw_overlay: *const openvr_sys::VR_IVROverlay_FnTable,
         raw_system: *const openvr_sys::VR_IVRSystem_FnTable,
+        raw_compositor: Option<*const openvr_sys::VR_IVRCompositor_FnTable>,
+        raw_render_models: Option<*const openvr_sys::VR_IVRRenderModels_FnTable>,
+        tip_cache: RefCell<TipPoseMap>,
         headset: Option<OverlayHandle>,
         wrist: Option<OverlayHandle>,
         wrist_menu: Option<OverlayHandle>,
@@ -2490,7 +2656,6 @@ mod platform {
         dashboard: DashboardOverlay,
         states: [SubmittedState; 9],
         surface_captures: [Option<Rc<RefCell<frame::Capture>>>; 9],
-        premultiplied: [bool; 9],
     }
 
     fn load_raw_interface(version: &[u8], name: &str) -> Result<isize, String> {
@@ -2505,27 +2670,38 @@ mod platform {
         Ok(pointer)
     }
 
-    fn poll_runtime_events(system: &openvr_sys::VR_IVRSystem_FnTable) -> (bool, bool) {
+    fn poll_runtime_events(system: &openvr_sys::VR_IVRSystem_FnTable) -> (bool, bool, bool) {
         let mut reset = false;
+        let mut devices_changed = false;
         let poll = system
             .PollNextEvent
             .expect("OpenVR event polling available");
         loop {
             let mut event = openvr_sys::VREvent_t::default();
             if !unsafe { poll(&mut event, std::mem::size_of_val(&event) as u32) } {
-                return (false, reset);
+                return (false, reset, devices_changed);
             }
             let kind = event.eventType;
-            reset |= kind == openvr_sys::EVREventType_VREvent_SeatedZeroPoseReset
-                || kind == openvr_sys::EVREventType_VREvent_ChaperoneUniverseHasChanged
-                || kind == openvr_sys::EVREventType_VREvent_ChaperoneDataHasChanged;
+            reset |= matches!(
+                kind,
+                openvr_sys::EVREventType_VREvent_SeatedZeroPoseReset
+                    | openvr_sys::EVREventType_VREvent_ChaperoneUniverseHasChanged
+                    | openvr_sys::EVREventType_VREvent_ChaperoneDataHasChanged
+            );
+            devices_changed |= matches!(
+                kind,
+                openvr_sys::EVREventType_VREvent_TrackedDeviceActivated
+                    | openvr_sys::EVREventType_VREvent_TrackedDeviceDeactivated
+                    | openvr_sys::EVREventType_VREvent_TrackedDeviceUpdated
+                    | openvr_sys::EVREventType_VREvent_TrackedDeviceRoleChanged
+            );
             if event.eventType == openvr_sys::EVREventType_VREvent_Quit {
                 unsafe {
                     system
                         .AcknowledgeQuit_Exiting
                         .expect("OpenVR quit acknowledgement available")();
                 }
-                return (true, reset);
+                return (true, reset, devices_changed);
             }
         }
     }
@@ -2552,12 +2728,23 @@ mod platform {
                 as *const openvr_sys::VR_IVROverlay_FnTable;
             let raw_system = load_raw_interface(openvr_sys::IVRSystem_Version, "system")?
                 as *const openvr_sys::VR_IVRSystem_FnTable;
+            let raw_compositor =
+                load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor")
+                    .ok()
+                    .map(|pointer| pointer as *const openvr_sys::VR_IVRCompositor_FnTable);
+            let raw_render_models =
+                load_raw_interface(openvr_sys::IVRRenderModels_Version, "render models")
+                    .ok()
+                    .map(|pointer| pointer as *const openvr_sys::VR_IVRRenderModels_FnTable);
             Ok(Self {
                 context,
                 system,
                 overlay,
                 raw_overlay,
                 raw_system,
+                raw_compositor,
+                raw_render_models,
+                tip_cache: RefCell::new(HashMap::new()),
                 headset: None,
                 wrist: None,
                 wrist_menu: None,
@@ -2571,13 +2758,15 @@ mod platform {
                 dashboard: DashboardOverlay::default(),
                 states: std::array::from_fn(|_| SubmittedState::default()),
                 surface_captures: std::array::from_fn(|_| None),
-                premultiplied: [false; 9],
             })
         }
 
         pub fn quit_requested(&mut self) -> bool {
-            let (quit, reset) = poll_runtime_events(unsafe { &*self.raw_system });
+            let (quit, reset, devices_changed) = poll_runtime_events(unsafe { &*self.raw_system });
             self.tracking_reset |= reset;
+            if devices_changed {
+                self.tip_cache.borrow_mut().clear();
+            }
             quit
         }
 
@@ -2602,13 +2791,27 @@ mod platform {
                 );
             }
             let handle = self.headset.expect("headset overlay exists");
-            self.overlay
-                .set_width(handle, config.width_m)
-                .map_err(|error| format!("Configure headset overlay failed: {error:?}"))?;
-            let matrix = Matrix3x4(transform::headset(config));
-            self.overlay
-                .set_transform_tracked_device_relative(handle, tracked_device_index::HMD, &matrix)
-                .map_err(|error| format!("Position headset overlay failed: {error:?}"))
+            if self.states[OverlayKind::Headset as usize].width_m != Some(config.width_m) {
+                self.overlay
+                    .set_width(handle, config.width_m)
+                    .map_err(|error| format!("Configure headset overlay failed: {error:?}"))?;
+                self.states[OverlayKind::Headset as usize].width_m = Some(config.width_m);
+            }
+            let raw_matrix = transform::headset(config);
+            let target_transform =
+                OverlayTransform::DeviceRelative(tracked_device_index::HMD.0, raw_matrix);
+            if self.states[OverlayKind::Headset as usize].transform != Some(target_transform) {
+                let matrix = Matrix3x4(raw_matrix);
+                self.overlay
+                    .set_transform_tracked_device_relative(
+                        handle,
+                        tracked_device_index::HMD,
+                        &matrix,
+                    )
+                    .map_err(|error| format!("Position headset overlay failed: {error:?}"))?;
+                self.states[OverlayKind::Headset as usize].transform = Some(target_transform);
+            }
+            Ok(())
         }
 
         pub fn ensure_wrist(
@@ -2645,27 +2848,42 @@ mod platform {
                 self.wrist = Some(handle);
             }
             let handle = self.wrist.expect("dialogue overlay");
-            self.overlay
-                .set_width(handle, config.width_m)
-                .map_err(|error| format!("Set dialogue width failed: {error:?}"))?;
-            if let Some(relative) = head_relative {
-                return self
-                    .overlay
-                    .set_transform_tracked_device_relative(
-                        handle,
-                        tracked_device_index::HMD,
-                        &Matrix3x4(relative),
-                    )
-                    .map_err(|error| format!("Set dialogue follow transform failed: {error:?}"));
+            if self.states[OverlayKind::Wrist as usize].width_m != Some(config.width_m) {
+                self.overlay
+                    .set_width(handle, config.width_m)
+                    .map_err(|error| format!("Set dialogue width failed: {error:?}"))?;
+                self.states[OverlayKind::Wrist as usize].width_m = Some(config.width_m);
             }
-            let mut matrix = openvr_sys::HmdMatrix34_t { m: pose };
-            check_wrist_input(unsafe {
-                (*self.raw_overlay)
-                    .SetOverlayTransformAbsolute
-                    .ok_or("Absolute overlays unavailable")?(
-                    handle.0, origin as _, &mut matrix
-                )
-            })
+            if let Some(relative) = head_relative {
+                let target_transform =
+                    OverlayTransform::DeviceRelative(tracked_device_index::HMD.0, relative);
+                if self.states[OverlayKind::Wrist as usize].transform != Some(target_transform) {
+                    self.overlay
+                        .set_transform_tracked_device_relative(
+                            handle,
+                            tracked_device_index::HMD,
+                            &Matrix3x4(relative),
+                        )
+                        .map_err(|error| {
+                            format!("Set dialogue follow transform failed: {error:?}")
+                        })?;
+                    self.states[OverlayKind::Wrist as usize].transform = Some(target_transform);
+                }
+                return Ok(());
+            }
+            let target_transform = OverlayTransform::Absolute(origin, pose);
+            if self.states[OverlayKind::Wrist as usize].transform != Some(target_transform) {
+                let mut matrix = openvr_sys::HmdMatrix34_t { m: pose };
+                check_wrist_input(unsafe {
+                    (*self.raw_overlay)
+                        .SetOverlayTransformAbsolute
+                        .ok_or("Absolute overlays unavailable")?(
+                        handle.0, origin as _, &mut matrix
+                    )
+                })?;
+                self.states[OverlayKind::Wrist as usize].transform = Some(target_transform);
+            }
+            Ok(())
         }
 
         pub fn ocr_wrist_on_same_hand(&self, config: &VrOverlayWristConfig) -> bool {
@@ -2721,13 +2939,21 @@ mod platform {
                 *slot = Some(handle);
             }
             let handle = slot.expect("controller overlay exists");
-            self.overlay
-                .set_width(handle, config.width_m)
-                .map_err(|error| format!("Configure wrist overlay failed: {error:?}"))?;
-            let matrix = Matrix3x4(transform::wrist(config));
-            self.overlay
-                .set_transform_tracked_device_relative(handle, device, &matrix)
-                .map_err(|error| format!("Position wrist overlay failed: {error:?}"))?;
+            if self.states[kind as usize].width_m != Some(config.width_m) {
+                self.overlay
+                    .set_width(handle, config.width_m)
+                    .map_err(|error| format!("Configure wrist overlay failed: {error:?}"))?;
+                self.states[kind as usize].width_m = Some(config.width_m);
+            }
+            let raw_matrix = transform::wrist(config);
+            let target_transform = OverlayTransform::DeviceRelative(device.0, raw_matrix);
+            if self.states[kind as usize].transform != Some(target_transform) {
+                let matrix = Matrix3x4(raw_matrix);
+                self.overlay
+                    .set_transform_tracked_device_relative(handle, device, &matrix)
+                    .map_err(|error| format!("Position wrist overlay failed: {error:?}"))?;
+                self.states[kind as usize].transform = Some(target_transform);
+            }
             Ok(ControllerBinding {
                 role: Some(role_name),
                 available: true,
@@ -2735,8 +2961,7 @@ mod platform {
         }
 
         pub fn controller_pose(&self, device: u32) -> Option<([[f32; 4]; 3], i32)> {
-            let table = load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor").ok()?
-                as *const openvr_sys::VR_IVRCompositor_FnTable;
+            let table = self.raw_compositor?;
             let table = unsafe { &*table };
             let mut pose: openvr_sys::TrackedDevicePose_t = unsafe { std::mem::zeroed() };
             let error = unsafe {
@@ -2756,67 +2981,84 @@ mod platform {
             source: u64,
         ) -> Option<([[f32; 4]; 3], i32)> {
             let (pose, origin) = self.controller_pose(device.0)?;
-            let tip = (|| {
-                let model = self
-                    .system
-                    .string_tracked_device_property(
-                        device,
-                        openvr::property::RenderModelName_String,
-                    )
-                    .ok()?;
-                let models =
-                    load_raw_interface(openvr_sys::IVRRenderModels_Version, "render models").ok()?
-                        as *const openvr_sys::VR_IVRRenderModels_FnTable;
-                let mut mode: openvr_sys::RenderModel_ControllerMode_State_t =
-                    unsafe { std::mem::zeroed() };
-                let mut tip: openvr_sys::RenderModel_ComponentState_t =
-                    unsafe { std::mem::zeroed() };
-                let found = unsafe {
-                    (*models).GetComponentStateForDevicePath?(
-                        model.as_ptr().cast_mut(),
-                        c"tip".as_ptr().cast_mut(),
-                        source,
-                        &mut mode,
-                        &mut tip,
-                    )
-                };
-                found.then_some(tip.mTrackingToComponentLocal.m)
-            })();
+            let cache_key = (device.0, source);
+            let cached = self.tip_cache.borrow().get(&cache_key).copied();
+            let tip = match cached {
+                Some(tip) => tip,
+                None => {
+                    let resolved = (|| {
+                        let models = self.raw_render_models?;
+                        let model = self
+                            .system
+                            .string_tracked_device_property(
+                                device,
+                                openvr::property::RenderModelName_String,
+                            )
+                            .ok()?;
+                        let mut mode: openvr_sys::RenderModel_ControllerMode_State_t =
+                            unsafe { std::mem::zeroed() };
+                        let mut tip: openvr_sys::RenderModel_ComponentState_t =
+                            unsafe { std::mem::zeroed() };
+                        let found = unsafe {
+                            (*models).GetComponentStateForDevicePath?(
+                                model.as_ptr().cast_mut(),
+                                c"tip".as_ptr().cast_mut(),
+                                source,
+                                &mut mode,
+                                &mut tip,
+                            )
+                        };
+                        found.then_some(tip.mTrackingToComponentLocal.m)
+                    })();
+                    self.tip_cache.borrow_mut().insert(cache_key, resolved);
+                    resolved
+                }
+            };
             Some((
                 tip.map(|tip| transform::compose(pose, tip)).unwrap_or(pose),
                 origin,
             ))
         }
 
-        pub fn controller_device(&self, config: &VrOverlayWristConfig) -> Option<u32> {
+        pub fn wrist_pose(&self, config: &VrOverlayWristConfig) -> Option<[[f32; 4]; 3]> {
             let device = self
                 .system
                 .tracked_device_index_for_controller_role(controller_role(config).1)?;
-            self.controller_pose(device.0)?;
-            Some(device.0)
-        }
-
-        pub fn wrist_pose(&self, config: &VrOverlayWristConfig) -> Option<[[f32; 4]; 3]> {
-            let (controller, _) = self.controller_pose(self.controller_device(config)?)?;
+            let (controller, _) = self.controller_pose(device.0)?;
             Some(transform::compose(controller, transform::wrist(config)))
         }
 
-        pub fn wrist_angle(&self, config: &VrOverlayWristConfig) -> Option<f32> {
-            let panel = self.wrist_pose(config)?;
-            let (head, _, _) = self.ocr_tracking().ok()?;
-            let toward: [f32; 3] = std::array::from_fn(|i| head[i][3] - panel[i][3]);
-            let length = toward.iter().map(|v| v * v).sum::<f32>().sqrt();
-            (length > 0.001).then(|| {
-                (toward
-                    .iter()
-                    .enumerate()
-                    .map(|(i, v)| v * panel[i][2])
-                    .sum::<f32>()
-                    / length)
-                    .clamp(-1., 1.)
-                    .acos()
-                    .to_degrees()
-            })
+        pub fn wrist_device_and_angle(
+            &self,
+            config: &VrOverlayWristConfig,
+            head: Option<[[f32; 4]; 3]>,
+        ) -> (Option<u32>, Option<f32>) {
+            let Some(device) = self
+                .system
+                .tracked_device_index_for_controller_role(controller_role(config).1)
+            else {
+                return (None, None);
+            };
+            let Some((controller, _)) = self.controller_pose(device.0) else {
+                return (None, None);
+            };
+            let angle = head.and_then(|head| {
+                let panel = transform::compose(controller, transform::wrist(config));
+                let toward: [f32; 3] = std::array::from_fn(|i| head[i][3] - panel[i][3]);
+                let length = toward.iter().map(|v| v * v).sum::<f32>().sqrt();
+                (length > 0.001).then(|| {
+                    (toward
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| v * panel[i][2])
+                        .sum::<f32>()
+                        / length)
+                        .clamp(-1., 1.)
+                        .acos()
+                        .to_degrees()
+                })
+            });
+            (Some(device.0), angle)
         }
 
         pub fn intersect(
@@ -2824,7 +3066,7 @@ mod platform {
             kind: OverlayKind,
             device: u32,
             ray: ([[f32; 4]; 3], i32),
-        ) -> Option<([f32; 2], [f32; 3], f32)> {
+        ) -> Option<RayHit> {
             if !self.states[kind as usize].visible {
                 return None;
             }
@@ -2846,21 +3088,26 @@ mod platform {
             self.cursor_interval
         }
 
-        pub fn update_cursor(
-            &mut self,
-            target: Option<(OverlayKind, [f32; 3], i32, u32)>,
-        ) -> Result<(), String> {
+        pub fn update_cursor(&mut self, target: Option<CursorTarget>) -> Result<(), String> {
             let api = unsafe { &*self.raw_overlay };
-            if let Some((kind, position, origin, width)) = target {
-                if self.visible(kind) {
-                    if let Some(handle) = self.handle(kind) {
-                        let diameter_px = if kind == OverlayKind::WristMenu {
+            if let Some(target) = target {
+                if self.visible(target.kind) {
+                    if let Some(handle) = self.handle(target.kind) {
+                        let diameter_px = if target.kind == OverlayKind::WristMenu {
                             30
                         } else {
                             24
                         };
-                        self.cursor
-                            .update(api, handle.0, position, origin, width, diameter_px)?;
+                        self.cursor.update_with_panel(
+                            api,
+                            handle.0,
+                            target.position,
+                            target.origin.0 as i32,
+                            target.panel,
+                            target.panel_width,
+                            target.texture_width,
+                            diameter_px,
+                        )?;
                         return Ok(());
                     }
                 }
@@ -2888,8 +3135,9 @@ mod platform {
         }
 
         pub fn ocr_tracking(&self) -> Result<([[f32; 4]; 3], u32, i32), String> {
-            let table = load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor")?
-                as *const openvr_sys::VR_IVRCompositor_FnTable;
+            let table = self
+                .raw_compositor
+                .ok_or_else(|| "OpenVR compositor interface unavailable".to_string())?;
             unsafe {
                 let table = &*table;
                 let mut pose: openvr_sys::TrackedDevicePose_t = std::mem::zeroed();
@@ -2976,6 +3224,14 @@ mod platform {
                         (mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left != 0)
                             .then_some(DashboardPointerEvent::Up { x, y })
                     }
+                    VREVENT_SCROLL_SMOOTH | VREVENT_SCROLL_DISCRETE => {
+                        let ydelta = unsafe { event.data.scroll }.ydelta;
+                        (ydelta.is_finite() && ydelta != 0.0).then_some(
+                            DashboardPointerEvent::Scroll {
+                                delta: (-ydelta * 0.25).clamp(-0.85, 0.85),
+                            },
+                        )
+                    }
                     VREVENT_SHOWN => Some(DashboardPointerEvent::Shown),
                     VREVENT_HIDDEN => Some(DashboardPointerEvent::Hidden),
                     _ => None,
@@ -3017,7 +3273,7 @@ mod platform {
                 return Err("Invalid overlay texture".into());
             }
             let api = unsafe { &*self.raw_overlay };
-            if !self.premultiplied[kind as usize] {
+            if !self.states[kind as usize].premultiplied {
                 let error = unsafe {
                     api.SetOverlayFlag
                         .ok_or("Overlay alpha mode is unavailable")?(
@@ -3029,7 +3285,7 @@ mod platform {
                 if error != openvr_sys::EVROverlayError_VROverlayError_None {
                     return Err(format!("Set overlay alpha mode failed with code {error}"));
                 }
-                self.premultiplied[kind as usize] = true;
+                self.states[kind as usize].premultiplied = true;
             }
             let error = unsafe {
                 api.SetOverlayRaw
@@ -3183,19 +3439,27 @@ mod platform {
                     .create_overlay("org.vrcs.overlay.player.audio\0", "VRCS Player Audio\0")
                     .map_err(|error| format!("Create player audio overlay failed: {error:?}"))?;
                 self.player_audio = Some(handle);
+            }
+            let handle = self.player_audio.expect("player audio overlay");
+            if self.states[OverlayKind::PlayerAudio as usize].width_m != Some(0.75) {
                 self.overlay
                     .set_width(handle, 0.75)
                     .map_err(|error| format!("Set player audio overlay width failed: {error:?}"))?;
+                self.states[OverlayKind::PlayerAudio as usize].width_m = Some(0.75);
             }
-            let handle = self.player_audio.expect("player audio overlay");
-            let mut matrix = openvr_sys::HmdMatrix34_t { m: pose };
-            check_wrist_input(unsafe {
-                (*self.raw_overlay)
-                    .SetOverlayTransformAbsolute
-                    .ok_or("Absolute overlays unavailable")?(
-                    handle.0, origin as _, &mut matrix
-                )
-            })
+            let target_transform = OverlayTransform::Absolute(origin, pose);
+            if self.states[OverlayKind::PlayerAudio as usize].transform != Some(target_transform) {
+                let mut matrix = openvr_sys::HmdMatrix34_t { m: pose };
+                check_wrist_input(unsafe {
+                    (*self.raw_overlay)
+                        .SetOverlayTransformAbsolute
+                        .ok_or("Absolute overlays unavailable")?(
+                        handle.0, origin as _, &mut matrix
+                    )
+                })?;
+                self.states[OverlayKind::PlayerAudio as usize].transform = Some(target_transform);
+            }
+            Ok(())
         }
     }
 
@@ -3256,7 +3520,7 @@ mod platform {
         origin: i32,
         matrix: [[f32; 4]; 3],
         texture_size: (u32, u32),
-    ) -> Option<([f32; 2], [f32; 3], f32)> {
+    ) -> Option<RayHit> {
         let intersection = overlay.ComputeOverlayIntersection?;
         let mut ray = openvr_sys::VROverlayIntersectionParams_t {
             vSource: openvr_sys::HmdVector3_t {
@@ -3301,7 +3565,13 @@ mod platform {
         point
             .iter()
             .all(|v| v.is_finite() && (0. ..=1.).contains(v))
-            .then_some((point, hit.vPoint.v, hit.fDistance))
+            .then_some(RayHit {
+                point,
+                position: hit.vPoint.v,
+                distance: hit.fDistance,
+                panel: panel.m,
+                panel_width: width,
+            })
     }
 
     impl Drop for VrBackend {
@@ -3586,20 +3856,23 @@ impl Backend {
         }
     }
 
-    pub fn controller_device(&self, config: &vrcs_core::VrOverlayWristConfig) -> Option<DeviceId> {
-        match &self.inner {
-            Inner::Vr(vr) => vr.controller_device(config).map(DeviceId),
-            #[cfg(all(linux_vr, target_arch = "x86_64"))]
-            Inner::Xr(xr) => xr.controller_device(config),
-        }
-    }
-
     pub fn wrist_pose(&self, config: &vrcs_core::VrOverlayWristConfig) -> Option<Pose> {
         backend_ref!(self, wrist_pose(config))
     }
 
-    pub fn wrist_angle(&self, config: &vrcs_core::VrOverlayWristConfig) -> Option<f32> {
-        backend_ref!(self, wrist_angle(config))
+    pub fn wrist_device_and_angle(
+        &self,
+        config: &vrcs_core::VrOverlayWristConfig,
+        head: Option<Pose>,
+    ) -> (Option<DeviceId>, Option<f32>) {
+        match &self.inner {
+            Inner::Vr(vr) => {
+                let (device, angle) = vr.wrist_device_and_angle(config, head);
+                (device.map(DeviceId), angle)
+            }
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.wrist_device_and_angle(config, head),
+        }
     }
 
     pub fn intersect(
@@ -3607,7 +3880,7 @@ impl Backend {
         kind: OverlayKind,
         device: DeviceId,
         ray: TrackedPose,
-    ) -> Option<([f32; 2], [f32; 3], f32)> {
+    ) -> Option<RayHit> {
         match &self.inner {
             Inner::Vr(vr) => vr.intersect(kind, device.0, (ray.pose, ray.space.0 as i32)),
             #[cfg(all(linux_vr, target_arch = "x86_64"))]
@@ -3619,18 +3892,8 @@ impl Backend {
         backend_ref!(self, cursor_interval())
     }
 
-    pub fn update_cursor(
-        &mut self,
-        target: Option<(OverlayKind, [f32; 3], SpaceId, u32)>,
-    ) -> Result<(), String> {
-        match &mut self.inner {
-            Inner::Vr(vr) => vr.update_cursor(
-                target
-                    .map(|(kind, position, space, width)| (kind, position, space.0 as i32, width)),
-            ),
-            #[cfg(all(linux_vr, target_arch = "x86_64"))]
-            Inner::Xr(xr) => xr.update_cursor(target),
-        }
+    pub fn update_cursor(&mut self, target: Option<CursorTarget>) -> Result<(), String> {
+        backend_mut!(self, update_cursor(target))
     }
 
     pub fn pointer_inputs(&self) -> Vec<PointerInput> {
@@ -3793,14 +4056,6 @@ impl Backend {
         self.vr_ref()
             .ocr_view()
             .map(|(eyes, pid, origin)| (eyes, pid, SpaceId(origin as u32)))
-    }
-
-    pub fn capture_ocr(
-        &mut self,
-        config: &vrcs_core::VrOcrConfig,
-        selection: Option<&crate::vr_overlay::ocr_selection::Selection>,
-    ) -> Result<crate::vr_overlay::ocr_capture::StereoCapture, String> {
-        self.vr().capture_ocr(config, selection)
     }
 
     pub fn cancel_ocr_capture(&mut self) {

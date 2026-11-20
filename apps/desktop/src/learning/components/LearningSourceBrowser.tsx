@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
@@ -39,7 +39,7 @@ const KNOWN_LANGUAGE_LABEL_KEYS: Record<string, string> = {
   es: "languages.spanish",
 };
 
-export function LearningSourceBrowser({
+export const LearningSourceBrowser = memo(function LearningSourceBrowser({
   conversation,
   conversations = [],
   activeConversationId,
@@ -143,14 +143,16 @@ export function LearningSourceBrowser({
     lastSelectedIndexRef.current = null;
   }, [filtered]);
 
-  const toggleSelection = (id: number, index: number, rangeSelection: boolean) => {
+  const filteredRef = useRef(filtered);
+  filteredRef.current = filtered;
+  const toggleSelection = useCallback((id: number, index: number, rangeSelection: boolean) => {
     setSelectedIds((current) => {
       const next = new Set(current);
       if (rangeSelection && lastSelectedIndexRef.current !== null) {
         const start = Math.min(lastSelectedIndexRef.current, index);
         const end = Math.max(lastSelectedIndexRef.current, index);
         const shouldSelect = !current.has(id);
-        for (const subtitle of filtered.slice(start, end + 1)) {
+        for (const subtitle of filteredRef.current.slice(start, end + 1)) {
           if (subtitle.id === null) continue;
           if (shouldSelect) next.add(subtitle.id);
           else next.delete(subtitle.id);
@@ -160,7 +162,8 @@ export function LearningSourceBrowser({
       return next;
     });
     lastSelectedIndexRef.current = index;
-  };
+  }, []);
+  const translatingIds = useMemo(() => new Set(translatingSubtitleIds), [translatingSubtitleIds]);
 
   const selectionKey = subtitleSelectionLearningKey(selectedIds);
   const selectionBusy = workspace.isCollecting(selectionKey);
@@ -366,8 +369,10 @@ export function LearningSourceBrowser({
                     onToggle={toggleSelection}
                     onSelect={onSelect}
                     onTranslate={onTranslate}
-                    translating={subtitle.id !== null && translatingSubtitleIds.includes(subtitle.id)}
-                    workspace={workspace}
+                    translating={subtitle.id !== null && translatingIds.has(subtitle.id)}
+                    collectSubtitle={workspace.collectSubtitle}
+                    isCollecting={workspace.isCollecting}
+                    isCaptured={workspace.isCaptured}
                     onOpenItem={onOpenItem}
                     onCollected={onCollected}
                   />
@@ -388,7 +393,7 @@ export function LearningSourceBrowser({
       </div>
     </section>
   );
-}
+});
 
 const LearningMaterialRow = memo(function LearningMaterialRow({
   subtitle,
@@ -399,7 +404,9 @@ const LearningMaterialRow = memo(function LearningMaterialRow({
   onSelect,
   onTranslate,
   translating,
-  workspace,
+  collectSubtitle,
+  isCollecting,
+  isCaptured,
   onOpenItem,
   onCollected,
 }: {
@@ -411,7 +418,9 @@ const LearningMaterialRow = memo(function LearningMaterialRow({
   onSelect: (context: string, origin?: LookupOrigin) => Promise<void>;
   onTranslate?: (subtitleId: number) => void;
   translating: boolean;
-  workspace: LearningWorkspaceController;
+  collectSubtitle: LearningWorkspaceController["collectSubtitle"];
+  isCollecting: LearningWorkspaceController["isCollecting"];
+  isCaptured: LearningWorkspaceController["isCaptured"];
   onOpenItem?: (item: LearningItem) => void;
   onCollected: (item: LearningItem) => void;
 }) {
@@ -419,8 +428,8 @@ const LearningMaterialRow = memo(function LearningMaterialRow({
   const translationPartial = useTranslationPartials(subtitle.id)[0];
   const visibleTranslation = translationPartial ?? subtitle.translation_partial ?? subtitle.translations[0];
   const key = subtitleLearningKey(subtitle);
-  const collecting = workspace.isCollecting(key);
-  const captured = workspace.isCaptured(key);
+  const collecting = isCollecting(key);
+  const captured = isCaptured(key);
   const sourceKind = subtitle.source ?? "speaker";
   const sourceLabel = sourceKind === "vrchat_chatbox"
     ? `VRChat ${t("chatbox.title")}`
@@ -482,7 +491,7 @@ const LearningMaterialRow = memo(function LearningMaterialRow({
           disabled={collecting}
           data-tooltip={captured ? t("learning.materials.openCollected") : undefined}
           onMouseUp={(event) => event.stopPropagation()}
-          onClick={() => void workspace.collectSubtitle(subtitle).then((item) => {
+          onClick={() => void collectSubtitle(subtitle).then((item) => {
             if (!item) return;
             if (captured && onOpenItem) onOpenItem(item);
             else onCollected(item);

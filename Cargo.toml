@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = [
+    "core",
+    "apps/desktop/src-tauri",
+    "crates/player-audio-scan",
+    "crates/player-audio-helper",
+]
+
+# Match ONNX Runtime's C++ runtime while retaining application debug builds.
+[profile.dev.package.openvr_sys]
+opt-level = 1
+
+# Keep the pagefile search hot path optimized in debug builds.
+[profile.dev.package.player-audio-scan]
+opt-level = 3
+
+[profile.dev.package.memchr]
+opt-level = 3
+
+[profile.dev.package.ring]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

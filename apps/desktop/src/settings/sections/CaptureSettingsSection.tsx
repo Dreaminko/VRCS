@@ -4,7 +4,6 @@ import { Mic, RefreshCw, Sparkles, TriangleAlert, Volume2 } from "lucide-react";
 
 import { useMicrophoneCalibration } from "../hooks/useMicrophoneCalibration";
 import { DEFAULT_MICROPHONE_THRESHOLD_DBFS } from "../../capture/microphone-calibration";
-import { useAudioLevel } from "../../core-client/realtime-state";
 import type { AudioDevice } from "../../capture/types";
 import type { Settings, TranslationSettings } from "../types";
 import type { ApplySettings, SaveState } from "../settings-types";
@@ -12,6 +11,7 @@ import { DeviceGroup } from "../SettingsControls";
 import { MicrophoneLevelSetting } from "./MicrophoneLevelSetting";
 import { OtherVoiceLevelSetting } from "./OtherVoiceLevelSetting";
 import { VrchatChatboxSettings } from "./VrchatChatboxSettings";
+import { VrchatRoomContextSettings } from "./VrchatRoomContextSettings";
 import { DEFAULT_PLAYER_AUDIO, PlayerAudioSettings } from "./PlayerAudioSettings";
 import type { ChatboxStatus, PlayerAudioStatus } from "../../core-client/types";
 import type { ApiProfileView } from "../../providers/types";
@@ -66,14 +66,11 @@ export function CaptureSettingsSection({
 }) {
   const { t } = useTranslation();
   const { core } = usePlatformCapabilities();
-  const microphoneLevel = useAudioLevel("microphone");
-  const speakerLevel = useAudioLevel("speaker");
   const [microphoneTestBusy, setMicrophoneTestBusy] = useState(false);
   const [networkRequiredOpen, setNetworkRequiredOpen] = useState(false);
   const networkEnabled = draft.audio.output.player_audio?.enabled === true;
   const networkSupported = core?.chatbox.network_receive.available === true;
   const calibration = useMicrophoneCalibration({
-    level: microphoneLevel,
     testing: microphoneTestRunning,
     onStartTest: onStartMicrophoneTest,
   });
@@ -152,7 +149,6 @@ export function CaptureSettingsSection({
             title={t("settings.audio.otherVoice")}
             beforeList={(
               <OtherVoiceLevelSetting
-                level={speakerLevel}
                 enabled={draft.audio.output.mode !== "disabled"}
                 captureRunning={transcriptionRunning}
                 threshold={draft.audio.output.trigger_threshold_dbfs}
@@ -226,7 +222,6 @@ export function CaptureSettingsSection({
             beforeList={(
               <>
                 <MicrophoneLevelSetting
-                  level={microphoneLevel}
                   enabled={draft.audio.microphone.mode !== "disabled"}
                   captureRunning={microphoneRunning}
                   transcriptionRunning={transcriptionRunning}
@@ -350,6 +345,7 @@ export function CaptureSettingsSection({
           <VrchatChatboxSettings draft={draft} translation={translation} profiles={profiles} status={chatboxStatus}
             supported={networkSupported} saveState={saveState} saveMessage={saveMessage}
             applySettings={applySettings} onOpenTranslation={onOpenTranslation} />
+          <VrchatRoomContextSettings draft={draft} applySettings={applySettings} />
           <PlayerAudioSettings value={draft.audio.output.player_audio} status={playerAudioStatus}
             memory={playerAudioStart?.memory}
             disabled={!networkSupported}

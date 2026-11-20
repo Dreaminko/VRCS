@@ -1,6 +1,6 @@
 [package]
 name = "vrcs-core"
-version = "0.3.10"
+version = "0.3.11"
 description = "VRCS local core service (Rust)"
 authors = ["VRCS contributors"]
 license = "AGPL-3.0-only"
@@ -84,13 +84,3 @@ windows = { version = "0.62", features = [
 tokio = { version = "1", features = ["test-util"] }
 tempfile = "3"
 hound = "3.5"
-
-# Keep the pagefile search hot path optimized in the downloadable debug build.
-[profile.dev.package.player-audio-scan]
-opt-level = 3
-
-[profile.dev.package.memchr]
-opt-level = 3
-
-[profile.dev.package.ring]
-opt-level = 3

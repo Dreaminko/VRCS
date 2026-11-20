@@ -21,6 +21,7 @@ jobs:
   detect:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       actions: read
@@ -66,6 +67,7 @@ jobs:
           needs.detect.outputs.sha != '' && needs.detect.outputs.published != 'true' &&
           (needs.detect.outputs.reuse == 'true' || needs.validate.result == 'success') }}
     runs-on: windows-2022
+    timeout-minutes: 60
     env:
       CMAKE_GENERATOR: Visual Studio 17 2022
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
@@ -87,13 +89,15 @@ jobs:
       - name: Install pinned Rust toolchain
         shell: pwsh
         run: rustup show
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: release-windows-x64-vulkan
           save-if: false
-          workspaces: |
-            core -> ../.build
-            apps/desktop/src-tauri -> ../../../.build
+          workspaces: . -> .build
+      - uses: actions/cache@v6
+        with:
+          path: apps/desktop/src-tauri/resources/vulkan-runtime
+          key: vulkan-runtime-${{ hashFiles('scripts/prepare-vulkan-runtime.ps1') }}
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -111,7 +115,7 @@ jobs:
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
         run: |
           .\.nightly-tools\scripts\build-release.ps1 -RepoRoot $env:GITHUB_WORKSPACE -Channel nightly `
-            -Version $env:NIGHTLY_VERSION -BuildDate $env:NIGHTLY_DATE -SourceSha $env:NIGHTLY_SHA -SkipInstall -SkipTests
+            -Version $env:NIGHTLY_VERSION -BuildDate $env:NIGHTLY_DATE -SourceSha $env:NIGHTLY_SHA -SkipInstall -SkipTests -KeepOpenVrCache
       - uses: actions/upload-artifact@v7
         with:
           name: nightly-windows-x64-${{ needs.detect.outputs.sha }}
@@ -127,6 +131,7 @@ jobs:
       ${{ !cancelled() && needs.detect.result == 'success' && needs.detect.outputs.sha != '' &&
           (needs.detect.outputs.published == 'true' || needs.windows-x64.result == 'success') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:

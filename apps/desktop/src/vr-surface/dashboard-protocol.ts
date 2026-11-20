@@ -27,7 +27,7 @@ export type DashboardCommand =
   | { type: "close" | "confirm" | "cancel" }
   | { type: "action"; value: DashboardAction };
 
-export const DASHBOARD_PICKER_PAGE_SIZE = 32;
+export const DASHBOARD_PICKER_PAGE_SIZE = 15;
 
 export function dashboardPickerChoice(view: VrDashboardViewModel, picker: DashboardPicker): VrDashboardChoice | undefined {
   switch (picker.type) {

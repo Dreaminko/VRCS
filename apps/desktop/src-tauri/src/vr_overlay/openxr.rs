@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use openxr as xr;
 use vrcs_core::{VrOverlayHeadsetConfig, VrOverlayWristConfig};
 
-use super::backend::{menu_config, ControllerBinding, OverlayKind};
+use super::backend::{menu_config, ControllerBinding, CursorTarget, OverlayKind, RayHit};
 use super::dashboard::{DashboardPointerEvent, DASHBOARD_HEIGHT, DASHBOARD_WIDTH};
 use super::pose::{
     pose_from_quaternion, DeviceId, PointerId, PointerInput, Pose, SpaceId, TrackedPose,
@@ -25,7 +25,7 @@ pub struct OpenXrBackend {
     cursor_ready: bool,
     dashboard_open: bool,
     dashboard_pointer: DashboardPointer,
-    dashboard_cursor: Option<(OverlayKind, [f32; 3], SpaceId, u32)>,
+    dashboard_cursor: Option<CursorTarget>,
     dashboard_placeholder: Option<String>,
     dashboard_scroll_at: Instant,
 }
@@ -344,13 +344,6 @@ impl OpenXrBackend {
         self.runtime.pointer_pose(pointer)
     }
 
-    pub fn controller_device(&self, config: &VrOverlayWristConfig) -> Option<DeviceId> {
-        let hand = hand_index(config);
-        self.runtime
-            .controller_pose(hand)
-            .map(|_| DeviceId(hand as u32))
-    }
-
     pub fn wrist_pose(&self, config: &VrOverlayWristConfig) -> Option<Pose> {
         let hand = hand_index(config);
         let controller = self.runtime.controller_pose(hand)?;
@@ -360,22 +353,32 @@ impl OpenXrBackend {
         ))
     }
 
-    pub fn wrist_angle(&self, config: &VrOverlayWristConfig) -> Option<f32> {
-        let panel = self.wrist_pose(config)?;
-        let head = self.ocr_tracking().ok()?.0;
-        let toward: [f32; 3] = std::array::from_fn(|i| head[i][3] - panel[i][3]);
-        let length = toward.iter().map(|v| v * v).sum::<f32>().sqrt();
-        (length > 0.001).then(|| {
-            (toward
-                .iter()
-                .enumerate()
-                .map(|(i, v)| v * panel[i][2])
-                .sum::<f32>()
-                / length)
-                .clamp(-1., 1.)
-                .acos()
-                .to_degrees()
-        })
+    pub fn wrist_device_and_angle(
+        &self,
+        config: &VrOverlayWristConfig,
+        head: Option<Pose>,
+    ) -> (Option<DeviceId>, Option<f32>) {
+        let hand = hand_index(config);
+        let Some(controller) = self.runtime.controller_pose(hand) else {
+            return (None, None);
+        };
+        let angle = head.and_then(|head| {
+            let panel = transform::compose(controller.pose, transform::wrist(config));
+            let toward: [f32; 3] = std::array::from_fn(|i| head[i][3] - panel[i][3]);
+            let length = toward.iter().map(|v| v * v).sum::<f32>().sqrt();
+            (length > 0.001).then(|| {
+                (toward
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| v * panel[i][2])
+                    .sum::<f32>()
+                    / length)
+                    .clamp(-1., 1.)
+                    .acos()
+                    .to_degrees()
+            })
+        });
+        (Some(DeviceId(hand as u32)), angle)
     }
 
     fn world_panel(&self, info: &PanelInfo) -> Option<Pose> {
@@ -394,7 +397,7 @@ impl OpenXrBackend {
         kind: OverlayKind,
         _device: DeviceId,
         ray: TrackedPose,
-    ) -> Option<([f32; 2], [f32; 3], f32)> {
+    ) -> Option<RayHit> {
         let info = self.runtime.panel(panel(kind))?;
         if !info.visible {
             return None;
@@ -428,42 +431,41 @@ impl OpenXrBackend {
             world[1][3] + world[1][0] * local_hit[0] + world[1][1] * local_hit[1],
             world[2][3] + world[2][0] * local_hit[0] + world[2][1] * local_hit[1],
         ];
-        Some((uv, world_hit, distance))
+        Some(RayHit {
+            point: uv,
+            position: world_hit,
+            distance,
+            panel: world,
+            panel_width: info.size.width,
+        })
     }
 
     pub fn cursor_interval(&self) -> Duration {
         Duration::from_millis(16)
     }
 
-    pub fn update_cursor(
-        &mut self,
-        target: Option<(OverlayKind, [f32; 3], SpaceId, u32)>,
-    ) -> Result<(), String> {
+    pub fn update_cursor(&mut self, target: Option<CursorTarget>) -> Result<(), String> {
         // The shared pointer sampler only knows about its own surfaces; fall
         // back to the settings quad when it owns the pointer.
         let target = target.or_else(|| self.dashboard_cursor.filter(|_| self.dashboard_open));
-        let Some((kind, position, _space, texture_width)) = target else {
+        let Some(target) = target else {
             self.runtime.set_visible(PanelId::Cursor, false);
             return Ok(());
         };
-        let Some(info) = self.runtime.panel(panel(kind)) else {
+        if !self.runtime.visible(panel(target.kind)) {
             self.runtime.set_visible(PanelId::Cursor, false);
             return Ok(());
-        };
-        let diameter_px = if kind == OverlayKind::WristMenu {
+        }
+        let diameter_px = if target.kind == OverlayKind::WristMenu {
             30
         } else {
             24
         };
-        let size = info.size.width * diameter_px as f32 / texture_width.max(1) as f32;
-        let Some(world) = self
-            .world_panel(&info)
-            .filter(|_| info.visible && position.iter().all(|v| v.is_finite()))
-            .filter(|_| size.is_finite() && size > 0.0)
-        else {
+        let size = target.panel_width * diameter_px as f32 / target.texture_width.max(1) as f32;
+        if !target.position.iter().all(|v| v.is_finite()) || !size.is_finite() || size <= 0.0 {
             self.runtime.set_visible(PanelId::Cursor, false);
             return Ok(());
-        };
+        }
         if !self.cursor_ready {
             let mut pixels = super::cursor::texture();
             premultiply(&mut pixels);
@@ -471,12 +473,13 @@ impl OpenXrBackend {
                 .upload(PanelId::Cursor, &pixels, CURSOR_PX, CURSOR_PX)?;
             self.cursor_ready = true;
         }
+        let world = target.panel;
         let normal = [world[0][2], world[1][2], world[2][2]];
         let mut pose = xr_pose(world);
         pose.position = xr::Vector3f {
-            x: position[0] + normal[0] * CURSOR_OFFSET_M,
-            y: position[1] + normal[1] * CURSOR_OFFSET_M,
-            z: position[2] + normal[2] * CURSOR_OFFSET_M,
+            x: target.position[0] + normal[0] * CURSOR_OFFSET_M,
+            y: target.position[1] + normal[1] * CURSOR_OFFSET_M,
+            z: target.position[2] + normal[2] * CURSOR_OFFSET_M,
         };
         self.runtime
             .set_panel(PanelId::Cursor, PanelSpace::Stage, pose, width(size));
@@ -584,28 +587,26 @@ impl OpenXrBackend {
         }
         let inputs = self.runtime.pointer_inputs();
         let mut hits: [Option<[f32; 2]>; 2] = [None; 2];
-        let mut best: Option<(usize, [f32; 2], [f32; 3], f32)> = None;
+        let mut best: Option<(usize, RayHit)> = None;
         for (hand, input) in inputs.iter().enumerate().take(2) {
             let Some(ray) = self.runtime.pointer_pose(input.pointer) else {
                 continue;
             };
-            let Some((uv, position, distance)) =
-                self.intersect(OverlayKind::Dashboard, input.device, ray)
-            else {
+            let Some(hit) = self.intersect(OverlayKind::Dashboard, input.device, ray) else {
                 continue;
             };
-            hits[hand] = Some(uv);
-            if best.is_none_or(|(_, _, _, closest)| distance < closest) {
-                best = Some((hand, uv, position, distance));
+            hits[hand] = Some(hit.point);
+            if best.is_none_or(|(_, closest)| hit.distance < closest.distance) {
+                best = Some((hand, hit));
             }
         }
-        self.dashboard_cursor = best.map(|(_, _, position, _)| {
-            (
-                OverlayKind::Dashboard,
-                position,
-                SpaceId(0),
-                DASHBOARD_WIDTH,
-            )
+        self.dashboard_cursor = best.map(|(_, hit)| CursorTarget {
+            kind: OverlayKind::Dashboard,
+            position: hit.position,
+            origin: SpaceId(0),
+            panel: hit.panel,
+            panel_width: hit.panel_width,
+            texture_width: DASHBOARD_WIDTH,
         });
         let pressed = |hand: usize| {
             inputs
@@ -616,7 +617,7 @@ impl OpenXrBackend {
         let mut events = self.dashboard_pointer.events(
             hits,
             [pressed(0), pressed(1)],
-            best.map(|(hand, _, _, _)| hand),
+            best.map(|(hand, _)| hand),
         );
         let now = Instant::now();
         let elapsed = now
@@ -625,7 +626,7 @@ impl OpenXrBackend {
             .min(0.05);
         self.dashboard_scroll_at = now;
         let axis = best
-            .and_then(|(hand, ..)| inputs.get(hand))
+            .and_then(|(hand, _)| inputs.get(hand))
             .map(|input| input.scroll_y)
             .unwrap_or(0.0);
         let delta = -axis * elapsed * 1.5;

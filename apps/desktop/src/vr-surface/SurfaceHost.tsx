@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { subscribeLanguageDetector } from "../subtitles/player-history";
 import { connectSurfaceBridge, type SurfaceBridge } from "./bridge";
-import { VrSurface } from "./VrSurface";
+import { preloadVisionMarkdown, VrSurface } from "./VrSurface";
 import { markerBits, newerKey, sameKey, type Surface, type SurfaceActivity, type SurfaceKey, type SurfaceLayout, type SurfacePointerState, type SurfaceScrollState, type SurfaceState } from "./protocol";
 
 export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surface: Surface; connect?: (surface: Surface, signal: AbortSignal) => Promise<SurfaceBridge> }) {
@@ -22,6 +23,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   const pendingPointer = useRef<{ key: SurfaceKey; point: [number, number] | null } | null>(null);
   const restored = useRef<SurfaceKey | null>(null);
   const pointerPoint = useRef<[number, number] | null>(null);
+  const pressedRef = useRef<number | null>(null);
   const cancelScroll = useCallback(() => {
     pendingScroll.current = null;
   }, []);
@@ -61,7 +63,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
             ? { ...previous, pointer: pointer.point } : previous);
         }
         setPaintSerial(serial.current);
-        if (root.current?.getAnimations({ subtree: true }).some(animation => animation.playState === "running" || animation.pending)) {
+        if (surface === "ocr_progress" && root.current?.getAnimations({ subtree: true }).some(animation => animation.playState === "running" || animation.pending)) {
           paintFrame.current = requestAnimationFrame(() => {
             serial.current = ((serial.current + 1) >>> 0) || 1;
             paint();
@@ -71,7 +73,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
       paintFrame.current = requestAnimationFrame(paint);
     }
     return serial.current;
-  }, []);
+  }, [surface]);
 
   const receiveScroll = useCallback((payload: SurfaceScrollState) => {
     if (!activity.current.active || !sameKey(scrollKey.current, payload.key) || !Number.isFinite(payload.delta)) return;
@@ -86,7 +88,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   }, [markPaint]);
 
   const receivePointer = useCallback((payload: SurfacePointerState) => {
-    if (!activity.current.active || !sameKey(current.current, payload.key)) return;
+    if (!activity.current.active || pressedRef.current === null || !sameKey(current.current, payload.key)) return;
     const point = payload.point?.every(value => Number.isFinite(value) && value >= 0 && value <= 1)
       ? payload.point : null;
     const previous = pointerPoint.current;
@@ -100,6 +102,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
     let disposed = false;
     const abort = new AbortController();
     mounted.current = true;
+    if (surface === "reader") preloadVisionMarkdown();
     const receiveActivity = (next: SurfaceActivity) => {
       if (disposed || !Number.isSafeInteger(next.request) || next.request < activity.current.request) return;
       activity.current = next;
@@ -122,6 +125,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
         const nextScrollKey = next.scroll_key ?? next.key;
         if (!sameKey(scrollKey.current, nextScrollKey)) cancelScroll();
         scrollKey.current = nextScrollKey;
+        pressedRef.current = next.pressed ?? null;
         pointerPoint.current = next.pointer ?? null;
         pendingPointer.current = null;
         current.current = next.key;
@@ -129,13 +133,16 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
         markPaint();
       }
     };
+    const stopDetector = surface === "headset" || surface === "dialogue"
+      ? subscribeLanguageDetector(() => { if (!disposed) markPaint(); })
+      : null;
     void (async () => {
       const bridge = await connect(surface, abort.signal);
       if (disposed) { bridge.dispose(); return; }
       connection.current = bridge;
       bridge.on("view", receive);
       bridge.on("activity", receiveActivity);
-      bridge.on("pointer", receivePointer);
+      if (surface === "menu") bridge.on("pointer", receivePointer);
       bridge.on("repaint", () => {
         if (!disposed) markPaint();
       });
@@ -144,6 +151,8 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
     })().catch((error) => { if (!disposed) console.error("VR surface connection failed", error); });
     return () => {
       disposed = true; mounted.current = false; layoutRequest.current++; cancelScroll();
+      stopDetector?.();
+      pressedRef.current = null;
       if (paintFrame.current !== null) cancelAnimationFrame(paintFrame.current);
       paintFrame.current = null; pendingState.current = null; pendingPointer.current = null;
       abort.abort(); connection.current = null;
@@ -185,9 +194,9 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   }, [markPaint]);
 
   useEffect(() => {
-    if (!active || !state) return;
+    if (!active || !state || surface !== "ocr_progress") return;
     if (root.current?.getAnimations({ subtree: true }).some(animation => animation.playState === "running" || animation.pending)) markPaint();
-  }, [active, state, markPaint]);
+  }, [active, state, surface, markPaint]);
 
   return <main ref={root} className="vr-surface-host" data-active={active}>
     {state && <VrSurface state={state} onLayout={onLayout} />}

@@ -95,6 +95,7 @@ fn group_context(
                     source: "OCR".into(),
                     text: group.source.text.clone(),
                     created_at: String::new(),
+                    speaker: None,
                 },
             ));
         }
@@ -181,11 +182,26 @@ impl VrOcrService {
 
     pub(super) fn matches_config(&self, snapshot: &crate::config::AppConfig) -> bool {
         self.config.read().is_ok_and(|current| {
-            let mut ocr = current.ocr.clone();
-            ocr.enabled &=
-                current.features.ocr && current.features.vr_overlay && ocr.master_enabled;
-            ocr.desktop_enabled &= current.features.ocr && ocr.master_enabled;
-            ocr == snapshot.ocr
+            let enabled = current.ocr.enabled
+                && current.features.ocr
+                && current.features.vr_overlay
+                && current.ocr.master_enabled;
+            let desktop_enabled =
+                current.ocr.desktop_enabled && current.features.ocr && current.ocr.master_enabled;
+            if enabled != snapshot.ocr.enabled || desktop_enabled != snapshot.ocr.desktop_enabled {
+                return false;
+            }
+            let ocr_matches = if enabled == current.ocr.enabled
+                && desktop_enabled == current.ocr.desktop_enabled
+            {
+                current.ocr == snapshot.ocr
+            } else {
+                let mut ocr = current.ocr.clone();
+                ocr.enabled = enabled;
+                ocr.desktop_enabled = desktop_enabled;
+                ocr == snapshot.ocr
+            };
+            ocr_matches
                 && current.translation.prompt == snapshot.translation.prompt
                 && current.asr.api_profiles == snapshot.asr.api_profiles
         })
@@ -278,7 +294,7 @@ impl VrOcrService {
         let mut timed_out = false;
         let mut cache_hits = 0usize;
         let mut first_translation_ms = None;
-        let mut config_check = tokio::time::interval(std::time::Duration::from_millis(100));
+        let mut config_check = tokio::time::interval(std::time::Duration::from_millis(200));
         futures_util::pin_mut!(images);
         loop {
             if !self.matches_config(config) {

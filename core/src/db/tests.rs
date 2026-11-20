@@ -1259,7 +1259,7 @@ fn version_4_preserves_existing_version_3_subtitles() {
     let original = db.add_subtitle(&subtitle("Keep existing history")).unwrap();
     db.conn
         .execute_batch(
-            "ALTER TABLE subtitle_translations DROP COLUMN source_group; ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; ALTER TABLE conversations DROP COLUMN summary_title; ALTER TABLE conversations DROP COLUMN title_generation_status; ALTER TABLE conversations DROP COLUMN title_generation_error_code; ALTER TABLE conversations DROP COLUMN title_generation_request_id; PRAGMA user_version = 3;",
+            "DROP INDEX IF EXISTS idx_subtitles_speaker_id; ALTER TABLE subtitle_translations DROP COLUMN source_group; ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; ALTER TABLE conversations DROP COLUMN summary_title; ALTER TABLE conversations DROP COLUMN title_generation_status; ALTER TABLE conversations DROP COLUMN title_generation_error_code; ALTER TABLE conversations DROP COLUMN title_generation_request_id; PRAGMA user_version = 3;",
         )
         .unwrap();
     drop(db);
@@ -1316,7 +1316,7 @@ fn version_5_preserves_history_and_round_trips_session_scoped_speakers() {
     let legacy = db.add_subtitle(&subtitle("Legacy history")).unwrap();
     db.conn
         .execute_batch(
-            "ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; ALTER TABLE conversations DROP COLUMN summary_title; ALTER TABLE conversations DROP COLUMN title_generation_status; ALTER TABLE conversations DROP COLUMN title_generation_error_code; ALTER TABLE conversations DROP COLUMN title_generation_request_id; PRAGMA user_version = 4;",
+            "DROP INDEX IF EXISTS idx_subtitles_speaker_id; ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; ALTER TABLE conversations DROP COLUMN summary_title; ALTER TABLE conversations DROP COLUMN title_generation_status; ALTER TABLE conversations DROP COLUMN title_generation_error_code; ALTER TABLE conversations DROP COLUMN title_generation_request_id; PRAGMA user_version = 4;",
         )
         .unwrap();
     drop(db);

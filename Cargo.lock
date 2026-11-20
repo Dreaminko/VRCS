@@ -1976,6 +1976,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec9d92d097f4749b64e8cc33d924d9f40a2d4eb91402b458014b781f5733d60f"
 
 [[package]]
+name = "hound"
+version = "3.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62adaabb884c94955b19907d60019f4e145d091c75345379e70d1ee696f7854f"
+
+[[package]]
 name = "html5ever"
 version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5905,13 +5911,14 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vrcs-core"
-version = "0.3.10"
+version = "0.3.11"
 dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
  "flate2",
  "futures-util",
+ "hound",
  "libc",
  "libloading 0.8.9",
  "mdns-sd",
@@ -5932,6 +5939,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tar",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
  "tokio-tungstenite",
@@ -5948,7 +5956,7 @@ dependencies = [
 
 [[package]]
 name = "vrcs-desktop"
-version = "0.3.10"
+version = "0.3.11"
 dependencies = [
  "ash",
  "ashpd",

@@ -71,22 +71,17 @@ impl Database {
             }
         }
         let prefix = like_prefix(query);
-        if let Some(entries) = self.lookup_imported(
-            "entries.term LIKE ? ESCAPE '\\' COLLATE NOCASE",
-            &prefix,
-            limit,
-        )? {
+        if let Some(entries) =
+            self.lookup_imported("entries.term LIKE ? ESCAPE '\\'", &prefix, limit)?
+        {
             return Ok(entries);
         }
-        if let Some(entries) = self.lookup_imported(
-            "entries.reading LIKE ? ESCAPE '\\' COLLATE NOCASE",
-            &prefix,
-            limit,
-        )? {
+        if let Some(entries) =
+            self.lookup_imported("entries.reading LIKE ? ESCAPE '\\'", &prefix, limit)?
+        {
             return Ok(entries);
         }
-        let legacy_prefix =
-            self.lookup_legacy("term LIKE ? ESCAPE '\\' COLLATE NOCASE", &prefix, limit)?;
+        let legacy_prefix = self.lookup_legacy("term LIKE ? ESCAPE '\\'", &prefix, limit)?;
         if !legacy_prefix.is_empty() {
             return Ok(legacy_prefix);
         }
@@ -132,7 +127,7 @@ impl Database {
              ORDER BY LENGTH(entries.term) ASC, MAX(entries.score) DESC, MIN(entries.id)
              LIMIT ?"
         );
-        let mut statement = self.conn.prepare(&sql)?;
+        let mut statement = self.conn.prepare_cached(&sql)?;
         let rows = statement.query_map(params![value, limit * 8], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -180,7 +175,7 @@ impl Database {
              ORDER BY LENGTH(term) ASC
              LIMIT ?"
         );
-        let mut statement = self.conn.prepare(&sql)?;
+        let mut statement = self.conn.prepare_cached(&sql)?;
         let rows = statement.query_map(params![value, limit], |row| {
             Ok(DictionaryEntry {
                 term: row.get(0)?,

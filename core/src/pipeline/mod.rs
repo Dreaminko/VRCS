@@ -10,8 +10,8 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::asr::{
-    share_audio, spawn_cloud_recognition_session, spawn_managed_qwen_session, CloudEvent,
-    CloudRecognitionSession, SegmentationMode,
+    share_audio, spawn_cloud_recognition_session_with_context, spawn_managed_qwen_session,
+    CloudEvent, CloudRecognitionSession, SegmentationMode,
 };
 use crate::audio::{AudioCapture, AudioError, CaptureSource};
 use crate::config::{AsrConfig, VadConfig};
@@ -28,48 +28,9 @@ const AUDIO_LEVEL_PUBLISH_INTERVAL: Duration = Duration::from_millis(80);
 const PARTIAL_PUBLISH_INTERVAL: Duration = Duration::from_millis(80);
 const SMART_TURN_TIMEOUT: Duration = Duration::from_secs(1);
 
+pub(crate) use crate::asr::AsrEchoGuard;
 pub(crate) use dependencies::PipelineDependencies;
 use recognition_lifecycle::RecognitionLifecycle;
-
-#[derive(Clone, Default)]
-pub(crate) struct AsrEchoGuard {
-    signatures: Vec<String>,
-}
-
-impl AsrEchoGuard {
-    pub(crate) fn new(signatures: Vec<String>) -> Self {
-        let mut signatures = signatures
-            .into_iter()
-            .map(|text| normalize_echo_text(&text))
-            .filter(|text| !text.is_empty())
-            .collect::<Vec<_>>();
-        signatures.sort_unstable();
-        signatures.dedup();
-        Self { signatures }
-    }
-
-    fn is_echo(&self, text: &str) -> bool {
-        let text = normalize_echo_text(text);
-        !text.is_empty() && self.signatures.iter().any(|signature| signature == &text)
-    }
-
-    fn suppresses_partial(&self, text: &str) -> bool {
-        let text = normalize_echo_text(text);
-        text.contains(':')
-            && self
-                .signatures
-                .iter()
-                .any(|signature| signature.starts_with(&text))
-    }
-}
-
-fn normalize_echo_text(text: &str) -> String {
-    text.split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim_end_matches(['.', '。', '!', '！', '?', '？'])
-        .to_lowercase()
-}
 
 pub struct TranscriptionPipeline {
     source: CaptureSource,
@@ -195,7 +156,12 @@ impl TranscriptionPipeline {
                 None => Err("Managed Qwen ASR runtime is unavailable".into()),
             }
         } else {
-            spawn_cloud_recognition_session(asr_config.clone(), vad_config.silence_seconds).await
+            spawn_cloud_recognition_session_with_context(
+                asr_config.clone(),
+                vad_config.silence_seconds,
+                dependencies.asr_context_source(None),
+            )
+            .await
         };
         let cloud = match session {
             Ok(session) => Some(session),
@@ -206,8 +172,18 @@ impl TranscriptionPipeline {
         };
         let cloud_ms = cloud_started.elapsed().as_millis();
         let vad_started = Instant::now();
-        let detector =
-            VoiceDetector::load_with_runtime(&self.vad_model_path, self.vad_runtime.clone());
+        let vad_model_path = self.vad_model_path.clone();
+        let vad_runtime = self.vad_runtime.clone();
+        let detector = tokio::task::spawn_blocking(move || {
+            VoiceDetector::load_with_runtime(&vad_model_path, vad_runtime)
+        })
+        .await
+        .map_err(|error| {
+            AudioError::with_code(
+                "vad.init_failed",
+                format!("VAD initialization failed: {error}"),
+            )
+        })?;
         let vad_ms = vad_started.elapsed().as_millis();
         let segmenter = if smart_turn.is_some() {
             SpeechSegmenter::smart(
@@ -347,7 +323,7 @@ enum PipelineEvent {
         now: Instant,
     },
     SegmentEnded {
-        segment: Option<Vec<f32>>,
+        has_segment: bool,
         backend: RecognitionBackend,
     },
     CloudCommitted(Option<String>),
@@ -373,6 +349,7 @@ enum PipelineEffect {
         text: String,
         language: Option<String>,
     },
+    CancelEcho(String),
     PublishFailed {
         utterance_id: Option<String>,
         code: String,
@@ -423,16 +400,17 @@ fn reduce_pipeline_event(
                 now,
             },
         ),
-        PipelineEvent::SegmentEnded { segment, backend } => {
+        PipelineEvent::SegmentEnded {
+            has_segment,
+            backend,
+        } => {
             state.streaming = matches!(
                 backend,
                 RecognitionBackend::Cloud(SegmentationMode::Continuous)
             );
-            match (backend, segment) {
-                (RecognitionBackend::Cloud(SegmentationMode::LocalCommit), segment) => {
-                    vec![PipelineEffect::CommitCloud {
-                        has_segment: segment.is_some(),
-                    }]
+            match (backend, has_segment) {
+                (RecognitionBackend::Cloud(SegmentationMode::LocalCommit), has_segment) => {
+                    vec![PipelineEffect::CommitCloud { has_segment }]
                 }
                 (
                     RecognitionBackend::Cloud(
@@ -545,6 +523,12 @@ fn reduce_cloud_event(
                 text,
                 language,
             })
+            .into_iter()
+            .collect(),
+        CloudEvent::EchoFiltered { utterance_id } => state
+            .lifecycle
+            .accept_final(&utterance_id)
+            .then_some(PipelineEffect::CancelEcho(utterance_id))
             .into_iter()
             .collect(),
         CloudEvent::Failed {
@@ -713,6 +697,10 @@ impl PipelineEffectRunner<'_> {
                 )
                 .await?;
             }
+            PipelineEffect::CancelEcho(utterance_id) => {
+                self.dependencies
+                    .cancel_recognition(&utterance_id, self.source, "filtered");
+            }
             PipelineEffect::PublishFailed {
                 utterance_id,
                 code,
@@ -764,7 +752,10 @@ impl PipelineEffectRunner<'_> {
                         RecognitionBackend::Cloud(SegmentationMode::LocalCommit),
                         |session| RecognitionBackend::Cloud(session.segmentation_mode()),
                     );
-                    return Ok(Some(PipelineEvent::SegmentEnded { segment, backend }));
+                    return Ok(Some(PipelineEvent::SegmentEnded {
+                        has_segment: segment.is_some(),
+                        backend,
+                    }));
                 }
                 if let Some((generation, audio)) = self.segmenter.take_candidate() {
                     let runtime = self
@@ -930,7 +921,10 @@ async fn run(
                     RecognitionBackend::Cloud(SegmentationMode::LocalCommit),
                     |session| RecognitionBackend::Cloud(session.segmentation_mode()),
                 );
-                PipelineEvent::SegmentEnded { segment, backend }
+                PipelineEvent::SegmentEnded {
+                    has_segment: segment.is_some(),
+                    backend,
+                }
             }
         };
         let effects = reduce_pipeline_event(&mut state, event, &echo_guard);
@@ -1118,7 +1112,7 @@ mod tests {
         let effects = reduce_pipeline_event(
             &mut state,
             PipelineEvent::SegmentEnded {
-                segment: Some(vec![0.0; 1600]),
+                has_segment: true,
                 backend: RecognitionBackend::Cloud(SegmentationMode::Continuous),
             },
             &AsrEchoGuard::default(),

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { publishHealth } from "./health-store";
 import { runtimeApi } from "./runtime-api";
 import {
   coreStartup,
@@ -17,6 +18,43 @@ export interface CoreHealthController {
   replace: (health: Health | null) => void;
   patch: (update: (current: Health | null) => Health | null) => void;
   refreshQuietly: () => Promise<Health | null>;
+}
+
+function shellHealthKey(health: Health | null): string | null {
+  if (!health) return null;
+  return JSON.stringify({
+    status: health.status,
+    config_schema: health.config_schema,
+    capture_running: health.capture_running,
+    capture_requested: health.capture_requested,
+    microphone_capture_state: health.microphone_capture_state,
+    audio_device: health.audio_device,
+    microphone_device: health.microphone_device,
+    microphone_test_running: health.microphone_test_running,
+    microphone_test_device: health.microphone_test_device,
+    asr_status: health.asr_status,
+    vad_backend: health.vad_backend,
+    vad_model_version: health.vad_model_version,
+    last_error: health.last_error,
+    osc: health.osc,
+    vrchat_mute_sync: health.vrchat_mute_sync,
+    language_session: health.language_session,
+    room_scope_id: health.room_context?.scope_id ?? null,
+    player_audio: health.player_audio
+      ? {
+          phase: health.player_audio.phase,
+          active_players: health.player_audio.active_players,
+          detail: health.player_audio.detail,
+          key_scan: health.player_audio.key_scan ?? null,
+        }
+      : null,
+    vrchat_chatbox: health.vrchat_chatbox
+      ? {
+          phase: health.vrchat_chatbox.phase,
+          detail: health.vrchat_chatbox.detail,
+        }
+      : null,
+  });
 }
 
 export function useCoreRuntime({
@@ -39,28 +77,47 @@ export function useCoreRuntime({
   const [health, setHealth] = useState<Health | null>(null);
   const [capabilities, setCapabilities] = useState<PlatformState>({ core: null, desktop: null });
   const healthRef = useRef<Health | null>(null);
-  healthRef.current = health;
   const capabilitiesUpdatedAtRef = useRef(0);
+  const capabilitiesJsonRef = useRef<string | null>(null);
+  const healthJsonRef = useRef<string | null>(null);
+  const shellHealthJsonRef = useRef<string | null>(null);
+
+  const commitCapabilities = useCallback((next: PlatformState) => {
+    const serialized = JSON.stringify(next);
+    if (serialized === capabilitiesJsonRef.current) return;
+    capabilitiesJsonRef.current = serialized;
+    setCapabilities(next);
+  }, []);
+
+  const commitHealth = useCallback((next: Health | null) => {
+    const serialized = next ? JSON.stringify(next) : null;
+    if (serialized === healthJsonRef.current) return;
+    healthJsonRef.current = serialized;
+    healthRef.current = next;
+    publishHealth(next);
+    const shellKey = shellHealthKey(next);
+    if (shellKey !== shellHealthJsonRef.current) {
+      shellHealthJsonRef.current = shellKey;
+      setHealth(next);
+    }
+  }, []);
 
   const replaceHealth = useCallback((next: Health | null) => {
-    healthRef.current = next;
-    setHealth(next);
-  }, []);
+    commitHealth(next);
+  }, [commitHealth]);
   const patchHealth = useCallback((update: (current: Health | null) => Health | null) => {
-    healthRef.current = update(healthRef.current);
-    setHealth(healthRef.current);
-  }, []);
+    commitHealth(update(healthRef.current));
+  }, [commitHealth]);
   const getCurrentHealth = useCallback(() => healthRef.current, []);
   const refreshHealthQuietly = useCallback(async () => {
     try {
       const next = await runtimeApi.health();
-      healthRef.current = next;
-      setHealth(next);
-      return next;
+      commitHealth(next);
+      return healthRef.current;
     } catch {
       return null;
     }
-  }, []);
+  }, [commitHealth]);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,19 +173,19 @@ export function useCoreRuntime({
           if (cancelled) return;
           capabilitiesUpdatedAtRef.current = Date.now();
           if (next.capture_requested && ["waiting_key", "acquiring_key", "retrying_key"].includes(next.player_audio?.phase ?? "")) interval = 250;
-          setHealth(next);
-          setCapabilities({ core, desktop });
+          commitHealth(next);
+          commitCapabilities({ core, desktop });
         } else {
           const next = await runtimeApi.health();
           if (cancelled) return;
           if (next.capture_requested && ["waiting_key", "acquiring_key", "retrying_key"].includes(next.player_audio?.phase ?? "")) interval = 250;
-          setHealth(next);
+          commitHealth(next);
         }
         clearErrorFrom("core");
       } catch (reason) {
         if (cancelled) return;
         if (healthRef.current === null) reportError(reason, "errors.core.connect", "core");
-        else setHealth(null);
+        else commitHealth(null);
       }
       if (!cancelled) timer = window.setTimeout(() => void poll(), interval);
     };
@@ -137,15 +194,15 @@ export function useCoreRuntime({
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [clearErrorFrom, coreConfigured, reportError]);
+  }, [clearErrorFrom, commitCapabilities, commitHealth, coreConfigured, reportError]);
 
   const retry = useCallback(async () => {
     clearError();
     setCoreConfigured(false);
     setStartupState("starting");
-    setHealth(null);
+    commitHealth(null);
     capabilitiesUpdatedAtRef.current = 0;
-    setCapabilities({ core: null, desktop: null });
+    commitCapabilities({ core: null, desktop: null });
     try {
       await retryCoreStartup();
       setStartupAttempt((attempt) => attempt + 1);
@@ -153,7 +210,7 @@ export function useCoreRuntime({
       setStartupState("failed");
       reportError(reason, "errors.core.initialize", "core");
     }
-  }, [clearError, reportError]);
+  }, [clearError, commitCapabilities, commitHealth, reportError]);
 
   const healthController: CoreHealthController = {
     value: health,

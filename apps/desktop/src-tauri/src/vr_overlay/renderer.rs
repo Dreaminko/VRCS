@@ -41,7 +41,7 @@ pub fn dashboard_placeholder(message: &str) -> Result<Texture, String> {
         let pixels =
             std::slice::from_raw_parts_mut(pixels.cast::<u8>(), (width * height * 4) as usize);
         for pixel in pixels.as_chunks_mut::<4>().0 {
-            pixel.copy_from_slice(&[30, 24, 20, 255]);
+            pixel.copy_from_slice(&[48, 39, 35, 255]);
         }
         let font = CreateFontW(
             -24,
@@ -68,7 +68,7 @@ pub fn dashboard_placeholder(message: &str) -> Result<Texture, String> {
             },
         );
         SetBkMode(dc, TRANSPARENT as i32);
-        SetTextColor(dc, 0x00eeeeee);
+        SetTextColor(dc, 0x00e5e0dc);
         let mut rect = RECT {
             left: 36,
             top: 96,
@@ -112,9 +112,9 @@ pub fn dashboard_placeholder(message: &str) -> Result<Texture, String> {
         .map_err(|error| error.to_string())?;
     {
         let context = cairo::Context::new(&surface).map_err(|error| error.to_string())?;
-        context.set_source_rgba(0.12, 0.10, 0.08, 1.0);
+        context.set_source_rgba(35.0 / 255.0, 39.0 / 255.0, 48.0 / 255.0, 1.0);
         context.paint().map_err(|error| error.to_string())?;
-        context.set_source_rgba(0.93, 0.93, 0.93, 1.0);
+        context.set_source_rgba(220.0 / 255.0, 224.0 / 255.0, 229.0 / 255.0, 1.0);
         context.select_font_face(
             "sans-serif",
             cairo::FontSlant::Normal,

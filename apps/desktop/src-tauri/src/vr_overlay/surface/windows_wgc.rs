@@ -2,8 +2,9 @@
 
 use crate::vr_overlay::frame_receipt::{decode_marker, FrameReceipt};
 use std::{
+    cell::RefCell,
     marker::PhantomData,
-    rc::Rc,
+    rc::{Rc, Weak},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, OnceLock,
@@ -62,8 +63,6 @@ pub struct Captured {
 pub struct Capture {
     pending: Option<Pending>,
     source: Option<Source>,
-    context: ID3D11DeviceContext,
-    device: ID3D11Device,
     marker: ID3D11Texture2D,
     query: ID3D11Query,
     slots: [Option<Slot>; 2],
@@ -72,8 +71,59 @@ pub struct Capture {
     height: u32,
     item: GraphicsCaptureItem,
     counters: Arc<super::metrics::CaptureCounters>,
+    // Shared D3D/WinRT objects drop after all resources that depend on them.
+    device: Rc<CaptureDevice>,
+}
+
+struct CaptureDevice {
+    capture_device: IDirect3DDevice,
+    context: ID3D11DeviceContext,
+    device: ID3D11Device,
+    adapter_index: u32,
     // COM objects must be released before the apartment is uninitialized.
     _apartment: Apartment,
+}
+
+thread_local! {
+    static SHARED_DEVICE: RefCell<Option<Weak<CaptureDevice>>> = const { RefCell::new(None) };
+}
+
+impl CaptureDevice {
+    fn acquire(adapter_index: u32) -> Result<Rc<Self>, CaptureError> {
+        if let Some(shared) =
+            SHARED_DEVICE.with_borrow(|slot| slot.as_ref().and_then(Weak::upgrade))
+        {
+            if shared.adapter_index == adapter_index
+                && unsafe { shared.device.GetDeviceRemovedReason() }.is_ok()
+            {
+                return Ok(shared);
+            }
+        }
+        unsafe { RoInitialize(RO_INIT_MULTITHREADED) }
+            .map_err(|e| failure("Initialize WinRT", e))?;
+        let apartment = Apartment(PhantomData);
+        if !GraphicsCaptureSession::IsSupported().map_err(|e| failure("Check WGC support", e))? {
+            return Err(CaptureError::new(
+                super::recovery::Fault::Unsupported,
+                "Windows Graphics Capture is unavailable",
+            ));
+        }
+        let (device, context) = create_device(adapter_index)?;
+        let dxgi_device: IDXGIDevice = device.cast().map_err(|e| failure("Get DXGI device", e))?;
+        let capture_device: IDirect3DDevice =
+            unsafe { CreateDirect3D11DeviceFromDXGIDevice(&dxgi_device) }
+                .and_then(|value| value.cast())
+                .map_err(|e| failure("Create WinRT D3D11 device", e))?;
+        let shared = Rc::new(Self {
+            capture_device,
+            context,
+            device,
+            adapter_index,
+            _apartment: apartment,
+        });
+        SHARED_DEVICE.with_borrow_mut(|slot| *slot = Some(Rc::downgrade(&shared)));
+        Ok(shared)
+    }
 }
 
 struct Apartment(PhantomData<Rc<()>>);
@@ -88,6 +138,8 @@ struct Slot {
     texture: ID3D11Texture2D,
     // A legacy DXGI shared handle belongs to its texture, not CloseHandle.
     handle: usize,
+    width: u32,
+    height: u32,
 }
 
 struct Pending {
@@ -148,24 +200,14 @@ impl Capture {
         if width < MARKER_WIDTH || height == 0 || width > 16384 || capture_height > 16384 {
             return Err("Invalid WebView capture handle or dimensions".into());
         }
-        unsafe { RoInitialize(RO_INIT_MULTITHREADED) }
-            .map_err(|e| failure("Initialize WinRT", e))?;
-        let apartment = Apartment(PhantomData);
-        if !GraphicsCaptureSession::IsSupported().map_err(|e| failure("Check WGC support", e))? {
-            return Err(CaptureError::new(
-                super::recovery::Fault::Unsupported,
-                "Windows Graphics Capture is unavailable",
-            ));
-        }
-
-        let (device, context) = create_device(adapter_index)?;
+        let device = CaptureDevice::acquire(adapter_index)?;
         let mut marker_desc = texture_desc(MARKER_WIDTH, 2);
         marker_desc.Usage = D3D11_USAGE_STAGING;
         marker_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
-        let marker = create_texture(&device, &marker_desc)?;
+        let marker = create_texture(&device.device, &marker_desc)?;
         let mut query = None;
         unsafe {
-            device.CreateQuery(
+            device.device.CreateQuery(
                 &D3D11_QUERY_DESC {
                     Query: D3D11_QUERY_EVENT,
                     MiscFlags: 0,
@@ -175,12 +217,16 @@ impl Capture {
         }
         .map_err(|e| failure("Create capture completion query", e))?;
         let query = query.ok_or("D3D11 returned no capture query")?;
-        let source = Source::new(&device, item, width, capture_height, &counters)?;
+        let source = Source::new(
+            &device.capture_device,
+            item,
+            width,
+            capture_height,
+            &counters,
+        )?;
         Ok(Self {
             pending: None,
             source: Some(source),
-            context,
-            device,
             marker,
             query,
             slots: [None, None],
@@ -189,7 +235,7 @@ impl Capture {
             height,
             item: item.clone(),
             counters,
-            _apartment: apartment,
+            device,
         })
     }
 
@@ -206,7 +252,7 @@ impl Capture {
     pub(super) fn resume(&mut self) -> Result<(), CaptureError> {
         if self.source.is_none() {
             self.source = Some(Source::new(
-                &self.device,
+                &self.device.capture_device,
                 &self.item,
                 self.width,
                 self.height + MARKER_HEIGHT,
@@ -227,7 +273,7 @@ impl Capture {
 
     /// Completes a pending copy without waiting or starting another one.
     pub(super) fn poll(&mut self) -> Result<Option<Captured>, CaptureError> {
-        unsafe { self.device.GetDeviceRemovedReason() }
+        unsafe { self.device.device.GetDeviceRemovedReason() }
             .map_err(|e| failure("Capture device lost", e))?;
         let Some(source) = &self.source else {
             return Ok(None);
@@ -269,15 +315,12 @@ impl Capture {
             return Err("Invalid capture crop".into());
         }
         let slot = &mut self.slots[self.next_slot];
-        if slot.as_ref().is_none_or(|slot| {
-            let mut desc = D3D11_TEXTURE2D_DESC::default();
-            unsafe {
-                slot.texture.GetDesc(&mut desc);
-            }
-            desc.Width != r - l || desc.Height != b - t
-        }) {
+        if slot
+            .as_ref()
+            .is_none_or(|slot| slot.width != r - l || slot.height != b - t)
+        {
             // Only next_slot may be resized; OpenVR still owns the other output.
-            *slot = Some(create_slot(&self.device, r - l, b - t)?);
+            *slot = Some(create_slot(&self.device.device, r - l, b - t)?);
         }
         let size = frame
             .0
@@ -302,7 +345,7 @@ impl Capture {
             back: 1,
         };
         unsafe {
-            self.context.CopySubresourceRegion(
+            self.device.context.CopySubresourceRegion(
                 &self.slots[self.next_slot].as_ref().unwrap().texture,
                 0,
                 0,
@@ -321,7 +364,7 @@ impl Capture {
                     bottom: self.height + 5 + row * 8,
                     back: 1,
                 };
-                self.context.CopySubresourceRegion(
+                self.device.context.CopySubresourceRegion(
                     &self.marker,
                     0,
                     0,
@@ -332,8 +375,8 @@ impl Capture {
                     Some(&marker),
                 );
             }
-            self.context.End(&self.query);
-            self.context.Flush();
+            self.device.context.End(&self.query);
+            self.device.context.Flush();
         }
         super::metrics::CaptureCounters::increment(&self.counters.copies, 1);
         super::metrics::CaptureCounters::increment(
@@ -368,7 +411,7 @@ impl Capture {
     fn completed(&self, flags: u32) -> Result<bool, CaptureError> {
         let mut ready = BOOL(0);
         unsafe {
-            self.context.GetData(
+            self.device.context.GetData(
                 &self.query,
                 Some((&mut ready as *mut BOOL).cast()),
                 std::mem::size_of::<BOOL>() as u32,
@@ -385,7 +428,7 @@ impl Capture {
         }
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         match unsafe {
-            self.context.Map(
+            self.device.context.Map(
                 &self.marker,
                 0,
                 D3D11_MAP_READ,
@@ -410,7 +453,7 @@ impl Capture {
             decode_marker(rows, mapped.RowPitch as usize)
         };
         unsafe {
-            self.context.Unmap(&self.marker, 0);
+            self.device.context.Unmap(&self.marker, 0);
         }
         let pending = self
             .pending
@@ -461,13 +504,14 @@ impl Capture {
         let mut desc = texture_desc(width, height);
         desc.Usage = D3D11_USAGE_STAGING;
         desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
-        let staging = create_texture(&self.device, &desc)?;
+        let staging = create_texture(&self.device.device, &desc)?;
         unsafe {
-            self.context.CopyResource(&staging, &slot.texture);
+            self.device.context.CopyResource(&staging, &slot.texture);
         }
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         unsafe {
-            self.context
+            self.device
+                .context
                 .Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
         }
         .map_err(|e| failure("Read smoke test texture", e))?;
@@ -482,7 +526,7 @@ impl Capture {
             pixels.extend_from_slice(row);
         }
         unsafe {
-            self.context.Unmap(&staging, 0);
+            self.device.context.Unmap(&staging, 0);
         }
         Ok(pixels)
     }
@@ -490,23 +534,18 @@ impl Capture {
 
 impl Source {
     fn new(
-        device: &ID3D11Device,
+        capture_device: &IDirect3DDevice,
         item: &GraphicsCaptureItem,
         width: u32,
         capture_height: u32,
         counters: &Arc<super::metrics::CaptureCounters>,
     ) -> Result<Self, CaptureError> {
-        let dxgi_device: IDXGIDevice = device.cast().map_err(|e| failure("Get DXGI device", e))?;
-        let capture_device: IDirect3DDevice =
-            unsafe { CreateDirect3D11DeviceFromDXGIDevice(&dxgi_device) }
-                .and_then(|value| value.cast())
-                .map_err(|e| failure("Create WinRT D3D11 device", e))?;
         let size = item.Size().map_err(|e| failure("Read WGC item size", e))?;
         check_size(size, width, capture_height)?;
         let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
-            &capture_device,
+            capture_device,
             DirectXPixelFormat::B8G8R8A8UIntNormalized,
-            3,
+            2,
             size,
         )
         .map_err(|e| failure("Create WGC frame pool", e))?;
@@ -609,8 +648,7 @@ impl Drop for Capture {
         self.source.take();
         self.pending.take();
         unsafe {
-            self.context.ClearState();
-            self.context.Flush();
+            self.device.context.Flush();
         }
     }
 }
@@ -683,6 +721,8 @@ fn create_slot(device: &ID3D11Device, width: u32, height: u32) -> Result<Slot, C
     Ok(Slot {
         texture,
         handle: handle.0 as usize,
+        width,
+        height,
     })
 }
 

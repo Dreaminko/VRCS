@@ -77,6 +77,7 @@ pub struct OcrInput {
     clear_hold: HoldAction,
     #[cfg(windows)]
     hands: [u64; 2],
+    hand_sources: [Option<u64>; 2],
     grips: [u64; 2],
     scrolls: [u64; 2],
     #[cfg(windows)]
@@ -187,18 +188,22 @@ fn write_if_changed(path: &Path, value: &serde_json::Value) -> Result<(), String
     Ok(())
 }
 
+fn query_hand_source(api: &openvr_sys::VR_IVRInput_FnTable, right: bool) -> Option<u64> {
+    let path = if right {
+        c"/user/hand/right"
+    } else {
+        c"/user/hand/left"
+    };
+    let mut source = 0;
+    let error = unsafe { api.GetInputSourceHandle?(path.as_ptr().cast_mut(), &mut source) };
+    (error == 0 && source != 0).then_some(source)
+}
+
 impl OcrInput {
     /// Resolve the physical hand source for pointer pose components.
     pub fn pointer_source(&self, right: bool) -> Option<u64> {
-        let api = unsafe { &*self.table };
-        let path = if right {
-            c"/user/hand/right"
-        } else {
-            c"/user/hand/left"
-        };
-        let mut source = 0;
-        let error = unsafe { api.GetInputSourceHandle?(path.as_ptr().cast_mut(), &mut source) };
-        (error == 0 && source != 0).then_some(source)
+        self.hand_sources[usize::from(right)]
+            .or_else(|| query_hand_source(unsafe { &*self.table }, right))
     }
 
     /// Read controller actions without requesting global input focus.
@@ -260,7 +265,10 @@ impl OcrInput {
                     .or_else(|| scroll.as_ref().map(|data| data.activeOrigin))?;
                 let tracked_device = device(origin)?;
                 let scroll_y = scroll
-                    .filter(|data| device(data.activeOrigin) == Some(tracked_device))
+                    .filter(|data| {
+                        data.activeOrigin == origin
+                            || device(data.activeOrigin) == Some(tracked_device)
+                    })
                     .map(|data| data.y.signum() * ((data.y.abs().min(1.0) - 0.2) / 0.8).max(0.0))
                     .unwrap_or(0.0);
                 Some(UiInput {
@@ -357,6 +365,7 @@ impl OcrInput {
                 action("/actions/ocr/in/left_hand").unwrap_or(0),
                 action("/actions/ocr/in/right_hand").unwrap_or(0),
             ],
+            hand_sources: [query_hand_source(api, false), query_hand_source(api, true)],
             grips: [
                 action("/actions/ocr/in/left_grip").unwrap_or(0),
                 action("/actions/ocr/in/right_grip").unwrap_or(0),
@@ -524,36 +533,38 @@ impl OcrInput {
                 dragging: frame.is_some(),
             }
         });
-        let controllers = tracking.and_then(|(head, tracking_origin)| {
-            let poses = [
-                read_controller(api, self.poses[0], head, tracking_origin).ok()?,
-                read_controller(api, self.poses[1], head, tracking_origin).ok()?,
-            ];
-            if poses[0].0 == poses[1].0
-                || grips
+        let controllers = tracking
+            .filter(|_| {
+                grips
                     .iter()
-                    .any(|grip| !grip.bActive || grip.activeOrigin == 0)
-            {
-                return None;
-            }
-            let mut hasher = DefaultHasher::new();
-            (
-                poses[0].0,
-                poses[1].0,
-                grips[0].activeOrigin,
-                grips[1].activeOrigin,
-            )
-                .hash(&mut hasher);
-            let pressed = grips.iter().all(|grip| grip.bState);
-            Some(FrameTracking {
-                origin: hasher.finish(),
-                corners: FrameCorners {
-                    corners: [poses[0].1, poses[1].1],
-                },
-                activating: pressed,
-                dragging: pressed,
+                    .all(|grip| grip.bActive && grip.activeOrigin != 0)
             })
-        });
+            .and_then(|(head, tracking_origin)| {
+                let poses = [
+                    read_controller(api, self.poses[0], head, tracking_origin).ok()?,
+                    read_controller(api, self.poses[1], head, tracking_origin).ok()?,
+                ];
+                if poses[0].0 == poses[1].0 {
+                    return None;
+                }
+                let mut hasher = DefaultHasher::new();
+                (
+                    poses[0].0,
+                    poses[1].0,
+                    grips[0].activeOrigin,
+                    grips[1].activeOrigin,
+                )
+                    .hash(&mut hasher);
+                let pressed = grips.iter().all(|grip| grip.bState);
+                Some(FrameTracking {
+                    origin: hasher.finish(),
+                    corners: FrameCorners {
+                        corners: [poses[0].1, poses[1].1],
+                    },
+                    activating: pressed,
+                    dragging: pressed,
+                })
+            });
         let available = scan.bActive && clear.bActive;
         // Arm confirmation only after a frame was active in a previous poll.
         // Keep raw left-trigger releases available after the recording frame is frozen.
@@ -932,6 +943,7 @@ mod tests {
             cancel_trigger: TriggerEdge::default(),
             reading: [0; 4],
             hands: [72, 73],
+            hand_sources: [None; 2],
             grips: [3, 4],
             scrolls: [7, 8],
             poses: [5, 6],

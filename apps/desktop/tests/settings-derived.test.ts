@@ -20,7 +20,7 @@ import { targetLanguageCodes } from "../src/settings/translation/language-settin
 import type { Settings } from "../src/settings/types.ts";
 
 const settings: Settings = {
-  schema_version: 45,
+  schema_version: 46,
   model_defaults: {
     text: { profile_id: null, model: "" },
     translation: { profile_id: null, model: "" },
@@ -28,6 +28,11 @@ const settings: Settings = {
   },
   learning_ai: { profile_id: null, model: "", use_default_model: true, thinking_enabled: false },
   vrchat_chatbox: { enabled: false },
+  vrchat_context: {
+    include_in_asr_context: false,
+    include_in_translation_context: false,
+    include_world_name: true,
+  },
   conversation_titles: { auto_generate: false, profile_id: null, model: "", output_language: "auto" },
   features: { ...DEFAULT_FEATURE_SETTINGS },
   server: { host: "127.0.0.1", port: 8766 },

@@ -25,8 +25,10 @@ function updateSubtitle(
 ): Subtitle[] {
   const index = subtitles.findIndex((subtitle) => subtitle.id === subtitleId);
   if (index < 0) return subtitles;
+  const updated = update(subtitles[index]);
+  if (updated === subtitles[index]) return subtitles;
   const next = [...subtitles];
-  next[index] = update(subtitles[index]);
+  next[index] = updated;
   return next;
 }
 

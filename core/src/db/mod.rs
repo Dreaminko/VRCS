@@ -1,6 +1,7 @@
 //! SQLite 存储：连接与 schema 初始化。
 //! 字幕历史和词典仓储实现分别位于同名子模块中。
 
+use std::cell::Cell;
 use std::path::Path;
 
 use rusqlite::{params, Connection};
@@ -24,7 +25,7 @@ const SEED_ENTRIES: [(&str, &str, &str); 4] = [
     ("ありがとう", "ja", "谢谢"),
 ];
 
-const LATEST_SCHEMA_VERSION: u32 = 9;
+const LATEST_SCHEMA_VERSION: u32 = 11;
 
 const MIGRATION_1_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS subtitles (
@@ -132,6 +133,8 @@ CREATE INDEX IF NOT EXISTS learning_capture_keys_item_id_idx
 pub struct Database {
     conn: Connection,
     subtitle_history_max_bytes: u64,
+    cached_subtitle_bytes: Cell<Option<u64>>,
+    pending_subtitle_bytes: Cell<u64>,
 }
 
 impl Database {
@@ -139,7 +142,7 @@ impl Database {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(unix)]
         if path != Path::new(":memory:") {
             use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
             let file = std::fs::OpenOptions::new()
@@ -150,12 +153,27 @@ impl Database {
                 .mode(0o600)
                 .open(path)?;
             file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            tighten_wal_sidecar_permissions(path)?;
         }
         let conn = Connection::open(path)?;
-        conn.pragma_update(None, "foreign_keys", "ON")?;
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;
+             PRAGMA temp_store = MEMORY;
+             PRAGMA cache_size = -32000;
+             PRAGMA mmap_size = 268435456;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+        #[cfg(unix)]
+        if path != Path::new(":memory:") {
+            tighten_wal_sidecar_permissions(path)?;
+        }
         let mut database = Self {
             conn,
             subtitle_history_max_bytes: u64::MAX,
+            cached_subtitle_bytes: Cell::new(None),
+            pending_subtitle_bytes: Cell::new(0),
         };
         database.initialize()?;
         database.remove_staged_dictionary_sources()?;
@@ -246,6 +264,48 @@ impl Database {
             transaction.commit()?;
         }
 
+        if version < 10 {
+            let transaction = self.conn.transaction()?;
+            ensure_column(&transaction, "subtitles", "context_scope_id", "TEXT")?;
+            ensure_column(&transaction, "subtitles", "context_sequence", "INTEGER")?;
+            ensure_column(&transaction, "chatbox_messages", "context_scope_id", "TEXT")?;
+            ensure_column(
+                &transaction,
+                "chatbox_messages",
+                "context_sequence",
+                "INTEGER",
+            )?;
+            transaction.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_subtitles_context_scope
+                     ON subtitles(context_scope_id, id DESC);
+                 CREATE INDEX IF NOT EXISTS idx_chatbox_context_scope
+                     ON chatbox_messages(context_scope_id, id DESC);",
+            )?;
+            transaction.pragma_update(None, "user_version", 10)?;
+            transaction.commit()?;
+        }
+
+        let initial_version = version;
+        if version < 11 {
+            let transaction = self.conn.transaction()?;
+            transaction.execute_batch(
+                "CREATE INDEX IF NOT EXISTS dictionary_entries_source_id_idx
+                     ON dictionary_entries(source_id);
+                 CREATE INDEX IF NOT EXISTS idx_subtitles_created_at
+                     ON subtitles(created_at DESC, id DESC);
+                 CREATE INDEX IF NOT EXISTS idx_subtitles_context_scope_created
+                     ON subtitles(context_scope_id, created_at DESC, id DESC);
+                 CREATE INDEX IF NOT EXISTS idx_chatbox_created_at
+                     ON chatbox_messages(created_at DESC, id DESC);
+                 CREATE INDEX IF NOT EXISTS idx_chatbox_context_scope_created
+                     ON chatbox_messages(context_scope_id, created_at DESC, id DESC);
+                 CREATE INDEX IF NOT EXISTS idx_subtitles_speaker_id
+                     ON subtitles(json_extract(speaker, '$.id')) WHERE speaker IS NOT NULL;",
+            )?;
+            transaction.pragma_update(None, "user_version", 11)?;
+            transaction.commit()?;
+        }
+
         self.conn.execute(
             "UPDATE conversations SET title_generation_status = 'failed',
                  title_generation_error_code = 'conversations.title_interrupted',
@@ -253,15 +313,19 @@ impl Database {
              WHERE title_generation_status IN ('pending', 'running')",
             [],
         )?;
-        self.initialize_learning_storage()?;
+        if initial_version < 11 {
+            self.initialize_learning_storage()?;
+        }
         self.initialize_subtitle_search()?;
         conversations::initialize_conversations(&self.conn)?;
+        let seed_tx = self.conn.transaction()?;
         for (term, language, definition) in SEED_ENTRIES {
-            self.conn.execute(
+            seed_tx.execute(
                 "INSERT OR IGNORE INTO dictionary(term, language, definition) VALUES (?, ?, ?)",
                 params![term, language, definition],
             )?;
         }
+        seed_tx.commit()?;
         Ok(())
     }
 
@@ -385,6 +449,41 @@ impl Database {
         transaction.commit()?;
         Ok(())
     }
+}
+
+fn ensure_column(
+    transaction: &rusqlite::Transaction<'_>,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> AppResult<()> {
+    let exists = transaction
+        .prepare(&format!("PRAGMA table_info({table})"))?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .any(|name| name.as_deref() == Ok(column));
+    if !exists {
+        transaction.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn tighten_wal_sidecar_permissions(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    for suffix in ["-wal", "-shm"] {
+        let mut sidecar = path.as_os_str().to_os_string();
+        sidecar.push(suffix);
+        match std::fs::set_permissions(Path::new(&sidecar), std::fs::Permissions::from_mode(0o600))
+        {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

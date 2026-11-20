@@ -4,6 +4,15 @@ import type { ControlAction } from "./protocol";
 type SettingsAction = ControlAction | { set_anchor_mode: "wrist" | "world" }
   | { set_dialogue_placement: { mode: "wrist" | "world"; follow_view: boolean } };
 
+export function photoGestureControlState(settings: Settings | null): { hidden: boolean; available: boolean } {
+  const visionFeature = Boolean(settings?.features.ocr || settings?.features.visual_question_answering);
+  const available = Boolean(
+    (settings?.features.ocr && settings.ocr?.master_enabled)
+    || (settings?.features.visual_question_answering && settings.vision?.enabled),
+  );
+  return { hidden: !visionFeature, available };
+}
+
 export function applyControlAction(settings: Settings, action: SettingsAction): Settings {
   if ("set_capture_running" in action) return settings;
   if ("set_ocr_gesture_enabled" in action) {

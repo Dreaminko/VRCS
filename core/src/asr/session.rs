@@ -114,18 +114,35 @@ pub fn validate_cloud_connection(config: &AsrConfig) -> Result<(), String> {
     }
 }
 
+#[allow(dead_code)]
 pub async fn spawn_cloud_recognition_session(
     config: AsrConfig,
     silence_seconds: f64,
 ) -> Result<CloudRecognitionSession, String> {
-    let (profile, service) = active_profile_service(&config)?;
+    spawn_cloud_recognition_session_with_context(config, silence_seconds, None).await
+}
+
+pub(crate) async fn spawn_cloud_recognition_session_with_context(
+    config: AsrConfig,
+    silence_seconds: f64,
+    context_source: Option<super::runtime_context::AsrContextSource>,
+) -> Result<CloudRecognitionSession, String> {
+    let (_profile, service) = active_profile_service(&config)?;
     match service.recognition_transport {
         Some(RecognitionTransport::RealtimeStream) => {
-            streaming::spawn_streaming_session(config, silence_seconds)
+            streaming::spawn_streaming_session_with_context(config, silence_seconds, context_source)
                 .await
                 .map(CloudRecognitionSession::Realtime)
         }
         Some(RecognitionTransport::SegmentedUpload) => {
+            let prepared = context_source
+                .as_ref()
+                .map(|source| source.prepare(&config));
+            let active_config = prepared
+                .as_ref()
+                .map(|prepared| &prepared.asr_config)
+                .unwrap_or(&config);
+            let (profile, service) = active_profile_service(active_config)?;
             if !matches!(
                 service.adapter,
                 ServiceAdapter::OpenAiAudioTranscriptions | ServiceAdapter::MimoTranscription
@@ -137,12 +154,20 @@ pub async fn spawn_cloud_recognition_session(
             }
             let profile = profile.clone();
             let key = credential_async(&profile).await?;
-            let settings = service_settings(&config, service.id)?.clone();
+            let settings = service_settings(active_config, service.id)?.clone();
             if settings.model.trim().is_empty() {
                 return Err(format!("A model is required for service {}", service.id));
             }
+            let language = active_config.language.clone();
             Ok(CloudRecognitionSession::Segmented(
-                SegmentedUploadSession::spawn(profile, key, settings, config.language),
+                SegmentedUploadSession::spawn_with_context(
+                    profile,
+                    key,
+                    settings,
+                    language,
+                    config,
+                    context_source,
+                ),
             ))
         }
         None => Err(format!(

@@ -83,11 +83,10 @@ test("every release manifest must agree on the version", (t) => {
 });
 
 const linux = process.platform === "linux";
-test("all published architectures aggregate without dropping Windows or its CUDA alias", { skip: !linux }, (t) => {
+test("all published architectures aggregate cleanly with Windows and Linux standard targets", { skip: !linux }, (t) => {
   const root = complete(t);
   const latest = JSON.parse(readFileSync(aggregateRelease({ root, version, publicKey: encodedKey }), "utf8"));
-  assert.deepEqual(Object.keys(latest.platforms).sort(), ["windows-x86_64-standard", "windows-x86_64-cuda", "linux-x86_64-standard"].sort());
-  assert.deepEqual(latest.platforms["windows-x86_64-cuda"], latest.platforms["windows-x86_64-standard"]);
+  assert.deepEqual(Object.keys(latest.platforms).sort(), ["windows-x86_64-standard", "linux-x86_64-standard"].sort());
   for (const arch of ["x86_64"]) assert.ok(latest.platforms[`linux-${arch}-standard`].url.endsWith(`linux-${arch}.AppImage`));
 });
 test("missing architecture never produces partial latest.json", { skip: !linux }, (t) => {

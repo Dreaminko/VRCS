@@ -1,6 +1,6 @@
 [package]
 name = "vrcs-desktop"
-version = "0.3.10"
+version = "0.3.11"
 description = "VRCS desktop subtitle client"
 authors = ["VRCS contributors"]
 license = "AGPL-3.0-only"
@@ -111,16 +111,3 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
     "Wdk_System_SystemServices",
 ] }
-
-# Match ONNX Runtime's C++ runtime while retaining application debug builds.
-[profile.dev.package.openvr_sys]
-opt-level = 1
-
-[profile.dev.package.player-audio-scan]
-opt-level = 3
-
-[profile.dev.package.memchr]
-opt-level = 3
-
-[profile.dev.package.ring]
-opt-level = 3

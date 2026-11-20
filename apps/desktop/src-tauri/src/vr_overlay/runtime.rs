@@ -20,15 +20,17 @@ use super::control_protocol::{ControlAction, ControlSource};
 use super::dashboard::DashboardPointerEvent;
 use super::dashboard::{DashboardState, DashboardViewModel};
 use super::placement::{Mode, Placement};
-use super::presentation::{
-    HeadsetPresentation, PresentationContent, PresentationFrame, WristPresentation,
-};
+#[cfg(any(windows, linux_vr, test))]
+use super::presentation::PresentationFrame;
+use super::presentation::{HeadsetPresentation, WristPresentation};
 #[cfg(any(windows, linux_vr))]
-use super::presentation::{MessageSide, WristMessage};
+use super::presentation::{MessageSide, PresentationContent, WristMessage};
 use super::process::{steamvr_pid, SteamVrSession};
 
 pub const STATUS_EVENT: &str = "vr-overlay-status-changed";
 const UPDATE_INTERVAL: Duration = Duration::from_millis(50);
+const IDLE_WAITING_INTERVAL: Duration = Duration::from_millis(250);
+const IDLE_DISABLED_INTERVAL: Duration = Duration::from_millis(500);
 pub(super) const SURFACE_FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_700);
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(2);
 const EVENT_QUEUE_CAPACITY: usize = 256;
@@ -228,6 +230,8 @@ pub struct Manager {
     latest_config: Arc<Mutex<Option<(VrOverlayConfig, VrOcrConfig)>>>,
     latest_dashboard: Arc<Mutex<Option<Arc<DashboardViewModel>>>>,
     stopping: Arc<AtomicBool>,
+    wakeup: Arc<AtomicBool>,
+    worker_thread: Arc<Mutex<Option<std::thread::Thread>>>,
     worker: Mutex<Option<JoinHandle<()>>>,
     bridges: Mutex<Vec<tauri::async_runtime::JoinHandle<()>>>,
 }
@@ -256,9 +260,15 @@ impl Manager {
             latest_config: Arc::new(Mutex::new(None)),
             latest_dashboard: Arc::new(Mutex::new(None)),
             stopping: Arc::new(AtomicBool::new(false)),
+            wakeup: Arc::new(AtomicBool::new(false)),
+            worker_thread: Arc::new(Mutex::new(None)),
             worker: Mutex::new(None),
             bridges: Mutex::new(Vec::new()),
         }
+    }
+
+    fn wake_worker(&self) {
+        wake_worker_thread(&self.wakeup, &self.worker_thread);
     }
 
     pub fn status(&self) -> Result<VrOverlayStatus, String> {
@@ -310,6 +320,8 @@ impl Manager {
         let controls = self.controls.clone();
         let placement = self.placement.clone();
         let stopping = self.stopping.clone();
+        let wakeup = self.wakeup.clone();
+        self.wakeup.store(false, Ordering::Release);
         let worker = std::thread::Builder::new()
             .name("vrcs-vr-overlay".into())
             .spawn(move || {
@@ -323,6 +335,7 @@ impl Manager {
                     controls,
                     placement,
                     stopping,
+                    wakeup,
                     initial_config,
                     features,
                     ocr_service,
@@ -330,6 +343,10 @@ impl Manager {
                 )
             })
             .map_err(|error| format!("Failed to start VR Overlay thread: {error}"))?;
+        *self
+            .worker_thread
+            .lock()
+            .map_err(|error| error.to_string())? = Some(worker.thread().clone());
         *self
             .event_sender
             .lock()
@@ -366,11 +383,16 @@ impl Manager {
             }
         });
         let latest_config = self.latest_config.clone();
+        let wakeup = self.wakeup.clone();
+        let worker_thread = self.worker_thread.clone();
         let config_bridge = tauri::async_runtime::spawn(async move {
             while config.changed().await.is_ok() {
                 let next = config.borrow().clone();
                 match latest_config.lock() {
-                    Ok(mut pending) => *pending = Some(next),
+                    Ok(mut pending) => {
+                        *pending = Some(next);
+                        wake_worker_thread(&wakeup, &worker_thread);
+                    }
                     Err(error) => {
                         tracing::warn!(%error, "VR Overlay config lock poisoned");
                         break;
@@ -405,6 +427,7 @@ impl Manager {
             }
         }
         self.stopping.store(true, Ordering::Release);
+        self.wake_worker();
         if let Ok(mut sender) = self.event_sender.lock() {
             sender.take();
         }
@@ -437,6 +460,9 @@ impl Manager {
                 Err(error) => tracing::warn!(%error, "VR Overlay join thread failed"),
             }
         }
+        if let Ok(mut thread) = self.worker_thread.lock() {
+            thread.take();
+        }
     }
 
     fn update_control(&self, update: impl FnOnce(&mut PendingControl)) -> Result<(), String> {
@@ -452,8 +478,57 @@ impl Manager {
             .lock()
             .map_err(|error| error.to_string())?;
         update(&mut control);
+        drop(control);
+        drop(sender);
+        self.wake_worker();
         Ok(())
     }
+}
+
+fn wake_worker_thread(wakeup: &AtomicBool, worker_thread: &Mutex<Option<std::thread::Thread>>) {
+    wakeup.store(true, Ordering::Release);
+    if let Ok(guard) = worker_thread.lock() {
+        if let Some(thread) = guard.as_ref() {
+            thread.unpark();
+        }
+    }
+}
+
+#[cfg(any(windows, linux_vr))]
+struct HeadsetPublishCache {
+    headset_revision: u64,
+    config_revision: u64,
+    dashboard_revision: u64,
+    sample: bool,
+    dark: bool,
+    draft: Option<String>,
+    notice: Option<String>,
+    frame_opacity: Option<f32>,
+    next_change: Option<Instant>,
+}
+
+#[cfg(any(windows, linux_vr))]
+struct DialoguePublishCache {
+    wrist_revision: u64,
+    config_revision: u64,
+    dashboard_revision: u64,
+    controls_version: u64,
+    sample: bool,
+    notice: Option<String>,
+    mode: Mode,
+    follow_view: bool,
+    busy: bool,
+    error: Option<String>,
+    idle_expires_at: Option<Instant>,
+    has_frame: bool,
+}
+
+#[cfg(any(windows, linux_vr))]
+struct DashboardRepeat {
+    region: u8,
+    command: super::dashboard::DashboardCommand,
+    next_at: Instant,
+    repeated: bool,
 }
 
 struct WorkerState {
@@ -476,6 +551,14 @@ struct WorkerState {
     wrist_sample: bool,
     #[cfg(any(windows, linux_vr))]
     headset_surface: super::surface::SurfaceRenderer,
+    #[cfg(any(windows, linux_vr))]
+    config_revision: u64,
+    #[cfg(any(windows, linux_vr))]
+    dashboard_caption_revision: u64,
+    #[cfg(any(windows, linux_vr))]
+    headset_cache: Option<HeadsetPublishCache>,
+    #[cfg(any(windows, linux_vr))]
+    dialogue_cache: Option<DialoguePublishCache>,
     backend: Option<Backend>,
     session: SteamVrSession,
     dashboard_view: Option<Arc<DashboardViewModel>>,
@@ -484,11 +567,15 @@ struct WorkerState {
     dashboard_surface: super::surface::SurfaceRenderer,
     #[cfg(any(windows, linux_vr))]
     dashboard_pressed_key: Option<super::surface_protocol::SurfaceKey>,
+    #[cfg(any(windows, linux_vr))]
+    dashboard_repeat: Option<DashboardRepeat>,
     dashboard_retry_at: Option<Instant>,
     #[cfg(linux_vr)]
     ocr_manifest: Option<std::path::PathBuf>,
     next_reconnect: Instant,
     next_probe: Instant,
+    #[cfg(any(windows, linux_vr))]
+    surfaces_dormant: bool,
     #[cfg(windows)]
     ocr: super::ocr_runtime::OcrRuntime,
 }
@@ -499,6 +586,7 @@ impl WorkerState {
         self.ui.reset();
         #[cfg(any(windows, linux_vr))]
         self.player_audio.reset();
+        self.dialogue_cache = None;
     }
 
     fn reset_dashboard(&mut self) {
@@ -506,6 +594,7 @@ impl WorkerState {
         {
             self.dashboard_surface.reset();
             self.dashboard_pressed_key = None;
+            self.dashboard_repeat = None;
         }
         self.dashboard.clear_pointer();
         self.dashboard_retry_at = None;
@@ -513,7 +602,10 @@ impl WorkerState {
 
     fn reset_headset(&mut self) {
         #[cfg(any(windows, linux_vr))]
-        self.headset_surface.reset();
+        {
+            self.headset_surface.reset();
+            self.headset_cache = None;
+        }
     }
 }
 
@@ -529,6 +621,7 @@ fn worker_loop(
     controls: Arc<Mutex<ControlHub>>,
     placement: Arc<Mutex<Placement>>,
     stopping: Arc<AtomicBool>,
+    wakeup: Arc<AtomicBool>,
     config: (VrOverlayConfig, VrOcrConfig),
     features: watch::Receiver<vrcs_core::FeatureConfig>,
     ocr_service: Option<vrcs_core::ocr::VrOcrService>,
@@ -551,6 +644,11 @@ fn worker_loop(
         ocr
     };
     let (config, ocr_config) = config;
+    let (mut headset, mut wrist) = (HeadsetPresentation::default(), WristPresentation::default());
+    // Send uncapped candidates: the WebViews share the desktop visibility
+    // policy and apply player/history limits after filtering original text.
+    headset.set_player_limit(Some(0));
+    wrist.set_player_limit(Some(0));
     let mut state = WorkerState {
         caption_status: Default::default(),
         controls,
@@ -565,14 +663,22 @@ fn worker_loop(
         config,
         ocr_config,
         selected_backend: None,
-        headset: HeadsetPresentation::default(),
-        wrist: WristPresentation::default(),
+        headset,
+        wrist,
         headset_sample: false,
         wrist_sample: false,
         #[cfg(any(windows, linux_vr))]
         headset_surface: super::surface::SurfaceRenderer::new(
             super::surface_protocol::SurfaceId::Headset,
         ),
+        #[cfg(any(windows, linux_vr))]
+        config_revision: 0,
+        #[cfg(any(windows, linux_vr))]
+        dashboard_caption_revision: 0,
+        #[cfg(any(windows, linux_vr))]
+        headset_cache: None,
+        #[cfg(any(windows, linux_vr))]
+        dialogue_cache: None,
         backend: None,
         session: SteamVrSession::default(),
         dashboard_view: None,
@@ -583,11 +689,15 @@ fn worker_loop(
         ),
         #[cfg(any(windows, linux_vr))]
         dashboard_pressed_key: None,
+        #[cfg(any(windows, linux_vr))]
+        dashboard_repeat: None,
         dashboard_retry_at: None,
         #[cfg(linux_vr)]
         ocr_manifest: None,
         next_reconnect: Instant::now(),
         next_probe: Instant::now(),
+        #[cfg(any(windows, linux_vr))]
+        surfaces_dormant: false,
         #[cfg(windows)]
         ocr,
     };
@@ -601,6 +711,7 @@ fn worker_loop(
 
     loop {
         let started = Instant::now();
+        let woken = wakeup.swap(false, Ordering::Acquire);
         if stopping.load(Ordering::Acquire) {
             status.state = RuntimeState::ShuttingDown;
             update_status(&app, &shared_status, &status);
@@ -681,30 +792,13 @@ fn worker_loop(
             }
         }
 
-        if !xr_driving && started < next_tick {
+        if !xr_driving && !woken && started < next_tick {
             #[cfg(not(any(windows, linux_vr)))]
             let wake = next_tick;
             #[cfg(any(windows, linux_vr))]
             let mut wake = next_tick;
-            #[cfg(linux_vr)]
-            if state.ui.fast_tick() || state.player_audio.active() {
-                if let Some(backend) = state.backend.as_mut() {
-                    if started >= next_pointer {
-                        if state.player_audio.active() {
-                            state.player_audio.update_pointer(&app, backend);
-                        } else {
-                            state.ui.update_pointer(&app, backend);
-                        }
-                        next_pointer = Instant::now() + backend.cursor_interval();
-                    }
-                    wake = wake.min(next_pointer);
-                }
-            }
-            #[cfg(windows)]
-            if state.ui.fast_tick()
-                || state.player_audio.active()
-                || state.ocr.status.wrist_state == super::ocr_status::OcrWristState::Visible
-            {
+            #[cfg(any(windows, linux_vr))]
+            if state.ui.pointer_fast_tick() || state.player_audio.active() {
                 if let Some(backend) = state.backend.as_mut() {
                     if started >= next_pointer {
                         if state.player_audio.active() {
@@ -718,12 +812,15 @@ fn worker_loop(
                 }
             }
             if let Some(delay) = wake.checked_duration_since(Instant::now()) {
-                std::thread::sleep(delay);
+                std::thread::park_timeout(delay);
             }
             continue;
         }
 
-        let business = business_clock.due(started);
+        let business = woken || business_clock.due(started);
+        if woken {
+            business_clock.0 = started + UPDATE_INTERVAL;
+        }
         #[cfg(windows)]
         let mut open_ocr_bindings = false;
         #[cfg(any(windows, linux_vr))]
@@ -731,6 +828,10 @@ fn worker_loop(
         if business {
             if let Ok(mut pending) = latest_config.lock() {
                 if let Some((config, ocr_config)) = pending.take() {
+                    #[cfg(any(windows, linux_vr))]
+                    if state.config != config {
+                        state.config_revision = state.config_revision.wrapping_add(1);
+                    }
                     #[cfg(any(windows, linux_vr))]
                     if state.config.wrist != config.wrist
                         || state.config.translation_display != config.translation_display
@@ -783,6 +884,15 @@ fn worker_loop(
                                 || previous.max_visible_players != view.max_visible_players
                         }) {
                             state.dialogue_policy += 1;
+                        }
+                        #[cfg(any(windows, linux_vr))]
+                        if state.dashboard_view.as_ref().is_none_or(|previous| {
+                            previous.caption_visibility != view.caption_visibility
+                                || previous.max_visible_players != view.max_visible_players
+                                || previous.labels.captions != view.labels.captions
+                        }) {
+                            state.dashboard_caption_revision =
+                                state.dashboard_caption_revision.wrapping_add(1);
                         }
                         #[cfg(windows)]
                         {
@@ -840,10 +950,6 @@ fn worker_loop(
                     state.wrist_sample = visible;
                 }
             }
-            // Send uncapped candidates: the WebViews share the desktop visibility
-            // policy and apply player/history limits after filtering original text.
-            state.headset.set_player_limit(Some(0));
-            state.wrist.set_player_limit(Some(0));
             for event in event_receiver.try_iter().take(EVENT_QUEUE_CAPACITY) {
                 let now = Instant::now();
                 state
@@ -888,22 +994,29 @@ fn worker_loop(
             }
         }
         #[cfg(any(windows, linux_vr))]
-        state
-            .headset_surface
-            .finish_tick(&app, state.backend.as_mut(), OverlayKind::Headset);
-        #[cfg(any(windows, linux_vr))]
-        state.ui.finish_surfaces(&app, state.backend.as_mut());
-        #[cfg(any(windows, linux_vr))]
-        state
-            .dashboard_surface
-            .finish_tick(&app, state.backend.as_mut(), OverlayKind::Dashboard);
-        #[cfg(any(windows, linux_vr))]
-        state
-            .player_audio
-            .finish_surfaces(&app, state.backend.as_mut());
-        #[cfg(windows)]
-        {
+        if state.backend.is_some() || !state.surfaces_dormant {
+            state
+                .headset_surface
+                .finish_tick(&app, state.backend.as_mut(), OverlayKind::Headset);
+            state.ui.finish_surfaces(&app, state.backend.as_mut());
+            state.dashboard_surface.finish_tick(
+                &app,
+                state.backend.as_mut(),
+                OverlayKind::Dashboard,
+            );
+            state
+                .player_audio
+                .finish_surfaces(&app, state.backend.as_mut());
+            #[cfg(windows)]
             state.ocr.finish_surfaces(&app, state.backend.as_mut());
+            if state.backend.is_some() {
+                state.surfaces_dormant = false;
+            } else if !app
+                .state::<super::surface::SurfaceHub>()
+                .needs_surface_maintenance()
+            {
+                state.surfaces_dormant = true;
+            }
         }
         if business {
             #[cfg(windows)]
@@ -925,32 +1038,39 @@ fn worker_loop(
             }
         }
         #[cfg(any(windows, linux_vr))]
-        let ui_active = state.ui.fast_tick() || state.player_audio.active();
+        let ui_active = state.backend.is_some()
+            && (state.ui.fast_tick()
+                || state.player_audio.active()
+                || app.state::<super::surface::SurfaceHub>().needs_fast_tick());
+        #[cfg(windows)]
+        let ui_active = ui_active || (state.backend.is_some() && state.ocr.needs_fast_tick());
         #[cfg(not(any(windows, linux_vr)))]
         let ui_active = false;
-        #[cfg(windows)]
-        let ui_active = ui_active
-            || app
-                .state::<super::surface::SurfaceHub>()
-                .progress_animating()
-            || state.ocr.status.wrist_state == super::ocr_status::OcrWristState::Visible;
-        let interval = if status.dashboard.visible || ui_active {
+        let interval = if state.backend.is_none() {
+            if status.state == RuntimeState::Disabled {
+                IDLE_DISABLED_INTERVAL
+            } else {
+                IDLE_WAITING_INTERVAL
+            }
+        } else if status.dashboard.visible || ui_active {
             SURFACE_FRAME_INTERVAL
         } else {
             UPDATE_INTERVAL
         };
-        next_tick = (started + interval).min(business_clock.0);
+        if state.backend.is_none() {
+            next_tick = started + interval;
+            business_clock.0 = next_tick;
+        } else {
+            next_tick = (started + interval).min(business_clock.0);
+        }
         #[cfg(any(windows, linux_vr))]
         if let Some(backend) = state.backend.as_mut() {
-            if Instant::now() >= next_pointer || !ui_active {
-                #[cfg(any(windows, linux_vr))]
-                if state.player_audio.active() {
-                    state.player_audio.update_pointer(&app, backend);
-                } else {
-                    state.ui.update_pointer(&app, backend);
-                }
-                next_pointer = Instant::now() + backend.cursor_interval();
+            if state.player_audio.active() {
+                state.player_audio.sync_cursor(backend);
+            } else {
+                state.ui.sync_cursor(&app, backend);
             }
+            next_pointer = Instant::now() + backend.cursor_interval();
         }
         if xr_driving {
             let accepted = match state.backend.as_mut().map(Backend::end_frame) {
@@ -1057,7 +1177,9 @@ fn tick(
         state.headset_sample = false;
         state.wrist_sample = false;
         state.headset = HeadsetPresentation::default();
+        state.headset.set_player_limit(Some(0));
         state.wrist = WristPresentation::default();
+        state.wrist.set_player_limit(Some(0));
         state.reset_headset();
         state.reset_dashboard();
         status.state = RuntimeState::Disabled;
@@ -1087,7 +1209,7 @@ fn tick(
             state.next_probe = Instant::now() + RECONNECT_INTERVAL;
         }
         status.hmd_present = state.backend.is_some();
-    } else if Instant::now() >= state.next_probe {
+    } else if state.backend.is_none() && Instant::now() >= state.next_probe {
         status.runtime_installed = Backend::runtime_installed();
         status.hmd_present = Backend::hmd_present();
         state.next_probe = Instant::now() + RECONNECT_INTERVAL;
@@ -1431,6 +1553,7 @@ fn update_dashboard(
             let _ = backend.poll_dashboard_events()?;
             state.dashboard.clear_pointer();
             state.dashboard_pressed_key = None;
+            state.dashboard_repeat = None;
             return Ok(false);
         }
         let dark = state.controls.lock().map(|hub| hub.dark()).unwrap_or(false);
@@ -1464,32 +1587,69 @@ fn update_dashboard(
                 DashboardPointerEvent::Shown | DashboardPointerEvent::Hidden => {
                     state.dashboard.clear_pointer();
                     state.dashboard_pressed_key = None;
-                    hub.point(app, SurfaceId::Dashboard, None)?;
+                    state.dashboard_repeat = None;
                     continue;
                 }
             };
             let point = [x / DASHBOARD_WIDTH as f32, y / DASHBOARD_HEIGHT as f32];
-            hub.point(app, SurfaceId::Dashboard, Some(point))?;
             let hit = layout.as_ref().and_then(|layout| layout.hit(point));
             state.dashboard.hovered = hit;
             match event {
+                DashboardPointerEvent::Move { .. } => {
+                    if layout.is_some()
+                        && state
+                            .dashboard_repeat
+                            .as_ref()
+                            .is_some_and(|repeat| hit != Some(repeat.region))
+                    {
+                        state.dashboard_repeat = None;
+                    }
+                }
                 DashboardPointerEvent::Down { .. } => {
                     state.dashboard.pressed = hit;
                     state.dashboard_pressed_key = layout.as_ref().map(|layout| layout.key);
+                    state.dashboard_repeat = if view.player_audio_notice.is_none() {
+                        hit.and_then(|id| {
+                            layout.as_ref().and_then(|layout| {
+                                layout
+                                    .regions
+                                    .iter()
+                                    .find(|region| region.id == id)
+                                    .and_then(|region| region.dashboard.as_ref())
+                                    .filter(|command| command.is_repeatable())
+                                    .map(|command| DashboardRepeat {
+                                        region: id,
+                                        command: command.clone(),
+                                        next_at: Instant::now() + Duration::from_millis(420),
+                                        repeated: false,
+                                    })
+                            })
+                        })
+                    } else {
+                        None
+                    };
                 }
                 DashboardPointerEvent::Scroll { .. } => {}
                 DashboardPointerEvent::Shown | DashboardPointerEvent::Hidden => {}
                 DashboardPointerEvent::Up { .. } => {
                     let pressed = state.dashboard.pressed.take();
                     let key = state.dashboard_pressed_key.take();
-                    let command = layout
-                        .as_ref()
-                        .filter(|layout| Some(layout.key) == key)
-                        .filter(|_| hit.is_some() && hit == pressed)
-                        .and_then(|layout| {
-                            layout.regions.iter().find(|region| Some(region.id) == hit)
+                    let repeated = state
+                        .dashboard_repeat
+                        .take()
+                        .is_some_and(|repeat| repeat.repeated);
+                    let command = (!repeated)
+                        .then(|| {
+                            layout
+                                .as_ref()
+                                .filter(|layout| Some(layout.key) == key)
+                                .filter(|_| hit.is_some() && hit == pressed)
+                                .and_then(|layout| {
+                                    layout.regions.iter().find(|region| Some(region.id) == hit)
+                                })
+                                .and_then(|region| region.dashboard.clone())
                         })
-                        .and_then(|region| region.dashboard.clone());
+                        .flatten();
                     if let Some(command) = command {
                         let dismiss = matches!(command, super::dashboard::DashboardCommand::Close)
                             && state.dashboard.ui.picker.is_none()
@@ -1515,13 +1675,51 @@ fn update_dashboard(
                             backend.close_dashboard();
                             state.dashboard.clear_pointer();
                             state.dashboard_pressed_key = None;
-                            hub.point(app, SurfaceId::Dashboard, None)?;
+                            state.dashboard_repeat = None;
                         }
                         // Any subsequent input must wait for the newly rendered layout.
                         layout = None;
                     }
                 }
-                _ => {}
+            }
+        }
+        if let Some(mut repeat) = state.dashboard_repeat.take() {
+            let keep = if view.player_audio_notice.is_some() {
+                false
+            } else {
+                match layout.or_else(|| hub.layout(SurfaceId::Dashboard)) {
+                    None => true,
+                    Some(current_layout) => {
+                        if state.dashboard.hovered != Some(repeat.region) {
+                            false
+                        } else if Instant::now() >= repeat.next_at {
+                            let matches_region = current_layout.regions.iter().any(|region| {
+                                region.id == repeat.region
+                                    && region.dashboard.as_ref() == Some(&repeat.command)
+                            });
+                            if matches_region {
+                                if let Some(action) = state
+                                    .dashboard
+                                    .activate_repeat(repeat.command.clone(), &view)
+                                {
+                                    dispatch_dashboard_action(app, state, backend, action);
+                                    repeat.repeated = true;
+                                    repeat.next_at = Instant::now() + Duration::from_millis(110);
+                                    true
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            true
+                        }
+                    }
+                }
+            };
+            if keep {
+                state.dashboard_repeat = Some(repeat);
             }
         }
         let ready = if business || previous_ui != state.dashboard.ui {
@@ -1644,6 +1842,7 @@ fn update_dashboard(
     status.dashboard.visible = false;
 }
 
+#[cfg(any(windows, linux_vr, test))]
 fn question_draft_frame(draft: &str) -> PresentationFrame {
     PresentationFrame::headset(
         if draft.trim().is_empty() {
@@ -1689,49 +1888,104 @@ fn update_headset(
         return;
     }
 
-    let frame = if let Some(draft) = question_draft {
-        Some(question_draft_frame(&draft))
-    } else if state.headset_sample {
-        Some(PresentationFrame::headset(
-            "VRCS Headset Overlay Sample / 视野字幕预览",
-            1.0,
-        ))
-    } else {
-        state.headset.frame_with_translation_display(
-            Instant::now(),
-            &state.config.headset,
-            &state.config.translation_display,
-        )
-    };
-    let notice = state.caption_status.text(Instant::now());
-    let frame = frame.or_else(|| {
-        notice.as_ref().map(|_| PresentationFrame {
-            content: PresentationContent::Headset(Vec::new()),
-            opacity: 1.0,
-        })
-    });
-    let Some(frame) = frame else {
-        backend.hide(OverlayKind::Headset);
-        status.headset.state = ResourceState::ReadyHidden;
-        status.headset.last_error_code = None;
-        return;
-    };
-
     #[cfg(any(windows, linux_vr))]
     let presented = (|| {
         use super::surface_protocol::SurfaceView;
-        #[cfg(windows)]
-        let messages = match frame.content {
-            PresentationContent::Headset(messages) => messages,
-            _ => return Err("Invalid headset content".into()),
-        };
-        #[cfg(linux_vr)]
-        #[allow(unreachable_patterns)]
-        let messages = match frame.content {
-            PresentationContent::Headset(messages) => messages,
-            _ => return Err("Invalid headset content".into()),
-        };
+        let now = Instant::now();
+        let draft = question_draft.as_deref();
+        let notice = state.caption_status.text(now);
         let dark = state.controls.lock().map(|hub| hub.dark()).unwrap_or(false);
+        let headset_revision = state.headset.revision();
+        if let Some(cache) = state.headset_cache.as_ref().filter(|cache| {
+            cache.headset_revision == headset_revision
+                && cache.config_revision == state.config_revision
+                && cache.dashboard_revision == state.dashboard_caption_revision
+                && cache.sample == state.headset_sample
+                && cache.dark == dark
+                && cache.draft.as_deref() == draft
+                && cache.notice.as_deref() == notice.as_deref()
+                && cache.next_change.is_none_or(|at| now < at)
+                && (cache.frame_opacity.is_none() || state.headset_surface.has_published_key())
+        }) {
+            let Some(frame_opacity) = cache.frame_opacity else {
+                backend.hide(OverlayKind::Headset);
+                status.headset.state = ResourceState::ReadyHidden;
+                status.headset.last_error_code = None;
+                return Ok(None);
+            };
+            let visible =
+                state
+                    .headset_surface
+                    .refresh(app, backend, OverlayKind::Headset, None)?;
+            let shown = backend
+                .set_opacity(
+                    OverlayKind::Headset,
+                    state.config.headset.opacity
+                        * if notice.is_some() { 1.0 } else { frame_opacity },
+                )
+                .and_then(|()| {
+                    if visible {
+                        backend.show(OverlayKind::Headset)
+                    } else {
+                        backend.hide(OverlayKind::Headset);
+                        Ok(())
+                    }
+                });
+            if shown.is_err() {
+                backend.reset(OverlayKind::Headset);
+                state.reset_headset();
+            }
+            shown?;
+            return Ok(Some((visible, frame_opacity)));
+        }
+
+        let frame = if let Some(ref draft) = question_draft {
+            Some(question_draft_frame(draft))
+        } else if state.headset_sample {
+            Some(PresentationFrame::headset(
+                "VRCS Headset Overlay Sample / 视野字幕预览",
+                1.0,
+            ))
+        } else {
+            state.headset.frame_with_translation_display(
+                now,
+                &state.config.headset,
+                &state.config.translation_display,
+            )
+        };
+        let frame = frame.or_else(|| {
+            notice.as_ref().map(|_| PresentationFrame {
+                content: PresentationContent::Headset(Vec::new()),
+                opacity: 1.0,
+            })
+        });
+        let next_change = if draft.is_some() || state.headset_sample {
+            None
+        } else {
+            state.headset.next_change(now, &state.config.headset)
+        };
+        let Some(frame) = frame else {
+            state.headset_cache = Some(HeadsetPublishCache {
+                headset_revision,
+                config_revision: state.config_revision,
+                dashboard_revision: state.dashboard_caption_revision,
+                sample: state.headset_sample,
+                dark,
+                draft: None,
+                notice,
+                frame_opacity: None,
+                next_change,
+            });
+            backend.hide(OverlayKind::Headset);
+            status.headset.state = ResourceState::ReadyHidden;
+            status.headset.last_error_code = None;
+            return Ok(None);
+        };
+
+        let PresentationContent::Headset(messages) = frame.content else {
+            return Err("Invalid headset content".into());
+        };
+        let frame_opacity = frame.opacity;
         let visible = state.headset_surface.present(
             app,
             backend,
@@ -1764,7 +2018,7 @@ fn update_headset(
         let shown = backend
             .set_opacity(
                 OverlayKind::Headset,
-                state.config.headset.opacity * if notice.is_some() { 1.0 } else { frame.opacity },
+                state.config.headset.opacity * if notice.is_some() { 1.0 } else { frame_opacity },
             )
             .and_then(|()| {
                 if visible {
@@ -1779,15 +2033,32 @@ fn update_headset(
             state.reset_headset();
         }
         shown?;
-        Ok(visible)
+        state.headset_cache =
+            state
+                .headset_surface
+                .has_published_key()
+                .then_some(HeadsetPublishCache {
+                    headset_revision,
+                    config_revision: state.config_revision,
+                    dashboard_revision: state.dashboard_caption_revision,
+                    sample: state.headset_sample,
+                    dark,
+                    draft: question_draft,
+                    notice,
+                    frame_opacity: Some(frame_opacity),
+                    next_change,
+                });
+        Ok(Some((visible, frame_opacity)))
     })();
     #[cfg(all(not(windows), not(linux_vr)))]
-    let presented: Result<bool, String> = Err("VR Overlay is only supported on Windows".into());
+    let presented: Result<Option<(bool, f32)>, String> =
+        Err("VR Overlay is only supported on Windows".into());
     match presented {
-        Ok(visible) => {
+        Ok(None) => {}
+        Ok(Some((visible, frame_opacity))) => {
             status.headset.state = if !visible {
                 ResourceState::Creating
-            } else if frame.opacity < 1.0 {
+            } else if frame_opacity < 1.0 {
                 ResourceState::Fading
             } else {
                 ResourceState::Visible
@@ -1796,6 +2067,10 @@ fn update_headset(
         }
         Err(error) => {
             backend.reset(OverlayKind::Headset);
+            #[cfg(any(windows, linux_vr))]
+            {
+                state.headset_cache = None;
+            }
             resource_error(
                 &mut status.headset,
                 "headset_render",
@@ -1846,6 +2121,7 @@ fn render_wrist(
     let now = Instant::now();
     if !state.config.enabled || !state.config.wrist.enabled {
         backend.reset(OverlayKind::Wrist);
+        state.dialogue_cache = None;
         state.ui.reset_dialogue_visibility();
         status.wrist.state = ResourceState::Disabled;
         status.wrist.bound_role = None;
@@ -1875,12 +2151,13 @@ fn render_wrist(
     };
     let setup = if mode == Mode::World {
         status.wrist.bound_role = None;
-        match (pose, backend.ocr_tracking()) {
-            (Some(pose), Ok((_, _, origin))) => {
+        match (pose, state.ui.current_origin()) {
+            (Some(pose), Some(origin)) => {
                 backend.ensure_world_wrist(&state.config.wrist, pose, origin, relative)
             }
             _ => {
                 backend.hide(OverlayKind::Wrist);
+                state.dialogue_cache = None;
                 state.ui.reset_dialogue_visibility();
                 status.wrist.state = ResourceState::DeviceUnavailable;
                 status.wrist.tracked_device_available = false;
@@ -1903,6 +2180,7 @@ fn render_wrist(
     };
     if let Err(error) = setup {
         backend.hide(OverlayKind::Wrist);
+        state.dialogue_cache = None;
         state.ui.reset_dialogue_visibility();
         status.wrist.tracked_device_available = false;
         if error == "Controller tracking unavailable" {
@@ -1916,6 +2194,7 @@ fn render_wrist(
     status.wrist.tracked_device_available = true;
     if !state.ui.dialogue_available || state.ui.dialogue_occluded {
         backend.hide(OverlayKind::Wrist);
+        state.dialogue_cache = None;
         state.ui.reset_dialogue_visibility();
         status.wrist.tracked_device_available = state.ui.dialogue_available;
         status.wrist.state = if state.ui.dialogue_available {
@@ -1931,101 +2210,175 @@ fn render_wrist(
         return;
     }
     let result = (|| -> Result<(), String> {
-        let ready = if !target {
-            state.ui.dialogue_retention == Some(retention)
-                && state.ui.dialogue_fade.active()
-                && state
-                    .ui
-                    .dialogue_surface
-                    .hold_for_fade(app, backend, OverlayKind::Wrist)
-        } else if !business {
-            state.ui.dialogue_surface.refresh(
-                app,
-                backend,
-                OverlayKind::Wrist,
-                Some((state.ui.dialogue_hover, None, None)),
-            )?
-        } else {
-            let frame = if state.wrist_sample {
-                Some(PresentationFrame::wrist(vec![
-                    WristMessage {
-                        original: None,
-                        speaker: None,
-                        text: "你好，欢迎使用 VRCS。".into(),
-                        side: MessageSide::Left,
-                    },
-                    WristMessage {
-                        original: None,
-                        speaker: None,
-                        text: "Conversation stays on your wrist or in front of you.".into(),
-                        side: MessageSide::Right,
-                    },
-                ]))
+        let ready =
+            if !target {
+                state.dialogue_cache = None;
+                state.ui.dialogue_retention == Some(retention)
+                    && state.ui.dialogue_fade.active()
+                    && state
+                        .ui
+                        .dialogue_surface
+                        .hold_for_fade(app, backend, OverlayKind::Wrist)
+            } else if !business {
+                state.ui.dialogue_surface.refresh(
+                    app,
+                    backend,
+                    OverlayKind::Wrist,
+                    Some((state.ui.dialogue_hover, None, None)),
+                )?
             } else {
-                state.wrist.frame_with_translation_display(
-                    now,
-                    &state.config.wrist,
-                    &state.config.translation_display,
-                )
+                let notice = state.caption_status.text(now);
+                let wrist_revision = state.wrist.revision();
+                let controls_version = state
+                    .controls
+                    .lock()
+                    .map(|hub| hub.ui_version())
+                    .unwrap_or(0);
+                if let Some(cache) = state.dialogue_cache.as_ref().filter(|cache| {
+                    cache.wrist_revision == wrist_revision
+                        && cache.config_revision == state.config_revision
+                        && cache.dashboard_revision == state.dashboard_caption_revision
+                        && cache.controls_version == controls_version
+                        && cache.sample == state.wrist_sample
+                        && cache.notice.as_deref() == notice.as_deref()
+                        && cache.mode == mode
+                        && cache.follow_view == follow_view
+                        && cache.busy == busy
+                        && cache.error.as_deref() == error.as_deref()
+                        && cache.idle_expires_at.is_none_or(|at| now < at)
+                        && (!cache.has_frame
+                            || (state.ui.dialogue_pending == Some(retention)
+                                && state.ui.dialogue_surface.has_published_key()))
+                }) {
+                    if !cache.has_frame {
+                        state.ui.reset_dialogue_visibility();
+                        backend.hide(OverlayKind::Wrist);
+                        status.wrist.state = ResourceState::ReadyHidden;
+                        status.wrist.last_error_code = None;
+                        return Ok(());
+                    }
+                    state.ui.dialogue_surface.refresh(
+                        app,
+                        backend,
+                        OverlayKind::Wrist,
+                        Some((state.ui.dialogue_hover, None, None)),
+                    )?
+                } else {
+                    let frame = if state.wrist_sample {
+                        Some(PresentationFrame::wrist(vec![
+                            WristMessage {
+                                original: None,
+                                speaker: None,
+                                text: "你好，欢迎使用 VRCS。".into(),
+                                side: MessageSide::Left,
+                            },
+                            WristMessage {
+                                original: None,
+                                speaker: None,
+                                text: "Conversation stays on your wrist or in front of you.".into(),
+                                side: MessageSide::Right,
+                            },
+                        ]))
+                    } else {
+                        state.wrist.frame_with_translation_display(
+                            now,
+                            &state.config.wrist,
+                            &state.config.translation_display,
+                        )
+                    };
+                    let frame = frame.or_else(|| {
+                        notice
+                            .as_ref()
+                            .map(|_| PresentationFrame::wrist(Vec::new()))
+                    });
+                    let idle_expires_at = if state.wrist_sample {
+                        None
+                    } else {
+                        state.wrist.idle_expires_at(&state.config.wrist)
+                    };
+                    let Some(frame) = frame else {
+                        state.dialogue_cache = Some(DialoguePublishCache {
+                            wrist_revision,
+                            config_revision: state.config_revision,
+                            dashboard_revision: state.dashboard_caption_revision,
+                            controls_version,
+                            sample: state.wrist_sample,
+                            notice,
+                            mode,
+                            follow_view,
+                            busy,
+                            error,
+                            idle_expires_at,
+                            has_frame: false,
+                        });
+                        state.ui.reset_dialogue_visibility();
+                        backend.hide(OverlayKind::Wrist);
+                        status.wrist.state = ResourceState::ReadyHidden;
+                        status.wrist.last_error_code = None;
+                        return Ok(());
+                    };
+                    let controls = state
+                        .controls
+                        .lock()
+                        .map(|hub| hub.snapshot())
+                        .unwrap_or_default();
+                    let messages = match frame.content {
+                        PresentationContent::Wrist(messages) => messages,
+                        _ => Vec::new(),
+                    };
+                    let ready = state.ui.dialogue_surface.present(
+                        app,
+                        backend,
+                        OverlayKind::Wrist,
+                        SurfaceView::Dialogue {
+                            visibility: state
+                                .dashboard_view
+                                .as_ref()
+                                .map(|view| view.caption_visibility.clone())
+                                .unwrap_or_default(),
+                            max_visible_players: state
+                                .dashboard_view
+                                .as_ref()
+                                .and_then(|view| view.max_visible_players),
+                            max_entries: state.config.wrist.max_entries.clamp(3, 10) as usize,
+                            controls,
+                            messages,
+                            notice: notice.clone(),
+                            labels: state
+                                .dashboard_view
+                                .as_ref()
+                                .map(|view| view.labels.captions.clone())
+                                .unwrap_or_default(),
+                            mode,
+                            follow_view,
+                            busy,
+                            error: error.clone(),
+                            font_size: state.config.wrist.font_size_px,
+                            opacity: state.config.wrist.background_opacity,
+                        },
+                        state.ui.dialogue_hover,
+                        None,
+                    )?;
+                    state.ui.dialogue_pending = Some(retention);
+                    state.dialogue_cache = state.ui.dialogue_surface.has_published_key().then_some(
+                        DialoguePublishCache {
+                            wrist_revision,
+                            config_revision: state.config_revision,
+                            dashboard_revision: state.dashboard_caption_revision,
+                            controls_version,
+                            sample: state.wrist_sample,
+                            notice,
+                            mode,
+                            follow_view,
+                            busy,
+                            error,
+                            idle_expires_at,
+                            has_frame: true,
+                        },
+                    );
+                    ready
+                }
             };
-            let notice = state.caption_status.text(now);
-            let frame = frame.or_else(|| {
-                notice
-                    .as_ref()
-                    .map(|_| PresentationFrame::wrist(Vec::new()))
-            });
-            let Some(frame) = frame else {
-                state.ui.reset_dialogue_visibility();
-                backend.hide(OverlayKind::Wrist);
-                status.wrist.state = ResourceState::ReadyHidden;
-                status.wrist.last_error_code = None;
-                return Ok(());
-            };
-            let controls = state
-                .controls
-                .lock()
-                .map(|hub| hub.snapshot())
-                .unwrap_or_default();
-            let messages = match frame.content {
-                PresentationContent::Wrist(messages) => messages,
-                _ => Vec::new(),
-            };
-            let ready = state.ui.dialogue_surface.present(
-                app,
-                backend,
-                OverlayKind::Wrist,
-                SurfaceView::Dialogue {
-                    visibility: state
-                        .dashboard_view
-                        .as_ref()
-                        .map(|view| view.caption_visibility.clone())
-                        .unwrap_or_default(),
-                    max_visible_players: state
-                        .dashboard_view
-                        .as_ref()
-                        .and_then(|view| view.max_visible_players),
-                    max_entries: state.config.wrist.max_entries.clamp(3, 10) as usize,
-                    controls,
-                    messages,
-                    notice,
-                    labels: state
-                        .dashboard_view
-                        .as_ref()
-                        .map(|view| view.labels.captions.clone())
-                        .unwrap_or_default(),
-                    mode,
-                    follow_view,
-                    busy,
-                    error,
-                    font_size: state.config.wrist.font_size_px,
-                    opacity: state.config.wrist.background_opacity,
-                },
-                state.ui.dialogue_hover,
-                None,
-            )?;
-            state.ui.dialogue_pending = Some(retention);
-            ready
-        };
         if state.ui.dialogue_surface.current_frame(app) {
             state.ui.dialogue_retention = state.ui.dialogue_pending;
         }
@@ -2061,6 +2414,7 @@ fn render_wrist(
         Ok(())
     })();
     if let Err(error) = result {
+        state.dialogue_cache = None;
         state.ui.reset_dialogue_visibility();
         backend.reset(OverlayKind::Wrist);
         wrist_error(status, "wrist_render", error);

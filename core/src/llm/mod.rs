@@ -58,12 +58,9 @@ impl LlmClient {
         profile: &ApiProfile,
         api_key: &str,
     ) -> Result<std::sync::Arc<openrouter::ModelCatalog>, LlmError> {
-        let mut catalog = self
-            .openrouter_catalog
+        self.openrouter_catalog
             .get(&self.http, profile, api_key)
-            .await?;
-        models_dev::supplement(profile, std::sync::Arc::make_mut(&mut catalog));
-        Ok(catalog)
+            .await
     }
 
     pub async fn openrouter_model_details(

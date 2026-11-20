@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 
+import { useHealth } from "../core-client/health-store";
 import { WindowChrome } from "../shell/WindowChrome";
 import type { AppWorkspace } from "./useAppWorkspace";
 
@@ -20,6 +21,7 @@ export function OnboardingEntry({
   settings: AppWorkspace["settings"];
 }) {
   const { t } = useTranslation();
+  const liveHealth = useHealth();
 
   return (
     <div className="app-shell onboarding-shell">
@@ -48,7 +50,7 @@ export function OnboardingEntry({
           <OnboardingWizard
             initialStep={onboarding.step}
             settings={settings.value}
-            health={runtime.health}
+            health={liveHealth ?? runtime.health}
             devices={settings.devices.items}
             devicesReady={settings.devices.ready}
             onRefreshDevices={settings.devices.refresh}

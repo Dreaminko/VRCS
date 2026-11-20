@@ -401,7 +401,7 @@
         "languagesTab": "Languages",
         "groups": "People list",
         "historySaved": "History",
-        "processingUnavailable": "Distance filtering requires per-player audio and a connected Core",
+        "processingUnavailable": "Distance filtering and view priority require per-player audio and a connected Core.",
         "unavailable": "Open the main VRCS window to use these settings.",
         "savedSelection": "Saved selection",
         "userIdPending": "Waiting for player user ID before selection",
@@ -940,7 +940,14 @@
         "confirmDelete": "Confirm deletion",
         "deleteHint": "This cannot be undone.",
         "positionHint": "Left/right · Up/down · Depth (m)",
-        "rotationHint": "Pitch · Yaw · Roll (degrees)"
+        "rotationHint": "Pitch · Yaw · Roll (degrees)",
+        "back": "Back",
+        "preferred": "Primary",
+        "masterOffBanner": "VR Overlay is off — subtitles are currently hidden.",
+        "recognitionLocked": "Managed by live service",
+        "translationOffHint": "Translation mode is off.",
+        "deletePresetTitle": "Delete language preset",
+        "noPresets": "No saved presets"
       },
       "ocr": {
         "enable": "Enable OCR",
@@ -2035,6 +2042,16 @@
             "streaming": "Receiving VRChat Chatbox",
             "failed": "Chatbox reception stopped with an error"
           }
+        },
+        "roomContext": {
+          "title": "Context optimization",
+          "description": "Use current VRChat world and participant names to improve speech recognition and translation. Works with VRChat logs for world name and room history without network capture, and adds participant names when network capture is active.",
+          "asr": "Include in speech recognition (ASR)",
+          "asrDescription": "Send active world and player names as ASR context or hotwords where supported by the service.",
+          "translation": "Include in translation context",
+          "translationDescription": "Isolate translation history per room and provide sanitized world/speaker context to translation models.",
+          "worldName": "Include world name",
+          "worldNameDescription": "Include the current VRChat world name when room context is enabled."
         }
       },
       "modelAssignments": {

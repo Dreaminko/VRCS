@@ -115,7 +115,12 @@ mod tests {
 
 #[cfg(windows)]
 pub fn selection_hint(app: &tauri::AppHandle, window: &str) -> String {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
     use tauri_plugin_store::StoreExt;
+
+    static CACHE: OnceLock<Mutex<HashMap<(&'static str, String), String>>> = OnceLock::new();
+
     let locale = app
         .store("preferences.json")
         .ok()
@@ -131,13 +136,25 @@ pub fn selection_hint(app: &tauri::AppHandle, window: &str) -> String {
             }
             .into()
         });
-    let messages = match locale.as_str() {
+    let locale_key = match locale.as_str() {
+        "zh-CN" => "zh-CN",
+        "zh-Hant" => "zh-Hant",
+        "ja-JP" => "ja-JP",
+        _ => "en-US",
+    };
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(guard) = cache.lock() {
+        if let Some(cached) = guard.get(&(locale_key, window.to_owned())) {
+            return cached.clone();
+        }
+    }
+    let messages = match locale_key {
         "zh-CN" => include_str!("../../../src/i18n/locales/zh-CN.json"),
         "zh-Hant" => include_str!("../../../src/i18n/locales/zh-Hant.json"),
         "ja-JP" => include_str!("../../../src/i18n/locales/ja-JP.json"),
         _ => include_str!("../../../src/i18n/locales/en-US.json"),
     };
-    serde_json::from_str::<serde_json::Value>(messages)
+    let hint = serde_json::from_str::<serde_json::Value>(messages)
         .ok()
         .and_then(|value| {
             value
@@ -145,5 +162,9 @@ pub fn selection_hint(app: &tauri::AppHandle, window: &str) -> String {
                 .and_then(|text| text.as_str())
                 .map(str::to_owned)
         })
-        .unwrap_or_else(|| "Drag to select an area. Esc / right-click to cancel.".into())
+        .unwrap_or_else(|| "Drag to select an area. Esc / right-click to cancel.".into());
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert((locale_key, window.to_owned()), hint.clone());
+    }
+    hint
 }

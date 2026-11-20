@@ -26,6 +26,10 @@ impl Fade {
         self.target || self.started.is_some()
     }
 
+    pub fn animating(&self) -> bool {
+        self.started.is_some()
+    }
+
     pub fn input_allowed(&self, target_visible: bool) -> bool {
         target_visible && self.target && self.factor >= INPUT_THRESHOLD
     }

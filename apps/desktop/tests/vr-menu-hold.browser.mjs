@@ -127,6 +127,16 @@ test("Menu hold feedback preserves hit bounds and the preview samples a stationa
               check(!ring(), 'Settings controls do not show the wrist relocation ring: ' + page + ' ' + id + ' ' + dark);
             }
           }
+          state.view.controls.items[4].hidden = true;
+          state.key = { ...state.key, revision: state.key.revision + 1 };
+          render(null, null);
+          check(buttons().filter(button => button.closest('.vr-menu-capsule')).map(button => button.dataset.vrRegion).join(',') === '0,1,2,4,3', 'Hidden photo gesture omits region 30 from the capsule: ' + dark);
+          check(!layout?.regions?.some(region => region.id === 30), 'Hidden photo gesture removes region 30 from layout regions: ' + dark);
+          state.view.controls.items[4].hidden = false;
+          state.key = { ...state.key, revision: state.key.revision + 1 };
+          render(null, null);
+          check(buttons().filter(button => button.closest('.vr-menu-capsule')).map(button => button.dataset.vrRegion).join(',') === '0,1,2,30,4,3', 'Restored photo gesture brings region 30 back: ' + dark);
+          check(layout?.regions?.some(region => region.id === 30), 'Restored photo gesture restores region 30 in layout regions: ' + dark);
         }
 
         flushSync(() => root.render(<SurfaceHost surface="menu" />));
@@ -139,8 +149,10 @@ test("Menu hold feedback preserves hit bounds and the preview samples a stationa
         await settle();
         // Flush the initial resize notification before counting hold-only measurements.
         await new Promise(resolve => {
-          const observer = new ResizeObserver(() => { observer.disconnect(); resolve(); });
+          const done = () => { observer.disconnect(); resolve(); };
+          const observer = new ResizeObserver(done);
           observer.observe(document.querySelector('.vr-surface'));
+          setTimeout(done, 40);
         });
         const initialMeasurements = layoutMeasurements;
         publish(0.5, 0);

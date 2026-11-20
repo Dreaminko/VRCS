@@ -79,8 +79,9 @@ async fn record_delivery(
     state: &OutputContext,
     message: NewChatboxMessage,
 ) -> crate::error::AppResult<ChatboxMessage> {
+    let context_scope_id = state.content.room_context.snapshot().scope_id;
     db_call(Arc::clone(&state.content.db), move |db| {
-        db.add_chatbox_message(&message)
+        db.add_chatbox_message_in_scope(&message, context_scope_id.as_deref(), None)
     })
     .await
 }
@@ -109,10 +110,11 @@ async fn record_conversation_message(
     translation_origin: Option<&ChatboxTranslationOrigin>,
 ) -> crate::error::AppResult<Subtitle> {
     let subtitle = conversation_subtitle(message, translation_origin);
+    let context_scope_id = state.content.room_context.snapshot().scope_id;
     let conversation_catalog = state.content.conversation_catalog_tx.clone();
     db_call(Arc::clone(&state.content.db), move |db| {
         let translations = subtitle.translations.clone();
-        let mut saved = db.add_subtitle(&subtitle)?;
+        let mut saved = db.add_subtitle_in_scope(&subtitle, context_scope_id.as_deref(), None)?;
         if let Some(subtitle_id) = saved.id {
             for translation in translations {
                 db.save_translation(subtitle_id, &translation)?;

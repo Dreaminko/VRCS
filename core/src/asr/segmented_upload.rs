@@ -4,9 +4,10 @@ use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 
-use crate::config::{ApiProfile, RecognitionServiceSettings};
+use crate::config::{ApiProfile, AsrConfig, RecognitionServiceSettings};
 
 use super::qwen_runtime::{QwenConnection, QwenRuntime};
+use super::runtime_context::AsrContextSource;
 use super::streaming::{CloudEvent, SegmentationMode};
 use super::SharedAudio;
 use super::{mimo, openai_audio_transcriptions};
@@ -48,6 +49,7 @@ enum UploadTarget {
         api_key: String,
         settings: RecognitionServiceSettings,
         admission: crate::work_priority::Gate,
+        context: Option<Box<(AsrContextSource, AsrConfig)>>,
     },
     ManagedQwen {
         connection: QwenConnection,
@@ -64,11 +66,39 @@ pub struct SegmentedUploadSession {
 }
 
 impl SegmentedUploadSession {
+    #[allow(dead_code)]
     pub(crate) fn spawn(
         profile: ApiProfile,
         api_key: String,
         settings: RecognitionServiceSettings,
         language: String,
+    ) -> Self {
+        Self::spawn_inner(profile, api_key, settings, language, None)
+    }
+
+    pub(crate) fn spawn_with_context(
+        profile: ApiProfile,
+        api_key: String,
+        settings: RecognitionServiceSettings,
+        language: String,
+        base_asr: AsrConfig,
+        context_source: Option<AsrContextSource>,
+    ) -> Self {
+        Self::spawn_inner(
+            profile,
+            api_key,
+            settings,
+            language,
+            context_source.map(|source| Box::new((source, base_asr))),
+        )
+    }
+
+    fn spawn_inner(
+        profile: ApiProfile,
+        api_key: String,
+        settings: RecognitionServiceSettings,
+        language: String,
+        context: Option<Box<(AsrContextSource, AsrConfig)>>,
     ) -> Self {
         let max_audio_samples = if profile.provider == crate::providers::MIMO_PROVIDER {
             mimo::MAX_AUDIO_SAMPLES
@@ -87,6 +117,7 @@ impl SegmentedUploadSession {
                         api_key,
                         settings,
                         admission,
+                        context,
                     },
                     language,
                     jobs_rx,
@@ -238,13 +269,23 @@ async fn run_worker(
         UploadTarget::ManagedQwen { .. } => None,
     };
     while let Some(job) = jobs.recv().await {
+        let mut echo_guard = None;
         let result = match &mut target {
             UploadTarget::Profile {
                 profile,
                 api_key,
                 settings,
                 admission,
+                context,
             } => {
+                let prepared = context
+                    .as_deref()
+                    .map(|(source, base)| source.prepare(base));
+                let active_settings = prepared
+                    .as_ref()
+                    .and_then(|p| p.asr_config.service_settings.get(&p.asr_config.backend))
+                    .unwrap_or(settings);
+                echo_guard = prepared.as_ref().map(|p| p.echo_guard.clone());
                 let http = http.as_ref().expect("profile client exists");
                 let _permit = match admission.acquire().await {
                     Ok(permit) => permit,
@@ -265,7 +306,7 @@ async fn run_worker(
                         http,
                         profile,
                         api_key,
-                        settings,
+                        active_settings,
                         &language,
                         &job.samples,
                         job.allow_empty,
@@ -276,7 +317,7 @@ async fn run_worker(
                         http,
                         profile,
                         api_key,
-                        settings,
+                        active_settings,
                         &language,
                         &job.samples,
                         job.allow_empty,
@@ -318,6 +359,15 @@ async fn run_worker(
             }
         };
         let event = match result {
+            Ok(result)
+                if echo_guard
+                    .as_ref()
+                    .is_some_and(|guard| guard.is_echo(&result.text)) =>
+            {
+                CloudEvent::EchoFiltered {
+                    utterance_id: job.utterance_id,
+                }
+            }
             Ok(result) => CloudEvent::Final {
                 utterance_id: job.utterance_id,
                 text: result.text,

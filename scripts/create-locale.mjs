@@ -49,6 +49,12 @@ if (!localeInput || !nativeName || !["ltr", "rtl"].includes(direction)) {
         translation: emptyTranslations(reference.translation),
       };
       writeFileSync(target, `${JSON.stringify(resource, null, 2)}\n`, "utf8");
+      const metaPath = join(repositoryRoot, "apps", "desktop", "src", "i18n", "locales-meta.json");
+      const metaList = JSON.parse(readFileSync(metaPath, "utf8"))
+        .filter((entry) => entry.locale !== locale)
+        .concat(resource._meta)
+        .sort((left, right) => left.locale.localeCompare(right.locale));
+      writeFileSync(metaPath, `${JSON.stringify(metaList, null, 2)}\n`, "utf8");
       console.log(`Created ${target}`);
       console.log("Translate every empty value, then run npm run check:i18n.");
     }

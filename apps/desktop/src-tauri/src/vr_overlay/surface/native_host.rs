@@ -39,7 +39,8 @@ use windows::{
 use super::SurfaceHub;
 use crate::vr_overlay::surface_protocol::SurfaceActivity;
 use crate::vr_overlay::surface_protocol::{
-    DocumentSession, HostId, Operation, PageRequest, ResourcePolicy, ResourceRoute, SurfaceEvent,
+    decode_request, BridgeError, DocumentSession, HostId, Operation, PageReply, PageRequest,
+    ResourcePolicy, ResourceRoute, SurfaceEvent,
 };
 
 const WAKE: u32 = WM_APP + 41;
@@ -238,11 +239,15 @@ impl NativeHostManager {
     }
 
     pub fn begin_shutdown(&self) {
-        self.shared
-            .control
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .closing = true;
+        {
+            let mut control = self
+                .shared
+                .control
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            control.closing = true;
+            control.revision = control.revision.wrapping_add(1);
+        }
         for entry in self
             .app
             .state::<SurfaceHub>()
@@ -259,11 +264,14 @@ impl NativeHostManager {
 
     #[cfg(all(debug_assertions, feature = "vr-preview"))]
     pub(super) fn reload(&self, id: HostId) {
-        self.shared
+        let mut control = self
+            .shared
             .control
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .reload[id.surface.index()] = Some(id);
+            .unwrap_or_else(|e| e.into_inner());
+        control.reload[id.surface.index()] = Some(id);
+        control.revision = control.revision.wrapping_add(1);
+        drop(control);
         self.shared.wake();
     }
 
@@ -274,11 +282,14 @@ impl NativeHostManager {
 
     #[cfg(all(debug_assertions, feature = "vr-preview"))]
     pub(super) fn crash_browser(&self) {
-        self.shared
+        let mut control = self
+            .shared
             .control
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .crash_browser = true;
+            .unwrap_or_else(|e| e.into_inner());
+        control.crash_browser = true;
+        control.revision = control.revision.wrapping_add(1);
+        drop(control);
         self.shared.wake();
     }
 
@@ -367,6 +378,8 @@ struct Sta {
     environment_pending: bool,
     browser_failed: Rc<Cell<bool>>,
     failure: Option<String>,
+    last_control_revision: u64,
+    control_dirty: bool,
 }
 
 fn failure(stage: &str, error: windows::core::Error) -> String {
@@ -383,9 +396,98 @@ fn read_string(
     Ok(value.to_string())
 }
 
-fn post(webview: &ICoreWebView2, message: serde_json::Value) -> windows::core::Result<()> {
-    let json = CoTaskMemPWSTR::from(message.to_string().as_str());
+#[derive(serde::Serialize)]
+struct WireEvent<'a, T> {
+    version: u8,
+    op: &'static str,
+    nonce: &'a str,
+    event: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload: Option<T>,
+}
+
+#[derive(serde::Serialize)]
+struct WireWelcome<'a> {
+    version: u8,
+    op: &'static str,
+    host: &'a HostId,
+    nonce: &'a str,
+}
+
+#[derive(serde::Serialize)]
+struct WireReply<'a> {
+    version: u8,
+    op: &'static str,
+    nonce: &'a str,
+    request_id: u64,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value: Option<PageReply>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<&'static str>,
+}
+
+fn post_json(webview: &ICoreWebView2, json: &str) -> windows::core::Result<()> {
+    let json = CoTaskMemPWSTR::from(json);
     unsafe { webview.PostWebMessageAsJson(*json.as_ref().as_pcwstr()) }
+}
+
+fn post_welcome(webview: &ICoreWebView2, document: &DocumentSession) -> windows::core::Result<()> {
+    let json = serde_json::to_string(&WireWelcome {
+        version: 1,
+        op: "welcome",
+        host: &document.host,
+        nonce: &document.nonce,
+    })
+    .expect("welcome message is serializable");
+    post_json(webview, &json)
+}
+
+fn post_reply(
+    webview: &ICoreWebView2,
+    nonce: &str,
+    request_id: u64,
+    result: Result<PageReply, BridgeError>,
+) -> windows::core::Result<()> {
+    let message = match result {
+        Ok(value) => WireReply {
+            version: 1,
+            op: "reply",
+            nonce,
+            request_id,
+            ok: true,
+            value: Some(value),
+            error: None,
+        },
+        Err(error) => WireReply {
+            version: 1,
+            op: "reply",
+            nonce,
+            request_id,
+            ok: false,
+            value: None,
+            error: Some(error.code()),
+        },
+    };
+    let json = serde_json::to_string(&message).expect("surface reply is serializable");
+    post_json(webview, &json)
+}
+
+fn post_wire<T: serde::Serialize>(
+    webview: &ICoreWebView2,
+    session: &DocumentSession,
+    event: &'static str,
+    payload: Option<T>,
+) -> windows::core::Result<()> {
+    let json = serde_json::to_string(&WireEvent {
+        version: 1,
+        op: "event",
+        nonce: &session.nonce,
+        event,
+        payload,
+    })
+    .expect("surface events are serializable");
+    post_json(webview, &json)
 }
 
 fn post_event(
@@ -393,11 +495,13 @@ fn post_event(
     session: &DocumentSession,
     event: SurfaceEvent,
 ) -> windows::core::Result<()> {
-    let mut message = serde_json::to_value(event).expect("surface events are serializable");
-    message["version"] = 1.into();
-    message["op"] = "event".into();
-    message["nonce"] = session.nonce.clone().into();
-    post(webview, message)
+    match event {
+        SurfaceEvent::View(state) => post_wire(webview, session, "view", Some(state)),
+        SurfaceEvent::Activity(activity) => post_wire(webview, session, "activity", Some(activity)),
+        SurfaceEvent::Pointer(pointer) => post_wire(webview, session, "pointer", Some(pointer)),
+        SurfaceEvent::Scroll(scroll) => post_wire(webview, session, "scroll", Some(scroll)),
+        SurfaceEvent::Repaint => post_wire::<()>(webview, session, "repaint", None),
+    }
 }
 
 fn host_error(app: &AppHandle, id: HostId, error: String) {
@@ -461,6 +565,8 @@ fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
         environment_pending: false,
         browser_failed: Rc::new(Cell::new(false)),
         failure: None,
+        last_control_revision: 0,
+        control_dirty: true,
     }));
     let mut msg = MSG::default();
     unsafe {
@@ -472,7 +578,7 @@ fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
     start_environment(&state, &profile);
     loop {
         shared.notified.store(false, Ordering::Release);
-        let retry_environment = {
+        let retry_environment = if state.borrow().failure.is_some() {
             let state = state.borrow();
             let control = state
                 .shared
@@ -485,7 +591,6 @@ fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
             let hub = state.app.state::<SurfaceHub>();
             let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
             !closing
-                && state.failure.is_some()
                 && state.inflight == 0
                 && state.hosts.iter().all(Option::is_none)
                 && desired.iter().flatten().any(|host| {
@@ -494,12 +599,15 @@ fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
                         && entry.host_epoch == host.id.host_epoch
                         && entry.error.is_none()
                 })
+        } else {
+            false
         };
         if retry_environment {
             {
                 let mut state = state.borrow_mut();
                 state.failure = None;
                 state.environment = None;
+                state.control_dirty = true;
             }
             start_environment(&state, &profile);
         }
@@ -526,6 +634,7 @@ fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
                 let mut state = state.borrow_mut();
                 state.environment = None;
                 state.browser_failed = Rc::new(Cell::new(false));
+                state.control_dirty = true;
             }
             start_environment(&state, &profile);
             continue;
@@ -606,6 +715,7 @@ fn start_environment(state: &Rc<RefCell<Sta>>, profile: &std::path::Path) {
                 let mut state = state.borrow_mut();
                 state.inflight -= 1;
                 state.environment_pending = false;
+                state.control_dirty = true;
                 if state
                     .shared
                     .control
@@ -642,6 +752,7 @@ fn start_environment(state: &Rc<RefCell<Sta>>, profile: &std::path::Path) {
         let mut state = state.borrow_mut();
         state.inflight -= 1;
         state.environment_pending = false;
+        state.control_dirty = true;
         environment_error(&mut state, failure("Request WebView2 environment", error));
     }
 }
@@ -660,153 +771,181 @@ fn environment_error(state: &mut Sta, error: String) {
 }
 
 fn process(state: &Rc<RefCell<Sta>>) -> u32 {
-    if state.borrow().browser_failed.get() {
-        let state = state.borrow();
-        for host in state.hosts.iter().flatten() {
-            host_error(&state.app, host.id, "surface_browser_process_failed".into());
-            let hub = state.app.state::<SurfaceHub>();
-            let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
-            let entry = &mut entries[host.id.surface.index()];
-            // Hidden entries have already suspended capture on the worker.
-            let closing = state
-                .shared
-                .control
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .closing;
-            if !closing && !entry.active && entry.host_epoch == host.id.host_epoch {
-                entry.invalidate_host();
-                state
+    let mut timeout = u32::MAX;
+    let (revision, last_revision, dirty, browser_failed, has_sleep) = {
+        let s = state.borrow();
+        let revision = s
+            .shared
+            .control
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .revision;
+        let has_sleep = s.hosts.iter().flatten().any(|host| host.sleep.is_some());
+        (
+            revision,
+            s.last_control_revision,
+            s.control_dirty,
+            s.browser_failed.get(),
+            has_sleep,
+        )
+    };
+    if dirty || revision != last_revision || browser_failed || has_sleep {
+        {
+            let mut s = state.borrow_mut();
+            s.last_control_revision = revision;
+            s.control_dirty = false;
+        }
+        if browser_failed {
+            let state = state.borrow();
+            for host in state.hosts.iter().flatten() {
+                host_error(&state.app, host.id, "surface_browser_process_failed".into());
+                let hub = state.app.state::<SurfaceHub>();
+                let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                let entry = &mut entries[host.id.surface.index()];
+                // Hidden entries have already suspended capture on the worker.
+                let closing = state
                     .shared
                     .control
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .close(host.id);
+                    .closing;
+                if !closing && !entry.active && entry.host_epoch == host.id.host_epoch {
+                    entry.invalidate_host();
+                    state
+                        .shared
+                        .control
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .close(host.id);
+                }
             }
         }
-    }
-    let desired = state
-        .borrow()
-        .shared
-        .control
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .hosts;
-    let mut timeout = u32::MAX;
-    #[cfg(all(debug_assertions, feature = "vr-preview"))]
-    {
-        let crash = std::mem::take(
-            &mut state
-                .borrow()
-                .shared
-                .control
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .crash_browser,
-        );
-        if crash {
-            // Only the isolated capture-smoke environment may terminate its own browser.
-            let state = state.borrow();
-            if state.app.config().identifier == "app.vrcs.vr-surface-smoke" {
-                if let Some(host) = state.hosts.iter().flatten().next() {
-                    let mut pid = 0;
-                    if unsafe { host.webview.BrowserProcessId(&mut pid) }.is_ok() {
-                        use windows::Win32::{
-                            Foundation::CloseHandle,
-                            System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE},
-                        };
-                        if let Ok(process) = unsafe { OpenProcess(PROCESS_TERMINATE, false, pid) } {
-                            let _ = unsafe { TerminateProcess(process, 1) };
-                            let _ = unsafe { CloseHandle(process) };
+        let desired = state
+            .borrow()
+            .shared
+            .control
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .hosts;
+        #[cfg(all(debug_assertions, feature = "vr-preview"))]
+        {
+            let crash = std::mem::take(
+                &mut state
+                    .borrow()
+                    .shared
+                    .control
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .crash_browser,
+            );
+            if crash {
+                // Only the isolated capture-smoke environment may terminate its own browser.
+                let state = state.borrow();
+                if state.app.config().identifier == "app.vrcs.vr-surface-smoke" {
+                    if let Some(host) = state.hosts.iter().flatten().next() {
+                        let mut pid = 0;
+                        if unsafe { host.webview.BrowserProcessId(&mut pid) }.is_ok() {
+                            use windows::Win32::{
+                                Foundation::CloseHandle,
+                                System::Threading::{
+                                    OpenProcess, TerminateProcess, PROCESS_TERMINATE,
+                                },
+                            };
+                            if let Ok(process) =
+                                unsafe { OpenProcess(PROCESS_TERMINATE, false, pid) }
+                            {
+                                let _ = unsafe { TerminateProcess(process, 1) };
+                                let _ = unsafe { CloseHandle(process) };
+                            }
+                        }
+                    }
+                }
+            }
+            let reloads = std::mem::take(
+                &mut state
+                    .borrow()
+                    .shared
+                    .control
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .reload,
+            );
+            for id in reloads.into_iter().flatten() {
+                let state = state.borrow();
+                if let Some(host) = &state.hosts[id.surface.index()] {
+                    if host.id == id {
+                        if let Err(error) = unsafe { host.webview.Reload() } {
+                            host_error(&state.app, id, failure("Reload surface", error));
                         }
                     }
                 }
             }
         }
-        let reloads = std::mem::take(
-            &mut state
-                .borrow()
-                .shared
-                .control
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .reload,
-        );
-        for id in reloads.into_iter().flatten() {
-            let state = state.borrow();
-            if let Some(host) = &state.hosts[id.surface.index()] {
-                if host.id == id {
-                    if let Err(error) = unsafe { host.webview.Reload() } {
-                        host_error(&state.app, id, failure("Reload surface", error));
+        for (index, desired) in desired.into_iter().enumerate() {
+            let remove = state.borrow().hosts[index]
+                .as_ref()
+                .is_some_and(|host| desired.is_none_or(|desired| desired.id != host.id));
+            if remove {
+                state.borrow_mut().hosts[index] = None;
+            }
+            if let Some(desired) =
+                desired.filter(|desired| state.borrow().shared.current(desired.id).is_some())
+            {
+                if let Some(error) = state.borrow().failure.clone() {
+                    host_error(&state.borrow().app, desired.id, error);
+                    continue;
+                }
+                let create = {
+                    let s = state.borrow();
+                    let hub = s.app.state::<SurfaceHub>();
+                    let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                    s.hosts[index].is_none()
+                        && s.creating[index].is_none()
+                        && s.environment.is_some()
+                        && !s.browser_failed.get()
+                        && desired.activity.active
+                        && entries[index].host_epoch == desired.id.host_epoch
+                        && entries[index].error.is_none()
+                };
+                if create {
+                    start_host(state, desired.id);
+                }
+                let mut state = state.borrow_mut();
+                let app = state.app.clone();
+                if let Some(host) = &mut state.hosts[index] {
+                    let waking = desired.activity.active
+                        && host.activity.is_none_or(|previous| {
+                            !previous.active || previous.request != desired.activity.request
+                        });
+                    if let Err(error) = host.update_activity(desired.activity) {
+                        host_error(&app, host.id, failure("Set surface activity", error));
                     }
-                }
-            }
-        }
-    }
-    for (index, desired) in desired.into_iter().enumerate() {
-        let remove = state.borrow().hosts[index]
-            .as_ref()
-            .is_some_and(|host| desired.is_none_or(|desired| desired.id != host.id));
-        if remove {
-            state.borrow_mut().hosts[index] = None;
-        }
-        if let Some(desired) =
-            desired.filter(|desired| state.borrow().shared.current(desired.id).is_some())
-        {
-            if let Some(error) = state.borrow().failure.clone() {
-                host_error(&state.borrow().app, desired.id, error);
-                continue;
-            }
-            let create = {
-                let s = state.borrow();
-                let hub = s.app.state::<SurfaceHub>();
-                let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
-                s.hosts[index].is_none()
-                    && s.creating[index].is_none()
-                    && s.environment.is_some()
-                    && !s.browser_failed.get()
-                    && desired.activity.active
-                    && entries[index].host_epoch == desired.id.host_epoch
-                    && entries[index].error.is_none()
-            };
-            if create {
-                start_host(state, desired.id);
-            }
-            let mut state = state.borrow_mut();
-            let app = state.app.clone();
-            if let Some(host) = &mut state.hosts[index] {
-                let waking = desired.activity.active
-                    && host.activity.is_none_or(|previous| {
-                        !previous.active || previous.request != desired.activity.request
-                    });
-                if let Err(error) = host.update_activity(desired.activity) {
-                    host_error(&app, host.id, failure("Set surface activity", error));
-                }
-                if let Some((_, deadline)) = host.sleep {
-                    timeout = timeout.min(
-                        deadline
-                            .saturating_duration_since(Instant::now())
-                            .as_millis()
-                            .min(u32::MAX as u128) as u32,
-                    );
-                }
-                let hub = app.state::<SurfaceHub>();
-                let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
-                let entry = &mut entries[index];
-                if entry.host_epoch == host.id.host_epoch
-                    && entry.activity_request == desired.activity.request
-                {
-                    entry.host_awake = desired.activity.active;
-                }
-                let view = (waking && entry.ready)
-                    .then(|| entry.state.clone())
-                    .flatten();
-                drop(entries);
-                if let (Some(view), Some(session)) = (view, host.session.borrow().as_ref()) {
-                    if let Err(error) =
-                        post_event(&host.webview, session, SurfaceEvent::View(Box::new(view)))
+                    if let Some((_, deadline)) = host.sleep {
+                        timeout = timeout.min(
+                            deadline
+                                .saturating_duration_since(Instant::now())
+                                .as_millis()
+                                .min(u32::MAX as u128) as u32,
+                        );
+                    }
+                    let hub = app.state::<SurfaceHub>();
+                    let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                    let entry = &mut entries[index];
+                    if entry.host_epoch == host.id.host_epoch
+                        && entry.activity_request == desired.activity.request
                     {
-                        host_error(&app, host.id, failure("Wake surface view", error));
+                        entry.host_awake = desired.activity.active;
+                    }
+                    let view = (waking && entry.ready)
+                        .then(|| entry.state.clone())
+                        .flatten();
+                    drop(entries);
+                    if let (Some(view), Some(session)) = (view, host.session.borrow().as_ref()) {
+                        if let Err(error) =
+                            post_event(&host.webview, session, SurfaceEvent::View(Box::new(view)))
+                        {
+                            host_error(&app, host.id, failure("Wake surface view", error));
+                        }
                     }
                 }
             }
@@ -866,6 +1005,7 @@ fn start_host(state: &Rc<RefCell<Sta>>, id: HostId) {
                     let mut state = state.borrow_mut();
                     state.inflight -= 1;
                     state.creating[id.surface.index()] = None;
+                    state.control_dirty = true;
                     let current = !state.browser_failed.get()
                         && state
                             .shared
@@ -1113,59 +1253,108 @@ impl NativeHost {
             let session = self.session.clone();
             let expected = source.clone();
             let intent = connecting.clone();
-            self.webview.add_NavigationCompleted(&NavigationCompletedEventHandler::create(Box::new(move |sender, args| {
-                let (Some(sender), Some(args)) = (sender, args) else { return Ok(()); };
-                if shared.current(id).is_none() { return Ok(()); }
-                let mut navigation = 0;
-                args.NavigationId(&mut navigation)?;
-                {
-                    let hub = app.state::<SurfaceHub>();
-                    let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
-                    let entry = &entries[id.surface.index()];
-                    // Rejected external and superseded navigations must not fault this document.
-                    if entry.host_epoch != id.host_epoch || entry.navigation_id != navigation { return Ok(()); }
-                }
-                let mut success = BOOL(0);
-                args.IsSuccess(&mut success)?;
-                if !success.as_bool() { host_error(&app, id, "surface_navigation_failed".into()); return Ok(()); }
-                if let Some(document) = app.state::<SurfaceHub>().document_loaded(id, navigation, expected.clone()) {
-                    *session.borrow_mut() = Some(document.clone());
-                    if intent.get() { post(&sender, serde_json::json!({ "version": 1, "op": "welcome", "host": document.host, "nonce": document.nonce }))?; }
-                }
-                Ok(())
-            })), &mut self.tokens[1])?;
+            self.webview.add_NavigationCompleted(
+                &NavigationCompletedEventHandler::create(Box::new(move |sender, args| {
+                    let (Some(sender), Some(args)) = (sender, args) else {
+                        return Ok(());
+                    };
+                    if shared.current(id).is_none() {
+                        return Ok(());
+                    }
+                    let mut navigation = 0;
+                    args.NavigationId(&mut navigation)?;
+                    {
+                        let hub = app.state::<SurfaceHub>();
+                        let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                        let entry = &entries[id.surface.index()];
+                        // Rejected external and superseded navigations must not fault this document.
+                        if entry.host_epoch != id.host_epoch || entry.navigation_id != navigation {
+                            return Ok(());
+                        }
+                    }
+                    let mut success = BOOL(0);
+                    args.IsSuccess(&mut success)?;
+                    if !success.as_bool() {
+                        host_error(&app, id, "surface_navigation_failed".into());
+                        return Ok(());
+                    }
+                    if let Some(document) =
+                        app.state::<SurfaceHub>()
+                            .document_loaded(id, navigation, expected.clone())
+                    {
+                        *session.borrow_mut() = Some(document.clone());
+                        if intent.get() {
+                            post_welcome(&sender, &document)?;
+                        }
+                    }
+                    Ok(())
+                })),
+                &mut self.tokens[1],
+            )?;
 
             let app = state.app.clone();
             let shared = state.shared.clone();
             let session = self.session.clone();
             let expected = source;
             let snapshot = self.snapshot.clone();
-            self.webview.add_WebMessageReceived(&WebMessageReceivedEventHandler::create(Box::new(move |sender, args| {
-                let (Some(sender), Some(args)) = (sender, args) else { return Ok(()); };
-                if shared.current(id).is_none() { return Ok(()); }
-                let source = read_string(|out| args.Source(out))?;
-                if source != expected { return Ok(()); }
-                let message = read_string(|out| args.WebMessageAsJson(out))?;
-                let Ok(request) = crate::vr_overlay::surface_protocol::decode_request(&message) else { return Ok(()); };
-                if matches!(request, PageRequest::Connect) {
-                    connecting.set(true);
-                    if let Some(document) = session.borrow().as_ref() { post(&sender, serde_json::json!({ "version": 1, "op": "welcome", "host": document.host, "nonce": document.nonce }))?; }
-                    return Ok(());
-                }
-                let Some(document) = session.borrow().clone() else { return Ok(()); };
-                if document.authorize(&source, &request).is_err() { return Ok(()); }
-                let PageRequest::Call { request_id, ref operation, .. } = request else { return Ok(()); };
-                let sleeping = if let Operation::Snapshot { activity_request, .. } = operation { Some(*activity_request) } else { None };
-                let result = app.state::<SurfaceHub>().handle_page_request(&document, request);
-                if matches!(&result, Ok(crate::vr_overlay::surface_protocol::PageReply::Accepted(true))) {
-                    if let Some(request) = sleeping { snapshot.set(Some(request)); shared.wake(); }
-                }
-                let reply = match result {
-                    Ok(value) => serde_json::json!({ "version": 1, "op": "reply", "nonce": document.nonce, "request_id": request_id, "ok": true, "value": value }),
-                    Err(error) => serde_json::json!({ "version": 1, "op": "reply", "nonce": document.nonce, "request_id": request_id, "ok": false, "error": error.code() }),
-                };
-                post(&sender, reply)
-            })), &mut self.tokens[2])?;
+            self.webview.add_WebMessageReceived(
+                &WebMessageReceivedEventHandler::create(Box::new(move |sender, args| {
+                    let (Some(sender), Some(args)) = (sender, args) else {
+                        return Ok(());
+                    };
+                    if shared.current(id).is_none() {
+                        return Ok(());
+                    }
+                    let source = read_string(|out| args.Source(out))?;
+                    if source != expected {
+                        return Ok(());
+                    }
+                    let message = read_string(|out| args.WebMessageAsJson(out))?;
+                    let Ok(request) = decode_request(&message) else {
+                        return Ok(());
+                    };
+                    if matches!(request, PageRequest::Connect) {
+                        connecting.set(true);
+                        if let Some(document) = session.borrow().as_ref() {
+                            post_welcome(&sender, document)?;
+                        }
+                        return Ok(());
+                    }
+                    let Some(document) = session.borrow().clone() else {
+                        return Ok(());
+                    };
+                    if document.authorize(&source, &request).is_err() {
+                        return Ok(());
+                    }
+                    let PageRequest::Call {
+                        request_id,
+                        ref operation,
+                        ..
+                    } = request
+                    else {
+                        return Ok(());
+                    };
+                    let sleeping = if let Operation::Snapshot {
+                        activity_request, ..
+                    } = operation
+                    {
+                        Some(*activity_request)
+                    } else {
+                        None
+                    };
+                    let result = app
+                        .state::<SurfaceHub>()
+                        .handle_page_request(&document, request);
+                    if matches!(&result, Ok(PageReply::Accepted(true))) {
+                        if let Some(request) = sleeping {
+                            snapshot.set(Some(request));
+                            shared.wake();
+                        }
+                    }
+                    post_reply(&sender, &document.nonce, request_id, result)
+                })),
+                &mut self.tokens[2],
+            )?;
 
             let app = state.app.clone();
             let environment = state.environment.as_ref().unwrap().clone();
@@ -1260,6 +1449,7 @@ struct DesiredHost {
 struct ControlMailbox {
     hosts: [Option<DesiredHost>; 10],
     closing: bool,
+    revision: u64,
     #[cfg(all(debug_assertions, feature = "vr-preview"))]
     reload: [Option<HostId>; 10],
     #[cfg(all(debug_assertions, feature = "vr-preview"))]
@@ -1285,6 +1475,7 @@ impl ControlMailbox {
             }
         }
         *slot = Some(host);
+        self.revision = self.revision.wrapping_add(1);
         true
     }
 
@@ -1298,6 +1489,7 @@ impl ControlMailbox {
     fn close(&mut self, id: HostId) {
         if self.current(id).is_some() {
             self.hosts[id.surface.index()] = None;
+            self.revision = self.revision.wrapping_add(1);
         }
     }
 
@@ -1313,6 +1505,7 @@ impl ControlMailbox {
     fn shutdown(&mut self) {
         self.closing = true;
         self.hosts.fill(None);
+        self.revision = self.revision.wrapping_add(1);
     }
 }
 

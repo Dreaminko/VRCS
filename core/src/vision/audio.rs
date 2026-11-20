@@ -216,7 +216,7 @@ impl MicrophoneTap {
                             ));
                             let additional = last - first;
                             if window.samples.capacity() < window.samples.len() + additional {
-                                window.samples.reserve_exact(additional);
+                                window.samples.reserve(additional);
                             }
                             window.samples.extend_from_slice(&samples[first..last]);
                         }

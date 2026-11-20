@@ -1,4 +1,5 @@
 {
+  "locale": "en-US",
   "labels": {
     "osc_tab": "OSC",
     "ocr_progress": {
@@ -147,7 +148,17 @@
     "delete_hint": "This cannot be undone.",
     "cancel": "Cancel",
     "position_hint": "Left/right · Up/down · Depth (m)",
-    "rotation_hint": "Pitch · Yaw · Roll (degrees)"
+    "rotation_hint": "Pitch · Yaw · Roll (degrees)",
+    "back": "Back",
+    "preferred": "Primary",
+    "master_off_banner": "VR Overlay is off — subtitles are currently hidden.",
+    "recognition_locked": "Managed by live service",
+    "translation_off_hint": "Translation mode is off.",
+    "delete_preset_title": "Delete language preset",
+    "no_presets": "No saved presets",
+    "anchor_mode": "Dialogue panel anchor",
+    "anchor_world": "Anchor in space",
+    "follow_view": "Follow view"
   },
   "enabled": true,
   "capture": {
@@ -217,6 +228,29 @@
         "can_decrease": true,
         "can_increase": true
       }
+    ],
+    "appearance": [
+      {
+        "field": "width_m",
+        "label": "Width",
+        "value": "1.20 m",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "opacity",
+        "label": "Opacity",
+        "value": "92%",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "font_size_px",
+        "label": "Font size",
+        "value": "54 px",
+        "can_decrease": true,
+        "can_increase": true
+      }
     ]
   },
   "wrist": {
@@ -281,6 +315,29 @@
         "field": "roll_deg",
         "label": "roll_deg",
         "value": "0.00",
+        "can_decrease": true,
+        "can_increase": true
+      }
+    ],
+    "appearance": [
+      {
+        "field": "width_m",
+        "label": "Width",
+        "value": "0.32 m",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "opacity",
+        "label": "Opacity",
+        "value": "94%",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "font_size_px",
+        "label": "Font size",
+        "value": "32 px",
         "can_decrease": true,
         "can_increase": true
       }

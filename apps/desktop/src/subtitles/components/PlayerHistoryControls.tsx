@@ -5,7 +5,9 @@ import type { PlayerProximitySettings, PlayerViewPrioritySettings } from "../../
 import type { PlayerAudioStatus } from "../../core-client/types";
 import type { SpeakerIdentity, Subtitle } from "../types";
 import { useSpeakerIdentity } from "../speaker-state";
+import { useHealthSelector } from "../../core-client/health-store";
 import { isAudioTrack, type PlayerHistoryPreferences } from "../player-history";
+import { useLanguageDetectorReady } from "../usePlayerHistoryPreferences";
 import { collectPlayerSpeakers, playerLanguageOptions, applyPlayerVisibilityAction, sortPlayerSpeakersByDistance, type PlayerSourceAction, type PlayerVisibilityAction } from "../player-controls";
 import type { PlayerSourceMode, PlayerSourceOverride } from "../../capture/types";
 import { playerUserId } from "../../capture/player-selection";
@@ -15,10 +17,11 @@ import { useDismissibleLayer } from "../../shared/hooks/use-dismissible-layer";
 import { useDropdownMenuMotion } from "../../shared/hooks/use-dropdown-menu-motion";
 import { PreferenceToggle, RangeField } from "../../settings/SettingsControls";
 
-export function PlayerHistoryControls({ subtitles, status, roster, enabled, selectedUserNames = {}, sourceOverrides = {}, sourceMode = "allowlist", proximity, viewPriority, defaultLanguages, preferences, onPreferences, onSource, onSourceMode, onProximityChange, onViewPriorityChange }: {
+export function PlayerHistoryControls({ subtitles, status, roster, useLiveHealth = false, enabled, selectedUserNames = {}, sourceOverrides = {}, sourceMode = "allowlist", proximity, viewPriority, defaultLanguages, preferences, onPreferences, onSource, onSourceMode, onProximityChange, onViewPriorityChange }: {
   subtitles: Subtitle[];
   status?: PlayerAudioStatus | null;
   roster?: PlayerAudioStatus["players"];
+  useLiveHealth?: boolean;
   enabled: boolean;
   selectedUserNames?: Record<string, string>;
   sourceOverrides?: Record<string, PlayerSourceOverride>;
@@ -64,7 +67,14 @@ export function PlayerHistoryControls({ subtitles, status, roster, enabled, sele
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<"current" | "history">("current");
-  const current = useMemo(() => panelMounted ? (roster ?? (enabled ? status?.players ?? [] : [])) : [], [panelMounted, roster, enabled, status?.players]);
+  const livePlayerAudio = useHealthSelector((health) => (useLiveHealth && panelMounted ? health?.player_audio ?? null : null));
+  const liveRoster = useHealthSelector((health) => (useLiveHealth && panelMounted ? health?.network_players : undefined));
+  const effectiveStatus = status !== undefined ? status : livePlayerAudio;
+  const effectiveRoster = roster !== undefined ? roster : liveRoster;
+  const current = useMemo(
+    () => panelMounted ? (effectiveRoster ?? (enabled ? effectiveStatus?.players ?? [] : [])) : [],
+    [panelMounted, effectiveRoster, enabled, effectiveStatus?.players],
+  );
   const currentIds = useMemo(() => current.map((player) => player.speaker.id), [current]);
   const savedUserIds = useMemo(() => Object.keys(sourceOverrides), [sourceOverrides]);
   const playerDistances = useMemo(() => new Map(current.map(player => [player.speaker.id, player.distance_m])), [current]);
@@ -82,11 +92,12 @@ export function PlayerHistoryControls({ subtitles, status, roster, enabled, sele
     .filter((id): id is string => id !== null)), [speakers, preferences.hiddenTracks]);
   const languages = preferences.hiddenSourceLanguages ?? [];
   const displayedRadius = proximity?.enabled ? proximity.radius_m : 0;
+  const languageDetectorReady = useLanguageDetectorReady();
   const languageCodes = useMemo(
     () => panelMounted
       ? playerLanguageOptions(subtitles, defaultLanguages, preferences.hiddenSourceLanguages).filter(language => !languages.includes(language))
       : [],
-    [panelMounted, subtitles, defaultLanguages, preferences.hiddenSourceLanguages, languages],
+    [panelMounted, subtitles, defaultLanguages, preferences.hiddenSourceLanguages, languages, languageDetectorReady],
   );
   const languageName = (language: string) => localizedLanguageName(language, i18n.resolvedLanguage ?? "en-US");
   const display = (action: PlayerVisibilityAction) => onPreferences(value => applyPlayerVisibilityAction(value, action, defaultLanguages));
@@ -128,7 +139,7 @@ export function PlayerHistoryControls({ subtitles, status, roster, enabled, sele
           min={30} max={180} step={1} disabled={!enabled || !viewPriority.enabled || !onViewPriorityChange}
           formatValue={(degrees) => `${degrees}°`}
           onCommit={(horizontal_fov_deg) => void onViewPriorityChange?.(true, horizontal_fov_deg)} />
-        {status?.proximity?.view_enabled && !status.proximity.local_view && <small role="status">{t("live.players.viewWaiting")}</small>}
+        {effectiveStatus?.proximity?.view_enabled && !effectiveStatus.proximity.local_view && <small role="status">{t("live.players.viewWaiting")}</small>}
       </div>}
       <fieldset className="player-history-languages">
         <legend>{t("live.players.languages")}</legend>

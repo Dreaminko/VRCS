@@ -18,6 +18,7 @@ use crate::config::{
     PlayerAudioConfig, PlayerProximityConfig, PlayerSourceOverride, PlayerViewPriorityConfig,
 };
 use crate::models::SpeakerIdentity;
+use crate::room_context::NetworkCapturePublisher;
 use crate::vrchat_log::VrchatLog;
 use crate::vrchat_process::ProcessIdentity;
 
@@ -28,6 +29,7 @@ pub(super) fn start(
     cache: Arc<SessionCache>,
     settings: Arc<std::sync::RwLock<crate::config::AppConfig>>,
     log: VrchatLog,
+    room_context: NetworkCapturePublisher,
 ) -> Result<Capture, String> {
     let tx = EventSender(outputs);
     let stop = Arc::new(AtomicBool::new(false));
@@ -35,7 +37,16 @@ pub(super) fn start(
     let thread = std::thread::Builder::new()
         .name("vrcs-vrchat-network".into())
         .spawn(move || {
-            let result = supervise(config, tx, &thread_stop, &status, &cache, &settings, log);
+            let result = supervise(
+                config,
+                tx,
+                &thread_stop,
+                &status,
+                &cache,
+                &settings,
+                log,
+                room_context,
+            );
             super::clear_view_priority();
             let mut state = status.lock().expect("player status");
             state.active_players = 0;
@@ -120,6 +131,7 @@ fn wait_cancellable(stop: &AtomicBool, duration: Duration) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn supervise(
     config: PlayerAudioConfig,
     tx: EventSender,
@@ -128,6 +140,7 @@ fn supervise(
     cache: &SessionCache,
     settings: &Arc<std::sync::RwLock<crate::config::AppConfig>>,
     log: VrchatLog,
+    room_context: NetworkCapturePublisher,
 ) -> Result<(), String> {
     while let Some((owner, path)) = wait_for_game(stop, status, crate::vrchat_process::game)? {
         if tx.is_closed() {
@@ -157,6 +170,7 @@ fn supervise(
                 cache,
                 settings,
                 log.clone(),
+                room_context.clone(),
             )
         });
         if stop.load(Ordering::Relaxed) {
@@ -238,9 +252,11 @@ fn run(
     cache: &SessionCache,
     settings: &Arc<std::sync::RwLock<crate::config::AppConfig>>,
     log: VrchatLog,
+    room_context: NetworkCapturePublisher,
 ) -> Result<(), String> {
     let pid = owner.pid;
-    let mut engine = Engine::new(None, config.max_players, tx, Arc::clone(status));
+    let mut engine = Engine::new(None, config.max_players, tx, Arc::clone(status))
+        .with_room_context(room_context.clone());
     let mut pending: VecDeque<Pending> = VecDeque::new();
     let mut pending_bytes = 0usize;
     let mut startup_packets: VecDeque<Pending> = VecDeque::new();
@@ -258,6 +274,7 @@ fn run(
     let mut world_poll = started - Duration::from_secs(1);
     let initial = log.snapshot();
     let mut world_ready = initial.process == Some(owner) && initial.ready;
+    let mut stream_ready_reported = false;
     let mut last_decrypted = started;
     let scan_stop = Arc::new(AtomicBool::new(false));
     let mut retry_at = started;
@@ -320,6 +337,7 @@ fn run(
                     engine.close_tracks_excluded();
                     engine.clear_text();
                     engine.clear_proximity();
+                    engine.invalidate_room_context();
                 }
                 world_poll = Instant::now();
                 if key.is_some() && !room_restored {
@@ -582,6 +600,14 @@ fn run(
                     }
                 }
             }
+            if std::mem::take(&mut engine.room_context_resync) {
+                stream_ready_reported = false;
+            }
+            let stream_ready = world_ready && key.is_some();
+            if stream_ready != stream_ready_reported {
+                room_context.set_stream_ready(stream_ready);
+                stream_ready_reported = stream_ready;
+            }
             engine.tick(Instant::now());
             if engine.tx.is_closed() {
                 break;
@@ -603,6 +629,7 @@ fn run(
     engine.clear_text();
     engine.clear_proximity();
     engine.publish_roster(Instant::now());
+    room_context.invalidate_network_room();
     if result.is_ok() && key.is_some() && stop.load(Ordering::Relaxed) {
         let snapshot = log.snapshot();
         if snapshot.process == Some(owner) {
@@ -622,6 +649,7 @@ struct Flow {
     inbound: Parser,
     outbound: Parser,
     nonces: VecDeque<(bool, [u8; 12])>,
+    nonce_set: HashSet<(bool, [u8; 12])>,
     last_seen: Instant,
     participants: HashMap<u16, Participant>,
     next_participant: u64,
@@ -687,6 +715,8 @@ struct Engine {
     admitted_proximity: HashSet<String>,
     admission_pending: HashSet<String>,
     proximity_status_at: Instant,
+    room_context: Option<NetworkCapturePublisher>,
+    room_context_resync: bool,
 }
 
 impl Engine {
@@ -713,6 +743,8 @@ impl Engine {
             self.tracks.clear();
             self.voice_generation = generation;
             self.voice_enabled_at = Instant::now();
+            self.roster_dirty = true;
+            self.room_context_resync = true;
             match Opus::load(&path) {
                 Ok(opus) => self.opus = Some(opus),
                 Err(error) => self
@@ -734,6 +766,10 @@ impl Engine {
             self.clear_text();
             self.text_enabled = enabled;
             self.text_enabled_at = Instant::now();
+            if enabled {
+                self.roster_dirty = true;
+                self.room_context_resync = true;
+            }
         }
     }
 
@@ -851,6 +887,19 @@ impl Engine {
             admitted_proximity: HashSet::new(),
             admission_pending: HashSet::new(),
             proximity_status_at: Instant::now() - Duration::from_secs(1),
+            room_context: None,
+            room_context_resync: false,
+        }
+    }
+
+    fn with_room_context(mut self, room_context: NetworkCapturePublisher) -> Self {
+        self.room_context = Some(room_context);
+        self
+    }
+
+    fn invalidate_room_context(&self) {
+        if let Some(publisher) = &self.room_context {
+            publisher.invalidate_network_room();
         }
     }
     fn selected(&self, id: &str) -> bool {
@@ -1047,7 +1096,8 @@ impl Engine {
                     world: None,
                     inbound: Parser::default(),
                     outbound: Parser::default(),
-                    nonces: VecDeque::new(),
+                    nonces: VecDeque::with_capacity(513),
+                    nonce_set: HashSet::with_capacity(513),
                     last_seen: now,
                     participants: HashMap::new(),
                     next_participant: 0,
@@ -1058,12 +1108,14 @@ impl Engine {
             allow_voice && self.tx.0.lock().expect("network outputs").voice_enabled();
         let flow = self.flows.get_mut(&connection).unwrap();
         let nonce: [u8; 12] = packet[7..19].try_into().unwrap();
-        if flow.nonces.contains(&(incoming, nonce)) {
+        if !flow.nonce_set.insert((incoming, nonce)) {
             return;
         }
         flow.nonces.push_back((incoming, nonce));
         if flow.nonces.len() > 512 {
-            flow.nonces.pop_front();
+            if let Some(evicted) = flow.nonces.pop_front() {
+                flow.nonce_set.remove(&evicted);
+            }
         }
         flow.last_seen = now;
         let parser = if incoming {
@@ -1190,6 +1242,7 @@ impl Engine {
                 self.flows.retain(|_, flow| flow.number == flow_number);
                 self.active_world = Some(world);
                 self.roster_dirty = true;
+                self.invalidate_room_context();
             }
         }
         if changed {
@@ -1224,9 +1277,8 @@ impl Engine {
                 .observe_player(&id, flow_number, epoch, position, now);
         }
         if spatial_changed {
-            self.publish_view_priority(now);
+            self.publish_spatial_state(now, spatial_enabled, true);
         }
-        self.update_proximity_status(now);
         for (voice, participant) in voices {
             self.voice(flow_number, epoch, voice, participant, now);
         }
@@ -1396,7 +1448,7 @@ impl Engine {
                     break;
                 }
                 track.next_playout += Duration::from_millis(20);
-                if std::mem::take(&mut track.buffer.reset) {
+                if std::mem::take(&mut track.buffer.reset) && !track.decoder.reset() {
                     if let Some(Ok(decoder)) = self.opus.as_ref().map(|opus| opus.decoder()) {
                         track.decoder = decoder;
                     }
@@ -1406,10 +1458,10 @@ impl Engine {
                         Ok(samples) => samples,
                         Err(_) => {
                             self.status.lock().expect("player status").decode_errors += 1;
-                            vec![0.0; 320]
+                            [0.0; 320]
                         }
                     },
-                    None => vec![0.0; 320],
+                    None => [0.0; 320],
                 };
                 track.pending.extend(samples);
                 while track.pending.len() >= 512 {
@@ -1456,28 +1508,32 @@ impl Engine {
             })
             .collect();
         players.sort_by_key(|player| player.speaker.index);
+        if let Some(publisher) = &self.room_context {
+            publisher.replace_members(&players);
+        }
         self.status.lock().expect("player status").players = players;
     }
-    fn update_proximity_status(&mut self, now: Instant) {
-        let mut status = self.status.lock().expect("player status");
-        status.proximity.enabled = self.proximity_config.enabled;
-        status.proximity.local_position = self.proximity.local_fresh(now);
-        status.proximity.tracked_players = self.proximity.fresh_players(now);
-    }
-    fn publish_view_priority(&mut self, now: Instant) {
-        let outputs = self.tx.0.lock().expect("network outputs");
+    fn publish_spatial_state(&mut self, now: Instant, voice_enabled: bool, update_proximity: bool) {
         let (enabled, local_view, visible, valid_until) = self.proximity.visibility(
-            self.view_priority_config.enabled && outputs.voice_enabled(),
+            self.view_priority_config.enabled && voice_enabled,
             self.view_priority_config.horizontal_fov_deg,
             now,
         );
         let count = visible.len();
         super::publish_view_priority(enabled, visible, valid_until);
-        drop(outputs);
         let mut status = self.status.lock().expect("player status");
         status.proximity.view_enabled = enabled;
         status.proximity.local_view = local_view;
         status.proximity.in_view_players = count;
+        if update_proximity {
+            status.proximity.enabled = self.proximity_config.enabled;
+            status.proximity.local_position = self.proximity.local_fresh(now);
+            status.proximity.tracked_players = self.proximity.fresh_players(now);
+        }
+    }
+    fn publish_view_priority(&mut self, now: Instant) {
+        let voice_enabled = self.tx.0.lock().expect("network outputs").voice_enabled();
+        self.publish_spatial_state(now, voice_enabled, false);
     }
     fn refresh_proximity(&mut self, now: Instant) {
         let mut ids = self.admitted_proximity.clone();
@@ -1597,6 +1653,7 @@ impl Engine {
         self.identities.clear();
         self.active_world = None;
         self.roster_dirty = true;
+        self.invalidate_room_context();
     }
     fn close_tracks(&mut self) {
         // Include idle players whose decoder is gone but recognition may still
@@ -2343,6 +2400,7 @@ mod tests {
                 Arc::clone(&cache),
                 Arc::new(std::sync::RwLock::new(crate::config::AppConfig::default())),
                 VrchatLog::default(),
+                crate::room_context::RoomContextStore::default().network_publisher(),
             )
             .unwrap();
             tokio::time::sleep(Duration::from_millis(30)).await;

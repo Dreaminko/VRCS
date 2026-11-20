@@ -76,6 +76,8 @@ pub struct ControlItem {
     pub busy: bool,
     pub label: String,
     pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,6 +94,7 @@ pub struct ControlSnapshot {
 pub struct ControlHub {
     active: bool,
     snapshot: ControlSnapshot,
+    version: u64,
     #[cfg(any(windows, linux_vr, test))]
     sequence: u32,
     pending: [Option<ControlRequest>; 5],
@@ -108,6 +111,11 @@ pub struct ControlHub {
 }
 
 impl ControlHub {
+    #[cfg(any(windows, linux_vr, test))]
+    pub fn ui_version(&self) -> u64 {
+        self.version
+    }
+
     #[cfg(any(windows, linux_vr, test))]
     pub fn player_display(&self) -> &super::player_display::View {
         &self.player_display
@@ -136,6 +144,7 @@ impl ControlHub {
         }
         self.player_display_revision = revision;
         self.player_display = view;
+        self.version = self.version.wrapping_add(1);
         true
     }
 
@@ -166,6 +175,7 @@ impl ControlHub {
         self.player_display_failure = None;
         self.player_display_pending
             .insert(request.request_id, request.clone());
+        self.version = self.version.wrapping_add(1);
         Some(request)
     }
 
@@ -181,6 +191,7 @@ impl ControlHub {
         self.player_display.busy = !self.player_display_pending.is_empty();
         self.player_display_failure = error.clone();
         self.player_display.error = error;
+        self.version = self.version.wrapping_add(1);
         true
     }
 
@@ -193,6 +204,7 @@ impl ControlHub {
         }
         self.player_display_pending.clear();
         self.player_display_failure = None;
+        self.version = self.version.wrapping_add(1);
     }
 
     #[cfg(any(windows, linux_vr, test))]
@@ -258,7 +270,11 @@ impl ControlHub {
     }
 
     pub fn set_overlay_effective(&mut self, wrist: bool, headset: bool) {
-        self.overlay_effective = Some([wrist, headset]);
+        let next = Some([wrist, headset]);
+        if self.overlay_effective != next {
+            self.overlay_effective = next;
+            self.version = self.version.wrapping_add(1);
+        }
     }
 
     pub fn register(&mut self, mut view: ControlSnapshot) -> Result<ControlSnapshot, String> {
@@ -279,6 +295,7 @@ impl ControlHub {
         self.player_audio_revision = 0;
         self.reset_player_display();
         self.active = true;
+        self.version = self.version.wrapping_add(1);
         Ok(self.snapshot())
     }
 
@@ -291,6 +308,7 @@ impl ControlHub {
             item.available = false;
             item.busy = false;
         }
+        self.version = self.version.wrapping_add(1);
     }
 
     pub fn update(
@@ -305,7 +323,7 @@ impl ControlHub {
         view.revision = self.snapshot.revision;
         for (index, item) in view.items.iter_mut().enumerate() {
             item.busy |= self.pending[index].is_some();
-            if item.requested != self.snapshot.items[index].requested {
+            if item.hidden || item.requested != self.snapshot.items[index].requested {
                 self.failures[index] = None;
             }
             if item.reason.is_none() {
@@ -318,6 +336,7 @@ impl ControlHub {
                 .checked_add(1)
                 .ok_or("Control revision exhausted")?;
             self.snapshot = view;
+            self.version = self.version.wrapping_add(1);
         }
         Ok(self.snapshot())
     }
@@ -330,7 +349,7 @@ impl ControlHub {
     ) -> Option<ControlRequest> {
         let index = action.index();
         let item = &mut self.snapshot.items[index];
-        if !self.active || !item.available || item.busy {
+        if !self.active || item.hidden || !item.available || item.busy {
             return None;
         }
         self.sequence = self.sequence.checked_add(1)?;
@@ -345,6 +364,7 @@ impl ControlHub {
         item.reason = None;
         self.failures[index] = None;
         self.pending[index] = Some(request.clone());
+        self.version = self.version.wrapping_add(1);
         Some(request)
     }
 
@@ -357,6 +377,7 @@ impl ControlHub {
         self.snapshot.items[index].busy = false;
         self.failures[index] = error.clone();
         self.snapshot.items[index].reason = error;
+        self.version = self.version.wrapping_add(1);
         true
     }
 }
@@ -708,6 +729,56 @@ mod tests {
         assert!(!view.items[4].busy);
         assert_eq!(view.items[4].reason.as_deref(), Some("Save failed"));
         assert!(view.items[..4].iter().all(|item| item.reason.is_none()));
+    }
+
+    #[test]
+    fn hidden_photo_gesture_rejects_actions_updates_version_and_clears_stale_failures() {
+        let mut hub = ready();
+        let epoch = hub.snapshot().owner_epoch;
+        let request = hub
+            .begin(
+                ControlSource::WristMenu,
+                ControlAction::SetOcrGestureEnabled(false),
+            )
+            .unwrap();
+        assert!(hub.finish(&request, Some("Save failed".into())));
+        assert_eq!(
+            hub.snapshot().items[4].reason.as_deref(),
+            Some("Save failed")
+        );
+
+        let mut hidden_view = hub.snapshot();
+        hidden_view.items[4].reason = None;
+        hidden_view.items[4].hidden = true;
+        let serialized = serde_json::to_value(&hidden_view).unwrap();
+        assert_eq!(serialized["items"][4]["hidden"], serde_json::json!(true));
+        assert!(serialized["items"][0].get("hidden").is_none());
+
+        let version_before = hub.ui_version();
+        let revision_before = hub.snapshot().revision;
+        let updated = hub.update(epoch, hidden_view.clone()).unwrap();
+        assert!(updated.items[4].hidden);
+        assert_eq!(updated.items[4].reason, None);
+        assert_eq!(updated.revision, revision_before + 1);
+        assert_ne!(hub.ui_version(), version_before);
+        assert!(hub
+            .begin(
+                ControlSource::WristMenu,
+                ControlAction::SetOcrGestureEnabled(false),
+            )
+            .is_none());
+
+        let mut shown_view = updated;
+        shown_view.items[4].hidden = false;
+        let restored = hub.update(epoch, shown_view).unwrap();
+        assert!(!restored.items[4].hidden);
+        assert_eq!(restored.items[4].reason, None);
+        assert!(hub
+            .begin(
+                ControlSource::WristMenu,
+                ControlAction::SetOcrGestureEnabled(false),
+            )
+            .is_some());
     }
 
     #[test]

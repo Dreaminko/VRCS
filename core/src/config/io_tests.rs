@@ -401,3 +401,18 @@ fn null_ocr_wrist_config_is_initialized_on_load() {
     let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     assert!(saved["ocr"]["wrist"].is_object());
 }
+
+#[test]
+fn v45_migrates_to_v46_with_vrchat_context_defaults() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["schema_version"] = serde_json::json!(45);
+    raw.as_object_mut().unwrap().remove("vrchat_context");
+    fs::write(&path, serde_json::to_vec(&raw).unwrap()).unwrap();
+    let migrated = load_config(&path).unwrap();
+    assert_eq!(migrated.schema_version, 46);
+    assert!(!migrated.vrchat_context.include_in_asr_context);
+    assert!(!migrated.vrchat_context.include_in_translation_context);
+    assert!(migrated.vrchat_context.include_world_name);
+}
