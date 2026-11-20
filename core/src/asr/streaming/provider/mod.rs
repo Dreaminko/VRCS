@@ -429,9 +429,9 @@ pub(super) fn pcm16_bytes(samples: &[f32]) -> Vec<u8> {
     bytes
 }
 
-pub(super) fn pcm16_base64(samples: &[f32]) -> String {
+pub(super) fn append_pcm16_base64(samples: &[f32], out: &mut String) {
     use base64::Engine as _;
-    base64::engine::general_purpose::STANDARD.encode(pcm16_bytes(samples))
+    base64::engine::general_purpose::STANDARD.encode_string(&pcm16_bytes(samples), out);
 }
 
 pub(super) fn resample_16k_to_24k(samples: &[f32]) -> Vec<f32> {

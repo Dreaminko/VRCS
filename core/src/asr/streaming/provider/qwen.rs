@@ -1,4 +1,5 @@
 use serde_json::{json, Value};
+use std::fmt::Write as _;
 use tokio_tungstenite::tungstenite::http::Request;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -7,7 +8,7 @@ use crate::providers::SERVICE_QWEN_REALTIME;
 use crate::providers::SERVICE_TOKEN_PLAN_REALTIME;
 
 use super::{
-    authenticated_request, event_language, pcm16_base64, service_settings, CloudEvent,
+    append_pcm16_base64, authenticated_request, event_language, service_settings, CloudEvent,
     NormalizationState,
 };
 
@@ -183,15 +184,14 @@ pub(super) fn normalize_event(
 }
 
 pub(super) fn audio_message(samples: &[f32]) -> Message {
-    Message::Text(
-        json!({
-            "type": "input_audio_buffer.append",
-            "audio": pcm16_base64(samples),
-            "event_id": uuid::Uuid::new_v4().to_string(),
-        })
-        .to_string()
-        .into(),
-    )
+    let b64_len = (samples.len() * 2).div_ceil(3) * 4;
+    let mut out = String::with_capacity(96 + b64_len + 38);
+    out.push_str("{\"type\":\"input_audio_buffer.append\",\"audio\":\"");
+    append_pcm16_base64(samples, &mut out);
+    out.push_str("\",\"event_id\":\"");
+    let _ = write!(&mut out, "{}", uuid::Uuid::new_v4());
+    out.push_str("\"}");
+    Message::Text(out.into())
 }
 
 pub(super) fn commit_message() -> Message {

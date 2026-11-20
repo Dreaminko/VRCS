@@ -5,8 +5,8 @@ use crate::config::AsrConfig;
 use crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE;
 
 use super::{
-    authenticated_request, live_translation, pcm16_base64, resample_16k_to_24k, service_settings,
-    CloudEvent, InitializationEvent,
+    append_pcm16_base64, authenticated_request, live_translation, resample_16k_to_24k,
+    service_settings, CloudEvent, InitializationEvent,
 };
 
 const TRANSCRIPTION_MODEL: &str = "gpt-realtime-whisper";
@@ -68,12 +68,13 @@ pub(super) fn initialization_event(value: &Value, update: &Value) -> Initializat
 }
 
 pub(super) fn audio_message(samples: &[f32]) -> Message {
-    Message::Text(
-        json!({"type": "session.input_audio_buffer.append",
-        "audio": pcm16_base64(&resample_16k_to_24k(samples))})
-        .to_string()
-        .into(),
-    )
+    let resampled = resample_16k_to_24k(samples);
+    let b64_len = (resampled.len() * 2).div_ceil(3) * 4;
+    let mut out = String::with_capacity(72 + b64_len);
+    out.push_str("{\"type\":\"session.input_audio_buffer.append\",\"audio\":\"");
+    append_pcm16_base64(&resampled, &mut out);
+    out.push_str("\"}");
+    Message::Text(out.into())
 }
 
 pub(super) fn normalize_event(

@@ -844,6 +844,7 @@ async fn run_session_inner(
         mut context_state,
     } = io;
     let mut audio_buffer = Vec::with_capacity(2048);
+    let mut audio_head = 0usize;
     let mut pending_audio = false;
     let mut in_transcript = false;
     let mut last_audio_at = Instant::now() - CONTEXT_REFRESH_DEBOUNCE;
@@ -894,7 +895,7 @@ async fn run_session_inner(
                     CONTEXT_REFRESH_DEBOUNCE
                 };
                 let safe_boundary = !in_transcript
-                    && audio_buffer.is_empty()
+                    && audio_head == audio_buffer.len()
                     && match provider.segmentation_mode() {
                         SegmentationMode::LocalCommit => !pending_audio,
                         SegmentationMode::ServerVad | SegmentationMode::Continuous => {
@@ -925,15 +926,19 @@ async fn run_session_inner(
                         StreamingInput::Audio(samples) | StreamingInput::AudioActivity(samples, _) => {
                             pending_audio = true;
                             audio_buffer.extend_from_slice(&samples);
-                            while let Some(packet) = take_audio_packet(&mut audio_buffer, provider.audio_packet_samples()) {
-                                send_audio(provider, socket, packet).await?;
-                            }
+                            send_ready_packets(
+                                provider,
+                                socket,
+                                &mut audio_buffer,
+                                &mut audio_head,
+                            )
+                            .await?;
                         }
                         StreamingInput::Commit(result) => { let _ = result.send(Ok(())); }
                         StreamingInput::FinishQuestion(result) => { let _ = result.send(Err("Question session was stopped".into())); }
                     }
                 }
-                flush_audio_buffer(provider, socket, &mut audio_buffer).await?;
+                flush_audio_buffer(provider, socket, &mut audio_buffer, &mut audio_head).await?;
                 if pending_audio {
                     let _ = commit_utterance(provider, socket).await;
                 }
@@ -952,11 +957,15 @@ async fn run_session_inner(
                         let idle = provider.segmentation_mode() == SegmentationMode::Continuous && activity.push(samples.len(), speech);
                         pending_audio = true;
                         audio_buffer.extend_from_slice(samples.as_slice());
-                        while let Some(packet) = take_audio_packet(&mut audio_buffer, provider.audio_packet_samples()) {
-                            send_audio(provider, socket, packet).await?;
-                        }
+                        send_ready_packets(
+                            provider,
+                            socket,
+                            &mut audio_buffer,
+                            &mut audio_head,
+                        )
+                        .await?;
                         if idle {
-                            flush_audio_buffer(provider, socket, &mut audio_buffer).await?;
+                            flush_audio_buffer(provider, socket, &mut audio_buffer, &mut audio_head).await?;
                             let mut resume = if connection_rate_controlled(config) { idle::ResumeBuffer::realtime() } else { idle::ResumeBuffer::default() };
                             let closing = finish_aligned(provider, socket, config, task_id, normalization, events, pending_audio);
                             if let Err(error) = idle::collect_until(closing, audio, &mut resume).await {
@@ -978,7 +987,7 @@ async fn run_session_inner(
                     }
                     Some(StreamingInput::Commit(result)) => {
                         let commit = async {
-                            flush_audio_buffer(provider, socket, &mut audio_buffer).await?;
+                            flush_audio_buffer(provider, socket, &mut audio_buffer, &mut audio_head).await?;
                             commit_utterance(provider, socket).await
                         }
                         .await;
@@ -994,7 +1003,7 @@ async fn run_session_inner(
                         }
                     }
                     None => {
-                        flush_audio_buffer(provider, socket, &mut audio_buffer).await?;
+                        flush_audio_buffer(provider, socket, &mut audio_buffer, &mut audio_head).await?;
                         if pending_audio {
                             let _ = commit_utterance(provider, socket).await;
                         }
@@ -1158,32 +1167,60 @@ fn normalize_event(
 #[cfg(test)]
 const AUDIO_PACKET_SAMPLES: usize = 1600;
 
+#[cfg(test)]
 fn take_audio_packet(buffer: &mut Vec<f32>, packet_samples: usize) -> Option<Vec<f32>> {
     (buffer.len() >= packet_samples).then(|| buffer.drain(..packet_samples).collect())
 }
 
+#[cfg(test)]
 fn take_buffered_audio(buffer: &mut Vec<f32>) -> Option<Vec<f32>> {
     (!buffer.is_empty()).then(|| std::mem::take(buffer))
+}
+
+async fn send_ready_packets(
+    provider: Provider,
+    socket: &mut Socket,
+    buffer: &mut Vec<f32>,
+    head: &mut usize,
+) -> Result<(), String> {
+    let packet_samples = provider.audio_packet_samples();
+    while buffer.len() - *head >= packet_samples {
+        send_audio(provider, socket, &buffer[*head..*head + packet_samples]).await?;
+        *head += packet_samples;
+    }
+    if *head == buffer.len() {
+        buffer.clear();
+        *head = 0;
+    } else if *head >= 4096 {
+        let remaining = buffer.len() - *head;
+        buffer.copy_within(*head.., 0);
+        buffer.truncate(remaining);
+        *head = 0;
+    }
+    Ok(())
 }
 
 async fn flush_audio_buffer(
     provider: Provider,
     socket: &mut Socket,
     buffer: &mut Vec<f32>,
+    head: &mut usize,
 ) -> Result<(), String> {
-    let Some(samples) = take_buffered_audio(buffer) else {
-        return Ok(());
-    };
-    send_audio(provider, socket, samples).await
+    if *head < buffer.len() {
+        send_audio(provider, socket, &buffer[*head..]).await?;
+        buffer.clear();
+        *head = 0;
+    }
+    Ok(())
 }
 
 async fn send_audio(
     provider: Provider,
     socket: &mut Socket,
-    samples: Vec<f32>,
+    samples: &[f32],
 ) -> Result<(), String> {
     socket
-        .send(provider.audio_message(&samples))
+        .send(provider.audio_message(samples))
         .await
         .map_err(|error| format!("Failed to send cloud recognition audio: {error}"))
 }
@@ -1276,7 +1313,7 @@ async fn finish_aligned(
         // The continuous translator needs audio frames to emit its buffered tail.
         // audioStreamEnd alone did not flush the final words in live probes.
         for _ in 0..5 {
-            send_audio(provider, socket, vec![0.0; 1600]).await?;
+            send_audio(provider, socket, &[0.0; 1600]).await?;
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
