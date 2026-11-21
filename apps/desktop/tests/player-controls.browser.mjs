@@ -45,19 +45,21 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           const [focused,setFocused]=useState(null);
           const [height,setHeight]=useState(850);
           const [proximity,setProximity]=useState({enabled:false,radius_m:10});
+          const [viewPriority,setViewPriority]=useState({enabled:false,horizontal_fov_deg:120});
           const [sourceMode,setSourceMode]=useState('allowlist');
           changeHeight=setHeight;
           changeFocus=setFocused;
           scrollApi=useLiveConversationScroll({page:'live',activeConversationId:'current',selectedConversationId:'current',openedConversationId:'current',loadingConversationSubtitles:false,selectedConversationUpdatedAt:String(subtitles.length),focusedSubtitleId:focused});
           const scroll=scrollApi.liveScrollRef;
-          state={preferences,overrides,subtitles,proximity};changeLanguages=languages=>setPreferences(value=>({...value,hiddenSourceLanguages:languages}));changeRows=setSubtitles;changePlayers=setPlayers;changeOverrides=setOverrides;
+          state={preferences,overrides,subtitles,proximity,viewPriority};changeLanguages=languages=>setPreferences(value=>({...value,hiddenSourceLanguages:languages}));changeRows=setSubtitles;changePlayers=setPlayers;changeOverrides=setOverrides;
           changeHiddenTracks=hiddenTracks=>setPreferences(value=>({...value,hiddenTracks}));
           return <div className="app-shell live-shell sidebar-collapsed" style={{height}}><div className="window-chrome">VRCS</div><div className="app-body">
             <WorkspaceFrame page="live" scrollRef={scroll} onScroll={scrollApi.onLiveScroll} toolbar={
             <TopStatus connection="connected" health={null} settings={null} controls={<PlayerHistoryControls subtitles={subtitles} status={{players:players.map(speaker=>({speaker,active:true,selected:true}))}}
-              enabled={true} sourceOverrides={overrides} defaultLanguages={defaults} preferences={preferences} onPreferences={setPreferences} proximity={proximity}
+              enabled={true} sourceOverrides={overrides} defaultLanguages={defaults} preferences={preferences} onPreferences={setPreferences} proximity={proximity} viewPriority={viewPriority}
               sourceMode={sourceMode} onSourceMode={setSourceMode}
               onProximityChange={radius_m=>setProximity({enabled:radius_m>0,radius_m})}
+              onViewPriorityChange={(enabled,horizontal_fov_deg)=>setViewPriority({enabled,horizontal_fov_deg})}
               onSource={async (action,speaker)=>{await new Promise(resolve=>setTimeout(resolve,30));setOverrides(current=>applyPlayerSourceAction({audio:{output:{mode:'vrchat_players',player_audio:{source_overrides:current,source_mode:sourceMode}}}},action,speaker).audio.output.player_audio.source_overrides);}} />}/>
             }>
             <LiveView subtitles={subtitles} hiddenTracks={preferences.hiddenTracks} hiddenSourceLanguages={preferences.hiddenSourceLanguages??[]}
@@ -150,6 +152,16 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
               'the panel expands from the trigger center, not the toolbar or window corner');
           };
           checkAnchor();
+          const rulesDetails=document.querySelector('.player-history-rules');
+          const rulesSummary=rulesDetails?.querySelector('summary');
+          const ruleChip=(index)=>rulesSummary?.querySelectorAll('.player-history-rule-chip')[index];
+          const chipMatches=(chip,label,value,active)=>chip?.querySelector('span')?.textContent===label&&chip?.querySelector('strong')?.textContent===value&&chip?.classList.contains('is-active')===active;
+          check(rulesDetails&&!rulesDetails.open,'spatial rules are collapsed into a unified menu by default');
+          check(rulesSummary&&rulesSummary.textContent.includes('筛选规则')&&chipMatches(ruleChip(0),'识别距离','关闭',false)&&chipMatches(ruleChip(1),'水平视角','关闭',false),'collapsed rules summary shows title and initial rule chips');
+          rulesSummary.click();
+          for(const animation of rulesDetails.getAnimations({subtree:true}))animation.finish();
+          await settled();
+          check(rulesDetails.open,'clicking the unified rules summary expands both spatial settings');
           const proximityRow=document.querySelector('.player-history-proximity');
           check(proximityRow&&proximityRow.querySelector('.range-field-header span')?.textContent==='识别距离','the distance slider keeps its title above the track');
           check(!proximityRow.querySelector('legend'),'only the language control labels its border');
@@ -167,8 +179,37 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           };
           await setRadius(3);
           check(state.proximity.enabled&&radiusInput.getAttribute('aria-valuetext')==='3.0 m','a positive distance enables filtering');
+          check(chipMatches(ruleChip(0),'识别距离','3.0 m',true),'rules summary updates when recognition distance changes');
           await setRadius(0);
           check(!state.proximity.enabled&&radiusInput.getAttribute('aria-valuetext')==='关闭','dragging back to zero turns filtering off');
+          check(chipMatches(ruleChip(0),'识别距离','关闭',false),'rules summary restores distance off state');
+          const viewCard=document.querySelector('.player-history-proximity[aria-label="优先处理视野内玩家（实验性）"]');
+          check(viewCard&&viewCard.querySelector('.settings-toggle-row')&&viewCard.querySelector('.settings-switch-button')&&viewCard.querySelector('.range-field'),'view priority card renders its toggle and range field');
+          const proximityCardRect=proximityRow.getBoundingClientRect();
+          const proximityHeaderRect=proximityRow.querySelector('.range-field-header').getBoundingClientRect();
+          const viewCardRect=viewCard.getBoundingClientRect();
+          const toggleRowRect=viewCard.querySelector('.settings-toggle-row').getBoundingClientRect();
+          const toggleTitleRect=viewCard.querySelector('.settings-toggle-copy strong').getBoundingClientRect();
+          const viewSwitch=viewCard.querySelector('.settings-switch-button');
+          const switchRect=viewSwitch.getBoundingClientRect();
+          const viewRangeLabelRect=viewCard.querySelector('.range-field-header span').getBoundingClientRect();
+          const viewRangeOutputRect=viewCard.querySelector('.range-field-header output').getBoundingClientRect();
+          check(Math.abs((toggleRowRect.top-viewCardRect.top)-(proximityHeaderRect.top-proximityCardRect.top))<=2,'view priority toggle top inset matches proximity header top inset');
+          check((switchRect.top-viewCardRect.top)<=13,'view priority switch has compact top inset inside the card');
+          check(Math.abs(toggleTitleRect.left-viewRangeLabelRect.left)<1,'view priority title aligns horizontally with the horizontal view label');
+          check(Math.abs(switchRect.right-viewRangeOutputRect.right)<1,'view priority switch right edge aligns with the angle output badge');
+          const viewRangeInput=viewCard.querySelector('input[type=range]');
+          check(viewRangeInput.disabled,'view angle slider starts disabled when view priority is off');
+          click(viewSwitch);
+          await wait(()=>state.viewPriority.enabled&&!viewRangeInput.disabled);
+          check(chipMatches(ruleChip(1),'水平视角','120°',true),'rules summary updates when view priority is enabled');
+          click(viewSwitch);
+          await wait(()=>!state.viewPriority.enabled&&viewRangeInput.disabled);
+          check(chipMatches(ruleChip(1),'水平视角','关闭',false),'rules summary restores view priority off state');
+          rulesSummary.click();
+          for(const animation of rulesDetails.getAnimations({subtree:true}))animation.finish();
+          await settled();
+          check(!rulesDetails.open,'clicking the rules summary again collapses the menu');
           document.body.style.zoom='1.25';
           await settled();checkAnchor();
           document.body.style.zoom='';
@@ -212,8 +253,11 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           check(region.getBoundingClientRect().top===initialRegionTop,'the floating panel does not move the conversation');
           const expanded=document.querySelector('.player-history-panel').getBoundingClientRect();
           check(expanded.left>=0&&expanded.right<=innerWidth+1&&expanded.top>triggerRect.bottom,'settings open below the toolbar within the viewport');
-          const contentBox=document.querySelector('.player-history-proximity').getBoundingClientRect();
-          check(Math.abs(contentBox.left-expanded.left-(expanded.right-contentBox.right))<1,'panel content is horizontally centered instead of leaving extra space on the right');
+          const bodyEl=document.querySelector('.player-history-body');
+          const scrollbarWidth=bodyEl.offsetWidth-bodyEl.clientWidth;
+          check(bodyEl.scrollHeight>bodyEl.clientHeight||scrollbarWidth===0,'non-scrolling panel does not reserve an empty scrollbar gutter');
+          const contentBox=document.querySelector('.player-history-rules').getBoundingClientRect();
+          check(Math.abs((contentBox.left-expanded.left)-(expanded.right-scrollbarWidth-contentBox.right))<1,'panel content is horizontally centered instead of leaving extra space on the right');
           check(groupButton('current').getAttribute('aria-pressed')==='true'&&groupButton('history').getAttribute('aria-pressed')==='false','the player list defaults to the current world');
           check(document.querySelectorAll('.player-history-list .player-history-row').length===2,'only current-world players are listed initially');
           const groupSelector=document.querySelector('.player-history-groups').getBoundingClientRect();
