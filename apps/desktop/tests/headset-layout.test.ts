@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { visibleCaption, visibleTail } from "../src/vr-surface/headset-layout.ts";
+import { visibleTail } from "../src/vr-surface/headset-layout.ts";
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const fits = (limit: number) => (text: string) => [...segmenter.segment(text)].length <= limit;
@@ -13,18 +13,9 @@ test("growing captions retain the same newest text instead of shrinking it", () 
   assert.equal(visibleTail("", fits(0)), "");
 });
 
-test("caption truncation preserves speaker labels and complete Unicode graphemes", () => {
+test("caption truncation preserves complete Unicode graphemes", () => {
   const text = "之前的内容 👨‍👩‍👧‍👦e\u0301 🇯🇵";
   assert.equal(visibleTail(text, fits(6)), "…👨‍👩‍👧‍👦e\u0301 🇯🇵");
-  assert.equal(visibleCaption(`[12] ${text}`, fits(11)), "[12] …👨‍👩‍👧‍👦e\u0301 🇯🇵");
-  assert.equal(visibleCaption("[2] long caption", fits(3)), "[2]");
-  assert.equal(visibleCaption("[2] long caption", fits(2)), "");
-});
-
-test("ordinary brackets are not treated as numeric speaker labels", () => {
-  for (const text of ["普通字幕保持结尾", "[note] long caption", "[] long caption", "[2]caption"]) {
-    assert.equal(visibleCaption(text, fits(8)), visibleTail(text, fits(8)));
-  }
 });
 
 test("English captions prefer whole words but keep the end of oversized tokens", () => {

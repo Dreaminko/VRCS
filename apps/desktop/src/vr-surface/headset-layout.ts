@@ -23,10 +23,3 @@ export function visibleTail(text: string, fits: (candidate: string) => boolean):
   const readable = `…${text.slice(start).trimStart()}`;
   return fits(readable) ? readable : fitted;
 }
-
-export function visibleCaption(text: string, fits: (candidate: string) => boolean): string {
-  const label = /^\[\d+\] /.exec(text)?.[0];
-  if (!label) return visibleTail(text, fits);
-  const caption = label + visibleTail(text.slice(label.length), (candidate) => fits(label + candidate));
-  return fits(caption) ? caption : fits(label.trimEnd()) ? label.trimEnd() : "";
-}

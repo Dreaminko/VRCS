@@ -5,7 +5,6 @@ export type ControlAction =
   | { set_capture_running: boolean }
   | { set_ocr_gesture_enabled: boolean };
 
-export type ControlKey = "wrist" | "headset" | "osc" | "capture" | "ocr_gesture";
 export type ControlSource = "dashboard" | "wrist_menu" | "dev_preview";
 
 export interface ControlRequest {

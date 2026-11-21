@@ -61,12 +61,6 @@
 .learning-ai-settings-description { margin: -4px 0 14px; color: var(--text-secondary); font-size: var(--settings-text-body); line-height: var(--settings-leading-reading); }
 .learning-ai-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px 16px; }
 .learning-ai-settings-grid .field { min-width: 0; }
-.learning-ai-settings-message { margin: 0; color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
-.learning-ai-settings-message.error { color: var(--error); }
-.learning-ai-privacy-note { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--warning-border); border-radius: var(--radius-sm); color: var(--warning); background: var(--warning-soft); }
-.learning-ai-privacy-note.local { border-color: var(--primary-soft); color: var(--primary-ink); background: var(--primary-softer); }
-.learning-ai-privacy-note strong { font-size: var(--settings-text-body); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
-.learning-ai-privacy-note p { margin: 4px 0 0; font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .anki-section .section-heading h3 { white-space: nowrap; }
 .anki-connection,
 .osc-connection {
@@ -203,7 +197,6 @@
 .osc-port-field input:focus { border-color: var(--primary); box-shadow: var(--control-focus-shadow); }
 .anki-port-field input[aria-invalid="true"],
 .osc-port-field input[aria-invalid="true"] { border-color: var(--error); }
-.translation-model-field input:disabled,
 .anki-port-field input:disabled,
 .osc-port-field input:disabled,
 .model-directory-setting input:disabled { color: var(--text-quiet); background: var(--surface-subtle); }

@@ -154,12 +154,6 @@ export function clearLivePartials() {
   sources.forEach((source) => notifyKey(livePartialListeners, source));
 }
 
-export function getLivePartial(
-  source: LiveTranscription["source"],
-): LiveTranscription | null {
-  return livePartials.get(source)?.at(-1) ?? null;
-}
-
 export function getLivePartials(source: LiveTranscription["source"]): LiveTranscription[] {
   return livePartials.get(source) ?? EMPTY_LIVE_PARTIALS;
 }
@@ -181,17 +175,6 @@ export function livePartialHasSubtitle(
     subtitle.utterance_id === partial.source_utterance_id
     && (subtitle.source ?? "speaker") === partial.source,
   ));
-}
-
-export function useLivePartial(
-  source: LiveTranscription["source"],
-): LiveTranscription | null {
-  const subscribeSource = useCallback(
-    (listener: Listener) => subscribeKey(livePartialListeners, source, listener),
-    [source],
-  );
-  const getSnapshot = useCallback(() => getLivePartial(source), [source]);
-  return useSyncExternalStore(subscribeSource, getSnapshot, nullSnapshot);
 }
 
 export function publishTranslationPartial(

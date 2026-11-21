@@ -46,7 +46,6 @@ export function SystemSettingsSection({
   applySettings,
   updater,
   profiles,
-  onManageProfiles,
   debugRows,
 }: {
   desktopPreferences: DesktopPreferences;
@@ -65,7 +64,6 @@ export function SystemSettingsSection({
   applySettings: ApplySettings;
   updater: AppUpdaterState;
   profiles: ApiProfileView[];
-  onManageProfiles: () => void;
   debugRows: DebugRow[];
 }) {
   const { t } = useTranslation();

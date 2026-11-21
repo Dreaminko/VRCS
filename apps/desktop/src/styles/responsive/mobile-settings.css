@@ -24,7 +24,6 @@
   .external-api-token-input .secondary-button,
   .external-api-generated-token .secondary-button { align-self: flex-start; }
   .recognition-config-fields,
-  .translation-config-fields,
   .learning-ai-settings-grid { grid-template-columns: 1fr; }
   .translation-context-sources,
   .translation-context-limits { grid-template-columns: 1fr; }
@@ -44,8 +43,6 @@
   .api-profile-actions { grid-column: 1; flex-wrap: wrap; }
   .api-profile-form-grid { grid-template-columns: 1fr; }
   .api-profile-key-field { grid-column: 1; }
-  .api-compatible-settings { padding: 14px; }
-  .api-compatible-grid { grid-template-columns: 1fr; }
   .api-compatible-url-field { grid-column: 1; }
   .api-profile-dialog-backdrop { --api-dialog-gutter: 12px; }
   .api-profile-dialog .api-profile-editor-heading { padding: 20px 60px 14px 16px; }

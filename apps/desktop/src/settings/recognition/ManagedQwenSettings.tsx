@@ -89,7 +89,7 @@ export function ManagedQwenSettings({
   onDownloadRuntime?: () => Promise<void>;
   onCancelRuntimeDownload?: () => Promise<void>;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const installation = runtime?.installation;
   const installing = installation?.status === "downloading" || installation?.status === "verifying";
   return <>

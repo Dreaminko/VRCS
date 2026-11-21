@@ -64,7 +64,7 @@ for (const width of [1200, 380]) {
                 desktopPreferencesReady={true} uiLanguageSaving={false} desktopMessage="" uiLanguagePreference="en-US"
                 interfaceScale={100} onUpdateDesktop={async () => {}} onInterfaceScaleChange={() => {}}
                 onUpdateUiLanguage={async () => {}} onboardingDisabled={false} onStartOnboarding={() => {}}
-                locale="en-US" draft={draft} profiles={[]} onManageProfiles={() => {}} applySettings={applySettings}
+                locale="en-US" draft={draft} profiles={[]} applySettings={applySettings}
                 debugRows={[{ label: 'Schema version', value: 'v37' }]}
                 updater={{ phase: 'idle', automaticChecks: false }} />}</I18nextProvider>;
         }

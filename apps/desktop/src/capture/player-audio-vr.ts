@@ -20,7 +20,6 @@ export interface PlayerAudioPrompt {
   next: string;
   scroll_hint: string;
 }
-export interface PlayerAudioVrView { notice: PlayerAudioPrompt | null; progress: ProgressView | null }
 export interface PlayerAudioDecision { owner_epoch: number; request_id: number; accepted: boolean }
 
 export function playerAudioPrompt(notice: { requestId: number; openedAt: number } | null, now: number, t: TFunction): PlayerAudioPrompt | null {

@@ -109,8 +109,7 @@
 .model-delete-button:hover { border-color: var(--error-border); color: var(--error); background: var(--error-soft); }
 .model-download-button:active,
 .model-delete-button:active { transform: scale(0.96); }
-.model-download-state,
-.model-ready-state {
+.model-download-state {
   display: inline-flex;
   min-height: var(--settings-control-height);
   align-items: center;
@@ -123,5 +122,4 @@
 }
 .model-download-state { color: var(--primary-ink); }
 .model-download-state svg { animation: model-spin 900ms linear infinite; }
-.model-ready-state svg { color: var(--primary-ink); }
 .model-manager-feedback { margin: 12px 2px 0; overflow-wrap: anywhere; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }

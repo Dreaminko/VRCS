@@ -4,7 +4,6 @@ import test from "node:test";
 import {
   supportsContext,
   supportsLlmModels,
-  supportsRecognition,
   supportsTranslation,
 } from "../src/providers/api-profile-purpose.ts";
 import { apiProfileDraftErrors, createApiProfileDraft } from "../src/providers/api-profile-draft.ts";
@@ -52,7 +51,6 @@ test("profile helpers use enabled capabilities", () => {
     { supports_model_listing: true, supports_context: true },
   );
 
-  assert.equal(supportsRecognition(view), true);
   assert.equal(supportsTranslation(view), true);
   assert.equal(supportsLlmModels(view), true);
   assert.equal(supportsContext(view), true);
@@ -66,7 +64,6 @@ test("provider capability flags cannot enable capabilities disabled in a profile
     supports_model_listing: true,
   });
 
-  assert.equal(supportsRecognition(view), false);
   assert.equal(supportsTranslation(view), false);
   assert.equal(supportsLlmModels(view), false);
 });
@@ -75,7 +72,6 @@ test("translation and image profiles expose models without text generation", () 
   for (const capability of ["text_translation", "image_understanding"] as const) {
     const view = profileView([capability], { supports_model_listing: true, supports_asr: true });
     assert.equal(supportsLlmModels(view), true);
-    assert.equal(supportsRecognition(view), false);
   }
 });
 

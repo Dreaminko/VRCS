@@ -42,7 +42,6 @@ export function DropdownField({ label, value, options, disabled = false, compact
   const {
     menuRef,
     menuMounted,
-    floatingMenuMounted,
     floatingPosition,
     floatingSide,
   } = useDropdownMenu(open, { floating, floatingWidth, anchorRef: triggerRef, onClose: () => setOpen(false) });

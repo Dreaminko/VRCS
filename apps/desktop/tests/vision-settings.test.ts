@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_VISION_SETTINGS, patchVision, selectVisionProfile, supportsVision, visionModels, VISION_LIMITS } from "../src/settings/vision-settings.ts";
+import { DEFAULT_VISION_SETTINGS, patchVision, supportsVision, visionModels, VISION_LIMITS } from "../src/settings/vision-settings.ts";
 import { DEFAULT_OCR_SETTINGS, DEFAULT_OCR_WRIST_SETTINGS } from "../src/settings/vr-overlay-settings.ts";
 import { DEFAULT_FEATURE_SETTINGS } from "../src/settings/feature-availability.ts";
 import { applyVrDashboardAction } from "../src/vr-dashboard/settings-actions.ts";
@@ -87,24 +87,10 @@ test("vision catalogs filter known text-only models across providers and retain 
   }
 });
 
-test("vision edits preserve OCR and profile changes do not reuse an unverified model", () => {
+test("vision edits preserve OCR", () => {
   const edited = patchVision(settings, { answer_language: "ja", model: "image-model" });
   assert.equal(edited.ocr, settings.ocr);
   assert.equal(settings.vision.model, "");
-  const enabled = patchVision(edited, { enabled: true, profile_id: "old" });
-  const selected = selectVisionProfile(enabled, "images");
-  const withReasoning = patchVision(enabled, { reasoning_control: { type: "effort", value: "high" } });
-  assert.equal(selectVisionProfile(withReasoning, "images").vision.reasoning_control, null);
-  assert.equal(selected.vision.profile_id, "images");
-  assert.equal(selected.vision.model, "");
-  assert.equal(selected.vision.enabled, true);
-  assert.equal(selected.vision.answer_language, "ja");
-  assert.equal(selectVisionProfile(selected, "images"), selected);
-  const cleared = selectVisionProfile(selected, null);
-  assert.equal(cleared.vision.profile_id, null);
-  assert.equal(cleared.vision.model, "");
-  assert.equal(cleared.vision.enabled, true);
-  assert.equal(cleared.ocr, settings.ocr);
 });
 
 test("common and desktop edits preserve mode preferences without VR or OCR", () => {

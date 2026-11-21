@@ -63,7 +63,7 @@ for (const [width, systemReduced] of [[1200, false], [380, false], [1200, true]]
               }} onInterfaceScaleChange={noop}
               onUpdateUiLanguage={async () => {}} onboardingDisabled={false} onStartOnboarding={noop}
               locale="en-US" draft={draft}
-              profiles={[]} onManageProfiles={noop} debugRows={debugRows} applySettings={noop} updater={{ phase: 'idle', automaticChecks: false }} />
+              profiles={[]} debugRows={debugRows} applySettings={noop} updater={{ phase: 'idle', automaticChecks: false }} />
             <VisionSettingsCard config={vision} profiles={[]} disabled={false} vrAvailable={true}
               providerDefinitions={[]} recognition={{ backend: 'qwen_local_managed', active_profile_id: null, language: 'auto',
                 managed_qwen: { package_id: 'qwen3-asr-0.6b-q8_0', device: 'auto' }, service_settings: {} }}

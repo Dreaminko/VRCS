@@ -186,7 +186,6 @@ export function SettingsPanel({
           applySettings={applySettings}
           updater={updater}
           profiles={apiProfileCatalog.profiles}
-          onManageProfiles={() => setActiveCategory("api")}
           debugRows={debugRows}
         />
       )}

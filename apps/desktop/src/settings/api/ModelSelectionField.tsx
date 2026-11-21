@@ -6,9 +6,6 @@ import { profileSupportsCapability } from "../../providers/provider-catalog";
 import type { ApiCapability, ApiProfileView } from "../../providers/types";
 import { DropdownField, EditableDropdownField } from "../../shared/ui/DropdownField";
 import {
-  PLAMO_LOCAL_MODEL_ID,
-} from "../../translation/translation-languages";
-import {
   switchTranslationBackend,
   switchTranslationProfile,
   selectTranslationModel,

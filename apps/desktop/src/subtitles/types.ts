@@ -52,14 +52,3 @@ export interface SubtitleSearchPage {
   items: SubtitleSearchHit[];
   has_more: boolean;
 }
-
-export interface TranslationEvent {
-  type: "translation_started" | "translation_partial" | "translation_completed" | "translation_failed";
-  subtitle_id: number;
-  text?: string;
-  target_language?: string;
-  translation?: SubtitleTranslation;
-  code?: string;
-  detail?: string;
-  preferred?: boolean;
-}

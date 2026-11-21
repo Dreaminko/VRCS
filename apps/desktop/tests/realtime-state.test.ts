@@ -4,7 +4,6 @@ import test from "node:test";
 import {
   clearLivePartials,
   completeLivePartial,
-  getLivePartial,
   getLivePartials,
   livePartialHasSubtitle,
   publishLivePartial,
@@ -13,6 +12,8 @@ import {
 import type { LiveTranscription } from "../src/capture/types.ts";
 import { mergeSubtitleHistory } from "../src/subtitles/subtitle-stream.ts";
 import type { Subtitle } from "../src/subtitles/types.ts";
+
+const getLivePartial = (source: LiveTranscription["source"]) => getLivePartials(source).at(-1) ?? null;
 
 function partial(utteranceId: string, text: string): LiveTranscription {
   return {

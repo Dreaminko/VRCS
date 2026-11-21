@@ -23,8 +23,6 @@ import type {
 import { Select } from "../SettingsControls";
 import { ApiCapabilitySelector, type ApiCapabilityTests } from "./ApiCapabilitySelector";
 
-export type { ApiProfileEditorDraft } from "../../providers/api-profile-draft";
-
 export function ApiProfileEditor({
   draft,
   saving,
