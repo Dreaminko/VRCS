@@ -83,6 +83,10 @@ impl HostSlot {
             .push_back(command);
         let dispatch = self.app.clone();
         let queue = self.queue.clone();
+        if glib::MainContext::default().is_owner() {
+            pump(dispatch, queue);
+            return Ok(());
+        }
         let run = dispatch.clone();
         dispatch
             .run_on_main_thread(move || pump(run, queue))
@@ -136,7 +140,9 @@ thread_local! {
 
 fn pump(app: AppHandle, queue: Arc<Mutex<VecDeque<Command>>>) {
     DISPATCHER.with(|cell| {
-        let mut slot = cell.borrow_mut();
+        let Ok(mut slot) = cell.try_borrow_mut() else {
+            return;
+        };
         if slot.is_none() {
             match Dispatcher::new(app, queue.clone()) {
                 Ok(dispatcher) => *slot = Some(dispatcher),
@@ -495,7 +501,9 @@ impl Dispatcher {
                     .and_then(|action| action.request())
                     .and_then(|request| request.uri())
                     .is_some_and(|uri| uri == policy_source);
-                if !allowed {
+                if allowed {
+                    decision.use_();
+                } else {
                     decision.ignore();
                 }
                 return true;
@@ -559,10 +567,9 @@ impl Dispatcher {
                             image.height()
                         ));
                     }
-                    let rgba_raw = rgba(&image)?;
                     let width = image.width() as usize;
                     let (generation, revision, paint) =
-                        marker(&rgba_raw, width, logical_height as usize, scale)
+                        marker(&image, logical_height as usize, scale)?
                             .ok_or_else(|| "snapshot marker not painted".to_string())?;
                     let px = |value: usize| ((value as f32) * scale).round() as usize;
                     let (xs, ys) = (px(left as usize), px(top as usize));
@@ -587,14 +594,17 @@ impl Dispatcher {
                         ctx.paint().map_err(|error| error.to_string())?;
                         drop(ctx);
                         scaled.flush();
-                        (rgba(&scaled)?, crop_w, crop_h)
+                        (
+                            rgba_crop(&scaled, 0, 0, crop_w as usize, crop_h as usize)?,
+                            crop_w,
+                            crop_h,
+                        )
                     } else {
-                        let mut pixels = Vec::with_capacity((xe - xs) * (ye - ys) * 4);
-                        for row in ys..ye {
-                            let start = (row * width + xs) * 4;
-                            pixels.extend_from_slice(&rgba_raw[start..start + (xe - xs) * 4]);
-                        }
-                        (pixels, (xe - xs) as u32, (ye - ys) as u32)
+                        (
+                            rgba_crop(&image, xs, ys, xe - xs, ye - ys)?,
+                            (xe - xs) as u32,
+                            (ye - ys) as u32,
+                        )
                     };
                     Ok(Snapshot {
                         pixels,
@@ -726,50 +736,91 @@ fn fail(request: &webkit2gtk::URISchemeRequest, message: &str) {
 }
 
 fn marker(
-    pixels: &[u8],
-    width: usize,
+    image: &cairo::ImageSurface,
     logical_height: usize,
     scale: f32,
-) -> Option<(u32, u32, u32)> {
-    decode_marker_pixels(|bit| {
-        let x = (((bit % 64) * 4 + 2) as f32 * scale).round() as usize;
-        let y = ((logical_height + 4 + (bit / 64) * 8) as f32 * scale).round() as usize;
-        let offset = (y * width + x) * 4;
-        pixels.get(offset..offset + 4)?.try_into().ok()
-    })
-}
-
-fn rgba(image: &cairo::ImageSurface) -> Result<Vec<u8>, String> {
+) -> Result<Option<(u32, u32, u32)>, String> {
     if ![cairo::Format::ARgb32, cairo::Format::Rgb24].contains(&image.format()) {
         return Err("unsupported snapshot format".into());
     }
-    let width = image.width() as usize;
-    let height = image.height() as usize;
+    let width = usize::try_from(image.width()).map_err(|_| "invalid snapshot width")?;
+    let height = usize::try_from(image.height()).map_err(|_| "invalid snapshot height")?;
     let stride = image.stride() as usize;
-    let mut pixels = vec![0; width * height * 4];
+    let rgb24 = image.format() == cairo::Format::Rgb24;
+    let mut decoded = None;
     image
         .with_data(|data| {
-            for y in 0..height {
-                for x in 0..width {
-                    let offset = y * stride + x * 4;
-                    let word = u32::from_ne_bytes(data[offset..offset + 4].try_into().unwrap());
-                    let alpha = if image.format() == cairo::Format::Rgb24 {
-                        255
-                    } else {
-                        (word >> 24) as u8
-                    };
-                    let dest = &mut pixels[(y * width + x) * 4..][..4];
-                    for (channel, shift) in [16, 8, 0].iter().enumerate() {
-                        let premultiplied = (word >> shift) & 255;
-                        dest[channel] = if alpha == 0 {
-                            0
-                        } else {
-                            ((premultiplied * 255 + u32::from(alpha) / 2) / u32::from(alpha))
-                                .min(255) as u8
-                        };
-                    }
-                    dest[3] = alpha;
+            decoded = decode_marker_pixels(|bit| {
+                let x = (((bit % 64) * 4 + 2) as f32 * scale).round() as usize;
+                let y = ((logical_height + 4 + (bit / 64) * 8) as f32 * scale).round() as usize;
+                if x >= width || y >= height {
+                    return None;
                 }
+                let offset = y * stride + x * 4;
+                let word = u32::from_ne_bytes(data.get(offset..offset + 4)?.try_into().ok()?);
+                let alpha = if rgb24 { 255 } else { (word >> 24) as u8 };
+                Some([
+                    ((word >> 16) & 255) as u8,
+                    ((word >> 8) & 255) as u8,
+                    (word & 255) as u8,
+                    alpha,
+                ])
+            });
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(decoded)
+}
+
+fn swizzle_row<const RGB24: bool>(row: &[u8], out: &mut Vec<u8>) {
+    for &chunk in row.as_chunks::<4>().0 {
+        #[cfg(target_endian = "little")]
+        {
+            let alpha = if RGB24 { 255 } else { chunk[3] };
+            out.extend_from_slice(&[chunk[2], chunk[1], chunk[0], alpha]);
+        }
+        #[cfg(target_endian = "big")]
+        {
+            let word = u32::from_ne_bytes(chunk);
+            let alpha = if RGB24 { 255 } else { (word >> 24) as u8 };
+            out.extend_from_slice(&[
+                ((word >> 16) & 255) as u8,
+                ((word >> 8) & 255) as u8,
+                (word & 255) as u8,
+                alpha,
+            ]);
+        }
+    }
+}
+
+fn rgba_crop(
+    image: &cairo::ImageSurface,
+    xs: usize,
+    ys: usize,
+    crop_w: usize,
+    crop_h: usize,
+) -> Result<Vec<u8>, String> {
+    if ![cairo::Format::ARgb32, cairo::Format::Rgb24].contains(&image.format()) {
+        return Err("unsupported snapshot format".into());
+    }
+    let width = usize::try_from(image.width()).map_err(|_| "invalid snapshot width")?;
+    let height = usize::try_from(image.height()).map_err(|_| "invalid snapshot height")?;
+    if xs + crop_w > width || ys + crop_h > height {
+        return Err("snapshot crop is outside the surface".into());
+    }
+    let stride = image.stride() as usize;
+    let rgb24 = image.format() == cairo::Format::Rgb24;
+    let row_bytes = crop_w * 4;
+    let mut pixels = Vec::with_capacity(row_bytes * crop_h);
+    image
+        .with_data(|data| {
+            let copy = if rgb24 {
+                swizzle_row::<true>
+            } else {
+                swizzle_row::<false>
+            };
+            for y in 0..crop_h {
+                let row_start = (ys + y) * stride + xs * 4;
+                copy(&data[row_start..row_start + row_bytes], &mut pixels);
             }
         })
         .map_err(|error| error.to_string())?;
@@ -839,6 +890,10 @@ impl NativeHostManager {
             .push_back(command);
         let dispatch = self.app.clone();
         let queue = self.queue.clone();
+        if glib::MainContext::default().is_owner() {
+            pump(dispatch, queue);
+            return Ok(());
+        }
         let run = dispatch.clone();
         dispatch
             .run_on_main_thread(move || pump(run, queue))
@@ -849,5 +904,54 @@ impl NativeHostManager {
 impl Drop for NativeHostManager {
     fn drop(&mut self) {
         let _ = self.push(Command::Shutdown);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rgba_crop;
+
+    fn write_pixel(data: &mut [u8], stride: usize, x: usize, y: usize, word: u32) {
+        let offset = y * stride + x * 4;
+        data[offset..offset + 4].copy_from_slice(&word.to_ne_bytes());
+    }
+
+    #[test]
+    fn rgba_crop_swizzles_argb32_and_forces_opaque_for_rgb24() {
+        for (format, expected_alpha) in
+            [(cairo::Format::ARgb32, 0x80), (cairo::Format::Rgb24, 0xff)]
+        {
+            let stride = 16;
+            let mut data = vec![0u8; stride * 4];
+            write_pixel(&mut data, stride, 1, 1, 0x80_11_22_33);
+            write_pixel(&mut data, stride, 2, 1, 0x80_44_55_66);
+            write_pixel(&mut data, stride, 1, 2, 0x80_77_88_99);
+            write_pixel(&mut data, stride, 2, 2, 0x80_aa_bb_cc);
+            let surface =
+                cairo::ImageSurface::create_for_data(data, format, 4, 4, stride as i32).unwrap();
+
+            let pixels = rgba_crop(&surface, 1, 1, 2, 2).unwrap();
+            assert_eq!(
+                pixels,
+                vec![
+                    0x11,
+                    0x22,
+                    0x33,
+                    expected_alpha,
+                    0x44,
+                    0x55,
+                    0x66,
+                    expected_alpha,
+                    0x77,
+                    0x88,
+                    0x99,
+                    expected_alpha,
+                    0xaa,
+                    0xbb,
+                    0xcc,
+                    expected_alpha,
+                ]
+            );
+        }
     }
 }

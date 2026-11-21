@@ -101,7 +101,15 @@ fn check(error: openvr_sys::EVRInputError) -> Result<(), String> {
 pub fn install_manifest(directory: &Path) -> Result<std::path::PathBuf, String> {
     std::fs::create_dir_all(directory).map_err(|_| "Could not create SteamVR input directory")?;
     let mut bindings = Vec::new();
-    for controller in ["knuckles", "oculus_touch", "vive_controller"] {
+    for controller in [
+        "knuckles",
+        "oculus_touch",
+        "pico_controller",
+        "vive_focus3_controller",
+        "vive_cosmos_controller",
+        "holographic_controller",
+        "vive_controller",
+    ] {
         let name = format!("{controller}.json");
         let grip = |side: &str| {
             let (mode, component) = if controller == "knuckles" {
@@ -119,8 +127,8 @@ pub fn install_manifest(directory: &Path) -> Result<std::path::PathBuf, String> 
         let scroll = |side: &str| {
             let (axis, mode) = match controller {
                 "knuckles" => ("thumbstick", "joystick"),
-                "oculus_touch" => ("joystick", "joystick"),
-                _ => ("trackpad", "trackpad"),
+                "vive_controller" => ("trackpad", "trackpad"),
+                _ => ("joystick", "joystick"),
             };
             serde_json::json!({"path":format!("/user/hand/{side}/input/{axis}"),"mode":mode,
                 "inputs":{"position":{"output":format!("/actions/ocr/in/{side}_scroll")}}})
@@ -1462,7 +1470,15 @@ mod tests {
             .iter()
             .any(|action| action["name"] == "/actions/ocr/in/cancel"
                 && action["requirement"] == "optional"));
-        for controller in ["knuckles", "oculus_touch", "vive_controller"] {
+        for controller in [
+            "knuckles",
+            "oculus_touch",
+            "pico_controller",
+            "vive_focus3_controller",
+            "vive_cosmos_controller",
+            "holographic_controller",
+            "vive_controller",
+        ] {
             let binding: serde_json::Value = serde_json::from_slice(
                 &std::fs::read(directory.join(format!("{controller}.json"))).unwrap(),
             )
@@ -1496,8 +1512,8 @@ mod tests {
                 );
                 let axis = match controller {
                     "knuckles" => "thumbstick",
-                    "oculus_touch" => "joystick",
-                    _ => "trackpad",
+                    "vive_controller" => "trackpad",
+                    _ => "joystick",
                 };
                 let scroll = binding["sources"]
                     .as_array()

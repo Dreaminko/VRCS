@@ -29,6 +29,7 @@ notices and license terms remain applicable.
 - rosc — MIT OR Apache-2.0
 - rust-openvr and openvr-sys — MIT
 - Valve OpenVR SDK — BSD-3-Clause
+- openxr-rs and ash — MIT OR Apache-2.0
 - ring — Apache-2.0 AND ISC
 - libloading — ISC
 - memchr — MIT OR Unlicense

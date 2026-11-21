@@ -1,13 +1,10 @@
-//! XR0 probe: independent overlay session on the active OpenXR runtime.
-//!
-//! Proves, without touching the production Manager, that an overlay session can
-//! be created, that a quad layer reaches the compositor while a game runs, and
-//! that controller actions stay readable. Each stage prints one JSON event so a
-//! failure names the exact API boundary instead of "VR unavailable".
+//! OpenXR overlay session for Linux desktop compositors.
 
+use std::collections::HashMap;
+use std::ffi::{CString, OsStr};
+use std::path::{Path, PathBuf};
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Mutex, OnceLock};
 
 use ash::vk::{self, Handle as _};
 use openxr as xr;
@@ -18,16 +15,11 @@ use super::pose::{pose_from_quaternion, DeviceId, PointerId, PointerInput, Space
 const VIEW_TYPE: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
 const WIDTH: u32 = 1024;
 const PANEL_Z: f32 = -1.2;
-#[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
-const PANEL_W: f32 = 0.4;
-#[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
-const PANEL_H: f32 = 0.1;
 const MAX_TEXTURE: u32 = 2048;
 const HEIGHT: u32 = 256;
 const PANEL_COUNT: usize = 10;
 
-/// Quad layer slots exposed by the runtime. The production backend maps its
-/// overlay kinds onto these; the prototype only uses `Headset`.
+/// Quad layer slots exposed by the runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PanelId {
     Headset,
@@ -63,8 +55,6 @@ pub struct PanelInfo {
     pub pose: xr::Posef,
     pub size: xr::Extent2Df,
     pub visible: bool,
-    #[allow(dead_code)] // Shared struct field; read in prototype inspection/diagnostics.
-    pub has_image: bool,
 }
 
 fn locate_in_stage(space: &xr::Space, stage: &xr::Space, time: xr::Time) -> Option<TrackedPose> {
@@ -89,9 +79,7 @@ fn locate_in_stage(space: &xr::Space, stage: &xr::Space, time: xr::Time) -> Opti
     })
 }
 
-/// One overlay session plus the Vulkan resources that feed it. Production code
-/// drives this through `pump`/`wait_frame`/`upload`/`submit`; the prototype
-/// below is only a driver.
+/// One overlay session plus the Vulkan resources that feed it.
 pub struct XrRuntime {
     /// Session and its child handles; taken first on drop so they are released
     /// while the Vulkan device still exists.
@@ -100,10 +88,12 @@ pub struct XrRuntime {
     vk_instance: ash::Instance,
     pool: vk::CommandPool,
     command: vk::CommandBuffer,
+    fence: vk::Fence,
     queue: vk::Queue,
     physical_device: vk::PhysicalDevice,
     stagings: [Option<Staging>; PANEL_COUNT],
     frame: Option<(xr::Time, bool)>,
+    color_scale_bias: bool,
     last_layers: usize,
     last_layer_report: std::time::Instant,
     running: bool,
@@ -119,6 +109,7 @@ struct Panel {
     visible: bool,
     swapchain: Option<xr::Swapchain<xr::Vulkan>>,
     images: Vec<u64>,
+    acquired_image: Option<u32>,
     texture_size: [u32; 2],
     pixels: Vec<u8>,
     opacity: f32,
@@ -145,6 +136,7 @@ impl Panel {
             visible,
             swapchain: None,
             images: Vec::new(),
+            acquired_image: None,
             texture_size: [0, 0],
             pixels: Vec::new(),
             opacity: 1.0,
@@ -168,11 +160,230 @@ struct Handles {
     session: xr::Session<xr::Vulkan>,
 }
 
-/// Check the installed loader and runtime for the two required extensions.
-/// Creates and drops a short-lived instance so a loader with a missing runtime
-/// service is not reported as usable.
-pub fn probe() -> Result<(), String> {
-    let entry = unsafe { xr::Entry::load(&()) }.map_err(|_| "vr.openxr_loader_unavailable")?;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProbeStatus {
+    pub runtime_installed: bool,
+    pub hmd_present: bool,
+}
+
+fn xr_runtime_json_overridden() -> bool {
+    std::env::var_os("XR_RUNTIME_JSON").is_some_and(|value| !value.is_empty())
+}
+
+fn load_loader_entry() -> Result<xr::Entry, String> {
+    unsafe { xr::Entry::load(&()) }.map_err(|_| "vr.openxr_loader_unavailable".to_string())
+}
+
+fn push_active_runtime_pair(candidates: &mut Vec<PathBuf>, config_dir: &Path, arch: &str) {
+    let base = config_dir.join("openxr/1");
+    for file in [
+        base.join(format!("active_runtime.{arch}.json")),
+        base.join("active_runtime.json"),
+    ] {
+        if !candidates.contains(&file) {
+            candidates.push(file);
+        }
+    }
+}
+
+fn active_manifest_candidates_from(
+    xr_runtime_json: Option<&OsStr>,
+    xdg_config_home: Option<&OsStr>,
+    home: Option<&OsStr>,
+    xdg_config_dirs: Option<&OsStr>,
+    arch: &str,
+) -> Vec<PathBuf> {
+    if let Some(override_path) = xr_runtime_json.filter(|value| !value.is_empty()) {
+        return vec![PathBuf::from(override_path)];
+    }
+    let mut candidates = Vec::new();
+    if let Some(config_home) = xdg_config_home
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            home.filter(|value| !value.is_empty())
+                .map(|home| PathBuf::from(home).join(".config"))
+        })
+    {
+        push_active_runtime_pair(&mut candidates, &config_home, arch);
+    }
+    let config_dirs = xdg_config_dirs
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| OsStr::new("/etc/xdg"));
+    for dir in std::env::split_paths(config_dirs).filter(|dir| !dir.as_os_str().is_empty()) {
+        push_active_runtime_pair(&mut candidates, &dir, arch);
+    }
+    push_active_runtime_pair(&mut candidates, Path::new("/etc"), arch);
+    candidates
+}
+
+fn active_manifest_candidates() -> Vec<PathBuf> {
+    let xr_runtime_json = std::env::var_os("XR_RUNTIME_JSON");
+    let xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+    let home = std::env::var_os("HOME");
+    let xdg_config_dirs = std::env::var_os("XDG_CONFIG_DIRS");
+    active_manifest_candidates_from(
+        xr_runtime_json.as_deref(),
+        xdg_config_home.as_deref(),
+        home.as_deref(),
+        xdg_config_dirs.as_deref(),
+        std::env::consts::ARCH,
+    )
+    .into_iter()
+    .filter(|path| path.is_file())
+    .collect()
+}
+
+fn resolve_manifest_library_path(
+    manifest_path: &Path,
+    raw_json: &str,
+) -> Option<(PathBuf, Option<String>)> {
+    let value: serde_json::Value = serde_json::from_str(raw_json).ok()?;
+    let runtime = value.get("runtime")?.as_object()?;
+    let library = runtime
+        .get("library_path")?
+        .as_str()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())?;
+    let negotiate = runtime
+        .get("functions")
+        .and_then(|functions| functions.get("xrNegotiateLoaderRuntimeInterface"))
+        .and_then(|name| name.as_str())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(ToOwned::to_owned);
+    let resolved = if library.starts_with('/') {
+        PathBuf::from(library)
+    } else if library.contains('/') {
+        manifest_path.parent()?.join(library)
+    } else {
+        PathBuf::from(library)
+    };
+    Some((resolved, negotiate))
+}
+
+fn fallback_manifest_candidates() -> Vec<PathBuf> {
+    let daemons = crate::vr_overlay::process::linux_xr_daemons();
+    let mut candidates = Vec::new();
+    if daemons.wivrn {
+        if let Some(home) = std::env::var_os("HOME").filter(|value| !value.is_empty()) {
+            candidates.push(
+                PathBuf::from(home)
+                    .join(".var/app/io.github.wivrn.wivrn/config/openxr/1/active_runtime.json"),
+            );
+        }
+        candidates.push(PathBuf::from("/usr/share/openxr/1/openxr_wivrn.json"));
+        candidates.push(PathBuf::from("/usr/local/share/openxr/1/openxr_wivrn.json"));
+    }
+    if daemons.monado {
+        candidates.push(PathBuf::from("/usr/share/openxr/1/openxr_monado.json"));
+        candidates.push(PathBuf::from(
+            "/usr/local/share/openxr/1/openxr_monado.json",
+        ));
+    }
+    candidates
+        .into_iter()
+        .filter(|path| path.is_file())
+        .collect()
+}
+
+fn load_direct_runtime_entry(manifest_path: &Path) -> Result<xr::Entry, String> {
+    // Keep loaded runtime shared objects open for the lifetime of cached Entry handles.
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, xr::Entry>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let cache_key =
+        std::fs::canonicalize(manifest_path).unwrap_or_else(|_| manifest_path.to_path_buf());
+    if let Some(entry) = cache
+        .lock()
+        .map_err(|_| "OpenXR manifest cache poisoned".to_string())?
+        .get(&cache_key)
+        .cloned()
+    {
+        return Ok(entry);
+    }
+
+    let raw = std::fs::read_to_string(manifest_path)
+        .map_err(|error| format!("Failed to read OpenXR manifest: {error}"))?;
+    let (library_path, negotiate_symbol) = resolve_manifest_library_path(manifest_path, &raw)
+        .ok_or_else(|| "Invalid OpenXR runtime manifest".to_string())?;
+    let library_str = library_path
+        .to_str()
+        .ok_or_else(|| "Non-UTF-8 OpenXR runtime library path".to_string())?;
+    if library_str.contains('/') && !library_path.is_file() {
+        return Err("OpenXR runtime library does not exist".into());
+    }
+    let c_lib_path =
+        CString::new(library_str).map_err(|_| "Invalid OpenXR runtime library path".to_string())?;
+    let c_negotiate = CString::new(
+        negotiate_symbol
+            .as_deref()
+            .unwrap_or("xrNegotiateLoaderRuntimeInterface"),
+    )
+    .map_err(|_| "Invalid OpenXR negotiate symbol".to_string())?;
+
+    let handle = unsafe { libc::dlopen(c_lib_path.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL) };
+    if handle.is_null() {
+        return Err("Failed to load OpenXR runtime library".into());
+    }
+
+    let negotiate_result = (|| -> Result<xr::Entry, String> {
+        let symbol = unsafe { libc::dlsym(handle, c_negotiate.as_ptr()) };
+        if symbol.is_null() {
+            return Err("OpenXR runtime negotiate symbol missing".into());
+        }
+        let negotiate = unsafe {
+            std::mem::transmute::<*mut libc::c_void, xr::sys::pfn::NegotiateLoaderRuntimeInterface>(
+                symbol,
+            )
+        };
+        let loader_info = xr::sys::NegotiateLoaderInfo {
+            struct_type: xr::sys::NegotiateLoaderInfo::TYPE,
+            struct_version: xr::sys::NegotiateLoaderInfo::VERSION,
+            struct_size: std::mem::size_of::<xr::sys::NegotiateLoaderInfo>(),
+            min_interface_version: 1,
+            max_interface_version: 1,
+            min_api_version: xr::Version::new(1, 0, 0),
+            max_api_version: xr::Version::new(1, 0x3ff, 0xfff),
+        };
+        let mut runtime_request = xr::sys::NegotiateRuntimeRequest {
+            struct_type: xr::sys::NegotiateRuntimeRequest::TYPE,
+            struct_version: xr::sys::NegotiateRuntimeRequest::VERSION,
+            struct_size: std::mem::size_of::<xr::sys::NegotiateRuntimeRequest>(),
+            runtime_interface_version: 0,
+            runtime_api_version: xr::Version::new(0, 0, 0),
+            get_instance_proc_addr: None,
+        };
+        let result = unsafe { negotiate(&loader_info, &mut runtime_request) };
+        if result != xr::sys::Result::SUCCESS {
+            return Err(format!("OpenXR runtime negotiation failed: {result:?}"));
+        }
+        let get_proc = runtime_request
+            .get_instance_proc_addr
+            .ok_or_else(|| "OpenXR runtime returned null xrGetInstanceProcAddr".to_string())?;
+        unsafe { xr::Entry::from_get_instance_proc_addr(get_proc, &()) }
+            .map_err(|error| format!("OpenXR runtime entry initialization failed: {error:?}"))
+    })();
+
+    let entry = match negotiate_result {
+        Ok(entry) => entry,
+        Err(error) => {
+            unsafe { libc::dlclose(handle) };
+            return Err(error);
+        }
+    };
+
+    let mut guard = cache
+        .lock()
+        .map_err(|_| "OpenXR manifest cache poisoned".to_string())?;
+    if let Some(existing) = guard.get(&cache_key).cloned() {
+        unsafe { libc::dlclose(handle) };
+        return Ok(existing);
+    }
+    guard.insert(cache_key, entry.clone());
+    Ok(entry)
+}
+
+fn check_required_extensions(entry: &xr::Entry) -> Result<xr::ExtensionSet, String> {
     let available = entry
         .enumerate_extensions()
         .map_err(|error| format!("OpenXR extension query failed: {error:?}"))?;
@@ -182,28 +393,121 @@ pub fn probe() -> Result<(), String> {
     if !available.khr_vulkan_enable2 {
         return Err("vr.openxr_vulkan_unavailable".into());
     }
+    Ok(available)
+}
+
+fn create_instance_for_entry(
+    entry: &xr::Entry,
+    available: &xr::ExtensionSet,
+    enable_optional: bool,
+) -> xr::Result<xr::Instance> {
     let mut enabled = xr::ExtensionSet::default();
     enabled.extx_overlay = true;
     enabled.khr_vulkan_enable2 = true;
-    let instance = entry
-        .create_instance(
-            &xr::ApplicationInfo {
-                api_version: xr::Version::new(1, 0, 32),
-                application_name: "vrcs",
-                application_version: 0,
-                engine_name: "vrcs",
-                engine_version: 0,
-            },
-            &enabled,
-            &[],
-            &(),
-        )
+    if enable_optional {
+        // Hand-tracked controllers expose the hand interaction profile.
+        enabled.ext_hand_interaction = available.ext_hand_interaction;
+        enabled.khr_composition_layer_color_scale_bias =
+            available.khr_composition_layer_color_scale_bias;
+    }
+    entry.create_instance(
+        &xr::ApplicationInfo {
+            api_version: xr::Version::new(1, 0, 32),
+            application_name: "vrcs",
+            application_version: 0,
+            engine_name: "vrcs",
+            engine_version: 0,
+        },
+        &enabled,
+        &[],
+        &(),
+    )
+}
+
+fn try_open_entry(
+    entry: &xr::Entry,
+    enable_optional: bool,
+) -> Result<(xr::ExtensionSet, xr::Instance), String> {
+    let available = check_required_extensions(entry)?;
+    let instance = create_instance_for_entry(entry, &available, enable_optional)
         .map_err(|error| format!("OpenXR runtime unavailable: {error:?}"))?;
-    instance
+    Ok((available, instance))
+}
+
+fn open_overlay_instance(
+    enable_optional: bool,
+) -> Result<(xr::ExtensionSet, xr::Instance), String> {
+    let overridden = xr_runtime_json_overridden();
+    let mut tried = Vec::new();
+    let mut primary_error = match load_loader_entry() {
+        Ok(entry) => match try_open_entry(&entry, enable_optional) {
+            Ok(opened) => return Ok(opened),
+            Err(error) => Some(error),
+        },
+        Err(loader_error) => {
+            let mut active_error = None;
+            for manifest in active_manifest_candidates() {
+                let canon = std::fs::canonicalize(&manifest).unwrap_or_else(|_| manifest.clone());
+                if !tried.contains(&canon) {
+                    tried.push(canon);
+                }
+                match load_direct_runtime_entry(&manifest)
+                    .and_then(|entry| try_open_entry(&entry, enable_optional))
+                {
+                    Ok(opened) => return Ok(opened),
+                    Err(error) if active_error.is_none() => active_error = Some(error),
+                    Err(_) => {}
+                }
+                if overridden {
+                    break;
+                }
+            }
+            Some(active_error.unwrap_or(loader_error))
+        }
+    };
+
+    if !overridden {
+        for manifest in fallback_manifest_candidates() {
+            let canon = std::fs::canonicalize(&manifest).unwrap_or_else(|_| manifest.clone());
+            if tried.contains(&canon) {
+                continue;
+            }
+            tried.push(canon);
+            if let Ok(opened) = load_direct_runtime_entry(&manifest)
+                .and_then(|entry| try_open_entry(&entry, enable_optional))
+            {
+                return Ok(opened);
+            }
+        }
+    }
+
+    Err(primary_error
+        .take()
+        .unwrap_or_else(|| "vr.openxr_loader_unavailable".into()))
+}
+
+/// Check the installed loader and runtime for the two required extensions.
+/// Creates and drops a short-lived instance so a loader with a missing runtime
+/// service is not reported as usable.
+pub fn probe_status() -> Result<ProbeStatus, String> {
+    let (_, instance) = open_overlay_instance(false)?;
+    let hmd_present = instance
         .system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)
-        .map_err(|_| "vr.openxr_headset_unavailable".to_string())?;
+        .is_ok();
     drop(instance);
-    Ok(())
+    Ok(ProbeStatus {
+        runtime_installed: true,
+        hmd_present,
+    })
+}
+
+pub fn probe() -> Result<(), String> {
+    let status = probe_status()?;
+    if status.hmd_present {
+        Ok(())
+    } else {
+        Err("vr.openxr_headset_unavailable".into())
+    }
 }
 
 impl XrRuntime {
@@ -218,45 +522,56 @@ impl XrRuntime {
                 println!("{value}");
             }
         };
-        let entry = unsafe { xr::Entry::load(&()) }.map_err(|error| {
-            emit(serde_json::json!({"event":"entry","ok":false,"error":format!("{error:?}")}));
-            "vr.openxr_loader_unavailable"
-        })?;
-        let available = entry
-            .enumerate_extensions()
-            .map_err(|error| format!("OpenXR extension query failed: {error:?}"))?;
+        let (available, instance) = match open_overlay_instance(true) {
+            Ok(opened) => opened,
+            Err(error) => {
+                emit(serde_json::json!({"event":"entry","ok":false,"error":&error}));
+                return Err(error);
+            }
+        };
         emit(serde_json::json!({
             "event": "extensions",
             "overlay": available.extx_overlay,
             "vulkan": available.khr_vulkan_enable2,
             "hand_tracking": available.ext_hand_tracking,
         }));
-        if !available.extx_overlay {
-            return Err("vr.openxr_overlay_unsupported".into());
-        }
-        if !available.khr_vulkan_enable2 {
-            return Err("vr.openxr_vulkan_unavailable".into());
-        }
 
-        let mut enabled = xr::ExtensionSet::default();
-        enabled.extx_overlay = true;
-        enabled.khr_vulkan_enable2 = true;
-        // Hand-tracked controllers expose the hand interaction profile.
-        enabled.ext_hand_interaction = available.ext_hand_interaction;
-        let instance = entry
-            .create_instance(
-                &xr::ApplicationInfo {
-                    api_version: xr::Version::new(1, 0, 32),
-                    application_name: "vrcs",
-                    application_version: 0,
-                    engine_name: "vrcs",
-                    engine_version: 0,
-                },
-                &enabled,
-                &[],
-                &(),
-            )
-            .map_err(|error| format!("OpenXR instance creation failed: {error:?}"))?;
+        struct InitCleanup {
+            fence: Option<vk::Fence>,
+            pool: Option<vk::CommandPool>,
+            device: Option<ash::Device>,
+            vk_instance: Option<ash::Instance>,
+            instance: Option<xr::Instance>,
+        }
+        impl Drop for InitCleanup {
+            fn drop(&mut self) {
+                unsafe {
+                    if let Some(device) = self.device.take() {
+                        if let Some(fence) = self.fence.take() {
+                            device.destroy_fence(fence, None);
+                        }
+                        if let Some(pool) = self.pool.take() {
+                            device.destroy_command_pool(pool, None);
+                        }
+                        device.destroy_device(None);
+                    }
+                    if let Some(vk_instance) = self.vk_instance.take() {
+                        vk_instance.destroy_instance(None);
+                    }
+                }
+                drop(self.instance.take());
+            }
+        }
+        let hand_interaction = available.ext_hand_interaction;
+        let color_scale_bias = available.khr_composition_layer_color_scale_bias;
+        let mut cleanup = InitCleanup {
+            fence: None,
+            pool: None,
+            device: None,
+            vk_instance: None,
+            instance: Some(instance),
+        };
+        let instance = cleanup.instance.as_ref().expect("instance initialized");
         let properties = instance
             .properties()
             .map_err(|error| format!("OpenXR runtime query failed: {error:?}"))?;
@@ -280,7 +595,7 @@ impl XrRuntime {
         };
         emit(serde_json::json!({"event":"system","ok":true}));
 
-        let requirements = <xr::Vulkan as xr::Graphics>::requirements(&instance, system)
+        let requirements = <xr::Vulkan as xr::Graphics>::requirements(instance, system)
             .map_err(|error| format!("OpenXR Vulkan requirements failed: {error:?}"))?;
         let ash_entry = unsafe { ash::Entry::load() }
             .map_err(|error| format!("Vulkan loader unavailable: {error}"))?;
@@ -314,12 +629,16 @@ impl XrRuntime {
         }
         .map_err(|error| format!("OpenXR Vulkan instance request failed: {error:?}"))?
         .map_err(|error| format!("Vulkan instance creation failed: {error}"))?;
-        let vk_instance = unsafe {
+        cleanup.vk_instance = Some(unsafe {
             ash::Instance::load(
                 ash_entry.static_fn(),
                 vk::Instance::from_raw(raw_instance as _),
             )
-        };
+        });
+        let vk_instance = cleanup
+            .vk_instance
+            .as_ref()
+            .expect("vk_instance initialized");
         let raw_device =
             unsafe { instance.vulkan_graphics_device(system, vk_instance.handle().as_raw() as _) }
                 .map_err(|error| format!("OpenXR graphics device query failed: {error:?}"))?;
@@ -344,22 +663,24 @@ impl XrRuntime {
         }
         .map_err(|error| format!("OpenXR Vulkan device request failed: {error:?}"))?
         .map_err(|error| format!("Vulkan device creation failed: {error}"))?;
-        let device = unsafe {
+        cleanup.device = Some(unsafe {
             ash::Device::load(vk_instance.fp_v1_0(), vk::Device::from_raw(raw_device as _))
-        };
+        });
+        let device = cleanup.device.as_ref().expect("device initialized");
         let queue = unsafe { device.get_device_queue(queue_family, 0) };
 
         let (session, pool, waiter, stream) = unsafe {
             create_overlay_session(
-                &instance,
+                instance,
                 system,
-                &vk_instance,
+                vk_instance,
                 physical_device,
-                &device,
+                device,
                 queue_family,
             )
         }
         .map_err(|error| format!("Overlay session creation failed: {error:?}"))?;
+        cleanup.pool = Some(pool);
         let stage = session
             .create_reference_space(xr::ReferenceSpaceType::STAGE, xr::Posef::IDENTITY)
             .or_else(|_| {
@@ -369,7 +690,7 @@ impl XrRuntime {
         let view = session
             .create_reference_space(xr::ReferenceSpaceType::VIEW, xr::Posef::IDENTITY)
             .map_err(|error| format!("View space creation failed: {error:?}"))?;
-        let actions = Actions::new(&instance, &session, &stage, enabled.ext_hand_interaction)
+        let actions = Actions::new(instance, &session, &stage, hand_interaction)
             .map_err(|error| format!("Action setup failed: {error:?}"))?;
 
         let formats = session
@@ -393,6 +714,9 @@ impl XrRuntime {
             )
         }
         .map_err(|error| format!("Command buffer allocation failed: {error}"))?[0];
+        let fence = unsafe { device.create_fence(&vk::FenceCreateInfo::default(), None) }
+            .map_err(|error| format!("Fence creation failed: {error}"))?;
+        cleanup.fence = Some(fence);
         emit(serde_json::json!({
             "event": "session", "ok": true,
             "format": format, "width": WIDTH, "height": HEIGHT,
@@ -412,25 +736,22 @@ impl XrRuntime {
                 format,
                 bgra: format == bgra,
             }),
-            device,
-            vk_instance,
-            pool,
+            device: cleanup.device.take().expect("device"),
+            vk_instance: cleanup.vk_instance.take().expect("vk_instance"),
+            pool: cleanup.pool.take().expect("pool"),
             command,
+            fence: cleanup.fence.take().expect("fence"),
             queue,
             physical_device,
             stagings: std::array::from_fn(|_| None),
             frame: None,
+            color_scale_bias,
             last_layers: usize::MAX,
             last_layer_report: std::time::Instant::now(),
             running: false,
             tracking_reset: false,
-            instance: Some(instance),
+            instance: cleanup.instance.take(),
         })
-    }
-
-    #[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
-    pub fn texture_size() -> [u32; 2] {
-        [WIDTH, HEIGHT]
     }
 
     /// Panel pose and physical size in the backend's head-locked view space.
@@ -492,7 +813,6 @@ impl XrRuntime {
             pose: panel.pose,
             size: panel.size,
             visible: panel.visible,
-            has_image: panel.has_image,
         })
     }
 
@@ -634,6 +954,7 @@ impl XrRuntime {
             let panel = &mut handles.panels[index];
             panel.swapchain = Some(swapchain);
             panel.images = images;
+            panel.acquired_image = None;
             panel.texture_size = [width, height];
             panel.has_image = false;
             panel.pending = false;
@@ -660,20 +981,26 @@ impl XrRuntime {
         staging
             .as_mut()
             .expect("staging buffer exists")
-            .write_scaled(pixels, opacity, bgra);
+            .write_scaled(
+                pixels,
+                if self.color_scale_bias { 1.0 } else { opacity },
+                bgra,
+            );
         let panel = &mut self.handles.as_mut().ok_or("XR session closed")?.panels[index];
         panel.pixels.clear();
-        panel.pixels.extend_from_slice(pixels);
+        if !self.color_scale_bias {
+            panel.pixels.extend_from_slice(pixels);
+        }
         panel.size.height = panel.size.width * height as f32 / width as f32;
         panel.pending = true;
         Ok(())
     }
 
-    /// Set a panel's premultiplied opacity, restaging the last uploaded frame.
+    /// Set a panel's premultiplied opacity, restaging only when color scale bias is unsupported.
     pub fn set_opacity(&mut self, kind: PanelId, opacity: f32) -> Result<(), String> {
         let opacity = opacity.clamp(0.0, 1.0);
         let index = panel_index(kind);
-        if self.stagings[index].is_none() {
+        if self.color_scale_bias || self.stagings[index].is_none() {
             let panel = &self.handles.as_ref().ok_or("XR session closed")?.panels[index];
             if panel.opacity == opacity {
                 return Ok(());
@@ -718,6 +1045,8 @@ impl XrRuntime {
     /// Upload pending panel pixels and submit every visible quad layer.
     pub fn submit(&mut self, time: xr::Time) -> Result<(), String> {
         let handles = self.handles.as_mut().ok_or("XR session closed")?;
+        let mut uploads = Vec::with_capacity(PANEL_COUNT);
+        let mut waited = Vec::with_capacity(PANEL_COUNT);
         for index in 0..PANEL_COUNT {
             let panel = &mut handles.panels[index];
             if !panel.visible || !panel.pending {
@@ -726,32 +1055,79 @@ impl XrRuntime {
             let Some(swapchain) = panel.swapchain.as_mut() else {
                 continue;
             };
-            let image_index = swapchain
-                .acquire_image()
-                .map_err(|error| format!("Swapchain acquire failed: {error:?}"))?;
-            swapchain
-                .wait_image(xr::Duration::INFINITE)
-                .map_err(|error| format!("Swapchain wait failed: {error:?}"))?;
-            upload_image(
+            let buffer = self.stagings[index]
+                .as_ref()
+                .ok_or("Panel staging buffer is missing")?
+                .buffer;
+            let image_index = match panel.acquired_image {
+                Some(idx) => idx,
+                None => {
+                    let idx = swapchain
+                        .acquire_image()
+                        .map_err(|error| format!("Swapchain acquire failed: {error:?}"))?;
+                    panel.acquired_image = Some(idx);
+                    idx
+                }
+            };
+            match swapchain.wait_image(xr::Duration::from_nanos(50_000_000)) {
+                Ok(()) => {
+                    uploads.push(PendingUpload {
+                        buffer,
+                        image: vk::Image::from_raw(panel.images[image_index as usize]),
+                        width: panel.texture_size[0],
+                        height: panel.texture_size[1],
+                    });
+                    waited.push(index);
+                }
+                Err(xr::sys::Result::TIMEOUT_EXPIRED) => {
+                    tracing::debug!(index, "OpenXR swapchain wait timed out; deferring upload");
+                }
+                Err(error) => return Err(format!("Swapchain wait failed: {error:?}")),
+            }
+        }
+        if !uploads.is_empty() {
+            let upload_result = upload_images(
                 &self.device,
                 &self.queue,
                 self.command,
-                self.stagings[index]
-                    .as_ref()
-                    .ok_or("Panel staging buffer is missing")?
-                    .buffer,
-                vk::Image::from_raw(panel.images[image_index as usize]),
-                panel.texture_size[0],
-                panel.texture_size[1],
-            )?;
-            swapchain
-                .release_image()
-                .map_err(|error| format!("Swapchain release failed: {error:?}"))?;
-            panel.has_image = true;
-            panel.pending = false;
+                self.fence,
+                &uploads,
+            );
+            for &index in &waited {
+                let panel = &mut handles.panels[index];
+                panel.acquired_image = None;
+                panel
+                    .swapchain
+                    .as_mut()
+                    .expect("swapchain")
+                    .release_image()
+                    .map_err(|error| format!("Swapchain release failed: {error:?}"))?;
+            }
+            upload_result?;
+            for index in waited {
+                let panel = &mut handles.panels[index];
+                panel.has_image = true;
+                panel.pending = false;
+            }
         }
-        let mut layers = Vec::new();
-        for panel in &handles.panels {
+        let mut biases = [xr::sys::CompositionLayerColorScaleBiasKHR {
+            ty: xr::sys::StructureType::COMPOSITION_LAYER_COLOR_SCALE_BIAS_KHR,
+            next: ptr::null(),
+            color_scale: xr::Color4f {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 1.0,
+            },
+            color_bias: xr::Color4f {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            },
+        }; PANEL_COUNT];
+        let mut layers = Vec::with_capacity(PANEL_COUNT);
+        for (slot, panel) in handles.panels.iter().enumerate() {
             if !panel.visible || !panel.has_image {
                 continue;
             }
@@ -773,10 +1149,19 @@ impl XrRuntime {
                     let Some(space) = space else {
                         continue;
                     };
+                    let valid = space.locate(&handles.stage, time).is_ok_and(|loc| {
+                        loc.location_flags.contains(
+                            xr::SpaceLocationFlags::POSITION_VALID
+                                | xr::SpaceLocationFlags::ORIENTATION_VALID,
+                        )
+                    });
+                    if !valid {
+                        continue;
+                    }
                     space
                 }
             };
-            let layer = xr::CompositionLayerQuad::new()
+            let mut layer = xr::CompositionLayerQuad::new()
                 .layer_flags(xr::CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA)
                 .space(space)
                 .eye_visibility(xr::EyeVisibility::BOTH)
@@ -794,6 +1179,18 @@ impl XrRuntime {
                 )
                 .pose(panel.pose)
                 .size(panel.size);
+            if self.color_scale_bias && panel.opacity < 1.0 {
+                let opacity = panel.opacity.clamp(0.0, 1.0);
+                biases[slot].color_scale = xr::Color4f {
+                    r: opacity,
+                    g: opacity,
+                    b: opacity,
+                    a: opacity,
+                };
+                let mut raw = layer.into_raw();
+                raw.next = (&raw const biases[slot]).cast();
+                layer = unsafe { xr::CompositionLayerQuad::from_raw(raw) };
+            }
             layers.push(layer);
         }
         let layers: Vec<&xr::CompositionLayerBase<'_, xr::Vulkan>> =
@@ -830,13 +1227,6 @@ impl XrRuntime {
             .end(time, xr::EnvironmentBlendMode::OPAQUE, &[])
             .map_err(|error| format!("Frame end failed: {error:?}"))?;
         Ok(())
-    }
-
-    pub fn click(&mut self, time: xr::Time) -> bool {
-        let Some(xr) = self.handles.as_mut() else {
-            return false;
-        };
-        xr.actions.click(&xr.session, &xr.view, time)
     }
 
     /// Head pose in the stage space for the current frame.
@@ -938,16 +1328,6 @@ impl XrRuntime {
         edge
     }
 
-    /// Rate-limited JSON input sample for the prototype.
-    #[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
-    pub fn report(&mut self, time: xr::Time) -> Option<serde_json::Value> {
-        let instance = self.instance.as_ref()?;
-        let xr = self.handles.as_mut()?;
-        let focused = xr.actions.focused;
-        xr.actions
-            .poll(instance, &xr.session, &xr.stage, time, focused)
-    }
-
     /// Ask the session to leave the frame loop and wait until the runtime has
     /// released it. Destroying the application's VkDevice while the runtime is
     /// still unwinding the session crashes inside the driver.
@@ -1020,6 +1400,7 @@ impl Drop for XrRuntime {
             }
         }
         unsafe {
+            self.device.destroy_fence(self.fence, None);
             self.device.destroy_command_pool(self.pool, None);
             self.device.destroy_device(None);
             self.vk_instance.destroy_instance(None);
@@ -1028,72 +1409,6 @@ impl Drop for XrRuntime {
         // so the OpenXR instance is the last handle released.
         drop(instance);
     }
-}
-
-/// Prototype driver: open a session, show one textured panel, report input.
-#[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
-pub fn run(seconds: u64) -> Result<(), String> {
-    let stopping = Arc::new(AtomicBool::new(false));
-    let timer = stopping.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(seconds));
-        timer.store(true, Ordering::Release);
-    });
-    let mut runtime = XrRuntime::open(true)?;
-    let mut background = [0.02f64, 0.05, 0.10];
-    let mut pixels = render_sample(WIDTH, HEIGHT, background)?;
-    runtime.upload(PanelId::Headset, &pixels, WIDTH, HEIGHT)?;
-    let mut frames = 0u32;
-    while !stopping.load(Ordering::Acquire) {
-        let ready = match runtime.pump() {
-            Ok(ready) => ready,
-            Err(_) if stopping.load(Ordering::Acquire) => break,
-            Err(error) => return Err(error),
-        };
-        if !ready {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            continue;
-        }
-        let (time, should_render) = match runtime.wait_frame() {
-            Ok(frame) => frame,
-            Err(_) if stopping.load(Ordering::Acquire) => break,
-            Err(error) => return Err(error),
-        };
-        if !should_render {
-            if let Err(error) = runtime.skip(time) {
-                if stopping.load(Ordering::Acquire) {
-                    break;
-                }
-                return Err(error);
-            }
-            continue;
-        }
-        if runtime.click(time) {
-            background = if background[1] > 0.5 {
-                [0.02, 0.05, 0.10]
-            } else {
-                [0.05, 0.45, 0.15]
-            };
-            pixels = render_sample(WIDTH, HEIGHT, background)?;
-            runtime.upload(PanelId::Headset, &pixels, WIDTH, HEIGHT)?;
-            println!("{}", serde_json::json!({"event":"click"}));
-        }
-        if let Some(sample) = runtime.report(time) {
-            println!("{sample}");
-        }
-        if let Err(error) = runtime.submit(time) {
-            if stopping.load(Ordering::Acquire) {
-                break;
-            }
-            return Err(error);
-        }
-        frames += 1;
-    }
-    println!(
-        "{}",
-        serde_json::json!({"event":"frames","submitted":frames})
-    );
-    Ok(())
 }
 
 struct Actions {
@@ -1110,10 +1425,6 @@ struct Actions {
     grip_value: [xr::Action<f32>; 2],
     scroll: [xr::Action<xr::Vector2f>; 2],
     menu: [xr::Action<bool>; 2],
-    #[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
-    last_report: std::time::Instant,
-    #[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
-    was_pressed: [bool; 2],
     menu_pressed: bool,
     focused: bool,
 }
@@ -1125,7 +1436,7 @@ impl Actions {
         stage: &xr::Space,
         hand_interaction_enabled: bool,
     ) -> xr::Result<Self> {
-        let set = instance.create_action_set("vrcs_probe", "VRCS probe", 0)?;
+        let set = instance.create_action_set("vrcs", "VRCS", 0)?;
         let sides = [
             instance.string_to_path("/user/hand/left")?,
             instance.string_to_path("/user/hand/right")?,
@@ -1160,17 +1471,33 @@ impl Actions {
         ];
         // Bind every profile the runtime advertises for hand controllers; a
         // profile that no device matches is ignored.
-        let profiles: [(&str, &[&str]); 5] = [
+        let profiles: [(&str, &[&str]); 6] = [
             (
                 "/interaction_profiles/khr/simple_controller",
                 &["aim/pose", "select/click", "menu/click"],
             ),
             (
                 "/interaction_profiles/ext/hand_interaction_ext",
-                &["aim/pose"],
+                &[
+                    "aim/pose",
+                    "grip/pose",
+                    "pinch_ext/value",
+                    "grasp_ext/value",
+                ],
             ),
             (
                 "/interaction_profiles/oculus/touch_controller",
+                &[
+                    "aim/pose",
+                    "grip/pose",
+                    "trigger/value",
+                    "squeeze/value",
+                    "thumbstick",
+                    "menu/click",
+                ],
+            ),
+            (
+                "/interaction_profiles/bytedance/pico4_controller",
                 &[
                     "aim/pose",
                     "grip/pose",
@@ -1188,7 +1515,7 @@ impl Actions {
                     "trigger/value",
                     "squeeze/value",
                     "thumbstick",
-                    "b/click",
+                    "trackpad/force",
                 ],
             ),
             (
@@ -1221,17 +1548,18 @@ impl Actions {
                         } else {
                             xr::Binding::new(&aim[index], path)
                         }
-                    } else if input.contains("trigger") || input.contains("select") {
+                    } else if input.contains("trigger")
+                        || input.contains("select")
+                        || *input == "pinch_ext/value"
+                    {
                         xr::Binding::new(&trigger[index], path)
-                    } else if input.starts_with("squeeze/value") {
+                    } else if input.starts_with("squeeze/value") || *input == "grasp_ext/value" {
                         xr::Binding::new(&grip_value[index], path)
                     } else if input.starts_with("squeeze/click") {
                         xr::Binding::new(&grip[index], path)
                     } else if *input == "thumbstick" || *input == "trackpad" {
                         xr::Binding::new(&scroll[index], path)
-                    } else if (*input == "menu/click" && index == 0)
-                        || (*input == "b/click" && index == 1)
-                    {
+                    } else if (*input == "menu/click" || *input == "trackpad/force") && index == 0 {
                         xr::Binding::new(&menu[index], path)
                     } else {
                         continue;
@@ -1279,130 +1607,9 @@ impl Actions {
             grip_value,
             scroll,
             menu,
-            last_report: std::time::Instant::now() - std::time::Duration::from_secs(1),
-            was_pressed: [false; 2],
             menu_pressed: false,
             focused: false,
         })
-    }
-
-    /// Ray/plane test in the panel's space plus a trigger rising edge: the same
-    /// geometry the production `Router` will use.
-    #[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
-    fn click(
-        &mut self,
-        session: &xr::Session<xr::Vulkan>,
-        view: &xr::Space,
-        time: xr::Time,
-    ) -> bool {
-        let mut clicked = false;
-        for index in 0..2 {
-            let pressed = self.trigger[index]
-                .state(session, xr::Path::NULL)
-                .map(|state| state.is_active && state.current_state)
-                .unwrap_or(false);
-            // Update the latch before any early return, otherwise an untracked
-            // hand re-fires the edge on every frame and produces repeat clicks.
-            let edge = pressed && !self.was_pressed[index];
-            self.was_pressed[index] = pressed;
-            if !edge {
-                continue;
-            }
-            let Some(space) = self.spaces[index].as_ref() else {
-                continue;
-            };
-            let Ok(location) = space.locate(view, time) else {
-                continue;
-            };
-            let p = location.pose.position;
-            let q = location.pose.orientation;
-            // Rotate (0, 0, -1) by q to get the aim direction.
-            let (x, y, z, w) = (q.x, q.y, q.z, q.w);
-            let forward = [
-                -2.0 * (x * z + w * y),
-                -2.0 * (y * z - w * x),
-                -(1.0 - 2.0 * (x * x + y * y)),
-            ];
-            if forward[2].abs() <= 1e-4 {
-                continue;
-            }
-            let t = (PANEL_Z - p.z) / forward[2];
-            if t <= 0.0 {
-                continue;
-            }
-            let hit = [p.x + forward[0] * t, p.y + forward[1] * t];
-            clicked |= hit[0].abs() <= PANEL_W && hit[1].abs() <= PANEL_H;
-        }
-        clicked
-    }
-
-    #[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
-    fn poll(
-        &mut self,
-        instance: &xr::Instance,
-        session: &xr::Session<xr::Vulkan>,
-        stage: &xr::Space,
-        time: xr::Time,
-        focused: bool,
-    ) -> Option<serde_json::Value> {
-        if self.last_report.elapsed() < std::time::Duration::from_secs(1) {
-            return None;
-        }
-        self.last_report = std::time::Instant::now();
-        let locate = |index: usize| -> (Option<[f32; 3]>, bool, bool) {
-            let Some(space) = self.spaces[index].as_ref() else {
-                return (None, false, false);
-            };
-            match space.locate(stage, time) {
-                Ok(location) => {
-                    let position = location.pose.position;
-                    let valid = location
-                        .location_flags
-                        .contains(xr::SpaceLocationFlags::POSITION_VALID);
-                    let tracked = location
-                        .location_flags
-                        .contains(xr::SpaceLocationFlags::POSITION_TRACKED);
-                    (
-                        valid.then_some([position.x, position.y, position.z]),
-                        valid,
-                        tracked,
-                    )
-                }
-                Err(_) => (None, false, false),
-            }
-        };
-        let pressed = |index: usize| -> bool {
-            self.trigger[index]
-                .state(session, xr::Path::NULL)
-                .map(|state| state.is_active && state.current_state)
-                .unwrap_or(false)
-        };
-        let profile = |hand: &str| -> String {
-            let Ok(path) = instance.string_to_path(&format!("/user/hand/{hand}")) else {
-                return "<path>".into();
-            };
-            session
-                .current_interaction_profile(path)
-                .ok()
-                .filter(|profile| *profile != xr::Path::NULL)
-                .and_then(|profile| instance.path_to_string(profile).ok())
-                .unwrap_or_else(|| "<none>".into())
-        };
-        let _ = &self.aim;
-        Some(serde_json::json!({
-            "left_profile": profile("left"),
-            "right_profile": profile("right"),
-            "event": "input",
-            "focused": focused,
-            "left": locate(0).0,
-            "left_valid": locate(0).1,
-            "left_tracked": locate(0).2,
-            "right": locate(1).0,
-            "right_valid": locate(1).1,
-            "right_tracked": locate(1).2,
-            "left_trigger": pressed(0),
-            "right_trigger": pressed(1),
-        }))
     }
 }
 
@@ -1465,18 +1672,23 @@ unsafe fn create_overlay_session(
     Ok((session, pool, waiter, stream))
 }
 
-/// Copy the CPU RGBA frame into the swapchain image: one staging buffer and a
-/// buffer→image copy, no shader or descriptor pipeline.
-fn upload_image(
-    device: &ash::Device,
-    queue: &vk::Queue,
-    command: vk::CommandBuffer,
+struct PendingUpload {
     buffer: vk::Buffer,
     image: vk::Image,
     width: u32,
     height: u32,
+}
+
+/// Batch-copy CPU RGBA frames into swapchain images with one command buffer submission.
+fn upload_images(
+    device: &ash::Device,
+    queue: &vk::Queue,
+    command: vk::CommandBuffer,
+    fence: vk::Fence,
+    uploads: &[PendingUpload],
 ) -> Result<(), String> {
-    let barrier = |old: vk::ImageLayout,
+    let barrier = |image: vk::Image,
+                   old: vk::ImageLayout,
                    new: vk::ImageLayout,
                    src_access: vk::AccessFlags,
                    dst_access: vk::AccessFlags| {
@@ -1493,19 +1705,6 @@ fn upload_image(
             .src_access_mask(src_access)
             .dst_access_mask(dst_access)
     };
-    let region = [vk::BufferImageCopy::default()
-        .buffer_row_length(0)
-        .buffer_image_height(0)
-        .image_subresource(
-            vk::ImageSubresourceLayers::default()
-                .aspect_mask(vk::ImageAspectFlags::COLOR)
-                .layer_count(1),
-        )
-        .image_extent(vk::Extent3D {
-            width,
-            height,
-            depth: 1,
-        })];
     unsafe {
         device
             .reset_command_buffer(command, vk::CommandBufferResetFlags::empty())
@@ -1517,47 +1716,65 @@ fn upload_image(
                     .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )
             .map_err(|error| format!("Command buffer begin failed: {error}"))?;
-        device.cmd_pipeline_barrier(
-            command,
-            vk::PipelineStageFlags::TOP_OF_PIPE,
-            vk::PipelineStageFlags::TRANSFER,
-            vk::DependencyFlags::empty(),
-            &[],
-            &[],
-            &[barrier(
-                vk::ImageLayout::UNDEFINED,
+        for upload in uploads {
+            let region = [vk::BufferImageCopy::default()
+                .buffer_row_length(0)
+                .buffer_image_height(0)
+                .image_subresource(
+                    vk::ImageSubresourceLayers::default()
+                        .aspect_mask(vk::ImageAspectFlags::COLOR)
+                        .layer_count(1),
+                )
+                .image_extent(vk::Extent3D {
+                    width: upload.width,
+                    height: upload.height,
+                    depth: 1,
+                })];
+            device.cmd_pipeline_barrier(
+                command,
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[barrier(
+                    upload.image,
+                    vk::ImageLayout::UNDEFINED,
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    vk::AccessFlags::empty(),
+                    vk::AccessFlags::TRANSFER_WRITE,
+                )],
+            );
+            device.cmd_copy_buffer_to_image(
+                command,
+                upload.buffer,
+                upload.image,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                vk::AccessFlags::empty(),
-                vk::AccessFlags::TRANSFER_WRITE,
-            )],
-        );
-        device.cmd_copy_buffer_to_image(
-            command,
-            buffer,
-            image,
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-            &region,
-        );
-        device.cmd_pipeline_barrier(
-            command,
-            vk::PipelineStageFlags::TRANSFER,
-            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
-            vk::DependencyFlags::empty(),
-            &[],
-            &[],
-            &[barrier(
-                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                vk::AccessFlags::TRANSFER_WRITE,
-                vk::AccessFlags::empty(),
-            )],
-        );
+                &region,
+            );
+            device.cmd_pipeline_barrier(
+                command,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                    | vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[barrier(
+                    upload.image,
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    vk::AccessFlags::TRANSFER_WRITE,
+                    vk::AccessFlags::SHADER_READ | vk::AccessFlags::COLOR_ATTACHMENT_READ,
+                )],
+            );
+        }
         device
             .end_command_buffer(command)
             .map_err(|error| format!("Command buffer end failed: {error}"))?;
-        let fence = device
-            .create_fence(&vk::FenceCreateInfo::default(), None)
-            .map_err(|error| format!("Fence creation failed: {error}"))?;
+        device
+            .reset_fences(&[fence])
+            .map_err(|error| format!("Fence reset failed: {error}"))?;
         device
             .queue_submit(
                 *queue,
@@ -1568,7 +1785,6 @@ fn upload_image(
         device
             .wait_for_fences(&[fence], true, u64::MAX)
             .map_err(|error| format!("Queue wait failed: {error}"))?;
-        device.destroy_fence(fence, None);
     }
     Ok(())
 }
@@ -1666,48 +1882,6 @@ impl Staging {
     }
 }
 
-/// Opaque text sample so alpha, channel order and orientation are all visible.
-#[allow(dead_code)] // Used by `vrcs-linux-vr-prototype` via `#[path = "../xr/mod.rs"]`.
-fn render_sample(width: u32, height: u32, background: [f64; 3]) -> Result<Vec<u8>, String> {
-    let mut surface =
-        cairo::ImageSurface::create(cairo::Format::ARgb32, width as i32, height as i32)
-            .map_err(|error| error.to_string())?;
-    let context = cairo::Context::new(&surface).map_err(|error| error.to_string())?;
-    context.set_source_rgba(background[0], background[1], background[2], 0.7);
-    context.rectangle(0., 0., width as f64, height as f64);
-    context.fill().map_err(|error| error.to_string())?;
-    context.set_source_rgba(1., 1., 1., 1.);
-    context.select_font_face(
-        "sans-serif",
-        cairo::FontSlant::Normal,
-        cairo::FontWeight::Normal,
-    );
-    context.set_font_size(56.);
-    context.move_to(32., 96.);
-    context
-        .show_text("VRCS OpenXR / WiVRN")
-        .map_err(|error| error.to_string())?;
-    context.set_font_size(40.);
-    context.move_to(32., 176.);
-    context
-        .show_text("字幕测试 こんにちは 안녕하세요")
-        .map_err(|error| error.to_string())?;
-    drop(context);
-    surface.flush();
-    let stride = surface.stride() as usize;
-    let data = surface.data().map_err(|error| error.to_string())?;
-    // Cairo ARGB32 is premultiplied BGRA in memory on little-endian; the
-    // swapchain format is R8G8B8A8_SRGB.
-    let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
-    for row in 0..height as usize {
-        let line = &data[row * stride..row * stride + width as usize * 4];
-        for pixel in line.as_chunks::<4>().0 {
-            rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
-        }
-    }
-    Ok(rgba)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1735,5 +1909,74 @@ mod tests {
         }
         assert!(seen.into_iter().all(|used| used));
         assert_eq!(panel_index(PanelId::Headset), 0);
+    }
+
+    #[test]
+    fn manifest_library_path_resolves_relative_and_absolute_paths() {
+        let manifest = Path::new("/usr/share/openxr/1/openxr_wivrn.json");
+        let relative = r#"{
+            "file_format_version": "1.0.0",
+            "runtime": {
+                "name": "WiVRn",
+                "library_path": "../../../lib/wivrn/libopenxr_wivrn.so"
+            }
+        }"#;
+        assert_eq!(
+            resolve_manifest_library_path(manifest, relative),
+            Some((
+                PathBuf::from("/usr/share/openxr/1/../../../lib/wivrn/libopenxr_wivrn.so"),
+                None,
+            ))
+        );
+
+        let absolute = r#"{
+            "file_format_version": "1.0.0",
+            "runtime": {
+                "library_path": "/opt/xr/libcustom_xr.so",
+                "functions": {
+                    "xrNegotiateLoaderRuntimeInterface": "customNegotiate"
+                }
+            }
+        }"#;
+        assert_eq!(
+            resolve_manifest_library_path(manifest, absolute),
+            Some((
+                PathBuf::from("/opt/xr/libcustom_xr.so"),
+                Some("customNegotiate".into()),
+            ))
+        );
+    }
+
+    #[test]
+    fn active_manifest_candidates_honor_override_and_xdg_order() {
+        let overridden = active_manifest_candidates_from(
+            Some(OsStr::new("/tmp/custom_runtime.json")),
+            Some(OsStr::new("/home/u/.config")),
+            Some(OsStr::new("/home/u")),
+            Some(OsStr::new("/etc/xdg")),
+            "x86_64",
+        );
+        assert_eq!(overridden, vec![PathBuf::from("/tmp/custom_runtime.json")]);
+
+        let xdg = active_manifest_candidates_from(
+            None,
+            None,
+            Some(OsStr::new("/home/u")),
+            Some(OsStr::new("/etc/xdg:/opt/xdg")),
+            "x86_64",
+        );
+        assert_eq!(
+            xdg,
+            vec![
+                PathBuf::from("/home/u/.config/openxr/1/active_runtime.x86_64.json"),
+                PathBuf::from("/home/u/.config/openxr/1/active_runtime.json"),
+                PathBuf::from("/etc/xdg/openxr/1/active_runtime.x86_64.json"),
+                PathBuf::from("/etc/xdg/openxr/1/active_runtime.json"),
+                PathBuf::from("/opt/xdg/openxr/1/active_runtime.x86_64.json"),
+                PathBuf::from("/opt/xdg/openxr/1/active_runtime.json"),
+                PathBuf::from("/etc/openxr/1/active_runtime.x86_64.json"),
+                PathBuf::from("/etc/openxr/1/active_runtime.json"),
+            ]
+        );
     }
 }

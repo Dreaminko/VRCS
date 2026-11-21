@@ -134,17 +134,13 @@ pub fn dashboard_placeholder(message: &str) -> Result<Texture, String> {
                 for x in 0..width as usize {
                     let offset = y * stride + x * 4;
                     let word = u32::from_ne_bytes(data[offset..offset + 4].try_into().unwrap());
-                    let alpha = (word >> 24) as u8;
                     let dest = &mut pixels[(y * width as usize + x) * 4..][..4];
-                    for (channel, shift) in [16, 8, 0].iter().enumerate() {
-                        let value = (word >> shift) & 255;
-                        dest[channel] = if alpha == 0 {
-                            0
-                        } else {
-                            ((value * 255 + u32::from(alpha) / 2) / u32::from(alpha)) as u8
-                        };
-                    }
-                    dest[3] = alpha;
+                    dest.copy_from_slice(&[
+                        ((word >> 16) & 255) as u8,
+                        ((word >> 8) & 255) as u8,
+                        (word & 255) as u8,
+                        (word >> 24) as u8,
+                    ]);
                 }
             }
         })

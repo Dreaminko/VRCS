@@ -24,6 +24,7 @@ pub struct OpenXrBackend {
     runtime: XrRuntime,
     cursor_ready: bool,
     dashboard_open: bool,
+    dashboard_pose: Option<xr::Posef>,
     dashboard_pointer: DashboardPointer,
     dashboard_cursor: Option<CursorTarget>,
     dashboard_placeholder: Option<String>,
@@ -248,12 +249,29 @@ fn premultiply(pixels: &mut [u8]) {
     }
 }
 
+fn dashboard_stage_pose(head: Pose) -> xr::Posef {
+    let hfx = -head[0][2];
+    let hfz = -head[2][2];
+    let len = (hfx * hfx + hfz * hfz).sqrt();
+    let (fx, fz) = if len > 1e-4 {
+        (hfx / len, hfz / len)
+    } else {
+        (0.0, -1.0)
+    };
+    xr_pose([
+        [-fz, 0.0, -fx, head[0][3] + fx * 1.2],
+        [0.0, 1.0, 0.0, head[1][3]],
+        [fx, 0.0, -fz, head[2][3] + fz * 1.2],
+    ])
+}
+
 impl OpenXrBackend {
     pub fn connect() -> Result<Self, String> {
         Ok(Self {
             runtime: XrRuntime::open(false)?,
             cursor_ready: false,
             dashboard_open: false,
+            dashboard_pose: None,
             dashboard_pointer: DashboardPointer::default(),
             dashboard_cursor: None,
             dashboard_placeholder: None,
@@ -513,19 +531,28 @@ impl OpenXrBackend {
         if self.runtime.menu_clicked() {
             self.set_dashboard_open(!self.dashboard_open);
         }
-        self.runtime.set_panel_width(
-            PanelId::Dashboard,
-            PanelSpace::View,
-            xr::Posef {
-                orientation: xr::Quaternionf::IDENTITY,
-                position: xr::Vector3f {
-                    x: 0.0,
-                    y: 0.0,
-                    z: -1.2,
+        if self.dashboard_open && self.dashboard_pose.is_none() {
+            self.dashboard_pose = self
+                .runtime
+                .head_pose()
+                .map(|h| dashboard_stage_pose(h.pose));
+        }
+        let (space, pose) = match self.dashboard_pose {
+            Some(pose) => (PanelSpace::Stage, pose),
+            None => (
+                PanelSpace::View,
+                xr::Posef {
+                    orientation: xr::Quaternionf::IDENTITY,
+                    position: xr::Vector3f {
+                        x: 0.0,
+                        y: 0.0,
+                        z: -1.2,
+                    },
                 },
-            },
-            1.0,
-        );
+            ),
+        };
+        self.runtime
+            .set_panel_width(PanelId::Dashboard, space, pose, 1.0);
         self.runtime
             .set_visible(PanelId::Dashboard, self.dashboard_open);
         Ok(())
@@ -540,10 +567,12 @@ impl OpenXrBackend {
             return Ok(());
         }
         let texture = super::renderer::dashboard_placeholder(&message)?;
-        let mut pixels = texture.pixels;
-        premultiply(&mut pixels);
-        self.runtime
-            .upload(PanelId::Dashboard, &pixels, texture.width, texture.height)?;
+        self.runtime.upload(
+            PanelId::Dashboard,
+            &texture.pixels,
+            texture.width,
+            texture.height,
+        )?;
         self.runtime
             .set_visible(PanelId::Dashboard, self.dashboard_open);
         self.dashboard_placeholder = Some(message);
@@ -640,6 +669,10 @@ impl OpenXrBackend {
         self.dashboard_open = open;
         self.dashboard_scroll_at = Instant::now();
         if open {
+            self.dashboard_pose = self
+                .runtime
+                .head_pose()
+                .map(|h| dashboard_stage_pose(h.pose));
             // A trigger held while the quad opened must not count as a click.
             self.dashboard_pointer.triggers = [false; 2];
             if self.runtime.focused() {
@@ -650,6 +683,7 @@ impl OpenXrBackend {
                 self.dashboard_pointer.triggers = [true; 2];
             }
         } else {
+            self.dashboard_pose = None;
             self.clear_dashboard_pointer();
         }
     }
@@ -665,7 +699,11 @@ impl OpenXrBackend {
     }
 
     pub fn tracking_reset(&mut self) -> bool {
-        self.runtime.take_tracking_reset()
+        let reset = self.runtime.take_tracking_reset();
+        if reset {
+            self.dashboard_pose = None;
+        }
+        reset
     }
 
     pub fn has_surface_texture(&self, kind: OverlayKind) -> bool {
@@ -679,10 +717,8 @@ impl OpenXrBackend {
         _capture: std::rc::Rc<std::cell::RefCell<crate::vr_overlay::surface::frame::Capture>>,
     ) -> Result<(), String> {
         let texture = &frame.texture;
-        let mut pixels = texture.pixels.clone();
-        premultiply(&mut pixels);
         self.runtime
-            .upload(panel(kind), &pixels, texture.width, texture.height)?;
+            .upload(panel(kind), &texture.pixels, texture.width, texture.height)?;
         if kind == OverlayKind::Dashboard {
             self.dashboard_placeholder = None;
         }

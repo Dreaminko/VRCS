@@ -26,11 +26,6 @@ name = "vrcs-vr-surface-smoke"
 path = "src/bin/vr-surface-smoke.rs"
 required-features = ["vr-preview"]
 
-[[bin]]
-name = "vrcs-linux-vr-prototype"
-path = "src/bin/linux-vr-prototype.rs"
-required-features = ["vr-preview"]
-
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -52,7 +47,6 @@ png = "0.17"
 futures-util = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-pipewire = { version = "=0.10.1", features = ["v0_3_65"] }
 libc = "0.2"
 ashpd = { version = "0.11", default-features = false, features = ["tokio"] }
 webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
