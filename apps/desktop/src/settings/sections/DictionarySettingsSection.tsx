@@ -95,7 +95,11 @@ export function DictionarySettingsSection({
                 </div>
               ))}
             </div>
-          ) : <p className="dictionary-empty">{t("settings.dictionary.emptyHint")}</p>}
+          ) : <div className="dictionary-empty">
+            <BookOpen size={18} aria-hidden="true" />
+            <strong>{t("settings.dictionary.noneImported")}</strong>
+            <small>{t("settings.dictionary.emptyHint")}</small>
+          </div>}
           {pendingRemoval && (
             <ConfirmDialog
               title={t("settings.dictionary.remove")}

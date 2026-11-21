@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Globe2, LoaderCircle } from "lucide-react";
+import { Globe2, LoaderCircle, SlidersHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { subtitleVisible } from "../player-history";
 import { useLanguageDetectorReady } from "../usePlayerHistoryPreferences";
@@ -230,7 +230,10 @@ export const LiveView = memo(function LiveView({
           <p>{t("common.loading")}</p>
         </div>
       ) : subtitles.length ? (
-        <div className="empty-state"><p>{t("live.players.filteredEmpty")}</p></div>
+        <div className="empty-state">
+          <SlidersHorizontal size={22} aria-hidden="true" />
+          <p>{t("live.players.filteredEmpty")}</p>
+        </div>
       ) : (
         <EmptyLiveView running={running} />
       )}

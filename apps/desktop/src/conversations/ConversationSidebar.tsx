@@ -1,6 +1,6 @@
 import { memo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { PanelLeftClose, Plus, Search, Trash2, X } from "lucide-react";
+import { MessageSquare, PanelLeftClose, Plus, Search, Trash2, X } from "lucide-react";
 import type { RefObject } from "react";
 import { ConfirmDialog } from "../app/components/ConfirmDialog";
 import type { ConversationIcon, ConversationSummary } from "./conversations";
@@ -273,7 +273,10 @@ export const ConversationSidebar = memo(function ConversationSidebar({
               onSelect={selectConversation}
               onOpenActions={openActions}
             />
-          )) : <p className="conversation-list-empty">{t("conversations.empty")}</p>}
+          )) : <div className="conversation-list-empty">
+            <MessageSquare size={15} aria-hidden="true" />
+            <span>{t("conversations.empty")}</span>
+          </div>}
         </section>
         </>}
       </div>

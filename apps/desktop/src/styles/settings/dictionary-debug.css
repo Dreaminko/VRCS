@@ -17,7 +17,21 @@
 .dictionary-source-row > button { display: grid; width: 34px; height: 34px; place-items: center; padding: 0; border: 0; border-radius: var(--radius-sm); color: var(--text-quiet); background: transparent; cursor: pointer; }
 .dictionary-source-row > button:hover { color: var(--error); background: var(--error-soft); }
 .dictionary-source-row > button:disabled { opacity: 0.45; cursor: wait; }
-.dictionary-empty { margin: 0; padding: 16px; border: 1px dashed var(--border); border-radius: var(--radius-md); color: var(--text-quiet); font-size: var(--settings-text-body); line-height: var(--settings-leading-reading); text-align: center; }
+.dictionary-empty {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 20px 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+  color: var(--text-quiet);
+  text-align: center;
+}
+.dictionary-empty svg { margin-bottom: 2px; opacity: 0.78; }
+.dictionary-empty strong { color: var(--text-secondary); font-size: var(--settings-text-body); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
+.dictionary-empty small { max-width: 44ch; font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .dictionary-feedback { margin: 12px 2px 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .dictionary-import-progress { margin: 7px 2px 0; }
 .debug-section { interpolate-size: allow-keywords; }

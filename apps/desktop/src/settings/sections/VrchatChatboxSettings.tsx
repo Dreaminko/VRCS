@@ -1,4 +1,4 @@
-import { MessageSquare } from "lucide-react";
+import { Info, MessageSquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { ChatboxStatus } from "../../core-client/types";
@@ -41,6 +41,7 @@ export function VrchatChatboxSettings({ draft, translation, profiles, status, su
     </div>
     {(showTranslationHint || showIssue || saveError) && <div className="device-group-content">
       {showTranslationHint && <div className="capture-chatbox-translation">
+        <Info size={15} aria-hidden="true" />
         <p className="settings-field-note">{t("settings.capture.chatbox.translationUnavailable")}</p>
         <button type="button" className="secondary-button" onClick={onOpenTranslation}>{t("settings.capture.openTranslation")}</button>
       </div>}

@@ -37,6 +37,11 @@
   white-space: pre-wrap;
 }
 
+.chatbox-preview p.is-placeholder {
+  color: var(--text-quiet);
+  font-size: 12px;
+}
+
 .chatbox-overflow-choice {
   display: flex;
   align-items: center;

@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, FileUp, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, FileUp, Plus, Search, SearchX, Trash2 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -282,11 +282,12 @@ export function GlossaryEntryTable({
           </tbody>
         </table>
         {visibleRows.length === 0 && (
-          <p className="glossary-dialog-empty">
-            {entries.length
+          <div className="glossary-dialog-empty">
+            {entries.length ? <SearchX size={18} aria-hidden="true" /> : <BookOpen size={18} aria-hidden="true" />}
+            <span>{entries.length
               ? t("settings.glossary.table.noMatchingEntries")
-              : t("settings.glossary.noGlossaryEntries")}
-          </p>
+              : t("settings.glossary.noGlossaryEntries")}</span>
+          </div>
         )}
       </div>
 

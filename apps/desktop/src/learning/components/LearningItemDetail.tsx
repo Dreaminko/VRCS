@@ -1,6 +1,6 @@
 import { useRef, useState, type RefObject, type UIEventHandler } from "react";
 import { useTranslation } from "react-i18next";
-import { Archive, ArrowLeft, BookOpenText, ChevronDown, CreditCard, MoreHorizontal, Pencil, RefreshCw, RotateCcw, Save, Sparkles, Trash2 } from "lucide-react";
+import { Archive, ArrowLeft, BookOpenText, ChevronDown, CreditCard, MoreHorizontal, Pencil, RefreshCw, RotateCcw, Save, Sparkles, Trash2, TriangleAlert } from "lucide-react";
 
 import { ConfirmDialog } from "../../app/components/ConfirmDialog";
 import { useDismissibleLayer } from "../../shared/hooks/use-dismissible-layer";
@@ -248,7 +248,10 @@ export function LearningItemDetail({
                     <button key={focus} type="button" disabled={analysisDisabled} onClick={() => void analyze(item.analysis!.task_type, focus)}>{t(`learning.ai.focus.${focus}`)}</button>
                   ))}
                 </div>
-                {(item.analysis_stale || workingTextDirty) && <p className="learning-inline-hint" role="status">{t("learning.analysis.stale")}</p>}
+                {(item.analysis_stale || workingTextDirty) && <p className="learning-stale-notice" role="status">
+                  <TriangleAlert size={14} aria-hidden="true" />
+                  <span>{t("learning.analysis.stale")}</span>
+                </p>}
                 <LearningAnalysisView analysis={item.analysis} showHeading={false} />
               </>
             )}

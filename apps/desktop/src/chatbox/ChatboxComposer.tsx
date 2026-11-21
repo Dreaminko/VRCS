@@ -172,7 +172,7 @@ export function ChatboxComposer({
           <span>{t("chatbox.preview")}</span>
           <output>{translationPending ? `— / ${preview.limit}` : `${preview.char_count} / ${preview.limit}`}</output>
         </div>
-        <p>{translationPending
+        <p className={translationPending || !preview.text ? "is-placeholder" : undefined}>{translationPending
           ? t("chatbox.translationPreviewPending")
           : preview.text || t("chatbox.previewEmpty")}</p>
         <label className="chatbox-overflow-choice">

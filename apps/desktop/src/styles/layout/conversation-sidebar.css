@@ -362,7 +362,21 @@
   font-size: 12px;
 }
 .conversation-rename-row input[aria-invalid="true"] { border-color: var(--error); box-shadow: 0 0 0 3px var(--error-soft); }
-.conversation-list-empty { margin: 0; padding: 14px 10px; color: var(--text-quiet); font-size: 11px; line-height: 1.6; }
+.conversation-list-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 4px 2px 0;
+  padding: 18px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-quiet);
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
+}
+.conversation-list-empty svg { flex: 0 0 auto; opacity: 0.78; }
 
 .conversation-actions-popover {
   position: fixed;

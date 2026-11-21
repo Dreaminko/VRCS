@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Info, LoaderCircle } from "lucide-react";
 
 import {
   ankiDeckAncestors,
@@ -408,8 +408,8 @@ export function DeviceGroup({ icon, title, note, beforeList, devices, devicesRea
         <div className="device-group-content">
           {beforeList}
           {!devicesReady
-            ? <p className="device-empty" role="status">{t("settings.audio.scanning")}</p>
-            : !devices.length && <p className="device-empty" role="status">{t("settings.audio.noDevices")}</p>}
+            ? <p className="device-empty" role="status"><LoaderCircle className="spinning" size={14} aria-hidden="true" /><span>{t("settings.audio.scanning")}</span></p>
+            : !devices.length && <p className="device-empty" role="status"><Info size={14} aria-hidden="true" /><span>{t("settings.audio.noDevices")}</span></p>}
         </div>
       )}
     </div>
