@@ -49,8 +49,6 @@ const SURFACE_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'sel
 
 pub(super) use super::endpoint::CaptureEndpoint;
 
-/// Construct, poll, and drop on the same VR worker thread.
-
 struct QueuedEvent {
     session: DocumentSession,
     event: SurfaceEvent,

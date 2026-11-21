@@ -1513,7 +1513,7 @@ mod tests {
                 [[-0.2, -0.1, -1.], [0.2, 0.1, -1.]],
                 super::super::transform::matrix(0., 0., 0., [0.; 3]),
                 1,
-                1,
+                SpaceId(1),
             );
             runtime.vision_frame_valid = confirmed;
             let input = InputActions {
@@ -2331,12 +2331,12 @@ mod tests {
     fn scan_result_is_not_cancelled_by_head_movement() {
         let reference: CaptureMetadata = capture().as_ref().into();
         let moved = transform::matrix(0., 15., 0., [0.08, 0., 0.]);
-        assert!(tracking_valid(&reference, moved, 1, 1));
+        assert!(tracking_valid(&reference, moved, 1, SpaceId(1)));
         let walked = transform::matrix(0., 15., 0., [0.15, 0., 0.]);
-        assert!(tracking_valid(&reference, walked, 1, 1));
-        assert!(!tracking_valid(&reference, moved, 2, 1));
+        assert!(tracking_valid(&reference, walked, 1, SpaceId(1)));
+        assert!(!tracking_valid(&reference, moved, 2, SpaceId(1)));
         let mut invalid = moved;
         invalid[0][0] = f32::NAN;
-        assert!(!tracking_valid(&reference, invalid, 1, 1));
+        assert!(!tracking_valid(&reference, invalid, 1, SpaceId(1)));
     }
 }

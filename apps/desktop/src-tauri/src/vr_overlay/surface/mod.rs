@@ -45,7 +45,7 @@ use super::ocr_plane::OcrScene;
 use super::ocr_progress::Stage;
 #[cfg(all(test, windows))]
 use super::placement::Mode;
-#[cfg(all(test, windows))]
+#[cfg(all(windows, any(test, all(debug_assertions, feature = "vr-preview"))))]
 use super::presentation::WristMessage;
 #[cfg(all(test, windows))]
 use super::wrist_labels::WristLabels;
