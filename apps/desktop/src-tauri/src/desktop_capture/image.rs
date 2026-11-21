@@ -7,8 +7,10 @@ pub struct Image {
     pub pixels: Vec<u8>,
 }
 
+#[cfg(any(target_os = "linux", test))]
 const MAX_IMAGE_BYTES: usize = 512 * 1024 * 1024;
 
+#[cfg(any(target_os = "linux", test))]
 pub fn decode_png(bytes: &[u8]) -> Result<Image, String> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     decoder.set_transformations(

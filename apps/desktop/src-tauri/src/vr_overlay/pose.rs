@@ -31,6 +31,7 @@ impl PointerId {
 pub type Pose = [[f32; 4]; 3];
 
 /// Build a row-major 3x4 pose from a position and quaternion `[x, y, z, w]`.
+#[cfg(all(linux_vr, target_arch = "x86_64"))]
 pub fn pose_from_quaternion(position: [f32; 3], orientation: [f32; 4]) -> Pose {
     let [x, y, z, w] = orientation;
     let norm = (x * x + y * y + z * z + w * w).sqrt();

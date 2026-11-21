@@ -70,6 +70,11 @@ mod platform {
     }
 
     #[allow(clippy::unnecessary_cast)]
+    const fn tracking_space_i32(value: openvr_sys::ETrackingUniverseOrigin) -> i32 {
+        value as i32
+    }
+
+    #[allow(clippy::unnecessary_cast)]
     const MOUSE_LEFT_BUTTON: u32 = openvr_sys::EVRMouseButton_VRMouseButton_Left as u32;
 
     const VREVENT_MOUSE_MOVE: u32 = event_u32(openvr_sys::EVREventType_VREvent_MouseMove);
@@ -381,9 +386,10 @@ mod platform {
                     table
                         .GetLastFrameRenderer
                         .ok_or("Scene query unavailable")?(),
-                    table
+                    tracking_space_i32(table
                         .GetTrackingSpace
-                        .ok_or("Tracking space query unavailable")?() as i32,
+                        .ok_or("Tracking space query unavailable")?(
+                    )),
                 ))
             }
         }
@@ -558,10 +564,10 @@ mod platform {
                     return Err("Headset pose is unavailable".into());
                 }
                 let captured_at = std::time::Instant::now();
-                let origin = compositor
+                let origin = tracking_space_i32(compositor
                     .GetTrackingSpace
-                    .ok_or("Tracking space query unavailable")?()
-                    as i32;
+                    .ok_or("Tracking space query unavailable")?(
+                ));
                 let get_mirror = compositor
                     .GetMirrorTextureD3D11
                     .ok_or("D3D11 mirror capture unavailable")?;
@@ -689,10 +695,10 @@ mod platform {
                         .GetLastFrameRenderer
                         .ok_or("Scene renderer query unavailable")?()
                         != scene_pid
-                    || compositor
+                    || tracking_space_i32(compositor
                         .GetTrackingSpace
-                        .ok_or("Tracking space query unavailable")?() as i32
-                        != origin
+                        .ok_or("Tracking space query unavailable")?(
+                    )) != origin
                 {
                     return Err(
                         "Headset position or scene changed during capture; scan again".into(),
@@ -1182,7 +1188,7 @@ mod platform {
                 return None;
             }
             Some((pose.mDeviceToAbsoluteTracking.m, unsafe {
-                table.GetTrackingSpace?() as i32
+                tracking_space_i32(table.GetTrackingSpace?())
             }))
         }
 

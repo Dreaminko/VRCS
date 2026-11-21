@@ -502,8 +502,7 @@ fn run_stream(
                     chunk_start,
                     chunk_end,
                     tx,
-                    microphone_tap,
-                    &mut tap_resampler,
+                    microphone_tap.map(|tap| (tap, &mut tap_resampler)),
                 );
             }
         }
@@ -518,11 +517,10 @@ fn publish_chunk(
     start: std::time::Instant,
     end: std::time::Instant,
     tx: &mpsc::Sender<Vec<f32>>,
-    microphone_tap: Option<&crate::vision::MicrophoneTap>,
-    tap_resampler: &mut TapResampler,
+    microphone_tap: Option<(&crate::vision::MicrophoneTap, &mut TapResampler)>,
 ) {
     let chunk = resample_linear(frame, output_rate, native_rate);
-    if let Some(tap) = microphone_tap {
+    if let Some((tap, tap_resampler)) = microphone_tap {
         let resampled;
         let samples: &[f32] = if native_rate == TAP_RATE {
             frame
@@ -699,8 +697,7 @@ mod tests {
                     start,
                     middle,
                     &tx,
-                    Some(&tap),
-                    &mut tap_resampler,
+                    Some((&tap, &mut tap_resampler)),
                 );
                 window.reader().check().unwrap();
                 tokio::time::sleep(std::time::Duration::from_millis(2)).await;
@@ -712,8 +709,7 @@ mod tests {
                     middle,
                     std::time::Instant::now(),
                     &tx,
-                    Some(&tap),
-                    &mut tap_resampler,
+                    Some((&tap, &mut tap_resampler)),
                 );
                 let samples = window.finish().await.unwrap();
                 assert!(samples.len() <= 64);

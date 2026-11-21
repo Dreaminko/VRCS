@@ -285,9 +285,13 @@ fn extract_tar(archive: &Path, directory: &Path, asset: &RuntimeAsset) -> Result
         {
             return Err("Dangling runtime symbolic link".into());
         }
-        #[cfg(unix)]
+    }
+    #[cfg(unix)]
+    for (name, target) in &links {
         std::os::unix::fs::symlink(target, directory.join(name)).map_err(|e| e.to_string())?;
-        #[cfg(not(unix))]
+    }
+    #[cfg(not(unix))]
+    if !links.is_empty() {
         return Err("Linux runtime installation requires Unix symbolic links".into());
     }
     Ok(())
