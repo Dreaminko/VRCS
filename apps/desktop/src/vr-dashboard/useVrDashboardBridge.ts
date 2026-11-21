@@ -37,6 +37,7 @@ export function useVrDashboardBridge(
   profiles: ApiProfileView[],
   capture: { running: boolean; available: boolean; toggle: () => Promise<boolean>; playerAudio?: PlayerAudioStatus | null },
   display: { hiddenTracks: readonly string[]; hiddenSourceLanguages: readonly string[] },
+  sceneCapture: boolean,
 ): void {
   const { t, i18n } = useTranslation();
   const [status, setStatus] = useState<VrOverlayStatus | null>(null);
@@ -266,8 +267,8 @@ export function useVrDashboardBridge(
         value: t(overlay.translation_display === "all_languages" ? "settings.vrOverlay.translationDisplays.allLanguages" : "settings.vrOverlay.translationDisplays.preferredOnly"),
         options: ["preferred_only", "all_languages"].map((value) => ({ value, label: t(`settings.vrOverlay.translationDisplays.${value === "all_languages" ? "allLanguages" : "preferredOnly"}`) })),
       },
-      ocr_available: settings.features.ocr,
-      vision_available: settings.features.visual_question_answering,
+      ocr_available: settings.features.ocr && sceneCapture,
+      vision_available: settings.features.visual_question_answering && sceneCapture,
       osc_available: true,
       headset: {
         enabled: overlay.headset.enabled,
@@ -338,5 +339,5 @@ export function useVrDashboardBridge(
     if (serialized === lastPublishedRef.current) return;
     lastPublishedRef.current = serialized;
     void updateVrDashboardView(model);
-  }, [capture.running, capture.available, captionNoticeKey, display.hiddenTracks, display.hiddenSourceLanguages, headsetSampleVisible, i18n.resolvedLanguage, profiles, saveError, saveState, settings, statusState, t, wristSampleVisible]);
+  }, [capture.running, capture.available, captionNoticeKey, display.hiddenTracks, display.hiddenSourceLanguages, headsetSampleVisible, i18n.resolvedLanguage, profiles, saveError, saveState, sceneCapture, settings, statusState, t, wristSampleVisible]);
 }

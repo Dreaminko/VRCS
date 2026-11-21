@@ -30,6 +30,7 @@ test("autosave keeps settings visually stable, queues edits, and rolls back fail
       import { useDesktopPreferences } from './src/settings/hooks/useDesktopPreferences';
       import { useSettingsDraft } from './src/settings/hooks/useSettingsDraft';
       import { createSettingsAutosave } from './src/settings/settings-autosave';
+      import { WindowsCapabilities } from './tests/fixtures/platform-capabilities';
       import './src/styles.css';
       await i18next.use(initReactI18next).init({ lng: 'en', resources: { en: { translation: {} } } });
       localStorage.setItem('vrcs.theme', 'light');
@@ -78,7 +79,7 @@ test("autosave keeps settings visually stable, queues edits, and rolls back fail
         </section>;
       }
       const root = createRoot(document.getElementById('root'));
-      root.render(<Harness />);
+      root.render(<WindowsCapabilities><Harness /></WindowsCapabilities>);
       const check = (condition, message) => { if (!condition) throw new Error(message); };
       const settle = () => new Promise(resolve => setTimeout(resolve, 20));
       const wait = async predicate => {

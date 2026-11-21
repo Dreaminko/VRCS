@@ -10,6 +10,7 @@ use tokio::sync::mpsc;
 
 use crate::models::AudioDevice;
 
+use super::super::tap::{TapResampler, TAP_RATE};
 use super::super::{AudioError, CHUNK_FRAMES};
 use super::devices::{
     default_device_id, endpoint_info, err, init_com, is_endpoint_invalidation, resolve_device,
@@ -269,6 +270,7 @@ fn open_stream(
             )?;
             let device = AudioDevice {
                 id: -1,
+                device_key: None,
                 name: "VRChat（仅应用音频）".into(),
                 is_default: false,
                 is_loopback: true,
@@ -297,19 +299,19 @@ fn open_stream(
             (client, device, native, timing, "process", endpoint_id, None)
         }
         CaptureTarget::Device {
-            wasapi_id,
+            backend_id,
             direction,
         } => {
             let wasapi_direction = match direction {
                 DeviceDirection::Render => Direction::Render,
                 DeviceDirection::Capture => Direction::Capture,
             };
-            let follows_default = wasapi_id.is_none();
-            let device = resolve_device(com, wasapi_id.as_deref(), &wasapi_direction)?;
+            let follows_default = backend_id.is_none();
+            let device = resolve_device(com, backend_id.as_deref(), &wasapi_direction)?;
             let endpoint_id = device.get_id().map_err(err)?;
             let info = endpoint_info(
                 &device,
-                wasapi_id.is_none(),
+                backend_id.is_none(),
                 *direction == DeviceDirection::Render,
             )?;
             let selection = match (follows_default, direction) {
@@ -412,6 +414,7 @@ fn run_stream(
     let mut packet = VecDeque::<u8>::new();
     let mut timeline_origin = None;
     let mut timeline_frames = 0u64;
+    let mut tap_resampler = TapResampler::new(stream.native.sample_rate);
     let mut next_default_check = std::time::Instant::now() + DEFAULT_DEVICE_CHECK_INTERVAL;
     while !stop.load(Ordering::Relaxed) {
         match &stream.wait {
@@ -481,6 +484,7 @@ fn run_stream(
                         > std::time::Duration::from_millis(250)
                 {
                     tap.discontinuity("Microphone capture timing discontinuity");
+                    tap_resampler.reset();
                     origin = read_at - native_duration(pending.len() as u64);
                     timeline_origin = Some(origin);
                     timeline_frames = 0;
@@ -498,7 +502,7 @@ fn run_stream(
                     chunk_start,
                     chunk_end,
                     tx,
-                    microphone_tap,
+                    microphone_tap.map(|tap| (tap, &mut tap_resampler)),
                 );
             }
         }
@@ -513,16 +517,18 @@ fn publish_chunk(
     start: std::time::Instant,
     end: std::time::Instant,
     tx: &mpsc::Sender<Vec<f32>>,
-    microphone_tap: Option<&crate::vision::MicrophoneTap>,
+    microphone_tap: Option<(&crate::vision::MicrophoneTap, &mut TapResampler)>,
 ) {
     let chunk = resample_linear(frame, output_rate, native_rate);
-    if let Some(tap) = microphone_tap {
-        if output_rate == 16_000 {
-            tap.push(&chunk, start, end);
+    if let Some((tap, tap_resampler)) = microphone_tap {
+        let resampled;
+        let samples: &[f32] = if native_rate == TAP_RATE {
+            frame
         } else {
-            let tap_chunk = resample_linear(frame, 16_000, native_rate);
-            tap.push(&tap_chunk, start, end);
-        }
+            resampled = tap_resampler.resample(frame);
+            &resampled
+        };
+        tap.push(samples, start, end);
     }
     if !chunk.is_empty() {
         if let Ok(permit) = tx.try_reserve() {
@@ -552,7 +558,7 @@ pub(crate) fn capture_main(
     let follows_default = matches!(
         &target,
         CaptureTarget::Device {
-            wasapi_id: None,
+            backend_id: None,
             ..
         }
     );
@@ -679,6 +685,7 @@ mod tests {
                 }
                 let tap = crate::vision::MicrophoneTap::default();
                 tap.started();
+                let mut tap_resampler = super::TapResampler::new(48_000);
                 let start = std::time::Instant::now();
                 let mut window = tap.begin(1).unwrap();
                 tokio::time::sleep(std::time::Duration::from_millis(2)).await;
@@ -690,7 +697,7 @@ mod tests {
                     start,
                     middle,
                     &tx,
-                    Some(&tap),
+                    Some((&tap, &mut tap_resampler)),
                 );
                 window.reader().check().unwrap();
                 tokio::time::sleep(std::time::Duration::from_millis(2)).await;
@@ -702,9 +709,10 @@ mod tests {
                     middle,
                     std::time::Instant::now(),
                     &tx,
-                    Some(&tap),
+                    Some((&tap, &mut tap_resampler)),
                 );
                 let samples = window.finish().await.unwrap();
+                assert!(samples.len() <= 64);
                 assert!(samples.contains(&0.1));
                 assert!(samples.contains(&0.2));
                 assert!(samples

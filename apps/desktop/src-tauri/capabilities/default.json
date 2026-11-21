@@ -26,6 +26,8 @@
     "store:default",
     "allow-core-connection",
     "allow-core-startup",
+    "allow-platform-capabilities",
+    "allow-desktop-capture-register-shortcuts",
     "allow-retry-core",
     "allow-player-audio-pending-action",
     "allow-player-audio-consume-action",

@@ -273,7 +273,7 @@ pub async fn ensure_model(model_path: &Path) -> Result<(), String> {
         let _ = tokio::fs::remove_file(&partial).await;
         return Err(error);
     }
-    if model_path.exists() {
+    if cfg!(windows) && model_path.exists() {
         tokio::fs::remove_file(model_path)
             .await
             .map_err(|error| format!("Failed to replace invalid Silero model: {error}"))?;

@@ -1,5 +1,6 @@
 export interface AudioDevice {
   id: number;
+  device_key?: string | null;
   name: string;
   is_default: boolean;
   is_loopback: boolean;
@@ -34,6 +35,7 @@ export interface AudioLevel {
 export interface AudioOutputSettings {
   mode: "system" | "vrchat" | "vrchat_players" | "disabled";
   device_id: number | null;
+  device_key?: string | null;
   trigger_threshold_dbfs: number;
   player_audio?: PlayerAudioSettings;
 }
@@ -73,6 +75,7 @@ export interface PlayerViewPrioritySettings {
 export interface MicrophoneSettings {
   mode: "default" | "device" | "disabled";
   device_id: number | null;
+  device_key?: string | null;
   trigger_threshold_dbfs: number;
 }
 

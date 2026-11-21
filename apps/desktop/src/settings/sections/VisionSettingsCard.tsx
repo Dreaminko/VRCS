@@ -15,15 +15,18 @@ import { formatBytes } from "../settings-derived";
 import { openDesktopVision } from "../../vision/api";
 import { useDesktopVisionSession } from "../../vision/useDesktopVisionSession";
 import { SettingsDisclosure } from "../components/SettingsDisclosure";
+import { usePlatformCapabilities } from "../../core-client/capabilities";
 
-export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, onChange }: {
+export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, hideVrSceneCaptureNotice = false, onChange }: {
   config: VisionSettings;
   profiles: ApiProfileView[];
   vrAvailable: boolean;
   disabled: boolean;
+  hideVrSceneCaptureNotice?: boolean;
   onChange: (patch: Partial<VisionSettings>) => void;
 }) {
   const { t, i18n } = useTranslation();
+  const { desktop } = usePlatformCapabilities();
   const locale = i18n.resolvedLanguage ?? "en-US";
   const { status: desktopStatus, statusError } = useDesktopVisionSession();
 
@@ -147,7 +150,13 @@ export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, on
         <header className="vr-overlay-card-heading vr-overlay-feature-heading">
           <div><RectangleGoggles size={18} /><span>
             <strong id="vision-wrist-heading">{t("settings.vision.wristTitle")}</strong>
-            {!vrAvailable && <small>{t("settings.vision.vrUnavailable")}</small>}
+            {!vrAvailable && !(hideVrSceneCaptureNotice && desktop && !desktop.vr.scene_capture.supported) && (
+              <small>
+                {desktop && !desktop.vr.scene_capture.supported
+                  ? t("platform.vr.scene_capture_unavailable")
+                  : t("settings.vision.vrUnavailable")}
+              </small>
+            )}
           </span></div>
           <PreferenceToggle title={t("settings.vision.vrEnable")} hideLabel checked={config.vr_enabled}
             disabled={disabled || !config.enabled || !vrAvailable} onChange={(vr_enabled) => onChange({ vr_enabled })} />

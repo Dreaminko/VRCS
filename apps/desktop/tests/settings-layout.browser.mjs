@@ -34,6 +34,7 @@ for (const width of [1200, 380]) {
         import { VisionSettingsCard } from './src/settings/sections/VisionSettingsCard';
         import { DEFAULT_OCR_SETTINGS } from './src/settings/vr-overlay-settings';
         import { DEFAULT_VISION_SETTINGS } from './src/settings/vision-settings';
+        import { WindowsCapabilities } from './tests/fixtures/platform-capabilities';
         import './src/styles.css';
         await i18next.use(initReactI18next).init({ lng: 'en-US', resources: { 'en-US': { translation: en.translation } } });
 
@@ -65,7 +66,7 @@ for (const width of [1200, 380]) {
             models: ['speech-model'], model_listing: true, supports_context: false, recognition_transport: 'realtime' }] };
         const draft = { ...createApiProfileDraft([definition]), name: 'Sample' };
         const root = createRoot(document.getElementById('root'));
-        root.render(<div className="settings-section settings-section-active ocr-settings-section">
+        root.render(<WindowsCapabilities><div className="settings-section settings-section-active ocr-settings-section">
           <div id="paired" className="form-grid">
             <Select label="First field" value="sample" options={[{ value: 'sample', label: 'Sample' }]} disabled={false} onChange={noop} />
             <Select label="Second field" value="sample" options={[{ value: 'sample', label: 'Sample' }]} disabled={false}
@@ -84,7 +85,7 @@ for (const width of [1200, 380]) {
             providerDefinitions={[]} recognition={{ backend: 'qwen_local_managed', active_profile_id: null, language: 'auto',
               managed_qwen: { package_id: 'qwen3-asr-0.6b-q8_0', device: 'auto' }, service_settings: {} }}
             profiles={[profile]} disabled={false} vrAvailable={true} onChange={noop} onSelectProfile={noop} />
-        </div>);
+        </div></WindowsCapabilities>);
         const check = (condition, message) => { if (!condition) throw new Error(message); };
         const settle = () => new Promise(resolve => setTimeout(resolve, 20));
         const wait = async predicate => {

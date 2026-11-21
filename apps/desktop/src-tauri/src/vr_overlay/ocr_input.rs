@@ -1,8 +1,16 @@
+#[cfg(windows)]
 use super::ocr_gesture::{camera_frame, gesture_frame, point_in_head, FrameCorners, HandSample};
+#[cfg(windows)]
 use super::ocr_input_state::{FrameSession, FrameTracking, HoldAction, TriggerEdge, TriggerUpdate};
+#[cfg(windows)]
 use super::ocr_wrist::Action;
+#[cfg(windows)]
+use super::pose::SpaceId;
+#[cfg(windows)]
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::{ffi::CString, mem::size_of, path::Path, time::Instant};
+#[cfg(windows)]
+use std::time::Instant;
+use std::{ffi::CString, mem::size_of, path::Path};
 
 pub struct UiInput {
     pub device: u32,
@@ -12,6 +20,7 @@ pub struct UiInput {
     pub scroll_y: f32,
 }
 
+#[cfg(windows)]
 pub struct InputActions {
     pub vision_trigger: TriggerUpdate,
     pub cancel: bool,
@@ -24,13 +33,15 @@ pub struct InputActions {
     pub navigation: Vec<Action>,
 }
 
+#[cfg(windows)]
 pub struct Frame {
     /// Hand anchors in the tracking space, sampled using head_pose.
     pub corners: [[f32; 3]; 2],
     pub head_pose: [[f32; 4]; 3],
-    pub origin: i32,
+    pub origin: SpaceId,
 }
 
+#[cfg(windows)]
 impl Frame {
     fn from_head_corners(corners: FrameCorners, head_pose: [[f32; 4]; 3], origin: i32) -> Self {
         Self {
@@ -40,7 +51,7 @@ impl Frame {
                 })
             }),
             head_pose,
-            origin,
+            origin: SpaceId(origin as u32),
         }
     }
 }
@@ -50,20 +61,32 @@ pub struct OcrInput {
     action_set: u64,
     scan: u64,
     clear: u64,
+    #[cfg(windows)]
     cancel: u64,
+    #[cfg(windows)]
     vision_trigger: TriggerEdge,
+    #[cfg(windows)]
     vision_confirm: TriggerEdge,
+    #[cfg(windows)]
     cancel_trigger: TriggerEdge,
+    #[cfg(windows)]
     reading: [u64; 4],
+    #[cfg(windows)]
     scan_hold: HoldAction,
+    #[cfg(windows)]
     clear_hold: HoldAction,
+    #[cfg(windows)]
     hands: [u64; 2],
     hand_sources: [Option<u64>; 2],
     grips: [u64; 2],
     scrolls: [u64; 2],
+    #[cfg(windows)]
     poses: [u64; 2],
+    #[cfg(windows)]
     frame_session: FrameSession,
+    #[cfg(windows)]
     grips_blocked: bool,
+    #[cfg(windows)]
     last_digital_state: Option<(bool, bool, bool, bool, bool, bool)>,
 }
 
@@ -78,7 +101,15 @@ fn check(error: openvr_sys::EVRInputError) -> Result<(), String> {
 pub fn install_manifest(directory: &Path) -> Result<std::path::PathBuf, String> {
     std::fs::create_dir_all(directory).map_err(|_| "Could not create SteamVR input directory")?;
     let mut bindings = Vec::new();
-    for controller in ["knuckles", "oculus_touch", "vive_controller"] {
+    for controller in [
+        "knuckles",
+        "oculus_touch",
+        "pico_controller",
+        "vive_focus3_controller",
+        "vive_cosmos_controller",
+        "holographic_controller",
+        "vive_controller",
+    ] {
         let name = format!("{controller}.json");
         let grip = |side: &str| {
             let (mode, component) = if controller == "knuckles" {
@@ -96,8 +127,8 @@ pub fn install_manifest(directory: &Path) -> Result<std::path::PathBuf, String> 
         let scroll = |side: &str| {
             let (axis, mode) = match controller {
                 "knuckles" => ("thumbstick", "joystick"),
-                "oculus_touch" => ("joystick", "joystick"),
-                _ => ("trackpad", "trackpad"),
+                "vive_controller" => ("trackpad", "trackpad"),
+                _ => ("joystick", "joystick"),
             };
             serde_json::json!({"path":format!("/user/hand/{side}/input/{axis}"),"mode":mode,
                 "inputs":{"position":{"output":format!("/actions/ocr/in/{side}_scroll")}}})
@@ -259,12 +290,14 @@ impl OcrInput {
             .collect()
     }
 
+    #[cfg(windows)]
     pub fn freeze_frame(&mut self) {
         self.frame_session = FrameSession::default();
         self.scan_hold = HoldAction::default();
         self.vision_confirm = TriggerEdge::default();
     }
 
+    #[cfg(windows)]
     pub fn open_bindings(&mut self) -> Result<(), String> {
         let api = unsafe { &*self.table };
         check(unsafe {
@@ -320,14 +353,22 @@ impl OcrInput {
             action_set,
             scan: action("/actions/ocr/in/scan")?,
             clear: action("/actions/ocr/in/clear")?,
+            #[cfg(windows)]
             cancel: action("/actions/ocr/in/cancel").unwrap_or(0),
+            #[cfg(windows)]
             vision_trigger: TriggerEdge::default(),
+            #[cfg(windows)]
             vision_confirm: TriggerEdge::default(),
+            #[cfg(windows)]
             cancel_trigger: TriggerEdge::default(),
+            #[cfg(windows)]
             reading: ["previous_block", "next_block", "previous_page", "next_page"]
                 .map(|name| action(&format!("/actions/ocr/in/{name}")).unwrap_or(0)),
+            #[cfg(windows)]
             scan_hold: HoldAction::default(),
+            #[cfg(windows)]
             clear_hold: HoldAction::default(),
+            #[cfg(windows)]
             hands: [
                 action("/actions/ocr/in/left_hand").unwrap_or(0),
                 action("/actions/ocr/in/right_hand").unwrap_or(0),
@@ -341,12 +382,16 @@ impl OcrInput {
                 action("/actions/ocr/in/left_scroll").unwrap_or(0),
                 action("/actions/ocr/in/right_scroll").unwrap_or(0),
             ],
+            #[cfg(windows)]
             poses: [
                 action("/actions/ocr/in/left_pose").unwrap_or(0),
                 action("/actions/ocr/in/right_pose").unwrap_or(0),
             ],
+            #[cfg(windows)]
             frame_session: FrameSession::default(),
+            #[cfg(windows)]
             grips_blocked: false,
+            #[cfg(windows)]
             last_digital_state: None,
         })
     }
@@ -365,6 +410,7 @@ impl OcrInput {
         })
     }
 
+    #[cfg(windows)]
     pub fn poll_with_vision(
         &mut self,
         tracking: Option<([[f32; 4]; 3], i32)>,
@@ -566,7 +612,11 @@ impl OcrInput {
     }
 }
 
-fn binding_count(api: &openvr_sys::VR_IVRInput_FnTable, action: u64) -> Option<Result<u32, i32>> {
+#[cfg(windows)]
+fn binding_count(
+    api: &openvr_sys::VR_IVRInput_FnTable,
+    action: u64,
+) -> Option<Result<u32, openvr_sys::EVRInputError>> {
     let query = api.GetActionBindingInfo?;
     let mut bindings: [openvr_sys::InputBindingInfo_t; 8] = unsafe { std::mem::zeroed() };
     let mut count = 0;
@@ -582,6 +632,7 @@ fn binding_count(api: &openvr_sys::VR_IVRInput_FnTable, action: u64) -> Option<R
     Some(if error == 0 { Ok(count) } else { Err(error) })
 }
 
+#[cfg(windows)]
 fn read_controller(
     api: &openvr_sys::VR_IVRInput_FnTable,
     action: u64,
@@ -599,6 +650,7 @@ fn read_controller(
     Ok((data.activeOrigin, point))
 }
 
+#[cfg(windows)]
 fn read_controller_pose(
     api: &openvr_sys::VR_IVRInput_FnTable,
     action: u64,
@@ -612,7 +664,7 @@ fn read_controller_pose(
         api.GetPoseActionDataRelativeToNow
             .ok_or("Controller pose unavailable")?(
             action,
-            origin,
+            origin as _,
             0.,
             &mut data,
             size_of::<openvr_sys::InputPoseActionData_t>() as u32,
@@ -631,6 +683,7 @@ fn read_controller_pose(
     Ok(data)
 }
 
+#[cfg(windows)]
 fn read_hand(
     api: &openvr_sys::VR_IVRInput_FnTable,
     action: u64,
@@ -673,7 +726,7 @@ fn read_hand(
             .GetPoseActionDataRelativeToNow
             .ok_or("Hand pose unavailable")?(
             action,
-            origin,
+            origin as _,
             0.,
             &mut pose,
             size_of::<openvr_sys::InputPoseActionData_t>() as u32,
@@ -733,7 +786,7 @@ fn read_hand(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 
@@ -1417,7 +1470,15 @@ mod tests {
             .iter()
             .any(|action| action["name"] == "/actions/ocr/in/cancel"
                 && action["requirement"] == "optional"));
-        for controller in ["knuckles", "oculus_touch", "vive_controller"] {
+        for controller in [
+            "knuckles",
+            "oculus_touch",
+            "pico_controller",
+            "vive_focus3_controller",
+            "vive_cosmos_controller",
+            "holographic_controller",
+            "vive_controller",
+        ] {
             let binding: serde_json::Value = serde_json::from_slice(
                 &std::fs::read(directory.join(format!("{controller}.json"))).unwrap(),
             )
@@ -1451,8 +1512,8 @@ mod tests {
                 );
                 let axis = match controller {
                     "knuckles" => "thumbstick",
-                    "oculus_touch" => "joystick",
-                    _ => "trackpad",
+                    "vive_controller" => "trackpad",
+                    _ => "joystick",
                 };
                 let scroll = binding["sources"]
                     .as_array()
@@ -1534,7 +1595,7 @@ mod tests {
             1,
         );
         assert_eq!(frame.head_pose, head);
-        assert_eq!(frame.origin, 1);
+        assert_eq!(frame.origin, SpaceId(1));
         for (actual, expected) in frame
             .corners
             .into_iter()
@@ -1557,7 +1618,7 @@ mod tests {
             head,
             1,
         );
-        let initial = Selection::from_corners(frame.corners, head, 7, 1).unwrap();
+        let initial = Selection::from_corners(frame.corners, head, 7, SpaceId(1)).unwrap();
         let expected = initial.preview();
         let identity = transform::matrix(0., 0., 0., [0.; 3]);
         let mut selection = initial;

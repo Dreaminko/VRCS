@@ -230,7 +230,7 @@ export function DesktopShell({
                 <PlayerHistoryControls
                   subtitles={conversations.selectedSubtitles}
                   useLiveHealth
-                  enabled={settings.value?.audio.output.mode === "vrchat_players"}
+                  enabled={settings.value?.audio.output.mode === "vrchat_players" && runtime.capabilities.core?.audio.player_audio.available === true}
                   selectedUserNames={settings.value?.audio.output.player_audio?.selected_user_names}
                   sourceOverrides={settings.value?.audio.output.player_audio?.source_overrides}
                   sourceMode={sourceMode(settings.value?.audio.output.player_audio)}
@@ -341,6 +341,7 @@ export function DesktopShell({
                   interfaceScale={settings.interfaceScale}
                   devices={settings.devices.items}
                   devicesReady={settings.devices.ready}
+                  devicesError={settings.devices.error}
                   onStartMicrophoneTest={capture.startMicrophoneTest}
                   onStopMicrophoneTest={capture.stopMicrophoneTest}
                   dictionaries={dictionary.sources}
@@ -392,10 +393,11 @@ export function DesktopShell({
         learningAvailable={features?.learning ?? false}
         chatboxAvailable={settings.value !== null}
         onVision={features?.visual_question_answering && settings.value?.vision.enabled && settings.value.vision.desktop_enabled ? openVision : undefined}
-        visionDisabled={!runtime.ready}
+        visionDisabled={!runtime.ready || !runtime.capabilities.desktop?.screenshot.available}
         page={page}
         running={runtime.health?.capture_requested ?? false}
-        captureDisabled={!runtime.ready || capture.pending}
+        captureDisabled={!runtime.ready || capture.pending || (!runtime.health?.capture_requested && !capture.available)}
+        captureReason={capture.unavailableReason}
         chatboxOpen={page === "live" && chatbox.open}
         chatboxDisabled={!runtime.ready || settings.value === null}
         chatboxButtonRef={chatboxButtonRef}

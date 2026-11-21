@@ -68,6 +68,210 @@ CI validates locale resources, then runs the frontend tests and build.
 
 Please keep commits focused and do not include generated build output.
 
+### Linux development (initial adaptation)
+
+VRCS includes native Linux `x86_64` desktop adaptation (ARM64 is deferred for
+now), though Linux packages are not yet a published or fully accepted release.
+`npm run dev` and `npm run dev:vulkan` dispatch through Node: Windows retains
+PowerShell preparation; Linux does not stage Windows DLLs.
+`npm run dev:vulkan` enables managed Qwen GPU recognition through the pinned native
+Vulkan runtime; default development builds remain CPU-only. Install the system
+Vulkan loader (`libvulkan1` on Ubuntu) and a compatible GPU driver, not a GPU SDK.
+`npm run build` remains the Windows installer entry point.
+
+For the Ubuntu 24.04 native build baseline, install Node.js 24+ and the pinned
+Rust toolchain, then run `bash scripts/install-linux-deps.sh`, `npm ci`, and
+`npm run dev` in a graphical user session. Linux network capture additionally
+needs `/usr/bin/vrcs-desktop` (with built-in `--network-helper`) and its polkit
+policy, installed by the full deb or manually as below. `npm run dev` does not
+install or update either file; a build-tree binary is intentionally not executed
+through pkexec. The dependency script includes WebKitGTK 4.1/GTK3, PipeWire/SPA,
+D-Bus, AppIndicator, native build tools, CJK fonts, `libopus0`, `pkexec` and
+`polkitd`. A running polkit authentication agent in the graphical user session is
+also required (provided by many desktops; start your compositor's configured
+agent on minimal Wayland sessions). It is a build prerequisite list, not a
+portability guarantee.
+
+For Arch Linux x86_64 development, install the network runtime prerequisites and
+the desktop binary/policy from the repository root after setting up Rust:
+
+```sh
+sudo pacman -S --needed polkit opus
+npm ci
+npm run build:frontend
+cargo build --locked -p vrcs-desktop --target-dir .build
+sudo install -d -o root -g root -m 0755 /usr/bin /usr/share/polkit-1/actions
+sudo install -o root -g root -m 0755 .build/debug/vrcs-desktop /usr/bin/vrcs-desktop
+sudo install -o root -g root -m 0644 packaging/linux/app.vrcs.network-capture.policy /usr/share/polkit-1/actions/app.vrcs.network-capture.policy
+```
+
+Use the canonical `/usr/bin/vrcs-desktop` path: the policy authorizes that exact
+executable, and `vrcs-desktop` refuses to run under `pkexec` without
+`--network-helper`. Keep it and its parent directories root-owned and not
+writable by group/others; do not symlink it to a user-writable checkout or install
+it setuid. Run VRCS as your normal user and authorize the first capture through
+the session's polkit agent. To update, stop capture and repeat the build and
+installation commands from the matching application revision. To uninstall a
+manual installation, stop capture and run:
+
+```sh
+sudo rm -f /usr/bin/vrcs-desktop /usr/share/polkit-1/actions/app.vrcs.network-capture.policy
+```
+
+For a deb-managed installation, upgrade/remove the full deb with your package
+manager instead. AppImage installs neither file; use the manual procedure or the
+full deb on Ubuntu. There is currently no separately published helper package.
+These steps install prerequisites only: network capture remains experimental,
+and real VRChat/Proton reception, authorization and sustained operation still
+require game acceptance.
+
+Schema 43 retains Linux device keys and numeric device IDs while migrating legacy
+player selections to per-account source policies. Upgrades from schema 41 or 42
+keep a versioned configuration backup; an empty legacy selection remains blocked.
+The standalone VRChat log watcher also runs on Linux, using the target process's
+Wine/Proton prefix. Network capture and conversation world markers share its
+snapshot, so log monitoring does not require starting the privileged helper.
+Managed Qwen 0.6B and 1.7B models share the existing Linux CPU/Vulkan runtime;
+the larger model does not require a separate runtime package.
+
+Implemented boundaries:
+
+- Authenticated Core `GET /api/capabilities` and Tauri `platform_capabilities`
+  distinguish `supported`, `available`, and `reason_code`. Runtime/model files
+  alone are not proof of feature availability.
+- Native PipeWire microphone and sink-monitor capture use stable device keys.
+  Schema 42 preserves numeric IDs and backs up schema 41. Missing/imported
+  devices require reselection; they never silently fall back to another device.
+  Once running, default-device capture rebuilds after device loss, stream
+  disconnection or a PipeWire restart while retaining its PCM channel. Recovery
+  waits remain cancellable; explicit selections and permanent errors still fail.
+  Virtual microphone sources are selectable. A full transcription PCM queue does
+  not invalidate audio already delivered to an independent visual-question tap.
+  Tap-only visual questions close their unused PCM receiver to avoid queue growth
+  and overflow warnings.
+- Secret Service stores profile-isolated credentials; environment overrides
+  retain precedence. Missing/locked services and cancelled prompts report errors;
+  no plaintext credential fallback is introduced.
+  Async callers offload keyring work. Matching entries are unlocked and snapshotted
+  before mutation; partial failures attempt restoration and report restoration
+  failures explicitly. Secret Service has no cross-process transaction, and a
+  connection failure can prevent restoration from being confirmed.
+- Managed Qwen CPU/Vulkan uses fixed llama.cpp b11501 assets with size/SHA checks,
+  architecture-specific ELF validation, bounded archive extraction, internal-link
+  checks, staged activation and child-process cleanup. Vulkan builds select an
+  x86_64 Vulkan package including CPU backends (ARM64 is deferred for now);
+  switching from a CPU build
+  requires downloading the Vulkan runtime, not the ASR model again. Auto selects an
+  available GPU and retains the existing CPU fallback on startup failure; explicit
+  GPU selection reports failure rather than silently using CPU. Local PLaMo remains
+  CPU-only on Linux GNU x86_64, sharing the selected runtime through a separate
+  authenticated loopback process; its model and license consent remain independent.
+  ARM64 PLaMo remains disabled (ARM64 releases are deferred).
+  PipeWire captures microphone, system output, and VRChat process audio. Linux
+  x86_64 VR subtitles, wrist overlays, dashboard, and controller input
+  (OpenXR/OpenVR) are enabled by default, while VR scene capture
+  (`vr.scene_capture`, for VR OCR and VR visual question answering) remains
+  disabled on Linux pending upstream OpenXR/Monado scene-capture APIs. Desktop
+  OCR and desktop visual question answering via `org.freedesktop.portal.Screenshot`
+  remain available, and OSC sending is independent. Linux GNU x86_64 now has
+  helper-backed experimental player audio and Chatbox network reception. The deb
+  installs `/usr/bin/vrcs-desktop` with built-in `--network-helper` support and
+  its polkit policy in the same package; AppImage needs manual system
+  installation or the full deb. No standalone helper package is currently
+  published. Capture needs a session polkit agent and system Opus.
+  Real VRChat/Proton traffic, authorization, packaging, anti-cheat behavior and
+  long-running capture are not yet accepted; ARM64 is deferred for now.
+  Candidate packets require a fresh inode/endpoint/target-fd confirmation; stale
+  queued packets are discarded when the inventory changes. `/proc` reads are not
+  atomic with packet arrival or later socket close/rebind, so this is not a
+  packet-level ownership guarantee. Ambiguous same-port IPv6 sockets are rejected
+  conservatively, including IPv6-only sockets whose mode cannot be established.
+  A confirmed game exit ends its session and returns capture to waiting for the
+  next game; authorization and startup failures also hand off child reaping.
+- Desktop capture uses `org.freedesktop.portal.Screenshot` for interactive region
+  selection and forwards the captured PNG to OCR/vision. On X11, global shortcuts
+  use native XCB key grabs; on Wayland, GlobalShortcuts Portal registration is
+  opt-in and independent from the button. The capability snapshot reports active
+  bindings; changing their configuration or closing the Portal session invalidates
+  authorization and requires rebinding.
+- Data remains in Tauri's local data directory under `.vrcs`; logs use
+  `$XDG_STATE_HOME/vrcs/logs` or `$HOME/.local/state/vrcs/logs`. The desktop data root
+  is private; configuration, migration backups and database files are owner-only,
+  including existing files when reopened. Wayland compact subtitles do not promise
+  global stacking. Tray failure leaves close-to-exit behavior.
+- `node scripts/build-linux-release.mjs` builds native deb/AppImage channels with
+  Qwen Vulkan support; `--deb-only` limits local packaging and `--preview` stages
+  an unsigned directory with the same inference support.
+  Runtime dependencies include the managed llama.cpp libraries' system requirements
+  (`libgomp1`, `libssl3t64`, `libstdc++6`, `libgcc-s1` and the Vulkan loader), which
+  are not all visible in the desktop executable's ELF dependency list.
+  deb/development installs cannot install updates in-app (`deb` can check for
+  updates and guide manual/package-manager updates); writable AppImages support
+  signed in-app updates when configured with the updater signing keys. Complete
+  release aggregation verifies every platform's package, architecture, hash and
+  signature before writing `latest.json`.
+- CI/Preview/Release run on `ubuntu-24.04` (`x86_64`); ARM64 (`aarch64` /
+  `ubuntu-24.04-arm`) is temporarily removed until future enablement. Same-commit
+  CI reuse checks `linux (x86_64)` alongside Windows/frontend jobs. Workflow
+  configuration is not evidence that the remote jobs have run successfully.
+  Changes to `packaging/linux/`, including polkit policy and installation scripts,
+  select the native CI checks.
+
+Measured evidence (2026-11-10 unless dated otherwise; x86_64 Xeon E3-1245 v6, Arch/niri Wayland unless
+otherwise stated):
+
+| Boundary | Exercised result | Not established |
+| --- | --- | --- |
+| Native desktop | WebKitGTK onboarding, settings and compact-window interaction; Core startup and configuration migration | GNOME/KDE desktop sessions, Windows regression, ARM64 native runtime |
+| PipeWire 1.6.10 / WirePlumber 0.5.18 | Disposable graph at 48 kHz and 44.1 kHz; microphone and monitor each deliver 24×512 finite, nonzero mono 16 kHz samples; stop 23/28 ms; missing/numeric IDs and destroyed source rejected | Real devices, default switching/hotplug, 30-minute run, Ubuntu PipeWire baseline, ARM64 |
+| PipeWire default recovery (2026-11-11) | Disposable graph: default source removal/recreation resumed microphone PCM; a live PipeWire restart resumed both microphone and sink-monitor PCM; explicit source loss still failed; both captures stopped within 1 s while defaults were absent | Physical device unplug/replug, desktop audio-service integration and ARM64 |
+| Secret Service | Disposable D-Bus/GNOME keyring: two profiles, reconnect reads, update and idempotent deletion; lifecycle test passed | Real user unlock/cancel UI, desktop restart persistence on both architectures |
+| Qwen CPU | Real pinned download/install/launch; 0.6B Q8 model transcribes the fixed JFK sample on both channels; forced-exit recovery and cleanup passed (104.52 s for the whole lifecycle test, not per-request latency) | ARM64 execution and sustained real-time performance |
+| Qwen Vulkan / Linux GNU x86_64 | Pinned Vulkan runtime download, verification, installation and device enumeration passed; Intel HD Graphics P630 / Mesa 26.2.6 transcribed the JFK sample on both channels, then recovered after forced exit; the combined CPU/GPU lifecycle test passed in 45.15 s (not per-request latency) | ARM64 execution, AMD/NVIDIA drivers, sustained real-time performance and GPU-startup fallback hardware acceptance |
+| PLaMo CPU / Linux GNU x86_64 | Actual revision-bound license consent, 573 MB download/SHA verification and translation preview API: en→ja 3.262 s cold (includes startup), ja→en 0.189 s, zh-Hans→zh-Hant 0.408 s; 16 translations alongside the real dual-channel Qwen recovery test, max 0.421 s; unload/reload, SIGKILL recovery, directory migration, corrupt-destination rollback and restart with unreachable download proxy passed; active child reaped on Core shutdown | ARM64 remains disabled; other CPUs and long-text throughput are not established |
+| ONNX CPU | Silero v6.2.1 and Smart Turn prediction; PP-OCR multilingual two-image inference, cold 3.413 s / warm 1.617 s | ARM64 inference and performance |
+| WebKit VR host experiment | Real offscreen React reader: 16 accepted layout/paint-matched snapshots, pin click, 2 hidden updates, pause/resume and reload; CJK glyphs and transparent edges inspected; mean 6.240 ms / max 20.075 ms per snapshot | OpenVR submissions, headset visual quality, controller input and production VR |
+| Ubuntu 24.04 x86_64 deb/AppImage | Both native packages built, extracted, dependencies resolved and first-start Silero session self-test passed; unsigned manifests; metadata signature/architecture rejection tests 10/10 passed | Clean-machine graphical install/upgrade, ARM64 package, signed publication; application ELF requires up to GLIBC_2.39 (AppImage does not remove this baseline) |
+| ScreenCast Portal / niri 26.04 | Actual source authorization, linear DMA-BUF freeze, in-app region selection and local OCR completed; scan 2.560 s (including 2.005 s model load); capture closed before selection; authorization cancel/reopen and frozen-picker cancel removed the window and re-enabled capture | Cloud visual-question response, GNOME/KDE sessions, mixed displays/rotation, ARM64 and remaining cancellation matrix |
+| GlobalShortcuts Portal / niri | Interface v2 was present, but actual authorization returned unavailable; the UI reported the limitation and screenshot buttons remained usable | Real binding/activation/replacement on a supported desktop backend |
+
+On Linux `x86_64`, VR subtitles, wrist overlays, dashboard, and controller input
+(OpenXR/OpenVR) are enabled by default in desktop builds; ARM64 reports
+`vr.runtime_arch_unverified` and is deferred. VR scene capture (`vr.scene_capture`,
+for VR OCR and VR visual question answering) remains disabled on Linux
+(`vr.scene_capture_unavailable`) pending upstream OpenXR/Monado scene-capture APIs;
+desktop OCR and desktop visual question answering via Screenshot Portal are not
+blocked and remain available. M0/M3 headset acceptance still requires real hardware
+verification.
+
+The repeatable audio fixture is `core/tests/pipewire-smoke.conf`. Run it only in a
+private `PIPEWIRE_RUNTIME_DIR` with `PIPEWIRE_REMOTE=vrcs-test-pipewire`, a private
+WirePlumber policy instance and source-to-sink FL/FR links; then run the ignored
+`isolated_pipewire_captures_both_sources_and_stops_without_audio` test. It destroys
+its test source. Never run this against the user's audio session. The non-live
+source follows a shared graph driver to avoid virtual-source timer starvation.
+
+Current milestone gates:
+
+| Milestone | Remaining acceptance |
+| --- | --- |
+| M0 | Real SteamVR/OpenXR static/dynamic headset submission; WebKit host experiment passed on this x86_64 desktop (ARM64 deferred) |
+| M1 | Clean x86_64 deb install, real dual-source/cloud-ASR/translation/subtitle/VRChat OSC loop, restart persistence, GNOME X11/Wayland and long-running device tests |
+| M2 | Broader x86_64 GPU-driver and sustained-inference acceptance (ARM64 deferred) |
+| M3 | Real-headset acceptance for Linux x86_64 subtitles, wrist overlays, dashboard, independent controller input, and runtime/host recovery (enabled in default builds) |
+| M4 | Portal end-to-end desktop selection/OCR/VQA and cancellation across target desktops, real global-shortcut binding/activation (VR scene capture / VR OCR / VR VQA remain disabled on Linux pending upstream OpenXR/Monado APIs) |
+| M5 | Linux x86_64 AppImage/deb install/upgrade, real signed-update rejection, offline restart and read-only installation; KDE Wayland and remote CI results (ARM64 deferred) |
+
+Missing prerequisites are SteamVR/OpenXR headset & controllers,
+configured provider credentials for real cloud requests, and release signing and
+publication access. No milestone's complete exit condition is claimed. Keep the
+original schema-41 backup with its matching binary when rolling back; do not
+delete history, models or keyring entries to roll back the application.
+
+Run the narrow check for the changed boundary. Core and desktop strict all-target
+clippy, desktop image and shared-protocol tests, frontend build and four-locale
+validation passed locally. They do not replace desktop-session or hardware acceptance.
+
 ## Preview builds
 
 Run the **Preview** workflow from GitHub Actions and select the branch to test.

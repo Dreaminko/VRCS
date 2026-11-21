@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isTauri } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { publishHealth } from "./health-store";
 import { runtimeApi } from "./runtime-api";
@@ -9,6 +11,7 @@ import {
   retryCore as retryCoreStartup,
 } from "./startup-api";
 import type { Health } from "./types";
+import type { PlatformState } from "./capabilities";
 import type { ReportRuntimeError } from "./useRuntimeErrors";
 
 export interface CoreHealthController {
@@ -56,6 +59,17 @@ function shellHealthKey(health: Health | null): string | null {
   });
 }
 
+function mergeCapabilities(
+  current: PlatformState,
+  patch: Partial<PlatformState>,
+): PlatformState {
+  const next: PlatformState = {
+    core: patch.core !== undefined ? patch.core : current.core,
+    desktop: patch.desktop !== undefined ? patch.desktop : current.desktop,
+  };
+  return JSON.stringify(next) === JSON.stringify(current) ? current : next;
+}
+
 export function useCoreRuntime({
   clearError,
   clearErrorFrom,
@@ -74,9 +88,36 @@ export function useCoreRuntime({
   const [startupState, setStartupState] = useState<"starting" | "ready" | "failed">("starting");
   const [startupAttempt, setStartupAttempt] = useState(0);
   const [health, setHealth] = useState<Health | null>(null);
+  const [capabilities, setCapabilities] = useState<PlatformState>({ core: null, desktop: null });
   const healthRef = useRef<Health | null>(null);
   const healthJsonRef = useRef<string | null>(null);
   const shellHealthJsonRef = useRef<string | null>(null);
+
+  const refreshCoreCapabilities = useCallback(async (isCancelled?: () => boolean): Promise<boolean> => {
+    try {
+      const core = await runtimeApi.capabilities();
+      if (isCancelled?.()) return true;
+      setCapabilities((current) => mergeCapabilities(current, { core }));
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const refreshDesktopCapabilities = useCallback(async (isCancelled?: () => boolean): Promise<boolean> => {
+    try {
+      const desktop = await runtimeApi.platformCapabilities();
+      if (isCancelled?.()) return true;
+      setCapabilities((current) => mergeCapabilities(current, { desktop }));
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const refreshCapabilities = useCallback(async () => {
+    await Promise.allSettled([refreshCoreCapabilities(), refreshDesktopCapabilities()]);
+  }, [refreshCoreCapabilities, refreshDesktopCapabilities]);
 
   const commitHealth = useCallback((next: Health | null) => {
     const serialized = next ? JSON.stringify(next) : null;
@@ -147,6 +188,48 @@ export function useCoreRuntime({
   useEffect(() => {
     if (!coreConfigured) return;
     let cancelled = false;
+    let coreRetryTimer: number | null = null;
+    let desktopRetryTimer: number | null = null;
+    let unlisten: UnlistenFn | null = null;
+
+    const loadCore = async () => {
+      coreRetryTimer = null;
+      const ok = await refreshCoreCapabilities(() => cancelled);
+      if (!cancelled && !ok) {
+        coreRetryTimer = window.setTimeout(() => void loadCore(), 2500);
+      }
+    };
+
+    const loadDesktop = async () => {
+      desktopRetryTimer = null;
+      const ok = await refreshDesktopCapabilities(() => cancelled);
+      if (!cancelled && !ok) {
+        desktopRetryTimer = window.setTimeout(() => void loadDesktop(), 2500);
+      }
+    };
+
+    void loadCore();
+    void loadDesktop();
+
+    if (isTauri()) {
+      void listen("desktop-shortcuts-changed", () => {
+        void refreshDesktopCapabilities(() => cancelled);
+      }).then((dispose) => {
+        if (cancelled) dispose();
+        else unlisten = dispose;
+      });
+    }
+    return () => {
+      cancelled = true;
+      if (coreRetryTimer !== null) window.clearTimeout(coreRetryTimer);
+      if (desktopRetryTimer !== null) window.clearTimeout(desktopRetryTimer);
+      unlisten?.();
+    };
+  }, [coreConfigured, refreshCoreCapabilities, refreshDesktopCapabilities]);
+
+  useEffect(() => {
+    if (!coreConfigured) return;
+    let cancelled = false;
     let timer: number | null = null;
     const poll = async () => {
       let interval = 2500;
@@ -175,6 +258,7 @@ export function useCoreRuntime({
     setCoreConfigured(false);
     setStartupState("starting");
     commitHealth(null);
+    setCapabilities((current) => mergeCapabilities(current, { core: null, desktop: null }));
     try {
       await retryCoreStartup();
       setStartupAttempt((attempt) => attempt + 1);
@@ -198,5 +282,7 @@ export function useCoreRuntime({
     startupFailed: startupState === "failed",
     retry,
     health: healthController,
+    capabilities,
+    refreshCapabilities,
   };
 }

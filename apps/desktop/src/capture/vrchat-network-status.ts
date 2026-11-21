@@ -26,6 +26,8 @@ export function vrchatNetworkStatus(
   if (!status) return { label: t("status.networkStarting"), tone: "waiting" };
 
   switch (status.phase) {
+    case "authorizing":
+      return { label: t("status.networkAuthorizing"), tone: "waiting" };
     case "waiting_game":
       return { label: t("status.networkWaitingGame"), tone: "waiting" };
     case "waiting_world":
@@ -47,5 +49,7 @@ export function vrchatNetworkStatus(
       return { label: t("status.networkFailed"), tone: "error" };
     case "stopped":
       return { label: t("status.networkStopped"), tone: "idle" };
+    default:
+      return { label: t("status.networkStarting"), tone: "waiting" };
   }
 }

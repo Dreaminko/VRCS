@@ -4,8 +4,8 @@ mod desktop_ocr;
 mod desktop_vision;
 mod diagnostics;
 mod memory_compression;
+pub mod platform_capabilities;
 mod player_audio_elevation;
-#[cfg(windows)]
 mod vision_image;
 mod vr_overlay;
 
@@ -77,6 +77,7 @@ impl CoreRuntime {
 struct NativeUiState {
     show_item: Mutex<Option<MenuItem<tauri::Wry>>>,
     quit_item: Mutex<Option<MenuItem<tauri::Wry>>>,
+    tray_available: AtomicBool,
     compact_topmost: AtomicBool,
 }
 
@@ -171,7 +172,7 @@ fn open_project_link(target: String) -> Result<(), String> {
     open_browser(&project_link(&target)?)
 }
 
-fn open_browser(url: &str) -> Result<(), String> {
+pub(crate) fn open_external(target: &std::ffi::OsStr) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     let mut command = std::process::Command::new("explorer.exe");
     #[cfg(target_os = "macos")]
@@ -179,11 +180,28 @@ fn open_browser(url: &str) -> Result<(), String> {
     #[cfg(all(unix, not(target_os = "macos")))]
     let mut command = std::process::Command::new("xdg-open");
 
-    command
-        .arg(url)
+    #[cfg(all(unix, not(target_os = "macos")))]
+    if std::env::var_os("APPIMAGE").is_some() {
+        command
+            .env_remove("LD_LIBRARY_PATH")
+            .env_remove("LD_PRELOAD");
+    }
+
+    let mut child = command
+        .arg(target)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("Failed to open browser: {error}"))
+        .map_err(|error| error.to_string())?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
+fn open_browser(url: &str) -> Result<(), String> {
+    open_external(url.as_ref()).map_err(|error| format!("Failed to open browser: {error}"))
 }
 
 fn launch_core(app: &tauri::AppHandle) -> Result<(), String> {
@@ -357,15 +375,6 @@ fn apply_compact_topmost(
     #[cfg(windows)]
     apply_native_topmost(window, enabled)?;
 
-    #[cfg(not(windows))]
-    if window
-        .is_always_on_top()
-        .map_err(|error| error.to_string())?
-        != enabled
-    {
-        return Err("The compact subtitle window did not retain its requested Z-order".into());
-    }
-
     tracing::debug!(enabled, reason, "compact window topmost state applied");
     Ok(())
 }
@@ -376,6 +385,9 @@ fn set_compact_window_topmost(
     enabled: bool,
     native_ui: State<'_, NativeUiState>,
 ) -> Result<(), String> {
+    if enabled && cfg!(target_os = "linux") && platform_capabilities::session_type() != "x11" {
+        return Err("platform.window_stacking_unavailable".into());
+    }
     apply_compact_topmost(&window, enabled, "mode_change")?;
     native_ui.compact_topmost.store(enabled, Ordering::Release);
     Ok(())
@@ -404,7 +416,38 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(target_os = "linux")]
+async fn tray_host_registered() -> bool {
+    let check = async {
+        let connection = ashpd::zbus::Connection::session().await.ok()?;
+        let proxy = ashpd::zbus::Proxy::new(
+            &connection,
+            "org.kde.StatusNotifierWatcher",
+            "/StatusNotifierWatcher",
+            "org.kde.StatusNotifierWatcher",
+        )
+        .await
+        .ok()?;
+        proxy
+            .get_property::<bool>("IsStatusNotifierHostRegistered")
+            .await
+            .ok()
+    };
+    tokio::time::timeout(Duration::from_millis(500), check)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false)
+}
+
 fn minimize_to_tray_enabled(app: &tauri::AppHandle) -> bool {
+    if !app
+        .state::<NativeUiState>()
+        .tray_available
+        .load(Ordering::Acquire)
+    {
+        return false;
+    }
     app.store("preferences.json")
         .ok()
         .and_then(|store| store.get("minimizeToTray"))
@@ -413,14 +456,18 @@ fn minimize_to_tray_enabled(app: &tauri::AppHandle) -> bool {
 }
 
 pub(crate) fn prepare_for_exit(app: &tauri::AppHandle) {
-    #[cfg(windows)]
+    static EXIT_PREPARED: AtomicBool = AtomicBool::new(false);
+    if EXIT_PREPARED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    #[cfg(any(windows, linux_vr))]
     if let Some(hosts) = app.try_state::<vr_overlay::surface::NativeHostManager>() {
         hosts.begin_shutdown();
     }
     app.state::<desktop_ocr::Manager>().stop();
     app.state::<desktop_vision::Manager>().stop();
     app.state::<vr_overlay::Manager>().stop();
-    #[cfg(windows)]
+    #[cfg(any(windows, linux_vr))]
     if let Some(hosts) = app.try_state::<vr_overlay::surface::NativeHostManager>() {
         if let Err(error) = hosts.finish_shutdown(std::time::Duration::from_secs(5)) {
             tracing::warn!("{error}");
@@ -526,10 +573,14 @@ pub fn run() {
             show_item: Mutex::new(None),
             quit_item: Mutex::new(None),
             compact_topmost: AtomicBool::new(false),
+            tray_available: AtomicBool::new(false),
         })
         .invoke_handler(tauri::generate_handler![
             core_connection,
+            #[cfg(target_os = "linux")]
+            desktop_capture::portal_shortcuts::desktop_capture_register_shortcuts,
             core_startup,
+            platform_capabilities::platform_capabilities,
             retry_core,
             player_audio_elevation::player_audio_pending_action,
             player_audio_elevation::player_audio_consume_action,
@@ -632,9 +683,37 @@ pub fn run() {
             if let Some(icon) = app.default_window_icon() {
                 tray = tray.icon(icon.clone());
             }
-            tray.build(app)?;
+            match tray.build(app) {
+                Ok(_) => {
+                    #[cfg(not(target_os = "linux"))]
+                    native_ui.tray_available.store(true, Ordering::Release);
+                    #[cfg(target_os = "linux")]
+                    {
+                        let handle = app.handle().clone();
+                        tauri::async_runtime::spawn(async move {
+                            if tray_host_registered().await {
+                                handle
+                                    .state::<NativeUiState>()
+                                    .tray_available
+                                    .store(true, Ordering::Release);
+                            } else {
+                                tracing::info!(
+                                    "StatusNotifierHost not registered; closing the main window will exit VRCS"
+                                );
+                            }
+                        });
+                    }
+                }
+                Err(error) => tracing::warn!(%error, "Tray unavailable; closing the main window will exit VRCS"),
+            }
 
             let data_dir = app.path().local_data_dir()?.join(".vrcs");
+            #[cfg(target_os = "linux")]
+            {
+                use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+                std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&data_dir)?;
+                std::fs::set_permissions(&data_dir, std::fs::Permissions::from_mode(0o700))?;
+            }
             std::fs::create_dir_all(data_dir.join("models"))?;
 
             let port = setup_connection
@@ -643,10 +722,12 @@ pub fn run() {
                 .next()
                 .and_then(|value| value.parse().ok())
                 .ok_or_else(|| std::io::Error::other("core URL is missing a valid port"))?;
+            #[cfg(target_os = "linux")]
+            app.manage(desktop_capture::portal_shortcuts::Manager::default());
             app.manage(vr_overlay::Manager::new(app.handle().clone()));
-            #[cfg(windows)]
+            #[cfg(any(windows, linux_vr))]
             app.manage(vr_overlay::surface::SurfaceHub::default());
-            #[cfg(windows)]
+            #[cfg(any(windows, linux_vr))]
             app.manage(vr_overlay::surface::NativeHostManager::start(app.handle().clone()).map_err(std::io::Error::other)?);
             app.manage(desktop_ocr::Manager::new(app.handle().clone()));
             app.manage(desktop_vision::Manager::new(app.handle().clone()));

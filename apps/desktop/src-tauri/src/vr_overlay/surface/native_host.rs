@@ -36,22 +36,18 @@ use windows::{
     UI::Composition::{Compositor, ContainerVisual},
 };
 
-use super::bridge::{
-    DocumentSession, HostId, Operation, PageRequest, ResourcePolicy, ResourceRoute, SurfaceEvent,
+use super::SurfaceHub;
+use crate::vr_overlay::surface_protocol::SurfaceActivity;
+use crate::vr_overlay::surface_protocol::{
+    decode_request, BridgeError, DocumentSession, HostId, Operation, PageReply, PageRequest,
+    ResourcePolicy, ResourceRoute, SurfaceEvent,
 };
-use super::{SurfaceActivity, SurfaceHub};
 
 const WAKE: u32 = WM_APP + 41;
 const BROWSER_ARGS: &str = "--disable-features=CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows --disable-renderer-backgrounding";
 const SURFACE_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
-#[derive(Clone)]
-pub(super) struct CaptureEndpoint {
-    pub host: HostId,
-    pub item: GraphicsCaptureItem,
-    #[cfg(all(debug_assertions, feature = "vr-preview"))]
-    pub parent: isize,
-}
+pub(super) use super::endpoint::CaptureEndpoint;
 
 struct QueuedEvent {
     session: DocumentSession,
@@ -424,7 +420,7 @@ struct WireReply<'a> {
     request_id: u64,
     ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    value: Option<super::bridge::PageReply>,
+    value: Option<PageReply>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<&'static str>,
 }
@@ -449,7 +445,7 @@ fn post_reply(
     webview: &ICoreWebView2,
     nonce: &str,
     request_id: u64,
-    result: Result<super::bridge::PageReply, super::bridge::BridgeError>,
+    result: Result<PageReply, BridgeError>,
 ) -> windows::core::Result<()> {
     let message = match result {
         Ok(value) => WireReply {
@@ -1049,7 +1045,7 @@ fn start_host(state: &Rc<RefCell<Sta>>, id: HostId) {
                                 {
                                     entry.endpoint = Some(CaptureEndpoint {
                                         host: id,
-                                        item: host._item.clone(),
+                                        source: host._item.clone(),
                                         #[cfg(all(debug_assertions, feature = "vr-preview"))]
                                         parent: host._parent.0 .0 as isize,
                                     });
@@ -1312,7 +1308,7 @@ impl NativeHost {
                         return Ok(());
                     }
                     let message = read_string(|out| args.WebMessageAsJson(out))?;
-                    let Ok(request) = super::bridge::decode_request(&message) else {
+                    let Ok(request) = decode_request(&message) else {
                         return Ok(());
                     };
                     if matches!(request, PageRequest::Connect) {
@@ -1347,7 +1343,7 @@ impl NativeHost {
                     let result = app
                         .state::<SurfaceHub>()
                         .handle_page_request(&document, request);
-                    if matches!(&result, Ok(super::bridge::PageReply::Accepted(true))) {
+                    if matches!(&result, Ok(PageReply::Accepted(true))) {
                         if let Some(request) = sleeping {
                             snapshot.set(Some(request));
                             shared.wake();
@@ -1514,7 +1510,9 @@ impl ControlMailbox {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vr_overlay::surface::{SurfaceId, SurfaceKey, SurfacePointer, SurfaceScroll};
+    use crate::vr_overlay::surface_protocol::{
+        SurfaceId, SurfaceKey, SurfacePointer, SurfaceScroll,
+    };
 
     fn session(surface: SurfaceId) -> DocumentSession {
         DocumentSession {

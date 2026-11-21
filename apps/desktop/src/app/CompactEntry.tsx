@@ -87,7 +87,8 @@ export function CompactEntry({
         selectionTarget={selection.target}
         running={runtime.health?.capture_requested ?? false}
         vrchatMuted={runtime.vrchatMuteStatus?.muted === true}
-        captureDisabled={!runtime.ready || capture.pending}
+        captureDisabled={!runtime.ready || capture.pending || (!runtime.health?.capture_requested && !capture.available)}
+        captureReason={capture.unavailableReason}
         chatboxOpen={chatboxVisible}
         chatboxDisabled={!runtime.ready || overlayOpen}
         chatboxButtonRef={chatboxButtonRef}

@@ -12,6 +12,7 @@ export interface DropdownOption {
   description?: string;
   searchText?: string;
   group?: string;
+  disabled?: boolean;
 }
 
 const EMPTY_OPTIONS: DropdownOption[] = [];
@@ -78,6 +79,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
   }, [menuMounted]);
 
   const choose = (next: string) => {
+    if (visibleOptions.find((option) => option.value === next)?.disabled) return;
     onChange(next);
     setOpen(false);
     requestAnimationFrame(() => triggerRef.current?.focus({ preventScroll: true }));
@@ -125,7 +127,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
     }
 
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>(".dropdown-option"));
+    const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>(".dropdown-option:not(:disabled)"));
     if (items.length === 0) return;
     event.preventDefault();
     const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
@@ -152,6 +154,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
               type="button"
               role="option"
               aria-selected={current}
+              disabled={option.disabled}
               onClick={() => choose(option.value)}
             >
               <span className="dropdown-option-copy">
@@ -193,9 +196,11 @@ export function DropdownField({ label, value, options, disabled = false, compact
             autoComplete="off"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && visibleOptions[0]) {
+              if (event.key === "Enter") {
+                const first = visibleOptions.find((option) => !option.disabled);
+                if (!first) return;
                 event.preventDefault();
-                choose(visibleOptions[0].value);
+                choose(first.value);
               }
             }}
           />

@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+  if [ -d /usr/lib/vrcs ]; then
+    chown root:root /usr/lib/vrcs
+    chmod 0755 /usr/lib/vrcs
+  fi
+  if [ -f /usr/bin/vrcs-desktop ]; then
+    chown root:root /usr/bin/vrcs-desktop
+    chmod 0755 /usr/bin/vrcs-desktop
+  fi
+fi

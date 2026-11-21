@@ -19,6 +19,7 @@ test("translation profile switching remembers edited models across remounts and 
         import i18next from 'i18next';
         import { initReactI18next } from 'react-i18next';
         import { TranslationRouteList } from './src/settings/translation/TranslationRouteList.tsx';
+        import { WindowsCapabilities } from './tests/fixtures/platform-capabilities';
         await i18next.use(initReactI18next).init({ lng: 'en', resources: { en: { translation: {} } } });
         const catalogs = { deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro'], openai: ['gpt-4.1-mini', 'gpt-5-mini'] };
         window.failCatalogs = false;
@@ -40,8 +41,8 @@ test("translation profile switching remembers edited models across remounts and 
             onChange={next => { window.savedTargets = JSON.parse(JSON.stringify(next)); setTargets(next); }} />;
         }
         let root = createRoot(document.getElementById('root'));
-        root.render(<Harness />);
-        window.remount = () => { root.unmount(); root = createRoot(document.getElementById('root')); root.render(<Harness />); };
+        root.render(<WindowsCapabilities><Harness /></WindowsCapabilities>);
+        window.remount = () => { root.unmount(); root = createRoot(document.getElementById('root')); root.render(<WindowsCapabilities><Harness /></WindowsCapabilities>); };
       `,
     },
     bundle: true, write: false, format: "esm", platform: "browser", jsx: "automatic",

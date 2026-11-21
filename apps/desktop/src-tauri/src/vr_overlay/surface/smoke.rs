@@ -118,11 +118,12 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
             if let Some(frame) = capture.poll()? {
                 let hub = app.state::<SurfaceHub>();
                 let entries = hub.0.lock().map_err(|e| e.to_string())?;
-                if (frame.generation, frame.revision) == (key.generation, key.revision)
+                if (frame.receipt.generation, frame.receipt.revision)
+                    == (key.generation, key.revision)
                     && entries[surface.index()].accepts_frame(
                         key,
-                        frame.paint_serial,
-                        frame.requested_serial,
+                        frame.receipt.paint_serial,
+                        frame.receipt.requested_serial,
                     )
                 {
                     return Ok(frame);
@@ -184,7 +185,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                     .capture
                     .clone();
                 let mut capture = windows_wgc::Capture::with_counters(
-                    &endpoint.item,
+                    &endpoint.source,
                     0,
                     width,
                     height,
@@ -221,9 +222,9 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 }
                 std::fs::write(directory.join(format!("{case}.bgra")), &first)
                     .map_err(|e| e.to_string())?;
-                capture.submitted(first_frame)?;
+                capture.submitted(&first_frame)?;
                 hub.0.lock().map_err(|e| e.to_string())?[surface.index()]
-                    .commit_paint(key, first_frame.paint_serial);
+                    .commit_paint(key, first_frame.receipt.paint_serial);
                 // Ignore late font receipts before measuring the settled static interval.
                 let settle_until = Instant::now() + Duration::from_millis(350);
                 while Instant::now() < settle_until {
@@ -231,10 +232,10 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                         let mut entries = hub.0.lock().map_err(|e| e.to_string())?;
                         if entries[surface.index()].accepts_frame(
                             key,
-                            frame.paint_serial,
-                            frame.requested_serial,
+                            frame.receipt.paint_serial,
+                            frame.receipt.requested_serial,
                         ) {
-                            entries[surface.index()].commit_paint(key, frame.paint_serial);
+                            entries[surface.index()].commit_paint(key, frame.receipt.paint_serial);
                             // Protect first_frame for the existing buffer-preservation check below.
                         }
                     }
@@ -299,7 +300,8 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                                 ));
                             }
                             let pixels = capture.snapshot(frame)?;
-                            if (frame.generation, frame.revision) == (key.generation, key.revision)
+                            if (frame.receipt.generation, frame.receipt.revision)
+                                == (key.generation, key.revision)
                                 && pixels != previous
                             {
                                 previous = pixels;
@@ -401,19 +403,19 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 key = warm_key;
                 capture.resume()?;
                 let warm_frame = wait_for_frame(&app, &mut capture, surface, key)?;
-                capture.submitted(warm_frame)?;
+                capture.submitted(&warm_frame)?;
                 hub.0.lock().map_err(|e| e.to_string())?[surface.index()]
-                    .commit_paint(key, warm_frame.paint_serial);
+                    .commit_paint(key, warm_frame.receipt.paint_serial);
                 let held = capture.snapshot(warm_frame)?;
-                capture.restart_source(&endpoint.item)?;
+                capture.restart_source(&endpoint.source)?;
                 hub.send(&app, surface, SurfaceEvent::Repaint)?;
                 let recovered = wait_for_frame(&app, &mut capture, surface, key)?;
                 if capture.snapshot(warm_frame)? != held {
                     return Err("Source restart overwrote the submitted texture".into());
                 }
-                capture.submitted(recovered)?;
+                capture.submitted(&recovered)?;
                 hub.0.lock().map_err(|e| e.to_string())?[surface.index()]
-                    .commit_paint(key, recovered.paint_serial);
+                    .commit_paint(key, recovered.receipt.paint_serial);
                 for recreate in [false, true] {
                     drop(capture);
                     let generations = hub
@@ -438,7 +440,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                     }
                     let (endpoint, recovered) = wait_for_layout(&app, surface, &view, Some(key))?;
                     capture = windows_wgc::Capture::with_counters(
-                        &endpoint.item,
+                        &endpoint.source,
                         0,
                         width,
                         height,
@@ -458,14 +460,15 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                     {
                         return Err(format!("{} recovery lost its content", surface.name()));
                     }
-                    capture.submitted(frame)?;
+                    capture.submitted(&frame)?;
                     let mut entries = hub.0.lock().map_err(|e| e.to_string())?;
                     if entries.iter().enumerate().any(|(index, entry)| {
                         index != surface.index() && entry.generation != generations[index]
                     }) {
                         return Err("Surface recovery changed another host".into());
                     }
-                    if !entries[surface.index()].commit_paint(recovered, frame.paint_serial) {
+                    if !entries[surface.index()].commit_paint(recovered, frame.receipt.paint_serial)
+                    {
                         return Err("Recovered frame did not match the current layout".into());
                     }
                     key = recovered;
@@ -484,7 +487,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                         hub.publish(&app, surface, holding, Some(0), Some(0))?;
                         let copies = counters.copies.load(std::sync::atomic::Ordering::Relaxed);
                         let mut submitted = false;
-                        renderer.capture_frame(&hub, |_| {
+                        renderer.capture_frame(&hub, false, |_| {
                             submitted = true;
                             Ok(())
                         })?;
@@ -584,7 +587,7 @@ fn ocr_idle(
                         .clone();
                     renderer.capture =
                         Some(Rc::new(RefCell::new(windows_wgc::Capture::with_counters(
-                            &endpoint.item,
+                            &endpoint.source,
                             0,
                             width,
                             height,
@@ -606,8 +609,8 @@ fn ocr_idle(
                         }
                     }
                 }
-                renderer.capture_frame(&hub, |frame| {
-                    submitted = Some(frame);
+                renderer.capture_frame(&hub, false, |frame| {
+                    submitted = Some(*frame);
                     Ok(())
                 })?;
                 let capture = renderer.capture.as_ref().unwrap().borrow();
@@ -647,9 +650,9 @@ fn ocr_idle(
         }
         let mut renderer = SurfaceRenderer::new(surface);
         let (mut frame, mut pixels) = settle(app, &mut renderer, &view, None)?;
-        let initial_bounds = frame.bounds;
+        let initial_bounds = frame.receipt.bounds;
         if surface == SurfaceId::OcrResult {
-            let [l, t, r, b] = frame.bounds;
+            let [l, t, r, b] = frame.receipt.bounds;
             if (r - l) * (b - t) >= 2048 * 2048 || l == 0 && t == 0 {
                 return Err("OCR output was not cropped".into());
             }
@@ -663,7 +666,7 @@ fn ocr_idle(
                 if let Some(full) = capture.poll()? {
                     break full;
                 }
-                capture.start(Some(frame.paint_serial))?;
+                capture.start(Some(frame.receipt.paint_serial))?;
                 if started.elapsed() >= Duration::from_secs(3) {
                     return Err("Full source comparison timed out".into());
                 }
@@ -699,7 +702,7 @@ fn ocr_idle(
         let before = totals();
         let until = Instant::now() + Duration::from_millis(400);
         while Instant::now() < until {
-            renderer.capture_frame(&hub, |_| Err("Idle source submitted again".into()))?;
+            renderer.capture_frame(&hub, false, |_| Err("Idle source submitted again".into()))?;
             if renderer.capture.as_ref().unwrap().borrow().active() {
                 return Err("Idle tick resumed its source".into());
             }
@@ -731,7 +734,7 @@ fn ocr_idle(
             return Err("Content revision did not update the idle image".into());
         }
         (frame, pixels) = updated;
-        if surface == SurfaceId::OcrResult && frame.bounds == initial_bounds {
+        if surface == SurfaceId::OcrResult && frame.receipt.bounds == initial_bounds {
             return Err("OCR output size did not follow changed content".into());
         }
         for _ in 0..3 {
@@ -742,7 +745,8 @@ fn ocr_idle(
                 .key;
             hub.send(app, surface, SurfaceEvent::Repaint)?;
             (frame, pixels) = settle(app, &mut renderer, &view, Some((frame, &pixels)))?;
-            if (frame.generation, frame.revision) != (key.generation, key.revision) {
+            if (frame.receipt.generation, frame.receipt.revision) != (key.generation, key.revision)
+            {
                 return Err("Repaint unexpectedly changed the content key".into());
             }
         }
@@ -761,7 +765,7 @@ fn ocr_idle(
         results.push(serde_json::json!({"surface":surface,"idle_source_closed":true,
             "idle_no_copies_or_source_frames":true,"submitted_texture_preserved":true,
             "content_updated":true,"same_key_repaints":3,"scroll_updated":surface == SurfaceId::Reader,
-            "initial_bounds":initial_bounds,"output_bounds":frame.bounds,"output_pixels":pixels.len()/4,
+            "initial_bounds":initial_bounds,"output_bounds":frame.receipt.bounds,"output_pixels":pixels.len()/4,
             "source_crop_matches":surface == SurfaceId::OcrResult}));
     }
     let hosts = app.state::<NativeHostManager>();
@@ -812,7 +816,7 @@ fn lifecycle(app: &AppHandle, view: SurfaceView) -> Result<serde_json::Value, St
                         .clone();
                     renderer.capture =
                         Some(Rc::new(RefCell::new(windows_wgc::Capture::with_counters(
-                            &endpoint.item,
+                            &endpoint.source,
                             0,
                             width,
                             height,
@@ -820,7 +824,7 @@ fn lifecycle(app: &AppHandle, view: SurfaceView) -> Result<serde_json::Value, St
                         )?)));
                     renderer.identity = Some((endpoint.host.host_epoch, 0, generation));
                 }
-                renderer.capture_frame(&hub, |_| Ok(()))?;
+                renderer.capture_frame(&hub, false, |_| Ok(()))?;
                 let entries = hub.0.lock().map_err(|e| e.to_string())?;
                 let entry = &entries[surface.index()];
                 if entry.active_layout().is_some() && renderer.frame_visible(entry, Instant::now())
@@ -913,7 +917,7 @@ fn native_reader(app: &AppHandle, mut view: SurfaceView) -> Result<serde_json::V
         entry.set_active(true, Instant::now());
         entry.publish(view.clone(), None, None);
         entry.creating = true;
-        bridge::HostId {
+        crate::vr_overlay::surface_protocol::HostId {
             surface,
             host_epoch: entry.host_epoch,
         }
@@ -952,7 +956,7 @@ fn native_reader(app: &AppHandle, mut view: SurfaceView) -> Result<serde_json::V
             .clone();
         let (width, height) = surface.size();
         let mut capture =
-            windows_wgc::Capture::with_counters(&endpoint.item, 0, width, height, counters)?;
+            windows_wgc::Capture::with_counters(&endpoint.source, 0, width, height, counters)?;
         let mut frame = || -> Result<Vec<u8>, String> {
             let started = Instant::now();
             loop {
@@ -964,18 +968,18 @@ fn native_reader(app: &AppHandle, mut view: SurfaceView) -> Result<serde_json::V
                 };
                 if let Some(frame) = capture.poll()? {
                     let key = SurfaceKey {
-                        generation: frame.generation,
-                        revision: frame.revision,
+                        generation: frame.receipt.generation,
+                        revision: frame.receipt.revision,
                     };
                     if hub.0.lock().map_err(|e| e.to_string())?[surface.index()].accepts_frame(
                         key,
-                        frame.paint_serial,
-                        frame.requested_serial,
+                        frame.receipt.paint_serial,
+                        frame.receipt.requested_serial,
                     ) {
                         let pixels = capture.snapshot(frame)?;
-                        capture.submitted(frame)?;
+                        capture.submitted(&frame)?;
                         hub.0.lock().map_err(|e| e.to_string())?[surface.index()]
-                            .commit_paint(key, frame.paint_serial);
+                            .commit_paint(key, frame.receipt.paint_serial);
                         return Ok(pixels);
                     }
                 }
@@ -1019,7 +1023,10 @@ fn native_reader(app: &AppHandle, mut view: SurfaceView) -> Result<serde_json::V
                 entry.publish(next, None, None);
                 entry.state.clone().unwrap()
             };
-            hosts.send(id, bridge::SurfaceEvent::View(Box::new(state)))?;
+            hosts.send(
+                id,
+                crate::vr_overlay::surface_protocol::SurfaceEvent::View(Box::new(state)),
+            )?;
             let pixels = frame()?;
             if pixels != previous {
                 changes += 1;
@@ -1029,7 +1036,7 @@ fn native_reader(app: &AppHandle, mut view: SurfaceView) -> Result<serde_json::V
                 .ok_or("Native reader scroll layout is unavailable")?;
             hosts.send(
                 id,
-                bridge::SurfaceEvent::Scroll(SurfaceScroll {
+                crate::vr_overlay::surface_protocol::SurfaceEvent::Scroll(SurfaceScroll {
                     key,
                     delta: if scroll_changes % 2 == 0 { 0.25 } else { -0.25 },
                 }),

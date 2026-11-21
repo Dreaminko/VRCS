@@ -329,6 +329,7 @@ mod tests {
             room_token: Some(1),
             world_session_token: Some(1),
             world_name: Some("Starlight Bar".into()),
+            error: None,
         });
         let publisher = store.network_publisher();
         publisher.set_consumers(NetworkConsumers {

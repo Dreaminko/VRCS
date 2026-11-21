@@ -321,6 +321,7 @@ mod tests {
         assert_keys(
             &value["vr_overlay"],
             [
+                "backend",
                 "enabled",
                 "headset",
                 "translation_display",

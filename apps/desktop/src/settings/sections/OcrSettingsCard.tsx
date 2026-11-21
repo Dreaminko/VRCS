@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { ScanText, Monitor, Glasses, RectangleGoggles } from "lucide-react";
+import { ScanText, Monitor, Glasses, RectangleGoggles, ScanEye } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { request } from "../../core-client/transport";
+import { scanDesktopOcr } from "../../ocr/api";
+import { localizedError } from "../../app/app-utils";
 import type { ApiProfileView } from "../../providers/types";
 import type { OcrExecutionStatus, VrOcrSettings, VrOcrStatus, VrOcrWristSettings } from "../../integrations/types";
 import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
@@ -13,6 +15,7 @@ import { SettingsDisclosure } from "../components/SettingsDisclosure";
 import { DEFAULT_MODEL_SELECTION, EMPTY_MODEL_BINDING, resolveModelSelection } from "../model-selection";
 import type { ModelBinding } from "../types";
 import { useOcrModels } from "../ocr/useOcrModels";
+import { usePlatformCapabilities } from "../../core-client/capabilities";
 
 export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = EMPTY_MODEL_BINDING, disabled: saving, runtime, desktopStatus, onChange }: {
   vrAvailable: boolean;
@@ -25,9 +28,11 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
   onChange: (patch: Partial<VrOcrSettings>) => void;
 }) {
   const { t } = useTranslation();
+  const { core, desktop } = usePlatformCapabilities();
   const disabled = saving || !config.master_enabled;
   const { models } = useOcrModels();
   const [execution, setExecution] = useState<OcrExecutionStatus | null>(null);
+  const [captureError, setCaptureError] = useState("");
 
   useEffect(() => {
     let disposed = false;
@@ -68,7 +73,8 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
             helper={t("settings.vrOcr.deviceDescription")}
             options={[
               { value: "cpu", label: "CPU" },
-              { value: "directml", label: "GPU (DirectML)" },
+              { value: "directml", label: "GPU (DirectML)", disabled: !core?.inference.ocr_directml.supported,
+                description: !core?.inference.ocr_directml.supported ? t("platform.directml_unsupported") : undefined },
             ]}
             disabled={disabled} onChange={(device) => onChange({ device: device as VrOcrSettings["device"] })} />
           {execution?.active_device && <p role="status">
@@ -100,6 +106,14 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
             {desktopStatus?.shortcut_error && <p className="vr-overlay-native-error" role="alert">
               {t(`ocrWindow.errors.${desktopStatus.shortcut_error.replace("desktop_ocr.", "")}`, { defaultValue: t("ocrWindow.errors.failed") })}
             </p>}
+            {captureError && <p className="vr-overlay-native-error" role="alert">{captureError}</p>}
+            <div className="vr-overlay-card-actions">
+              <button className="secondary-button" type="button"
+                disabled={disabled || !config.desktop_enabled || !desktop?.screenshot.available || ["capturing", "selecting", "recognizing", "translating"].includes(desktopStatus?.state ?? "")}
+                onClick={() => { setCaptureError(""); void scanDesktopOcr().catch((reason) => setCaptureError(localizedError(reason, t, "ocrWindow.errors.failed"))); }}>
+                <ScanEye size={15} />{t("visionWindow.capture")}
+              </button>
+            </div>
           </SettingsDisclosure>
         </section>
         {vrAvailable && <section className="ocr-settings-group" aria-labelledby="ocr-vr-heading">

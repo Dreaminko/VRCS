@@ -114,13 +114,13 @@ export function VisionWindow() {
       {(statusError || errorCode) && <div className="error-banner vision-window-error" role="alert">
         <TriangleAlert size={15} aria-hidden="true" />
         <div>
-          <span>{t(`visionWindow.errors.${errorCode?.replace("desktop_vision.", "") ?? "statusFailed"}`, { defaultValue: t("visionWindow.errors.failed") })}</span>
+          <span>{t(errorCode?.startsWith("capture.") ? `errors.${errorCode}` : `visionWindow.errors.${errorCode?.replace("desktop_vision.", "") ?? "statusFailed"}`, { defaultValue: t("visionWindow.errors.failed") })}</span>
           {errorCode && <details><summary>{t("visionWindow.errorDetail")}</summary><p>{errorCode}{status?.error_detail ? `\n${status.error_detail}` : ""}</p></details>}
         </div>
       </div>}
       {shortcutError && <p className="vision-window-notice" role="alert" data-tooltip={shortcutError}>
         <TriangleAlert size={15} aria-hidden="true" />
-        {t(`visionWindow.errors.${shortcutError.replace("desktop_vision.", "")}`, { defaultValue: t("visionWindow.errors.shortcutFailed") })}
+        {t(shortcutError.startsWith("capture.") ? `errors.${shortcutError}` : `visionWindow.errors.${shortcutError.replace("desktop_vision.", "")}`, { defaultValue: t("visionWindow.errors.shortcutFailed") })}
       </p>}
       {imageId === null && <div className="empty-state vision-window-empty">
         <span className="vision-window-empty-icon" aria-hidden="true"><ScanEye size={32} strokeWidth={1.5} /></span>

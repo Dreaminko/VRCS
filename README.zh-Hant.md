@@ -32,6 +32,8 @@
 - 雲端辨識、翻譯及學習分析需要對應服務供應商的 API 認證資訊，供應商可能收取費用。
 - OCR 需下載本機 PP-OCRv6 模型。
 
+Linux GNU `x86_64` 原生支援（暫不發佈 ARM64）提供 `.deb` 與 AppImage 套件：支援 PipeWire（系統音訊、VRChat 程序與麥克風）、Secret Service、本機 Qwen CPU/Vulkan、本機 PLaMo CPU 翻譯、Screenshot Portal 桌面選區 OCR／視覺問答、X11 / Portal 全域快捷鍵，以及 OpenXR/OpenVR VR 字幕、腕部面板、Dashboard 與控制器輸入（VR 場景擷取因上游 OpenXR/Monado API 尚未就緒暫不開放）。分玩家音訊與 Chatbox 網路接收在 Linux 仍屬實驗性功能，需透過完整 `.deb`（或手動安裝內建 `--network-helper` 的 `/usr/bin/vrcs-desktop` 與 polkit 策略）配合 polkit 認證代理及 `libopus0` 使用。詳細限制與實測進度請參閱 [Linux 開發說明](CONTRIBUTING.md#linux-development-initial-adaptation)。
+
 ## 開始使用
 
 1. 按設定精靈選擇介面語言、功能模式（`僅翻譯` / `全功能` / `自訂`），以及本機或雲端辨識。

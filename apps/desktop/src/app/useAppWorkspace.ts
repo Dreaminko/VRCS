@@ -22,6 +22,7 @@ import { useAppUpdater } from "../updates/useAppUpdater";
 import { useInterfaceScale } from "./useInterfaceScale";
 import { usePlayerHistoryPreferences } from "../subtitles/usePlayerHistoryPreferences";
 import { usesVrchatNetwork } from "../capture/vrchat-network";
+import { captureUnavailableReason } from "../settings/feature-availability";
 import type { Subtitle } from "../subtitles/types";
 
 const EMPTY_COMPACT_SUBTITLES: Subtitle[] = [];
@@ -46,6 +47,7 @@ export function useAppWorkspace({
     if (settings.value && !learningAvailable && page === "learning") setPage("live");
   }, [learningAvailable, page, setPage, settings.value]);
   const compactWindow = useCompactWindow({
+    alwaysOnTopAvailable: runtime.capabilities.desktop?.always_on_top.available,
     clearErrorFrom: runtime.clearErrorFrom,
     reportError: runtime.reportError,
   });
@@ -77,8 +79,10 @@ export function useAppWorkspace({
     reportError: runtime.reportError,
     clearErrorFrom: runtime.clearErrorFrom,
   });
+  const captureReason = captureUnavailableReason(settings.value, runtime.capabilities.core);
   const captureControl = useCaptureControl({
     coreReady: runtime.ready,
+    unavailableReason: captureReason,
     getRunning: captureRuntime.getRunning,
     outputMode: settings.value?.audio.output.mode,
     networkCaptureEnabled: usesVrchatNetwork(settings.value),
@@ -150,6 +154,8 @@ export function useAppWorkspace({
     capture: {
       ...captureRuntime,
       ...captureControl,
+      available: captureReason === null,
+      unavailableReason: captureReason,
     },
     compact: {
       ...compactWindow,

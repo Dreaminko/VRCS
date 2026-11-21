@@ -1,5 +1,5 @@
 use super::{
-    backend::{OpenVrBackend, OverlayKind},
+    backend::{Backend, OverlayKind},
     ocr_capture::{center_crop, CropTransform, StereoCapture},
     ocr_input::{install_manifest, InputActions},
     ocr_plane::{OcrPresentation, PlaneRenderer},
@@ -8,7 +8,9 @@ use super::{
     ocr_status::{failure_code, OcrState, OcrStatus, OcrWristState},
     ocr_wrist::Button,
     ocr_wrist::{Action, LaserEvent, Pointer, Reader, View},
-    surface::{SurfaceHub, SurfaceId, SurfaceKey, SurfaceLayout, SurfaceRenderer, SurfaceView},
+    pose::SpaceId,
+    surface::{SurfaceHub, SurfaceRenderer},
+    surface_protocol::{SurfaceId, SurfaceKey, SurfaceLayout, SurfaceView},
 };
 use std::{
     path::PathBuf,
@@ -36,7 +38,7 @@ struct OcrFrame {
 
 struct CaptureMetadata {
     scene_pid: u32,
-    origin: i32,
+    origin: SpaceId,
     captured_at: std::time::Instant,
 }
 
@@ -284,7 +286,7 @@ impl OcrRuntime {
     }
 
     // Call after the previous OpenVR backend has released its submitted textures.
-    pub fn finish_surfaces(&mut self, app: &AppHandle, mut backend: Option<&mut OpenVrBackend>) {
+    pub fn finish_surfaces(&mut self, app: &AppHandle, mut backend: Option<&mut Backend>) {
         self.reader_surface
             .finish_tick(app, backend.as_deref_mut(), OverlayKind::OcrWrist);
         self.progress_surface
@@ -295,7 +297,7 @@ impl OcrRuntime {
             .finish_tick(app, backend, OverlayKind::OcrResult);
     }
 
-    pub fn stop_surfaces(&mut self, app: &AppHandle, mut backend: Option<&mut OpenVrBackend>) {
+    pub fn stop_surfaces(&mut self, app: &AppHandle, mut backend: Option<&mut Backend>) {
         self.reader_surface
             .stop(app, backend.as_deref_mut(), OverlayKind::OcrWrist);
         self.progress_surface
@@ -352,7 +354,7 @@ impl OcrRuntime {
     pub fn tick_with_cadence(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         config: &VrOcrConfig,
         wrist: &vrcs_core::VrOverlayWristConfig,
         player_progress: Option<&super::ocr_progress::ProgressView>,
@@ -438,7 +440,11 @@ impl OcrRuntime {
                         app,
                         backend,
                         OverlayKind::OcrWrist,
-                        Some((super::surface::reader_hover(self.wrist_hovered), None, None)),
+                        Some((
+                            super::surface_protocol::reader_hover(self.wrist_hovered),
+                            None,
+                            None,
+                        )),
                     )
                     .and_then(|visible| {
                         self.status.wrist_state = if visible {
@@ -501,7 +507,7 @@ impl OcrRuntime {
     fn update_feedback(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         player_progress: Option<&super::ocr_progress::ProgressView>,
         business: bool,
     ) -> Result<(), String> {
@@ -598,7 +604,7 @@ impl OcrRuntime {
         reading_focus
     }
 
-    pub fn prepare_input(&mut self, backend: &mut OpenVrBackend) -> Result<(), String> {
+    pub fn prepare_input(&mut self, backend: &mut Backend) -> Result<(), String> {
         if self.manifest.is_none() {
             self.manifest = Some(install_manifest(
                 self.directory
@@ -634,7 +640,7 @@ impl OcrRuntime {
     fn update(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         config: &VrOcrConfig,
         business: bool,
     ) -> Result<(), String> {
@@ -929,7 +935,7 @@ impl OcrRuntime {
     fn update_wrist(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         config: &VrOcrConfig,
         subtitle_wrist: &vrcs_core::VrOverlayWristConfig,
     ) -> Result<(), String> {
@@ -973,7 +979,7 @@ impl OcrRuntime {
         }
         view.hovered = self.wrist_hovered;
         let has_blocks = view.block_count > 0;
-        let hovered = super::surface::reader_hover(view.hovered);
+        let hovered = super::surface_protocol::reader_hover(view.hovered);
         let mut reader = view.clone();
         reader.hovered = None;
         let dark = app
@@ -1114,7 +1120,7 @@ impl OcrRuntime {
     fn update_result(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         config: &VrOcrConfig,
         business: bool,
     ) -> Result<bool, String> {
@@ -1451,7 +1457,7 @@ fn tracking_valid(
     capture: &CaptureMetadata,
     pose: [[f32; 4]; 3],
     scene_pid: u32,
-    origin: i32,
+    origin: SpaceId,
 ) -> bool {
     scene_pid == capture.scene_pid
         && origin == capture.origin
@@ -1507,7 +1513,7 @@ mod tests {
                 [[-0.2, -0.1, -1.], [0.2, 0.1, -1.]],
                 super::super::transform::matrix(0., 0., 0., [0.; 3]),
                 1,
-                1,
+                SpaceId(1),
             );
             runtime.vision_frame_valid = confirmed;
             let input = InputActions {
@@ -1519,7 +1525,7 @@ mod tests {
                 frame: confirmed.then(|| super::super::ocr_input::Frame {
                     corners: [[-0.2, -0.1, -1.], [0.2, 0.1, -1.]],
                     head_pose: super::super::transform::matrix(0., 0., 0., [0.; 3]),
-                    origin: 1,
+                    origin: SpaceId(1),
                 }),
                 frame_confirmed: confirmed,
                 frame_cancelled: false,
@@ -1791,7 +1797,7 @@ mod tests {
             eyes: vec![eye.clone(), eye],
             pose,
             scene_pid: 1,
-            origin: 1,
+            origin: SpaceId(1),
             captured_at: std::time::Instant::now(),
         })
     }
@@ -2325,12 +2331,12 @@ mod tests {
     fn scan_result_is_not_cancelled_by_head_movement() {
         let reference: CaptureMetadata = capture().as_ref().into();
         let moved = transform::matrix(0., 15., 0., [0.08, 0., 0.]);
-        assert!(tracking_valid(&reference, moved, 1, 1));
+        assert!(tracking_valid(&reference, moved, 1, SpaceId(1)));
         let walked = transform::matrix(0., 15., 0., [0.15, 0., 0.]);
-        assert!(tracking_valid(&reference, walked, 1, 1));
-        assert!(!tracking_valid(&reference, moved, 2, 1));
+        assert!(tracking_valid(&reference, walked, 1, SpaceId(1)));
+        assert!(!tracking_valid(&reference, moved, 2, SpaceId(1)));
         let mut invalid = moved;
         invalid[0][0] = f32::NAN;
-        assert!(!tracking_valid(&reference, invalid, 1, 1));
+        assert!(!tracking_valid(&reference, invalid, 1, SpaceId(1)));
     }
 }

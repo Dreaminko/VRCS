@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 type Create = unsafe extern "C" fn(c_int, c_int, *mut c_int) -> *mut c_void;
 type Decode = unsafe extern "C" fn(*mut c_void, *const u8, c_int, *mut f32, c_int, c_int) -> c_int;
-type Ctl = unsafe extern "C" fn(*mut c_void, c_int) -> c_int;
+type Ctl = unsafe extern "C" fn(*mut c_void, c_int, ...) -> c_int;
 type Destroy = unsafe extern "C" fn(*mut c_void);
 
 const OPUS_RESET_STATE: c_int = 4028;
@@ -60,13 +60,38 @@ impl Opus {
     }
 
     pub(super) fn load(path: &Path) -> Result<Arc<Self>, String> {
+        #[cfg(windows)]
         if !path.is_absolute() || !path.is_file() {
             return Err("Select an existing absolute path to opus.dll".into());
         }
-        // The explicitly selected or current game's absolute path avoids DLL search-path loading.
+        #[cfg(target_os = "linux")]
+        let candidates: Vec<&Path> = if path.is_absolute() && path.is_file() {
+            vec![path]
+        } else {
+            // Imported Windows paths are ignored; the distro provides libopus.
+            vec![Path::new("libopus.so.0"), Path::new("libopus.so")]
+        };
+        #[cfg(not(target_os = "linux"))]
+        let candidates = [path];
+        // The manually selected absolute path avoids DLL search-path loading on Windows.
         unsafe {
-            let library =
-                libloading::Library::new(path).map_err(|e| format!("Cannot load Opus: {e}"))?;
+            let mut last_error = None;
+            let mut loaded = None;
+            for candidate in candidates {
+                match libloading::Library::new(candidate) {
+                    Ok(library) => {
+                        loaded = Some(library);
+                        break;
+                    }
+                    Err(error) => last_error = Some(error),
+                }
+            }
+            let library = loaded.ok_or_else(|| {
+                format!(
+                    "Cannot load Opus: {}",
+                    last_error.expect("at least one Opus library candidate")
+                )
+            })?;
             let create = *library
                 .get::<Create>(b"opus_decoder_create\0")
                 .map_err(|e| e.to_string())?;

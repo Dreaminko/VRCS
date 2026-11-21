@@ -43,7 +43,7 @@ export function OcrWindow() {
   }, [close]);
   const scan = async () => {
     setError("");
-    try { await scanDesktopOcr(); } catch { setError(t("ocrWindow.errors.failed")); }
+    try { await scanDesktopOcr(); } catch (reason) { setError(typeof reason === "string" && reason.startsWith("capture.") ? t(`errors.${reason}`) : t("ocrWindow.errors.failed")); }
   };
   const copy = async () => {
     try { await navigator.clipboard.writeText(desktopOcrCopyText(status?.blocks ?? [])); setCopied(true); }
@@ -63,7 +63,7 @@ export function OcrWindow() {
     <div className="ocr-window-content" aria-busy={!status || processing}>
       {(error || nativeError) && <p className="error-banner ocr-window-error" role="alert">
         <TriangleAlert size={15} aria-hidden="true" />
-        <span>{error || t(`ocrWindow.errors.${nativeError?.replace("desktop_ocr.", "")}`, { defaultValue: t("ocrWindow.errors.failed") })}</span>
+        <span>{error || t(nativeError?.startsWith("capture.") ? `errors.${nativeError}` : `ocrWindow.errors.${nativeError?.replace("desktop_ocr.", "")}`, { defaultValue: t("ocrWindow.errors.failed") })}</span>
       </p>}
       {status?.timed_out && <p className="ocr-window-notice" role="status"><TriangleAlert size={15} aria-hidden="true" />{t("ocrWindow.timedOut")}</p>}
       {!status?.blocks.length && !error && !nativeError && !status?.timed_out && <div className="empty-state ocr-window-empty">

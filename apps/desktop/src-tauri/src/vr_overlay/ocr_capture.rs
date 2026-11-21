@@ -1,69 +1,6 @@
+use super::pose::SpaceId;
 use super::renderer::Texture;
-use std::ffi::c_void;
-use std::ptr::{null, null_mut};
-use std::sync::OnceLock;
 use std::time::Instant;
-
-#[repr(C)]
-struct Guid {
-    data1: u32,
-    data2: u16,
-    data3: u16,
-    data4: [u8; 8],
-}
-#[repr(C)]
-struct StartupInput {
-    version: u32,
-    debug_callback: *const c_void,
-    suppress_thread: i32,
-    suppress_codecs: i32,
-}
-
-#[link(name = "gdiplus")]
-unsafe extern "system" {
-    fn GdiplusStartup(token: *mut usize, input: *const StartupInput, output: *mut c_void) -> u32;
-    fn GdipCreateBitmapFromScan0(
-        width: i32,
-        height: i32,
-        stride: i32,
-        format: i32,
-        pixels: *mut u8,
-        bitmap: *mut *mut c_void,
-    ) -> u32;
-    fn GdipSaveImageToStream(
-        image: *mut c_void,
-        stream: *mut c_void,
-        encoder: *const Guid,
-        parameters: *const c_void,
-    ) -> u32;
-    fn GdipDisposeImage(image: *mut c_void) -> u32;
-}
-#[link(name = "ole32")]
-unsafe extern "system" {
-    fn CreateStreamOnHGlobal(
-        memory: *mut c_void,
-        delete_on_release: i32,
-        stream: *mut *mut c_void,
-    ) -> i32;
-    fn GetHGlobalFromStream(stream: *mut c_void, memory: *mut *mut c_void) -> i32;
-}
-#[link(name = "kernel32")]
-unsafe extern "system" {
-    fn GlobalLock(memory: *mut c_void) -> *mut c_void;
-    fn GlobalUnlock(memory: *mut c_void) -> i32;
-    fn GlobalSize(memory: *mut c_void) -> usize;
-}
-
-unsafe fn release_stream(stream: *mut c_void) {
-    if !stream.is_null() {
-        let table = unsafe { *(stream as *const *const *const c_void) };
-        let release: unsafe extern "system" fn(*mut c_void) -> u32 =
-            unsafe { std::mem::transmute(*table.add(2)) };
-        unsafe {
-            release(stream);
-        }
-    }
-}
 
 #[derive(Clone)]
 pub struct EyeCapture {
@@ -142,7 +79,7 @@ pub struct StereoCapture {
     pub pose: [[f32; 4]; 3],
     pub scene_pid: u32,
     pub captured_at: Instant,
-    pub origin: i32,
+    pub origin: SpaceId,
 }
 
 impl StereoCapture {
@@ -319,117 +256,21 @@ pub fn region_crop(
     })
 }
 
-fn ensure_gdiplus() -> Result<(), String> {
-    static GDIPLUS: OnceLock<Result<usize, &'static str>> = OnceLock::new();
-    let status = GDIPLUS.get_or_init(|| {
-        let input = StartupInput {
-            version: 1,
-            debug_callback: null(),
-            suppress_thread: 0,
-            suppress_codecs: 0,
-        };
-        let mut token = 0;
-        if unsafe { GdiplusStartup(&mut token, &input, null_mut()) } == 0 {
-            Ok(token)
-        } else {
-            Err("Could not start image encoder")
-        }
-    });
-    status.as_ref().map(|_| ()).map_err(|&error| error.into())
-}
-
-fn validate_png_texture(image: &Texture) -> Result<(), String> {
-    let expected = image
-        .width
-        .checked_mul(image.height)
-        .and_then(|size| size.checked_mul(4));
-    if image.width == 0
-        || image.height == 0
-        || image.width > 16384
-        || image.height > 16384
-        || expected.map(|size| size as usize) != Some(image.pixels.len())
-    {
-        return Err("Invalid OCR image".into());
-    }
-    Ok(())
-}
-
-fn swap_rb(pixels: &mut [u8]) {
-    for pixel in pixels.as_chunks_mut::<4>().0 {
-        pixel.swap(0, 2);
-    }
-}
-
-fn encode_bgra_png(width: u32, height: u32, pixels: &mut [u8]) -> Result<Vec<u8>, String> {
-    ensure_gdiplus()?;
-    let png_encoder = Guid {
-        data1: 0x557cf406,
-        data2: 0x1a04,
-        data3: 0x11d3,
-        data4: [0x9a, 0x73, 0, 0, 0xf8, 0x1e, 0xf3, 0x2e],
-    };
-    unsafe {
-        let mut bitmap = null_mut();
-        let mut stream = null_mut();
-        let result = (|| {
-            if GdipCreateBitmapFromScan0(
-                width as i32,
-                height as i32,
-                (width * 4) as i32,
-                0x0026200a,
-                pixels.as_mut_ptr(),
-                &mut bitmap,
-            ) != 0
-            {
-                return Err("Could not create OCR bitmap".into());
-            }
-            if CreateStreamOnHGlobal(null_mut(), 1, &mut stream) < 0 {
-                return Err("Could not create image stream".into());
-            }
-            if GdipSaveImageToStream(bitmap, stream, &png_encoder, null()) != 0 {
-                return Err("Could not encode OCR PNG".into());
-            }
-            type Seek = unsafe extern "system" fn(*mut c_void, i64, u32, *mut u64) -> i32;
-            let table = *(stream as *const *const *const c_void);
-            let seek: Seek = std::mem::transmute(*table.add(5));
-            let mut length = 0;
-            if seek(stream, 0, 2, &mut length) < 0 || length == 0 || length > 8 * 1024 * 1024 {
-                return Err("Encoded OCR image exceeds size limit".into());
-            }
-            let mut memory = null_mut();
-            if GetHGlobalFromStream(stream, &mut memory) < 0 || GlobalSize(memory) < length as usize
-            {
-                return Err("Invalid encoded image buffer".into());
-            }
-            let data = GlobalLock(memory);
-            if data.is_null() {
-                return Err("Could not read encoded image buffer".into());
-            }
-            let bytes = std::slice::from_raw_parts(data.cast::<u8>(), length as usize).to_vec();
-            GlobalUnlock(memory);
-            Ok(bytes)
-        })();
-        if !bitmap.is_null() {
-            GdipDisposeImage(bitmap);
-        }
-        release_stream(stream);
-        result
-    }
-}
-
-pub(crate) fn encode_png_rgba(image: &mut Texture) -> Result<Vec<u8>, String> {
-    validate_png_texture(image)?;
-    swap_rb(&mut image.pixels);
-    let result = encode_bgra_png(image.width, image.height, &mut image.pixels);
-    swap_rb(&mut image.pixels);
-    result
-}
-
 #[cfg(test)]
-pub fn encode_png(mut image: Texture) -> Result<Vec<u8>, String> {
-    validate_png_texture(&image)?;
-    swap_rb(&mut image.pixels);
-    encode_bgra_png(image.width, image.height, &mut image.pixels)
+pub fn encode_png(image: Texture) -> Result<Vec<u8>, String> {
+    if image.width > 16384 || image.height > 16384 {
+        return Err("Invalid OCR image dimensions".into());
+    }
+    let image = crate::desktop_capture::image::Image {
+        width: image.width,
+        height: image.height,
+        pixels: image.pixels,
+    };
+    let bytes = crate::desktop_capture::image::encode_png(&image)?;
+    if bytes.len() > 8 * 1024 * 1024 {
+        return Err("Encoded OCR image exceeds size limit".into());
+    }
+    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -665,47 +506,22 @@ mod tests {
             [[512., 384.], [3583., 384.], [3583., 2689.], [512., 2689.]]
         );
     }
-    #[link(name = "shlwapi")]
-    unsafe extern "system" {
-        fn SHCreateMemStream(bytes: *const u8, length: u32) -> *mut c_void;
-    }
-    #[link(name = "gdiplus")]
-    unsafe extern "system" {
-        fn GdiplusShutdown(token: usize);
-        fn GdipLoadImageFromStream(stream: *mut c_void, image: *mut *mut c_void) -> u32;
-        fn GdipBitmapGetPixel(image: *mut c_void, x: i32, y: i32, color: *mut u32) -> u32;
-    }
 
     #[test]
-    fn ocr_png_encoding_produces_a_standard_image_with_the_capture_dimensions() {
-        let image = Texture {
+    fn ocr_png_preserves_capture_dimensions_and_rgba_channels() {
+        let pixels = [10, 20, 30, 255].repeat(6);
+        let encoded = encode_png(Texture {
             width: 3,
             height: 2,
-            pixels: [10, 20, 30, 255].repeat(6),
-        };
-        let png = encode_png(image).unwrap();
-        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
-        assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 3);
-        assert_eq!(u32::from_be_bytes(png[20..24].try_into().unwrap()), 2);
-        unsafe {
-            let input = StartupInput {
-                version: 1,
-                debug_callback: null(),
-                suppress_thread: 0,
-                suppress_codecs: 0,
-            };
-            let mut token = 0;
-            assert_eq!(GdiplusStartup(&mut token, &input, null_mut()), 0);
-            let stream = SHCreateMemStream(png.as_ptr(), png.len() as u32);
-            assert!(!stream.is_null());
-            let mut bitmap = null_mut();
-            assert_eq!(GdipLoadImageFromStream(stream, &mut bitmap), 0);
-            let mut color = 0;
-            assert_eq!(GdipBitmapGetPixel(bitmap, 1, 1, &mut color), 0);
-            assert_eq!(color, 0xff0a141e);
-            GdipDisposeImage(bitmap);
-            release_stream(stream);
-            GdiplusShutdown(token);
-        }
+            pixels: pixels.clone(),
+        })
+        .unwrap();
+        let mut decoder = png::Decoder::new(std::io::Cursor::new(encoded))
+            .read_info()
+            .unwrap();
+        let mut decoded = vec![0; decoder.output_buffer_size()];
+        let output = decoder.next_frame(&mut decoded).unwrap();
+        assert_eq!((output.width, output.height), (3, 2));
+        assert_eq!(&decoded[..output.buffer_size()], &pixels);
     }
 }

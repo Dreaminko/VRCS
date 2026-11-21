@@ -50,7 +50,7 @@ pub(crate) async fn player_audio_set_memory_compression(
 async fn execute(app: tauri::AppHandle, change: Option<bool>) -> Result<Status, String> {
     if !cfg!(windows) {
         return if change.is_some() {
-            Err("Memory compression management requires Windows".into())
+            Err("platform.network_capture_unsupported".into())
         } else {
             Ok(Status {
                 supported: false,
@@ -142,6 +142,7 @@ fn operate(
     })
 }
 
+#[cfg(any(windows, test))]
 // Only these three fixed scripts can run. No execution-policy bypass or downloaded code.
 fn script(change: Option<bool>) -> String {
     let operation = match change {
@@ -163,6 +164,7 @@ try {{
     )
 }
 
+#[cfg(any(windows, test))]
 fn parse_system_state(bytes: &[u8]) -> Result<SystemState, String> {
     let value: SystemState = serde_json::from_slice(bytes)
         .map_err(|_| "Windows returned an invalid memory compression status".to_string())?;

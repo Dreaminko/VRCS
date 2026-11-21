@@ -15,6 +15,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import type {
+  VrOverlayBackend,
   VrOverlayHeadsetSettings,
   VrOverlayResourceState,
   VrOverlayRuntimeState,
@@ -35,6 +36,7 @@ import {
 import type { ApplySettings, SaveState } from "../settings-types";
 import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
 import { SettingsDisclosure } from "../components/SettingsDisclosure";
+import { CapabilitySection, usePlatformCapabilities } from "../../core-client/capabilities";
 import {
   patchVrOverlay,
   patchVrOverlayHeadset,
@@ -190,14 +192,17 @@ function OverlayCardActions({
 
 export function VrOverlaySettingsSection({
   draft,
+  os,
   saveState,
   applySettings,
 }: {
   draft: Settings;
+  os?: string;
   saveState: SaveState;
   applySettings: ApplySettings;
 }) {
   const { t } = useTranslation();
+  const { desktop } = usePlatformCapabilities();
   const [status, setStatus] = useState<VrOverlayStatus | null>(null);
   const [statusError, setStatusError] = useState("");
   const [nativeBusy, setNativeBusy] = useState<"retry" | VrOverlayKind | null>(null);
@@ -305,6 +310,7 @@ export function VrOverlaySettingsSection({
         <div><Layers3 size={18} /><h2>{t("settings.vrOverlay.title")}</h2></div>
       </div>
 
+      <CapabilitySection capability={desktop?.vr.subtitles}>
       <section className="vr-overlay-runtime-card" aria-labelledby="vr-overlay-runtime-title">
         <header className="vr-overlay-card-heading vr-overlay-feature-heading">
           <div>
@@ -336,6 +342,12 @@ export function VrOverlaySettingsSection({
                 <span className="vr-overlay-fact-dot" aria-hidden="true" />
                 <span>{t("settings.vrOverlay.hmdPresent")}: <strong>{t(status?.hmd_present ? "common.available" : "common.unavailable")}</strong></span>
               </span>
+              {os === "linux" && (
+                <span className={`vr-overlay-fact ${status?.backend ? "is-ok" : "is-muted"}`}>
+                  <span className="vr-overlay-fact-dot" aria-hidden="true" />
+                  <span>{t("settings.vrOverlay.backend")}: <strong>{t(`settings.vrOverlay.backends.${status?.backend ?? status?.requested_backend ?? "auto"}`)}</strong></span>
+                </span>
+              )}
               {(status?.reconnect_attempt ?? 0) > 0 && (
                 <span className="vr-overlay-fact is-pending">
                   <span className="vr-overlay-fact-dot" aria-hidden="true" />
@@ -353,6 +365,23 @@ export function VrOverlaySettingsSection({
               {t("common.retry")}
             </button>
           </div>
+          {os === "linux" && (
+            <div className="vr-overlay-inline-select">
+              <Select
+                label={t("settings.vrOverlay.backend")}
+                value={draft.vr_overlay.backend}
+                options={[
+                  { value: "auto", label: t("settings.vrOverlay.backends.auto") },
+                  { value: "openxr", label: t("settings.vrOverlay.backends.openxr") },
+                  { value: "openvr", label: t("settings.vrOverlay.backends.openvr") },
+                ]}
+                disabled={overlayDisabled}
+                onChange={(value) => applySettings((current) => patchVrOverlay(current, {
+                  backend: value as VrOverlayBackend,
+                }))}
+              />
+            </div>
+          )}
           <div className="vr-overlay-inline-select">
             <Select
               label={t("settings.vrOverlay.translationDisplay")}
@@ -639,6 +668,7 @@ export function VrOverlaySettingsSection({
           </SettingsDisclosure>
         </section>
       </SettingsDisclosure>
+      </CapabilitySection>
     </div>
   );
 }

@@ -1,10 +1,11 @@
 use super::{
-    backend::{OpenVrBackend, OverlayKind},
+    backend::{Backend, OverlayKind},
     ocr_input_state::TriggerUpdate,
     ocr_selection::Selection,
     ocr_wrist::Button,
     ocr_wrist::{Action, LaserEvent, Pointer, View, ViewMode},
-    surface::{SurfaceHub, SurfaceId, SurfaceRenderer, SurfaceView},
+    surface::{SurfaceHub, SurfaceRenderer},
+    surface_protocol::{SurfaceId, SurfaceView},
 };
 use crate::vision_image::prepare_image;
 #[cfg(test)]
@@ -250,7 +251,7 @@ impl VisionRuntime {
     }
 
     /// Freeze the image on press before opening question audio.
-    pub fn begin(&mut self, backend: &mut OpenVrBackend, selection: &Selection) {
+    pub fn begin(&mut self, backend: &mut Backend, selection: &Selection) {
         self.clear();
         let Some(service) = &self.service else {
             return;
@@ -296,7 +297,7 @@ impl VisionRuntime {
         }));
     }
 
-    pub fn poll_capture(&mut self, backend: &mut OpenVrBackend) {
+    pub fn poll_capture(&mut self, backend: &mut Backend) {
         if self.pending_capture.is_none() {
             return;
         }
@@ -440,7 +441,7 @@ impl VisionRuntime {
     pub fn render_with_cadence(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         surface: &mut SurfaceRenderer,
         business: bool,
     ) -> Result<bool, String> {
@@ -457,7 +458,7 @@ impl VisionRuntime {
             return Ok(false);
         }
         backend.set_opacity(OverlayKind::OcrWrist, wrist.opacity)?;
-        let hovered = super::surface::reader_hover(view.hovered);
+        let hovered = super::surface_protocol::reader_hover(view.hovered);
         if !business {
             let visible = surface.refresh(
                 app,
@@ -528,7 +529,7 @@ mod tests {
         };
         let result = resize(&image, 2);
         assert_eq!((result.width, result.height), (2, 1));
-        assert_eq!(result.pixels, vec![0, 1, 2, 3, 8, 9, 10, 11]);
+        assert_eq!(result.pixels, vec![10, 11, 12, 13, 18, 19, 20, 21]);
     }
     #[test]
     fn completed_answer_keeps_pin_and_starts_at_the_first_page() {

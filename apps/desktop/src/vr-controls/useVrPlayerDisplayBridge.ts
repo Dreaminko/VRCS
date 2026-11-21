@@ -39,6 +39,7 @@ function playerDisplayState(workspace: AppWorkspace, optimistic = false, cached?
     ? workspace.settings.getOptimistic() ?? workspace.settings.value ?? confirmed
     : confirmed;
   const playerMode = settings?.audio.output.mode === "vrchat_players";
+  const playerAudioAvailable = workspace.runtime.capabilities.core?.audio.player_audio.available === true;
   const names = settings?.audio.output.player_audio?.selected_user_names ?? EMPTY_NAMES;
   const overrides = settings?.audio.output.player_audio?.source_overrides ?? EMPTY_OVERRIDES;
   const unmatchedBlocked = settings?.audio.output.player_audio?.source_mode !== "everyone";
@@ -69,7 +70,7 @@ function playerDisplayState(workspace: AppWorkspace, optimistic = false, cached?
     ? cached.languageOptions
     : playerLanguageOptions(workspace.subtitles.items, defaultLanguages, preferences.hiddenSourceLanguages);
   return {
-    available, processingAvailable: available && workspace.runtime.ready && playerMode,
+    available, processingAvailable: available && workspace.runtime.ready && playerMode && playerAudioAvailable,
     playerMode, sourceMode: sourceMode(settings?.audio.output.player_audio), names, overrides, proximity, viewPriority, current, distances, preferences, defaultLanguages, unmatchedBlocked,
     hiddenTracks: preferences.hiddenTracks,
     speakers,
@@ -84,6 +85,7 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
   const confirmedSettings = workspace.settings.getCurrent();
   const activeSettings = workspace.settings.getOptimistic() ?? workspace.settings.value ?? confirmedSettings;
   const playerMode = activeSettings?.audio.output.mode === "vrchat_players";
+  const playerAudioAvailable = workspace.runtime.capabilities.core?.audio.player_audio.available === true;
   const names = activeSettings?.audio.output.player_audio?.selected_user_names ?? EMPTY_NAMES;
   const overrides = activeSettings?.audio.output.player_audio?.source_overrides ?? EMPTY_OVERRIDES;
   const liveHealth = useHealth() ?? workspace.runtime.health;
@@ -271,6 +273,7 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
     identities,
     workspace.onboarding.status,
     workspace.runtime.ready,
+    playerAudioAvailable,
     locale,
     t,
   ]);

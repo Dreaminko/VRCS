@@ -93,7 +93,7 @@ function profile(id: string, provider: string, enabled: ApiProfileView["enabled_
     provider_display_name: provider,
     active: false,
     translation_active: false,
-    credential: { configured: true, stored_configured: true, environment_override: false, source: "credential_manager" },
+    credential: { configured: true, stored_configured: true, environment_override: false, storage_available: true, reason_code: null, source: "credential_manager" },
     capabilities: {
       supports_streaming: false,
       supports_model_listing: false,

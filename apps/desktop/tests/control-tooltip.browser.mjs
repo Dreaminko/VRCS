@@ -9,11 +9,18 @@ import test from "node:test";
 import { build } from "esbuild";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
-const browser = [process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], process.env.LOCALAPPDATA]
-  .filter(Boolean).flatMap(root => [
-    join(root, "Google/Chrome/Application/chrome.exe"),
-    join(root, "Microsoft/Edge/Application/msedge.exe"),
-  ]).find(existsSync);
+const browser = [
+  process.env.VRCS_BROWSER_PATH,
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  ...[process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], process.env.LOCALAPPDATA]
+    .filter(Boolean).flatMap(root => [
+      join(root, "Google/Chrome/Application/chrome.exe"),
+      join(root, "Microsoft/Edge/Application/msedge.exe"),
+    ]),
+].filter(Boolean).find(existsSync);
 
 test("compact controls use themed tooltips instead of native titles", {
   timeout: 60000, skip: !browser && "Chrome or Edge is required",

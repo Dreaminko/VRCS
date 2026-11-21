@@ -153,7 +153,7 @@ pub(crate) async fn spawn_cloud_recognition_session_with_context(
                 ));
             }
             let profile = profile.clone();
-            let key = credential(&profile)?;
+            let key = credential_async(&profile).await?;
             let settings = service_settings(active_config, service.id)?.clone();
             if settings.model.trim().is_empty() {
                 return Err(format!("A model is required for service {}", service.id));
@@ -250,7 +250,7 @@ pub async fn test_cloud_service(
                     resolved.service.adapter
                 ));
             }
-            let key = credential(profile)?;
+            let key = credential_async(profile).await?;
             let settings = service_settings(config, service_id)?;
             let samples = connection_test_audio();
             if resolved.service.adapter == ServiceAdapter::MimoTranscription {
@@ -314,6 +314,15 @@ fn credential(profile: &ApiProfile) -> Result<String, String> {
         return Ok(String::new());
     }
     read_credential(&profile.id, &profile.provider)?
+        .ok_or_else(|| format!("API key is not configured for {}", profile.name))
+}
+
+async fn credential_async(profile: &ApiProfile) -> Result<String, String> {
+    if !profile.requires_api_key() {
+        return Ok(String::new());
+    }
+    crate::credentials::read_credential_async(&profile.id, &profile.provider)
+        .await?
         .ok_or_else(|| format!("API key is not configured for {}", profile.name))
 }
 

@@ -27,6 +27,7 @@ for (const width of [1100, 380]) {
         import { SubtitleBubble } from './src/subtitles/components/SubtitleBubble';
         import { publishSpeakerIdentity } from './src/subtitles/speaker-state';
         import { publishLivePartial, completeLivePartial } from './src/core-client/realtime-state';
+        import { WindowsCapabilities } from './tests/fixtures/platform-capabilities';
         import './src/styles.css';
         await i18next.use(initReactI18next).init({ lng:'zh-CN', resources:{'zh-CN':{translation:locale.translation}} });
         window.requestAnimationFrame = callback => setTimeout(() => callback(performance.now()), 16);
@@ -34,7 +35,7 @@ for (const width of [1100, 380]) {
         const noop = async () => {};
         let current, updateStatus, updateDraft, updateSaveState;
         function Fixture() {
-          const [draft,setDraft] = useState({ vrchat_chatbox:{enabled:false}, translation:{mode:'manual',speaker_targets:[]}, audio: { output:{mode:'system', device_id:null, trigger_threshold_dbfs:-45, player_audio:{enabled:true, pagefile_drive:'C:', opus_library_path:'', max_players:0, max_visible_players:4, proximity:{enabled:false, radius_m:10}}},
+          const [draft,setDraft] = useState({ vrchat_chatbox:{enabled:false}, translation:{mode:'manual',speaker_targets:[]}, audio: { output:{mode:'system', device_id:null, trigger_threshold_dbfs:-45, player_audio:{enabled:true, pagefile_drive:'C:', opus_library_path:'', max_players:0, max_visible_players:4, source_mode:'everyone', proximity:{enabled:false, radius_m:10}}},
             microphone:{mode:'disabled',device_id:null,trigger_threshold_dbfs:-45} } });
           current = draft;
           updateDraft = setDraft;
@@ -61,7 +62,7 @@ for (const width of [1100, 380]) {
               focused={false} selected={false} selectionActive={false} selection={null} onClearSelection={()=>{}}
               onSelect={noop} onCopyFeedback={()=>{}} /></div></>;
         }
-        createRoot(document.getElementById('root')).render(<Fixture />);
+        createRoot(document.getElementById('root')).render(<WindowsCapabilities><Fixture /></WindowsCapabilities>);
         const wait = async predicate => {
           for (let i=0;i<150;i++) { if(predicate())return; await new Promise(r=>setTimeout(r,20)); }
           throw Error('Timed out: '+predicate);
@@ -80,8 +81,9 @@ for (const width of [1100, 380]) {
           [...document.querySelectorAll('[role=option]')].find(e=>e.querySelector('.dropdown-option-copy > span')?.textContent===name).click();
           await wait(()=>current.audio.output.mode==='vrchat_players');
           await wait(()=>document.querySelector('.player-audio-settings'));
-          check(document.getElementById('settings-panel-audio').lastElementChild.classList.contains('player-audio-settings'),'network settings stay at the bottom of capture settings');
           const card=document.querySelector('.player-audio-settings');
+          const networkGroup=card.closest('fieldset.platform-capability-section');
+          check(networkGroup===document.getElementById('settings-panel-audio').lastElementChild&&networkGroup.lastElementChild===card,'network settings stay at the bottom of capture settings inside the capability group');
           const controls=['limit','visibleLimit'].map(key=>card.querySelector('input[type="range"][aria-label="'+locale.translation.settings.audio.players[key]+'"]'));
           check(controls.every(Boolean),'both player counts use labeled sliders');
           const [processing,visible]=controls;
@@ -116,7 +118,7 @@ for (const width of [1100, 380]) {
           check(!/MiB|PCM|认证包|候选|解码错误|丢弃/.test(statusText()),'diagnostic counters are hidden');
           check(document.querySelector('#waiting').textContent===locale.translation.live.listening,'network phases no longer replace the empty transcript state');
           check(!document.querySelector('#previews').textContent.trim(),'network phases no longer create a standalone transcript bubble');
-          for (const [phase,label] of [['waiting_game','等待 VRChat 启动'],['waiting_world','等待 VRChat 世界加载完成'],['retrying_key','密钥获取未成功，稍后自动重试']]) {
+          for (const [phase,label] of [['waiting_game','等待 VRChat 启动'],['waiting_world','等待 VRChat 世界加载完成'],['authorizing',locale.translation.settings.audio.players.phase.authorizing],['retrying_key','密钥获取未成功，稍后自动重试']]) {
             updateStatus(previous=>({...previous,phase}));
             await wait(()=>card.querySelector('[role=status]').textContent.includes(label));
             check(!document.querySelector('#waiting').textContent.includes(label),'network phases stay out of the empty transcript state');
@@ -135,11 +137,16 @@ for (const width of [1100, 380]) {
           updateStatus(previous=>({...previous,key_scan:{...previous.key_scan,stage:'cached',total_bytes:0,elapsed_ms:1}}));
           await wait(()=>statusText().includes('已复用本次登录的密钥'));
           check(!statusText().includes('耗时'),'cached keys do not show a meaningless acquisition time');
-          const selectTracks=selected_tracks=>updateDraft(previous=>({...previous,audio:{...previous.audio,
-            output:{...previous.audio.output,player_audio:{...previous.audio.output.player_audio,selected_tracks}}}}));
-          selectTracks([]);
-          await wait(()=>statusText().includes(locale.translation.live.players.noneSelected));
-          selectTracks(null);
+          const sourcePolicy=(source_mode,source_overrides={})=>updateDraft(previous=>({...previous,audio:{...previous.audio,
+            output:{...previous.audio.output,player_audio:{...previous.audio.output.player_audio,source_mode,source_overrides}}}}));
+          sourcePolicy('allowlist');
+          await wait(()=>statusText().includes(locale.translation.settings.audio.players.noVoiceSources));
+          const user='usr_00000000-0000-4000-8000-000000000007';
+          sourcePolicy('allowlist',{[user]:{chatbox_disabled:false,voice_disabled:true}});
+          await wait(()=>statusText().includes(locale.translation.settings.audio.players.noVoiceSources));
+          sourcePolicy('allowlist',{[user]:{chatbox_disabled:true,voice_disabled:false}});
+          await wait(()=>statusText().includes('等待玩家语音'));
+          sourcePolicy('everyone');
           await wait(()=>statusText().includes('等待玩家语音'));
           updateStatus(previous=>({...previous,phase:'stopped'}));
           await wait(()=>statusText()==='已停止');

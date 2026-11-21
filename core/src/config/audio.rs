@@ -6,6 +6,8 @@ pub struct OutputConfig {
     pub mode: String,
     #[serde(default)]
     pub device_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_key: Option<String>,
     #[serde(default = "default_output_trigger_threshold_dbfs")]
     pub trigger_threshold_dbfs: f32,
     #[serde(default)]
@@ -111,6 +113,8 @@ pub struct MicrophoneConfig {
     pub mode: String,
     #[serde(default)]
     pub device_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_key: Option<String>,
     #[serde(default = "default_microphone_trigger_threshold_dbfs")]
     pub trigger_threshold_dbfs: f32,
 }
@@ -172,6 +176,7 @@ impl Default for OutputConfig {
         Self {
             mode: default_output_mode(),
             device_id: None,
+            device_key: None,
             trigger_threshold_dbfs: default_output_trigger_threshold_dbfs(),
             player_audio: PlayerAudioConfig::default(),
         }
@@ -183,6 +188,7 @@ impl Default for MicrophoneConfig {
         Self {
             mode: default_microphone_mode(),
             device_id: None,
+            device_key: None,
             trigger_threshold_dbfs: default_microphone_trigger_threshold_dbfs(),
         }
     }

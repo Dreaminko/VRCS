@@ -37,20 +37,22 @@ if ($Channel -eq 'nightly') {
     if ($LASTEXITCODE -ne 0 -or $actualSha -cne $SourceSha) {
         throw "Nightly checkout does not match source SHA $SourceSha"
     }
+    $cargoVersion = (Select-String -LiteralPath $cargoManifestPath -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
+    $desktopPackageVersion = (Get-Content -LiteralPath $desktopPackagePath -Raw | ConvertFrom-Json).version
+    $coreVersion = (Select-String -LiteralPath $coreManifestPath -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
+
+    foreach ($actual in @($cargoVersion, $desktopPackageVersion, $coreVersion)) {
+        if ($actual -cne $baseVersion) {
+            throw "Release base version mismatch: Tauri contains $baseVersion but a project manifest contains $actual"
+        }
+    }
 } else {
     if (-not $Version) { $Version = $baseVersion }
     if ($Version -cne $baseVersion) {
         throw "Stable release version $Version does not match Tauri version $baseVersion"
     }
-}
-$cargoVersion = (Select-String -LiteralPath $cargoManifestPath -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
-$desktopPackageVersion = (Get-Content -LiteralPath $desktopPackagePath -Raw | ConvertFrom-Json).version
-$coreVersion = (Select-String -LiteralPath $coreManifestPath -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
-
-foreach ($actual in @($cargoVersion, $desktopPackageVersion, $coreVersion)) {
-    if ($actual -cne $baseVersion) {
-        throw "Release base version mismatch: Tauri contains $baseVersion but a project manifest contains $actual"
-    }
+    & node (Join-Path $PSScriptRoot "release-metadata.mjs") check-version $Version $repoRoot
+    if ($LASTEXITCODE -ne 0) { throw "Release version check failed" }
 }
 
 function Assert-NonEmptyFile {
@@ -159,10 +161,13 @@ function Invoke-ReleaseBuild {
     Assert-NonEmptyFile $artifactPath
     Assert-NonEmptyFile $signaturePath
 
-    $hash = Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256
     $checksumPath = "$artifactPath.sha256"
-    "$($hash.Hash.ToLowerInvariant())  $artifactName" | Set-Content -LiteralPath $checksumPath -Encoding ascii
-    Assert-NonEmptyFile $checksumPath
+    if ($Channel -eq 'nightly') {
+        $hash = Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256
+        "$($hash.Hash.ToLowerInvariant())  $artifactName" | Set-Content -LiteralPath $checksumPath -Encoding ascii
+        Assert-NonEmptyFile $checksumPath
+    }
+    # Stable builds let release-metadata.mjs validate the package and write the checksum.
 
     return [PSCustomObject]@{
         ArtifactName = $artifactName

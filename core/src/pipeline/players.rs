@@ -59,6 +59,7 @@ impl TranscriptionPipeline {
         }));
         let device = AudioDevice {
             id: -2,
+            device_key: None,
             name: "VRChat player audio (experimental)".into(),
             is_default: false,
             is_loopback: true,

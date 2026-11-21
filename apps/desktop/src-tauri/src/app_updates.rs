@@ -11,6 +11,7 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 
 const STABLE_ENDPOINT: &str =
     "https://github.com/Dreaminko/VRCS/releases/latest/download/latest.json";
+const RELEASE_PAGE_URL: &str = "https://github.com/Dreaminko/VRCS/releases/latest";
 const NIGHTLY_ENDPOINT: &str =
     "https://raw.githubusercontent.com/Dreaminko/VRCS/nightly-updates/nightly.json";
 const NIGHTLY_PREFERENCE: &str = "receiveNightlyUpdates";
@@ -44,7 +45,11 @@ impl Drop for BusyGuard<'_> {
 pub(crate) struct BuildInfo {
     version: String,
     variant: &'static str,
+    os: &'static str,
+    arch: &'static str,
+    package_channel: &'static str,
     updater_available: bool,
+    can_install: bool,
 }
 
 #[derive(Serialize)]
@@ -54,6 +59,7 @@ pub(crate) struct UpdateMetadata {
     current_version: String,
     notes: Option<String>,
     channel: UpdateChannel,
+    release_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -133,7 +139,82 @@ fn variant() -> &'static str {
 }
 
 fn target() -> String {
-    format!("windows-x86_64-{}", variant())
+    format!(
+        "{}-{}-{}",
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        variant()
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn appimage_writable() -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Some(appimage) = std::env::var_os("APPIMAGE").filter(|path| !path.is_empty()) else {
+        return false;
+    };
+    let writable = |path: &std::path::Path| {
+        std::ffi::CString::new(path.as_os_str().as_bytes())
+            .is_ok_and(|cstr| unsafe { libc::access(cstr.as_ptr(), libc::W_OK) == 0 })
+    };
+    let path = std::path::Path::new(&appimage);
+    path.parent().is_some_and(writable) && writable(path)
+}
+
+fn has_public_key() -> bool {
+    UPDATER_PUBLIC_KEY.is_some_and(|key| !key.trim().is_empty())
+}
+
+pub(crate) fn can_install_updates() -> bool {
+    #[cfg(windows)]
+    let supported = true;
+    #[cfg(target_os = "linux")]
+    let supported = package_channel() == "appimage" && appimage_writable();
+    #[cfg(not(any(windows, target_os = "linux")))]
+    let supported = false;
+    supported && has_public_key()
+}
+
+pub(crate) fn updater_available() -> bool {
+    #[cfg(windows)]
+    let supported = true;
+    #[cfg(target_os = "linux")]
+    let supported = package_channel() != "development";
+    #[cfg(not(any(windows, target_os = "linux")))]
+    let supported = false;
+    supported && has_public_key()
+}
+
+fn nightly_supported() -> bool {
+    cfg!(windows)
+}
+
+fn package_channel() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("APPIMAGE").is_some() {
+            "appimage"
+        } else if std::env::current_exe()
+            .ok()
+            .is_some_and(|path| path == std::path::Path::new("/usr/bin/vrcs-desktop"))
+        {
+            "deb"
+        } else if cfg!(debug_assertions) {
+            "development"
+        } else {
+            "manual"
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        if cfg!(debug_assertions) {
+            "development"
+        } else if cfg!(windows) {
+            "installer"
+        } else {
+            "manual"
+        }
+    }
 }
 
 fn acquire_busy(state: &UpdateState) -> Result<BusyGuard<'_>, UpdateError> {
@@ -145,6 +226,9 @@ fn acquire_busy(state: &UpdateState) -> Result<BusyGuard<'_>, UpdateError> {
 }
 
 pub(crate) fn register_plugin(app: &tauri::App) -> tauri::Result<()> {
+    if !updater_available() {
+        return Ok(());
+    }
     let Some(public_key) = UPDATER_PUBLIC_KEY.filter(|key| !key.trim().is_empty()) else {
         tracing::info!("application updater is disabled because no public key was configured");
         return Ok(());
@@ -162,7 +246,11 @@ pub(crate) fn app_build_info(app: AppHandle) -> BuildInfo {
     BuildInfo {
         version: app.package_info().version.to_string(),
         variant: variant(),
-        updater_available: UPDATER_PUBLIC_KEY.is_some_and(|key| !key.trim().is_empty()),
+        os: std::env::consts::OS,
+        arch: std::env::consts::ARCH,
+        package_channel: package_channel(),
+        updater_available: updater_available(),
+        can_install: can_install_updates(),
     }
 }
 
@@ -201,20 +289,21 @@ pub(crate) async fn check_for_update(
     app: AppHandle,
     state: State<'_, UpdateState>,
 ) -> Result<Option<UpdateMetadata>, UpdateError> {
-    let _busy = acquire_busy(&state)?;
-    *state.pending.lock().map_err(|_| UpdateError::Failed)? = None;
-    if !UPDATER_PUBLIC_KEY.is_some_and(|key| !key.trim().is_empty()) {
+    if !updater_available() {
         return Err(UpdateError::Unavailable);
     }
-    let receive_nightly = app
-        .store("preferences.json")
-        .map_err(|error| {
-            tracing::warn!(%error, "could not read update preferences");
-            UpdateError::Failed
-        })?
-        .get(NIGHTLY_PREFERENCE)
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
+    let _busy = acquire_busy(&state)?;
+    *state.pending.lock().map_err(|_| UpdateError::Failed)? = None;
+    let receive_nightly = nightly_supported()
+        && app
+            .store("preferences.json")
+            .map_err(|error| {
+                tracing::warn!(%error, "could not read update preferences");
+                UpdateError::Failed
+            })?
+            .get(NIGHTLY_PREFERENCE)
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
 
     let stable = check_channel(&app, UpdateChannel::Stable).await;
     let nightly = if receive_nightly {
@@ -245,8 +334,10 @@ pub(crate) async fn check_for_update(
         current_version: update.current_version.clone(),
         notes: update.body.clone(),
         channel,
+        release_url: Some(RELEASE_PAGE_URL.to_owned()),
     };
-    *state.pending.lock().map_err(|_| UpdateError::Failed)? = Some(update);
+    *state.pending.lock().map_err(|_| UpdateError::Failed)? =
+        can_install_updates().then_some(update);
     Ok(Some(metadata))
 }
 
@@ -279,10 +370,14 @@ pub(crate) fn set_receive_nightly_updates(
 
 #[tauri::command]
 pub(crate) async fn download_and_install_update(
+    app: AppHandle,
     state: State<'_, UpdateState>,
     version: String,
     on_event: Channel<DownloadEvent>,
 ) -> Result<(), UpdateError> {
+    if !can_install_updates() {
+        return Err(UpdateError::Unavailable);
+    }
     let _busy = acquire_busy(&state)?;
     let update = state
         .pending
@@ -308,7 +403,19 @@ pub(crate) async fn download_and_install_update(
         .map_err(|error| {
             tracing::error!(%error, "application update installation failed");
             UpdateError::Failed
+        })?;
+    #[cfg(target_os = "linux")]
+    {
+        let restart_app = app.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            crate::prepare_for_exit(&restart_app);
+            restart_app.restart();
         })
+        .await;
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = app;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -334,6 +441,13 @@ mod tests {
     #[test]
     fn updater_target_matches_build_variant() {
         assert_eq!(variant(), "standard");
-        assert_eq!(target(), "windows-x86_64-standard");
+        assert_eq!(
+            target(),
+            format!(
+                "{}-{}-standard",
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            )
+        );
     }
 }

@@ -38,7 +38,7 @@ for(const width of [1100,380]) test(`${width===1100?'player audio consent, UAC c
       const [players,setPlayers]=useState([]);
       changePlayers=setPlayers;
       gate=usePlayerAudioStart();
-      settings=useSettingsRuntime({active:false,coreConfigured:true,health:{...health,value:{player_audio:{players}}},stopMicrophoneTest:async()=>{},setCaptureRunning:setRunning,
+      settings=useSettingsRuntime({active:false,coreConfigured:true,audioSupported:true,health:{...health,value:{network_players:players}},stopMicrophoneTest:async()=>{},setCaptureRunning:setRunning,
         playerAudioStart:gate,clearErrorFrom:noop,reportError:error=>testing.errors.push(String(error))});
       return <><button id="start" onClick={()=>void control.setRunning(true).catch(error=>testing.errors.push(String(error)))}>开始采集</button>
         {gate.notice&&<PlayerAudioStartDialog openedAt={gate.notice.openedAt} onDecision={gate.decide}/>}</>;
@@ -57,12 +57,12 @@ for(const width of [1100,380]) test(`${width===1100?'player audio consent, UAC c
       if(${fullScenario}){
       const user='usr_00000000-0000-4000-8000-000000000007';
       await settings.update(current=>({...current,audio:{...current.audio,output:{...current.audio.output,player_audio:{
-        pagefile_drive:'C:',opus_library_path:'',max_players:0,selected_tracks:[user],selected_user_names:{[user]:'Old name'},
+        pagefile_drive:'C:',opus_library_path:'',max_players:0,source_overrides:{[user]:{chatbox_disabled:true,voice_disabled:false}},selected_user_names:{[user]:'Old name'},
       }}}}));
       const known={speaker:{id:'vrc:new-world:42',index:42,user_id:user,display_name:'Renamed player'},active:false,selected:true};
       changePlayers([known]);
       await wait(()=>testing.config.audio.output.player_audio.selected_user_names[user]==='Renamed player');
-      check(settings.value.audio.output.player_audio.selected_tracks[0]===user,'rename refresh preserves the selected account');
+      check(settings.value.audio.output.player_audio.source_overrides[user].voice_disabled===false,'rename refresh preserves the saved source rule');
       const writeCount=testing.events.length;
       changePlayers([structuredClone(known)]);await sleep(100);
       check(testing.events.length===writeCount,'unchanged names do not write settings again');

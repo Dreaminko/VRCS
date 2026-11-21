@@ -22,20 +22,21 @@ export function audioSelectionErrors(
   const output = settings.audio.output;
   if (
     output.mode === "system"
-    && output.device_id !== null
-    && !devices.some((device) => device.is_loopback && device.id === output.device_id)
+    && (output.device_key
+      ? !devices.some((device) => device.is_loopback && device.device_key === output.device_key)
+      : output.device_id !== null
+        && !devices.some((device) => device.is_loopback && !device.device_key && device.id === output.device_id))
   ) {
     errors.push(translate("validation.audio.outputUnavailable"));
   }
   const microphone = settings.audio.microphone;
   if (
-    microphone.mode === "device"
-    && (
-      microphone.device_id === null
-      || !devices.some(
-        (device) => !device.is_loopback && device.id === microphone.device_id,
-      )
-    )
+    (microphone.mode === "device" || microphone.mode === "default")
+    && (microphone.device_key
+      ? !devices.some((device) => !device.is_loopback && device.device_key === microphone.device_key)
+      : microphone.device_id !== null
+        ? !devices.some((device) => !device.is_loopback && !device.device_key && device.id === microphone.device_id)
+        : microphone.mode === "device")
   ) {
     errors.push(translate("validation.audio.microphoneUnavailable"));
   }

@@ -53,6 +53,7 @@ export function OnboardingEntry({
             health={liveHealth ?? runtime.health}
             devices={settings.devices.items}
             devicesReady={settings.devices.ready}
+            devicesError={settings.devices.error}
             onRefreshDevices={settings.devices.refresh}
             onRefreshSettings={settings.refresh}
             onModelsChanged={settings.asr.refresh}

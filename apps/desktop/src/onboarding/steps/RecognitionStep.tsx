@@ -14,6 +14,7 @@ import type {
   ProviderServiceDefinition,
 } from "../../providers/types";
 import type { RecognitionMode } from "../onboarding-types";
+import { CapabilityNotice, CapabilitySection, usePlatformCapabilities } from "../../core-client/capabilities";
 
 type AsrModelsController = ReturnType<typeof useAsrModels>;
 type ApiProfilesController = ReturnType<typeof useApiProfiles>;
@@ -70,6 +71,7 @@ export function RecognitionStep({
   onTestAndApplyCloud: () => void;
 }) {
   const { t } = useTranslation();
+  const { core } = usePlatformCapabilities();
   const selectionId = selectedProfile && selectedService
     ? `${selectedProfile.id}:${selectedService.id}`
     : "";
@@ -82,14 +84,15 @@ export function RecognitionStep({
         <button className={`onboarding-choice ${recognitionMode === "cloud" ? "selected" : ""}`} type="button" aria-pressed={recognitionMode === "cloud"} disabled={operationBusy} onClick={() => onSetRecognitionMode("cloud")}>
           <Cloud size={23} /><span><strong>{t("onboarding.recognition.cloud")}</strong><small>{t("onboarding.recognition.cloudDescription")}</small></span><i>{recognitionMode === "cloud" && <Check size={14} />}</i>
         </button>
-        <button className={`onboarding-choice ${recognitionMode === "local" ? "selected" : ""}`} type="button" aria-pressed={recognitionMode === "local"} disabled={operationBusy} onClick={() => onSetRecognitionMode("local")}>
+        <button className={`onboarding-choice ${recognitionMode === "local" ? "selected" : ""}`} type="button" aria-pressed={recognitionMode === "local"} disabled={operationBusy || !core?.inference.qwen_cpu.supported} title={!core?.inference.qwen_cpu.supported ? t("platform.qwen_unavailable") : undefined} onClick={() => onSetRecognitionMode("local")}>
           <HardDrive size={23} /><span><strong>{t("onboarding.recognition.local")}</strong><small>{t("onboarding.recognition.localDescription")}</small></span><i>{recognitionMode === "local" && <Check size={14} />}</i>
         </button>
       </div>
+      {!core?.inference.qwen_cpu.supported && <CapabilityNotice capability={core?.inference.qwen_cpu} />}
 
       {recognitionMode === "cloud" ? (
         <div className="onboarding-config-panel">
-          <div className="onboarding-panel-heading"><KeyRound size={18} /><div><strong>{t("onboarding.recognition.cloudSetup")}</strong><small>{t("settings.apiManagement.securityNotice")}</small></div></div>
+          <div className="onboarding-panel-heading"><KeyRound size={18} /><div><strong>{t("onboarding.recognition.cloudSetup")}</strong><small>{t(core?.credentials.supported ? "settings.apiManagement.securityNotice" : "platform.credentials_unavailable")}</small></div></div>
           {recognitionProfiles.length > 0 && !apiEditor && (
             <div className="onboarding-profile-select">
               <Select
@@ -124,7 +127,7 @@ export function RecognitionStep({
           )}
           {!apiEditor && recognitionProfiles.length === 0 && (
             <button className="onboarding-empty-action" type="button" disabled={operationBusy || apiProfiles.loading || apiProfiles.providerDefinitions.length === 0} onClick={onAddApiProfile}>
-              <KeyRound size={19} /><span><strong>{t("onboarding.recognition.addApi")}</strong><small>{t("onboarding.recognition.addApiDescription")}</small></span><ChevronRight size={18} />
+              <KeyRound size={19} /><span><strong>{t("onboarding.recognition.addApi")}</strong><small>{t(core?.credentials.supported ? "onboarding.recognition.addApiDescription" : "platform.credentials_unavailable")}</small></span><ChevronRight size={18} />
             </button>
           )}
           {apiEditor && (
@@ -157,6 +160,7 @@ export function RecognitionStep({
         </div>
       ) : (
         <div className="onboarding-local-panel">
+          <CapabilitySection capability={core?.inference.qwen_cpu}>
           <ManagedQwenSettings
             draft={draftController.draft}
             models={asr.qwenModels}
@@ -187,6 +191,7 @@ export function RecognitionStep({
             onChooseDirectory={asr.chooseModelDirectory}
           />
           {!localReady && <p className="onboarding-feedback">{t("onboarding.recognition.downloadRequired")}</p>}
+          </CapabilitySection>
         </div>
       )}
     </div>

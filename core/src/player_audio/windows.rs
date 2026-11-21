@@ -1,21 +1,40 @@
 use std::collections::HashSet;
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::net::Ipv4Addr;
+
+use super::helper::packet;
 use windows::Win32::Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_INSUFFICIENT_BUFFER};
 use windows::Win32::NetworkManagement::IpHelper::*;
 use windows::Win32::Networking::WinSock::*;
 
 pub(super) struct Network {
     sockets: Vec<SOCKET>,
+    pid: u32,
+    ports: HashSet<u16>,
+    buffer: Vec<u8>,
 }
 impl Network {
-    pub(super) fn open() -> Result<Self, String> {
+    pub(super) fn open(
+        owner: crate::vrchat_process::ProcessIdentity,
+        _status: super::SharedStatus,
+        _stop: &std::sync::atomic::AtomicBool,
+    ) -> Result<Self, String> {
         unsafe {
             let mut data = WSADATA::default();
             if WSAStartup(0x0202, &mut data) != 0 {
                 return Err("Winsock startup failed".into());
             }
+            let ports = match game_ports(owner.pid) {
+                Ok(ports) => ports,
+                Err(error) => {
+                    WSACleanup();
+                    return Err(error);
+                }
+            };
             let mut network = Self {
                 sockets: Vec::new(),
+                pid: owner.pid,
+                ports,
+                buffer: vec![0u8; 65_535],
             };
             let addresses = interfaces()?;
             for address in addresses {
@@ -67,15 +86,19 @@ impl Network {
             Ok(network)
         }
     }
+    pub(super) fn refresh(&mut self) -> Result<(), String> {
+        self.ports = game_ports(self.pid)?;
+        Ok(())
+    }
+
     pub(super) fn receive(
-        &self,
-        buffer: &mut [u8],
-        mut callback: impl FnMut(&[u8]),
+        &mut self,
+        mut callback: impl FnMut(super::connection::Datagram),
     ) -> Result<(), String> {
         for socket in &self.sockets {
             // Bound work per interface so an active adapter cannot starve cancellation.
             for _ in 0..64 {
-                let count = unsafe { recv(*socket, buffer, SEND_RECV_FLAGS(0)) };
+                let count = unsafe { recv(*socket, &mut self.buffer, SEND_RECV_FLAGS(0)) };
                 if count == SOCKET_ERROR {
                     let error = unsafe { WSAGetLastError() };
                     if error == WSAEWOULDBLOCK {
@@ -86,12 +109,22 @@ impl Network {
                 if count <= 0 {
                     break;
                 }
-                callback(&buffer[..count as usize]);
+                if let Some((connection, incoming, packet)) =
+                    datagram(&self.buffer[..count as usize], &self.ports)
+                {
+                    callback(super::connection::Datagram {
+                        connection,
+                        incoming,
+                        payload: packet.to_vec(),
+                        at: std::time::Instant::now(),
+                    });
+                }
             }
         }
         Ok(())
     }
 }
+
 impl Drop for Network {
     fn drop(&mut self) {
         unsafe {
@@ -197,61 +230,34 @@ pub(super) fn game_ports(pid: u32) -> Result<HashSet<u16>, String> {
     Err("Game UDP endpoints changed repeatedly".into())
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub(super) struct Connection {
-    pub local: SocketAddrV4,
-    pub remote: SocketAddrV4,
-    pub challenge: [u8; 4],
-}
+pub(super) use super::connection::Connection;
 
 pub(super) fn datagram<'a>(
     bytes: &'a [u8],
     ports: &HashSet<u16>,
 ) -> Option<(Connection, bool, &'a [u8])> {
-    if bytes.len() < 28 || bytes[0] >> 4 != 4 || bytes[9] != 17 {
-        return None;
-    }
-    let header = usize::from(bytes[0] & 15) * 4;
-    if header < 20 || bytes.len() < header + 8 {
-        return None;
-    }
-    let total = u16::from_be_bytes([bytes[2], bytes[3]]) as usize;
-    let fragments = u16::from_be_bytes([bytes[6], bytes[7]]);
-    if total < header + 8 || total > bytes.len() || fragments & 0x3fff != 0 {
-        return None;
-    }
-    let udp = &bytes[header..total];
-    let size = u16::from_be_bytes([udp[4], udp[5]]) as usize;
-    if size < 8 || size > udp.len() {
-        return None;
-    }
-    let src = SocketAddrV4::new(
-        Ipv4Addr::new(bytes[12], bytes[13], bytes[14], bytes[15]),
-        u16::from_be_bytes([udp[0], udp[1]]),
-    );
-    let dst = SocketAddrV4::new(
-        Ipv4Addr::new(bytes[16], bytes[17], bytes[18], bytes[19]),
-        u16::from_be_bytes([udp[2], udp[3]]),
-    );
-    let (local, remote, incoming) = if src.port() == 27002 && ports.contains(&dst.port()) {
-        (dst, src, true)
-    } else if dst.port() == 27002 && ports.contains(&src.port()) {
-        (src, dst, false)
-    } else {
-        return None;
-    };
-    let packet = &udp[8..size];
-    if !super::crypto::encrypted(packet) {
+    let datagram = packet::ipv4_udp(bytes)?;
+    let (source, destination) = (datagram.source, datagram.destination);
+    let (local, remote, incoming) =
+        if source.port() == packet::PHOTON_PORT && ports.contains(&destination.port()) {
+            (destination, source, true)
+        } else if destination.port() == packet::PHOTON_PORT && ports.contains(&source.port()) {
+            (source, destination, false)
+        } else {
+            return None;
+        };
+    let payload = datagram.payload;
+    if !packet::encrypted(payload) {
         return None;
     }
     Some((
         Connection {
             local,
             remote,
-            challenge: packet[3..7].try_into().ok()?,
+            challenge: payload[3..7].try_into().ok()?,
         },
         incoming,
-        packet,
+        payload,
     ))
 }
 

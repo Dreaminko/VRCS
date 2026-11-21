@@ -20,10 +20,7 @@ mod qwen_models_tests;
 #[cfg(test)]
 mod qwen_runtime_download_tests;
 
-pub(crate) use crate::credentials::read_stored_credential;
-pub use crate::credentials::{
-    credential_status, delete_credential, read_credential, write_credential,
-};
+pub use crate::credentials::read_credential;
 pub use manager::ModelManager;
 pub(crate) use migration::paths_equivalent;
 pub(crate) use question::{
@@ -43,6 +40,7 @@ pub use session::{
     spawn_cloud_recognition_session, test_cloud_service, validate_cloud_connection,
     CloudRecognitionSession,
 };
+#[cfg(any(windows, target_os = "linux"))]
 pub(crate) use streaming::connection_rate_controlled;
 pub use streaming::{
     streaming_test_backend, test_streaming_connection, CloudEvent, LiveTranslationResult,
@@ -58,7 +56,7 @@ pub(crate) fn share_audio(samples: Vec<f32>) -> SharedAudio {
 pub(crate) fn llama_server_executable_path(
     runtime_directory: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
-    QwenRuntime::new(runtime_directory.to_path_buf()).executable_path()
+    qwen_runtime::executable_path_in(&qwen_runtime_download::runtime_directory(runtime_directory))
 }
 
 #[cfg(test)]

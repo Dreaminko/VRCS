@@ -504,6 +504,7 @@ mod tests {
             room_token: token,
             world_session_token: token,
             world_name: world.map(str::to_owned),
+            error: None,
         }
     }
 

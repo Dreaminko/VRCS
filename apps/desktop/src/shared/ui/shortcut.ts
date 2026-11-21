@@ -19,7 +19,7 @@ export function isShortcutModifier(key: string): boolean {
   return ["Control", "Alt", "Shift", "Meta", "AltGraph"].includes(key);
 }
 
-// Keep this format aligned with desktop_capture::shortcut::parse_shortcut.
+// Keep this format aligned with desktop_capture::shortcut::Shortcut::parse.
 export function captureShortcut(event: ShortcutKeyEvent): string | null {
   if (event.repeat || event.isComposing || event.metaKey || event.getModifierState?.("AltGraph")
     || ["Dead", "Process", "Unidentified"].includes(event.key)) return null;

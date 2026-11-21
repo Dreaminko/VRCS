@@ -100,6 +100,7 @@ impl DomainEventHub {
         });
     }
 
+    #[cfg(any(windows, target_os = "linux", test))]
     pub fn speaker_updated(&self, speaker: &crate::models::SpeakerIdentity) {
         self.publish_ui_and_external(|| {
             DomainEvent::new(

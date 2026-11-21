@@ -271,7 +271,8 @@ impl TranslationService {
             ));
         }
         let api_key = if profile.requires_api_key() {
-            credentials::read_credential(&profile.id, &profile.provider)
+            credentials::read_credential_async(&profile.id, &profile.provider)
+                .await
                 .map_err(|detail| error("translation.credential_failed", detail, false))?
                 .ok_or_else(|| {
                     error(
@@ -385,6 +386,13 @@ impl TranslationService {
         ),
         TranslationError,
     > {
+        crate::platform_capabilities::require_local_translation().map_err(|code| {
+            error(
+                code,
+                "Local PLaMo translation is not implemented for this platform",
+                false,
+            )
+        })?;
         let local = self.local.as_ref().cloned().ok_or_else(|| {
             error(
                 "translation.local_runtime_unavailable",

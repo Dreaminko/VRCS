@@ -3,6 +3,8 @@
 const COMMANDS: &[&str] = &[
     "core_connection",
     "core_startup",
+    "platform_capabilities",
+    "desktop_capture_register_shortcuts",
     "retry_core",
     "player_audio_pending_action",
     "player_audio_consume_action",
@@ -57,6 +59,15 @@ const COMMANDS: &[&str] = &[
 ];
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(linux_vr)");
+    // Linux x86_64 enables VR subtitles, wrist overlays, dashboard, and
+    // controller input by default. VR scene capture (VR OCR/VQA) stays disabled
+    // on Linux, and `--features vr-preview` builds preview/prototype binaries.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux")
+        && std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("x86_64")
+    {
+        println!("cargo:rustc-cfg=linux_vr");
+    }
     println!("cargo:rerun-if-env-changed=TAURI_UPDATER_PUBLIC_KEY");
     tauri_build::try_build(
         tauri_build::Attributes::new()

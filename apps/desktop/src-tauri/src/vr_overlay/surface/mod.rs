@@ -1,588 +1,77 @@
 //! React owns pixels and layout; the VR worker owns input and texture submission.
 mod bridge;
+#[cfg(windows)]
 mod native_host;
+#[cfg(windows)]
 pub(crate) use native_host::NativeHostManager;
+#[cfg(linux_vr)]
+pub(crate) mod linux_host;
+#[cfg(linux_vr)]
+pub(crate) mod linux_webkit;
+#[cfg(linux_vr)]
+pub(crate) use linux_host::NativeHostManager;
+mod endpoint;
+mod error;
 mod metrics;
-mod recovery;
+use super::surface_recovery as recovery;
+#[cfg(windows)]
 pub mod windows_wgc;
 
-use bridge::{HostId, SurfaceEvent};
-use serde::{Deserialize, Serialize};
+#[cfg(linux_vr)]
+pub(crate) use linux_webkit as frame;
+#[cfg(windows)]
+pub(crate) use windows_wgc as frame;
+
+use crate::vr_overlay::frame_receipt::serial_at_least;
+use crate::vr_overlay::surface_protocol::{
+    reader_identity, DocumentSession, HostId, ReaderIdentity, SurfaceActivity, SurfaceEvent,
+    SurfaceId, SurfaceKey, SurfaceLayout, SurfacePointer, SurfaceScroll, SurfaceState, SurfaceView,
+};
+use std::sync::Arc;
 use std::{
     cell::RefCell,
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::Mutex,
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager};
 
-use super::backend::{OpenVrBackend, OverlayKind};
+use super::backend::{Backend, OverlayKind};
+#[cfg(all(test, windows))]
 use super::control_protocol::ControlSnapshot;
-use super::dashboard::{DashboardCommand, DashboardUi, DashboardViewModel};
+#[cfg(all(test, windows))]
 use super::ocr_plane::OcrScene;
-use super::ocr_progress::{ProgressView, Stage};
-use super::ocr_wrist::{Action, Button, View};
+#[cfg(windows)]
+use super::ocr_progress::Stage;
+#[cfg(all(test, windows))]
 use super::placement::Mode;
+#[cfg(all(windows, any(test, all(debug_assertions, feature = "vr-preview"))))]
 use super::presentation::WristMessage;
+#[cfg(all(test, windows))]
 use super::wrist_labels::WristLabels;
+#[cfg(all(test, windows))]
+use crate::vr_overlay::surface_protocol::Region;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SurfaceId {
-    Menu,
-    Dialogue,
-    Reader,
-    Headset,
-    OcrProgress,
-    Dashboard,
-    DashboardThumbnail,
-    OcrSelection,
-    OcrResult,
-    PlayerAudio,
-}
-
-impl SurfaceId {
-    const ALL: [Self; 10] = [
-        Self::Menu,
-        Self::Dialogue,
-        Self::Reader,
-        Self::Headset,
-        Self::OcrProgress,
-        Self::Dashboard,
-        Self::DashboardThumbnail,
-        Self::OcrSelection,
-        Self::OcrResult,
-        Self::PlayerAudio,
-    ];
-    fn index(self) -> usize {
-        self as usize
-    }
-    fn name(self) -> &'static str {
-        match self {
-            Self::Menu => "menu",
-            Self::Dialogue => "dialogue",
-            Self::Reader => "reader",
-            Self::Headset => "headset",
-            Self::OcrProgress => "ocr_progress",
-            Self::Dashboard => "dashboard",
-            Self::DashboardThumbnail => "dashboard_thumbnail",
-            Self::OcrSelection => "ocr_selection",
-            Self::OcrResult => "ocr_result",
-            Self::PlayerAudio => "player_audio",
-        }
-    }
-    pub fn size(self) -> (u32, u32) {
-        match self {
-            Self::Menu => (1280, 1280),
-            Self::Dialogue => (768, 768),
-            Self::Reader => (1024, 1024),
-            Self::PlayerAudio => (1024, 1024),
-            // A centered card can grow to four languages with four lines each.
-            Self::Headset => (1024, 1360),
-            Self::OcrProgress => (768, 224),
-            Self::Dashboard => (1440, 900),
-            Self::DashboardThumbnail | Self::OcrSelection => (256, 256),
-            Self::OcrResult => (2048, 2048),
-        }
-    }
-    fn region_count(self) -> usize {
-        match self {
-            Self::Menu => 64,
-            Self::Dialogue => 4,
-            Self::Reader => 8,
-            Self::PlayerAudio => 4,
-            Self::Dashboard => 192,
-            Self::Headset
-            | Self::OcrProgress
-            | Self::DashboardThumbnail
-            | Self::OcrSelection
-            | Self::OcrResult => 0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SurfaceKey {
-    pub generation: u32,
-    pub revision: u32,
-}
-
-#[derive(Clone, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum SurfaceView {
-    PlayerAudio {
-        dark: bool,
-        notice: super::player_audio_ui::Prompt,
-    },
-    Menu {
-        controls: ControlSnapshot,
-        players: super::player_display::View,
-        ui: super::wrist_menu::Ui,
-        hold_progress: Option<f32>,
-    },
-    Dialogue {
-        visibility: super::dashboard::CaptionVisibility,
-        max_visible_players: Option<usize>,
-        max_entries: usize,
-        controls: ControlSnapshot,
-        messages: Vec<WristMessage>,
-        notice: Option<String>,
-        labels: super::caption_status::CaptionLabels,
-        mode: Mode,
-        follow_view: bool,
-        busy: bool,
-        error: Option<String>,
-        font_size: u32,
-        opacity: f32,
-    },
-    Reader {
-        dark: bool,
-        labels: WristLabels,
-        reader: View,
-        font_size: u32,
-        opacity: f32,
-    },
-    Headset {
-        visibility: super::dashboard::CaptionVisibility,
-        max_visible_players: Option<usize>,
-        dark: bool,
-        messages: Vec<WristMessage>,
-        notice: Option<String>,
-        labels: super::caption_status::CaptionLabels,
-        lines_per_language: u32,
-        font_size: u32,
-        opacity: f32,
-    },
-    OcrProgress {
-        dark: bool,
-        progress: Option<ProgressView>,
-    },
-    Dashboard {
-        dark: bool,
-        dashboard: Arc<DashboardViewModel>,
-        ui: DashboardUi,
-    },
-    #[cfg(all(debug_assertions, feature = "vr-preview"))]
-    DashboardThumbnail {
-        dark: bool,
-    },
-    OcrSelection {
-        dark: bool,
-    },
-    OcrResult {
-        dark: bool,
-        scene: Arc<OcrScene>,
-    },
-}
-
-impl SurfaceView {
-    fn same_scroll_view(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Reader { .. }, Self::Reader { .. }) => {
-                reader_identity(self) == reader_identity(other)
-            }
-            (
-                Self::Dialogue {
-                    controls: a,
-                    mode: am,
-                    visibility: av,
-                    max_entries: ae,
-                    max_visible_players: ap,
-                    ..
-                },
-                Self::Dialogue {
-                    controls: b,
-                    mode: bm,
-                    visibility: bv,
-                    max_entries: be,
-                    max_visible_players: bp,
-                    ..
-                },
-            ) => a.owner_epoch == b.owner_epoch && am == bm && av == bv && ae == be && ap == bp,
-            (
-                Self::Dashboard {
-                    dashboard: a,
-                    ui: au,
-                    ..
-                },
-                Self::Dashboard {
-                    dashboard: b,
-                    ui: bu,
-                    ..
-                },
-            ) => {
-                au == bu
-                    && a.player_audio_notice.is_some()
-                    && a.player_audio_notice.as_ref().map(|n| n.request_id)
-                        == b.player_audio_notice.as_ref().map(|n| n.request_id)
-            }
-            _ => false,
-        }
-    }
-
-    pub(super) fn same_layout(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::OcrResult { dark: a, scene: av }, Self::OcrResult { dark: b, scene: bv }) => {
-                a == b && (Arc::ptr_eq(av, bv) || av == bv)
-            }
-            (
-                Self::Dashboard {
-                    dark: a,
-                    dashboard: av,
-                    ui: au,
-                },
-                Self::Dashboard {
-                    dark: b,
-                    dashboard: bv,
-                    ui: bu,
-                },
-            ) => a == b && au == bu && (Arc::ptr_eq(av, bv) || av == bv),
-            (
-                Self::Menu {
-                    controls: a,
-                    players: ap,
-                    ui: au,
-                    ..
-                },
-                Self::Menu {
-                    controls: b,
-                    players: bp,
-                    ui: bu,
-                    ..
-                },
-            ) => {
-                a == b
-                    && au == bu
-                    && if au.page == super::wrist_menu::Page::Home {
-                        ap.labels.get("title") == bp.labels.get("title")
-                    } else {
-                        ap == bp
-                    }
-            }
-            _ => self == other,
-        }
-    }
-}
-
-#[derive(Clone, Serialize)]
-pub struct SurfaceState {
-    pub key: SurfaceKey,
-    pub scroll_key: SurfaceKey,
-    pub view: SurfaceView,
-    pub hovered: Option<u8>,
-    pub pressed: Option<u8>,
-    pub pointer: Option<[f32; 2]>,
-    pub activity: SurfaceActivity,
-    pub restore_scroll: Option<f64>,
-}
-
-#[derive(Clone, Copy, Serialize)]
-pub struct SurfaceActivity {
-    pub active: bool,
-    pub request: u32,
-}
-
-// Matches the fields that reset the reader viewport in VrSurface.tsx.
-#[derive(Clone, PartialEq)]
-struct ReaderIdentity(
-    super::ocr_wrist::ViewMode,
-    usize,
-    String,
-    String,
-    bool,
-    usize,
-);
-
-fn reader_identity(view: &SurfaceView) -> Option<ReaderIdentity> {
-    if let SurfaceView::Reader { reader, .. } = view {
-        Some(ReaderIdentity(
-            reader.mode,
-            reader.block_index,
-            reader.source.clone(),
-            reader.translation_label.clone(),
-            reader.source_only,
-            reader.page,
-        ))
-    } else {
-        None
-    }
-}
-
-fn serial_at_least(value: u32, previous: u32) -> bool {
-    value == previous || value.wrapping_sub(previous) < 0x8000_0000
-}
-
-#[derive(Clone, Serialize)]
-struct SurfacePointer {
-    key: SurfaceKey,
-    point: Option<[f32; 2]>,
-}
-
-#[derive(Clone, Serialize)]
-struct SurfaceScroll {
-    key: SurfaceKey,
-    delta: f32,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Region {
-    pub id: u8,
-    pub bounds: [f32; 4],
-    #[serde(default)]
-    pub circle: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dashboard: Option<DashboardCommand>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub menu: Option<super::wrist_menu::Command>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Panel {
-    pub bounds: [f32; 4],
-    pub radius: [f32; 2],
-}
-
-impl Panel {
-    fn contains(&self, [x, y]: [f32; 2]) -> bool {
-        let [l, t, r, b] = self.bounds;
-        if !(l..r).contains(&x) || !(t..b).contains(&y) {
-            return false;
-        }
-        let rx = self.radius[0].min((r - l) / 2.);
-        let ry = self.radius[1].min((b - t) / 2.);
-        if rx == 0. || ry == 0. {
-            return true;
-        }
-        let x = x - l;
-        let y = y - t;
-        ((x - x.clamp(rx, r - l - rx)) / rx).powi(2) + ((y - y.clamp(ry, b - t - ry)) / ry).powi(2)
-            <= 1.
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct SurfaceLayout {
-    pub key: SurfaceKey,
-    pub regions: Vec<Region>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub menu_bounds: Option<[f32; 4]>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub panels: Vec<Panel>,
-    pub page_count: usize,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub unplaced: Vec<usize>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub capture_bounds: Option<[u32; 4]>,
-}
-
-impl SurfaceLayout {
-    pub fn validate(&self, surface: SurfaceId) -> Result<(), String> {
-        if let Some([l, t, r, b]) = self.capture_bounds {
-            let (width, height) = surface.size();
-            if surface != SurfaceId::OcrResult || l >= r || t >= b || r > width || b > height {
-                return Err("Invalid OCR capture bounds".into());
-            }
-        }
-        if self.regions.len() > surface.region_count()
-            || !(1..=10000).contains(&self.page_count)
-            || surface.region_count() == 0 && self.page_count != 1
-        {
-            return Err("Invalid surface layout size".into());
-        }
-        if let Some([l, t, r, b]) = self.menu_bounds {
-            let (width, height) = SurfaceId::Menu.size();
-            if surface != SurfaceId::Menu
-                || ![l, t, r, b]
-                    .iter()
-                    .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
-                || l >= r
-                || t >= b
-                || (r - l) * (width as f32) < (b - t) * height as f32
-            {
-                return Err("Invalid menu background bounds".into());
-            }
-        }
-        let panel_limit = match surface {
-            SurfaceId::Dialogue => 2,
-            SurfaceId::Menu | SurfaceId::Reader | SurfaceId::PlayerAudio => 1,
-            _ => 0,
-        };
-        if self.panels.len() > panel_limit {
-            return Err("Invalid surface panel count".into());
-        }
-        for panel in &self.panels {
-            let [l, t, r, b] = panel.bounds;
-            let [rx, ry] = panel.radius;
-            if ![l, t, r, b]
-                .iter()
-                .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
-                || l >= r
-                || t >= b
-                || !rx.is_finite()
-                || !ry.is_finite()
-                || rx < 0.
-                || ry < 0.
-                || rx > (r - l) / 2. + f32::EPSILON
-                || ry > (b - t) / 2. + f32::EPSILON
-            {
-                return Err("Invalid surface panel contour".into());
-            }
-        }
-        if self.unplaced.len() > 256
-            || surface != SurfaceId::OcrResult && !self.unplaced.is_empty()
-            || self
-                .unplaced
-                .iter()
-                .enumerate()
-                .any(|(i, id)| self.unplaced[..i].contains(id))
-        {
-            return Err("Invalid OCR overflow layout".into());
-        }
-        for (i, region) in self.regions.iter().enumerate() {
-            let [l, t, r, b] = region.bounds;
-            if usize::from(region.id) >= surface.region_count()
-                || ![l, t, r, b]
-                    .iter()
-                    .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
-                || l >= r
-                || t >= b
-                || (surface == SurfaceId::Dashboard) != region.dashboard.is_some()
-                || (surface == SurfaceId::Menu) != region.menu.is_some()
-            {
-                return Err("Invalid surface hit region".into());
-            }
-            if let Some(command) = &region.menu {
-                use super::wrist_menu::Command;
-                let valid = match command {
-                    Command::Control(action) => region.id == action.region_id(),
-                    Command::Slider(slider) => slider.valid() && region.id >= 4,
-                    _ => region.id >= 4,
-                };
-                if !valid {
-                    return Err("Invalid menu command region".into());
-                }
-            }
-            if region.circle
-                && ((r - l) * surface.size().0 as f32 - (b - t) * surface.size().1 as f32).abs()
-                    > 2.0
-            {
-                return Err("Invalid circular hit region".into());
-            }
-            if self.regions[..i].iter().any(|other| {
-                let [ol, ot, or, ob] = other.bounds;
-                other.id == region.id || l < or && r > ol && t < ob && b > ot
-            }) {
-                return Err("Duplicate or overlapping surface hit region".into());
-            }
-        }
-        Ok(())
-    }
-
-    pub fn menu_contains(&self, [x, y]: [f32; 2]) -> bool {
-        // The capsule background determines cursor visibility; buttons determine clicks.
-        self.menu_bounds.is_some_and(|[l, t, r, b]| {
-            if !(l..r).contains(&x) || !(t..b).contains(&y) {
-                return false;
-            }
-            let (width, height) = SurfaceId::Menu.size();
-            let radius = (b - t) * height as f32 / 2.;
-            let span = (r - l) * width as f32;
-            let x = (x - l) * width as f32;
-            let y = (y - t) * height as f32 - radius;
-            (x - x.clamp(radius, span - radius)).powi(2) + y.powi(2) <= radius.powi(2)
-        })
-    }
-
-    pub fn pointer_contains(&self, point: [f32; 2]) -> bool {
-        self.menu_contains(point) || self.panels.iter().any(|panel| panel.contains(point))
-    }
-
-    pub fn hit(&self, [x, y]: [f32; 2]) -> Option<u8> {
-        self.regions
-            .iter()
-            .find(|region| {
-                let [l, t, r, b] = region.bounds;
-                x >= l
-                    && x < r
-                    && y >= t
-                    && y < b
-                    && (!region.circle
-                        || ((x - (l + r) / 2.) / ((r - l) / 2.)).powi(2)
-                            + ((y - (t + b) / 2.) / ((b - t) / 2.)).powi(2)
-                            <= 1.)
-            })
-            .map(|region| region.id)
-    }
-
-    pub fn menu_command(&self, id: u8) -> Option<super::wrist_menu::Command> {
-        self.regions
-            .iter()
-            .find(|region| region.id == id)?
-            .menu
-            .clone()
-    }
-
-    pub fn menu_action(&self, id: u8, point: [f32; 2]) -> Option<super::wrist_menu::Command> {
-        let region = self.regions.iter().find(|region| region.id == id)?;
-        match region.menu.as_ref()? {
-            super::wrist_menu::Command::Slider(slider) => {
-                let [left, _, right, _] = region.bounds;
-                let width = right - left;
-                if width <= 0.0 {
-                    return None;
-                }
-                slider.command((point[0] - left) / width)
-            }
-            command => Some(command.clone()),
-        }
-    }
-
-    pub fn reader_buttons(&self) -> Vec<Button> {
-        self.regions
-            .iter()
-            .filter_map(|region| {
-                Some(Button {
-                    action: reader_action(region.id)?,
-                    bounds: region.bounds.map(|v| v * SurfaceId::Reader.size().0 as f32),
-                })
-            })
-            .collect()
-    }
-}
-
-pub fn reader_action(id: u8) -> Option<Action> {
-    Some(match id {
-        0 => Action::PreviousBlock,
-        1 => Action::NextBlock,
-        2 => Action::PreviousPage,
-        3 => Action::NextPage,
-        4 => Action::NextLanguage,
-        5 => Action::ToggleQuestion,
-        6 => Action::TogglePin,
-        7 => Action::Close,
-        _ => return None,
-    })
-}
-
-pub fn reader_hover(action: Option<Action>) -> Option<u8> {
-    (0..8).find(|&id| reader_action(id) == action)
+#[cfg(any(windows, linux_vr))]
+fn menu_progress_changed(a: &SurfaceView, b: &SurfaceView) -> bool {
+    matches!(
+        (a, b),
+        (SurfaceView::Menu { hold_progress: a, .. }, SurfaceView::Menu { hold_progress: b, .. })
+            if a != b
+    )
 }
 
 struct Entry {
     generation: u32,
     host_epoch: u32,
     navigation_id: u64,
-    document: Option<bridge::DocumentSession>,
+    document: Option<DocumentSession>,
     state: Option<SurfaceState>,
     layout: Option<Arc<SurfaceLayout>>,
     displayed_layout: Option<Arc<SurfaceLayout>>,
     displayed_scroll_key: Option<SurfaceKey>,
     submitted: Option<SurfaceKey>,
-    endpoint: Option<native_host::CaptureEndpoint>,
+    endpoint: Option<endpoint::CaptureEndpoint>,
     creating: bool,
     ready: bool,
     error: Option<String>,
@@ -699,7 +188,7 @@ impl Entry {
         true
     }
 
-    #[cfg(any(test, all(debug_assertions, feature = "vr-preview")))]
+    #[cfg(all(windows, any(test, all(debug_assertions, feature = "vr-preview"))))]
     fn publish(&mut self, view: SurfaceView, hovered: Option<u8>, pressed: Option<u8>) -> bool {
         let changed = self
             .state
@@ -722,11 +211,12 @@ impl Entry {
             return false;
         }
         // Hold progress changes pixels without invalidating the menu's hit regions.
-        let feedback = changed || self.state.as_ref().is_some_and(|state| {
-            state.hovered != hovered || state.pressed != pressed
-                || matches!((&state.view, &view),
-                    (SurfaceView::Menu { hold_progress: a, .. }, SurfaceView::Menu { hold_progress: b, .. }) if a != b)
-        });
+        let feedback = changed
+            || self.state.as_ref().is_some_and(|state| {
+                state.hovered != hovered
+                    || state.pressed != pressed
+                    || menu_progress_changed(&state.view, &view)
+            });
         if changed {
             self.pending_since = self.recovery_observation(None).pending_since;
             let revision = self
@@ -872,6 +362,7 @@ impl Entry {
         {
             return Ok(false);
         }
+        #[cfg(windows)]
         if let Some(SurfaceState {
             view: SurfaceView::OcrResult { scene, .. },
             ..
@@ -955,7 +446,7 @@ impl Entry {
                 .is_some_and(|at| now.saturating_duration_since(at) >= timeout)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     fn commit(&mut self, key: SurfaceKey) -> bool {
         if self.active
             && self.state.as_ref().is_some_and(|state| state.key == key)
@@ -1080,7 +571,7 @@ impl Entry {
     fn reject_frame(
         &mut self,
         surface: SurfaceId,
-        frame: windows_wgc::Captured,
+        frame: crate::vr_overlay::frame_receipt::FrameReceipt,
         reason: &'static str,
     ) {
         if !metrics::enabled() {
@@ -1161,6 +652,29 @@ impl Entry {
     }
 }
 
+pub(super) enum SubmitOutcome {
+    Committed(Option<u32>),
+    Pending(PendingFrame),
+}
+
+#[cfg(all(test, windows))]
+impl SubmitOutcome {
+    fn is_some(&self) -> bool {
+        matches!(self, Self::Committed(Some(_)))
+    }
+
+    fn is_none(&self) -> bool {
+        matches!(self, Self::Committed(None))
+    }
+}
+
+pub(super) struct PendingFrame {
+    identity: (u32, u32),
+    key: SurfaceKey,
+    paint_serial: u32,
+    bounds: [u32; 4],
+}
+
 #[derive(Default)]
 pub struct SurfaceHub(Mutex<[Entry; 10]>);
 
@@ -1174,11 +688,18 @@ impl SurfaceHub {
 
     pub(super) fn needs_fast_tick(&self) -> bool {
         let entries = self.0.lock().unwrap_or_else(|error| error.into_inner());
-        let progress = &entries[SurfaceId::OcrProgress.index()];
-        let progress_animating = progress.active
-            && matches!(progress.state.as_ref().map(|state| &state.view),
-                Some(SurfaceView::OcrProgress { progress: Some(progress), .. })
-                    if progress.stages.contains(&Stage::Active));
+        #[cfg(windows)]
+        let progress_animating = {
+            let progress = &entries[SurfaceId::OcrProgress.index()];
+            progress.active
+                && matches!(
+                    progress.state.as_ref().map(|state| &state.view),
+                    Some(SurfaceView::OcrProgress { progress: Some(progress), .. })
+                        if progress.stages.contains(&Stage::Active)
+                )
+        };
+        #[cfg(not(windows))]
+        let progress_animating = false;
         progress_animating
             || entries
                 .iter()
@@ -1188,9 +709,10 @@ impl SurfaceHub {
     fn submit_frame(
         &self,
         surface: SurfaceId,
-        frame: windows_wgc::Captured,
+        frame: crate::vr_overlay::frame_receipt::FrameReceipt,
+        defer: bool,
         upload: impl FnOnce() -> Result<(), String>,
-    ) -> Result<Option<u32>, windows_wgc::CaptureError> {
+    ) -> Result<SubmitOutcome, frame::CaptureError> {
         let key = SurfaceKey {
             generation: frame.generation,
             revision: frame.revision,
@@ -1208,12 +730,36 @@ impl SurfaceHub {
                 .or_else(|| (bounds != frame.bounds).then_some("capture_bounds_changed"));
             if let Some(reason) = rejection {
                 entry.reject_frame(surface, frame, reason);
-                return Ok(None);
+                return Ok(SubmitOutcome::Committed(None));
             }
             (entry.host_epoch, entry.activity_request)
         };
-        upload()
-            .map_err(|error| windows_wgc::CaptureError::new(recovery::Fault::Submission, error))?;
+        upload().map_err(|error| frame::CaptureError::new(recovery::Fault::Submission, error))?;
+        if defer {
+            return Ok(SubmitOutcome::Pending(PendingFrame {
+                identity,
+                key,
+                paint_serial: frame.paint_serial,
+                bounds: frame.bounds,
+            }));
+        }
+        Ok(SubmitOutcome::Committed(self.commit_frame(
+            surface,
+            identity,
+            key,
+            frame.paint_serial,
+            frame.bounds,
+        )?))
+    }
+
+    fn commit_frame(
+        &self,
+        surface: SurfaceId,
+        identity: (u32, u32),
+        key: SurfaceKey,
+        paint_serial: u32,
+        bounds: [u32; 4],
+    ) -> Result<Option<u32>, frame::CaptureError> {
         let mut entries = self.0.lock().map_err(|e| e.to_string())?;
         let entry = &mut entries[surface.index()];
         let committed = (entry.host_epoch, entry.activity_request) == identity
@@ -1221,13 +767,30 @@ impl SurfaceHub {
                 layout
                     .capture_bounds
                     .unwrap_or([0, 0, surface.size().0, surface.size().1])
-                    == frame.bounds
+                    == bounds
             })
-            && entry.commit_paint(key, frame.paint_serial);
-        if !committed {
-            entry.reject_frame(surface, frame, "state_changed_during_upload");
-        }
+            && entry.commit_paint(key, paint_serial);
         Ok(committed.then_some(entry.activity_request))
+    }
+
+    fn commit_pending(
+        &self,
+        surface: SurfaceId,
+        pending: PendingFrame,
+        frame: crate::vr_overlay::frame_receipt::FrameReceipt,
+    ) -> Result<Option<u32>, frame::CaptureError> {
+        let activity = self.commit_frame(
+            surface,
+            pending.identity,
+            pending.key,
+            pending.paint_serial,
+            pending.bounds,
+        )?;
+        if activity.is_none() {
+            let mut entries = self.0.lock().map_err(|e| e.to_string())?;
+            entries[surface.index()].reject_frame(surface, frame, "state_changed_during_upload");
+        }
+        Ok(activity)
     }
 
     fn set_active(&self, app: &AppHandle, surface: SurfaceId, active: bool) -> Result<(), String> {
@@ -1419,26 +982,36 @@ impl SurfaceHub {
     }
 }
 
-#[cfg(all(debug_assertions, feature = "vr-preview"))]
+#[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
 mod smoke;
-#[cfg(all(debug_assertions, feature = "vr-preview"))]
+#[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
 pub use smoke::smoke;
 
 /// The worker keeps the GPU resources alive for as long as OpenVR uses them.
 pub struct SurfaceRenderer {
     surface: SurfaceId,
-    capture: Option<Rc<RefCell<windows_wgc::Capture>>>,
+    capture: Option<Rc<RefCell<frame::Capture>>>,
     identity: Option<(u32, u32, u32)>,
     visible_frame: bool,
     retained_key: Option<SurfaceKey>,
     published_key: Option<SurfaceKey>,
     retained_activity: u32,
-    capture_fault: Option<windows_wgc::CaptureError>,
+    capture_fault: Option<frame::CaptureError>,
     pending_action: Option<(recovery::Action, Instant)>,
     requested: bool,
     next_copy: Option<Instant>,
     idle_since: Option<Instant>,
     output_bounds: Option<[u32; 4]>,
+    pending_frame: Option<PendingSubmission>,
+    last_repaint: Option<Instant>,
+}
+
+struct PendingSubmission {
+    token: PendingFrame,
+    capture: Rc<RefCell<frame::Capture>>,
+    frame: frame::Captured,
+    key: SurfaceKey,
+    receipt: crate::vr_overlay::frame_receipt::FrameReceipt,
 }
 
 impl SurfaceRenderer {
@@ -1457,6 +1030,8 @@ impl SurfaceRenderer {
             next_copy: None,
             idle_since: None,
             output_bounds: None,
+            pending_frame: None,
+            last_repaint: None,
         }
     }
     pub fn reset(&mut self) {
@@ -1474,13 +1049,15 @@ impl SurfaceRenderer {
         self.next_copy = None;
         self.idle_since = None;
         self.output_bounds = None;
+        self.pending_frame = None;
+        self.last_repaint = None;
     }
 
     /// Every worker tick ends here, including early returns and disconnected states.
     pub fn finish_tick(
         &mut self,
         app: &AppHandle,
-        mut backend: Option<&mut OpenVrBackend>,
+        mut backend: Option<&mut Backend>,
         kind: OverlayKind,
     ) {
         let requested = std::mem::take(&mut self.requested) && backend.is_some();
@@ -1585,12 +1162,7 @@ impl SurfaceRenderer {
         );
     }
 
-    pub fn stop(
-        &mut self,
-        app: &AppHandle,
-        backend: Option<&mut OpenVrBackend>,
-        kind: OverlayKind,
-    ) {
+    pub fn stop(&mut self, app: &AppHandle, backend: Option<&mut Backend>, kind: OverlayKind) {
         self.requested = false;
         self.finish_tick(app, backend, kind);
     }
@@ -1604,7 +1176,7 @@ impl SurfaceRenderer {
     pub fn present(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         kind: OverlayKind,
         view: SurfaceView,
         hovered: Option<u8>,
@@ -1612,13 +1184,13 @@ impl SurfaceRenderer {
     ) -> Result<bool, String> {
         self.request(app)?;
         let hub = app.state::<SurfaceHub>();
-        let fault = windows_wgc::ensure_capture_supported().err().or_else(|| {
+        let fault = frame::ensure_capture_supported().err().or_else(|| {
             match hub.publish(app, self.surface, view, hovered, pressed) {
                 Ok(key) => {
                     self.published_key = key;
                     None
                 }
-                Err(error) => Some(windows_wgc::CaptureError::new(recovery::Fault::Host, error)),
+                Err(error) => Some(frame::CaptureError::new(recovery::Fault::Host, error)),
             }
         });
         if let Some(error) = fault {
@@ -1631,7 +1203,7 @@ impl SurfaceRenderer {
     pub fn refresh(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         kind: OverlayKind,
         feedback: Option<(Option<u8>, Option<u8>, Option<f32>)>,
     ) -> Result<bool, String> {
@@ -1684,12 +1256,7 @@ impl SurfaceRenderer {
         self.published_key.is_some()
     }
 
-    pub fn hold_for_fade(
-        &mut self,
-        app: &AppHandle,
-        backend: &OpenVrBackend,
-        kind: OverlayKind,
-    ) -> bool {
+    pub fn hold_for_fade(&mut self, app: &AppHandle, backend: &Backend, kind: OverlayKind) -> bool {
         let ready = {
             let hub = app.state::<SurfaceHub>();
             let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -1708,7 +1275,7 @@ impl SurfaceRenderer {
     fn service(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         kind: OverlayKind,
     ) -> Result<bool, String> {
         let hub = app.state::<SurfaceHub>();
@@ -1765,6 +1332,28 @@ impl SurfaceRenderer {
             return Err(error);
         }
         if self.pending_action.is_none() && self.capture_fault.is_none() {
+            let repaint = {
+                let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                let entry = &entries[self.surface.index()];
+                !self.visible_frame
+                    && entry.active
+                    && entry.ready
+                    && entry.state.is_some()
+                    && matches!(
+                        entry.recovery.phase,
+                        recovery::Phase::AwaitingFrame
+                            | recovery::Phase::RecoveringCapture
+                            | recovery::Phase::RecoveringHost
+                    )
+            };
+            if repaint
+                && self
+                    .last_repaint
+                    .is_none_or(|at| now.duration_since(at) >= Duration::from_millis(500))
+                && hub.send(app, self.surface, SurfaceEvent::Repaint).is_ok()
+            {
+                self.last_repaint = Some(now);
+            }
             if let Err(error) = self.present_frame(app, backend, kind) {
                 self.capture_fault = Some(error);
                 self.advance_recovery(&hub, Instant::now());
@@ -1772,8 +1361,9 @@ impl SurfaceRenderer {
         }
         let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
         let entry = &entries[self.surface.index()];
-        let visible = self.frame_visible(entry, Instant::now())
-            && (self.surface != SurfaceId::Dashboard || backend.has_surface_texture(kind));
+        let visible = self.pending_frame.is_some()
+            || self.frame_visible(entry, Instant::now())
+                && (self.surface != SurfaceId::Dashboard || backend.has_surface_texture(kind));
         if !visible {
             backend.hide(kind);
         }
@@ -1863,7 +1453,7 @@ impl SurfaceRenderer {
         app: &AppHandle,
         mut detach: impl FnMut() -> Result<(), String>,
         now: Instant,
-    ) -> Result<(), windows_wgc::CaptureError> {
+    ) -> Result<(), frame::CaptureError> {
         use recovery::{Action, Fault};
         let Some((action, started)) = self.pending_action else {
             return Ok(());
@@ -1880,7 +1470,7 @@ impl SurfaceRenderer {
                     return Ok(());
                 }
                 self.pending_action = None;
-                return Err(windows_wgc::CaptureError::new(Fault::Submission, error));
+                return Err(frame::CaptureError::new(Fault::Submission, error));
             }
             self.reset();
         }
@@ -1900,7 +1490,7 @@ impl SurfaceRenderer {
                 };
                 app.state::<NativeHostManager>()
                     .close(id)
-                    .map_err(|error| windows_wgc::CaptureError::new(Fault::Host, error))?;
+                    .map_err(|error| frame::CaptureError::new(Fault::Host, error))?;
             }
             Action::RestartCapture => {
                 let endpoint = hub.0.lock().unwrap_or_else(|e| e.into_inner())
@@ -1908,15 +1498,15 @@ impl SurfaceRenderer {
                 .endpoint
                 .clone();
                 if let (Some(capture), Some(endpoint)) = (&self.capture, endpoint) {
-                    capture.borrow_mut().restart_source(&endpoint.item)?;
+                    capture.borrow_mut().restart_source(&endpoint.source)?;
                 }
                 hub.send(app, self.surface, SurfaceEvent::Repaint)
-                    .map_err(|error| windows_wgc::CaptureError::new(Fault::Host, error))?;
+                    .map_err(|error| frame::CaptureError::new(Fault::Host, error))?;
             }
             Action::RecreateDevice => {
                 hub.0.lock().unwrap_or_else(|e| e.into_inner())[self.surface.index()].clear_frame();
                 hub.send(app, self.surface, SurfaceEvent::Repaint)
-                    .map_err(|error| windows_wgc::CaptureError::new(Fault::Host, error))?;
+                    .map_err(|error| frame::CaptureError::new(Fault::Host, error))?;
             }
             Action::None | Action::Fail => {}
         }
@@ -1926,9 +1516,9 @@ impl SurfaceRenderer {
     fn present_frame(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         kind: OverlayKind,
-    ) -> Result<bool, windows_wgc::CaptureError> {
+    ) -> Result<bool, frame::CaptureError> {
         let hub = app.state::<SurfaceHub>();
         let (endpoint, generation) = {
             let entries = hub.0.lock().map_err(|e| e.to_string())?;
@@ -1943,7 +1533,7 @@ impl SurfaceRenderer {
         };
         let adapter = backend
             .surface_adapter_index()
-            .map_err(|error| windows_wgc::CaptureError::new(recovery::Fault::Submission, error))?;
+            .map_err(|error| frame::CaptureError::new(recovery::Fault::Submission, error))?;
         let identity = (endpoint.host.host_epoch, adapter, generation);
         if self.identity != Some(identity) {
             if self.capture.is_some() || backend.has_surface_texture(kind) {
@@ -1960,8 +1550,8 @@ impl SurfaceRenderer {
                 .metrics
                 .capture
                 .clone();
-            self.capture = Some(Rc::new(RefCell::new(windows_wgc::Capture::with_counters(
-                &endpoint.item,
+            self.capture = Some(Rc::new(RefCell::new(frame::Capture::with_counters(
+                &endpoint.source,
                 adapter,
                 width,
                 height,
@@ -1971,41 +1561,59 @@ impl SurfaceRenderer {
         }
         let capture = self.capture.as_ref().expect("capture exists").clone();
         let previous_bounds = self.output_bounds;
-        self.capture_frame(&hub, |frame| {
-            if kind == OverlayKind::OcrResult && previous_bounds != Some(frame.bounds) {
+        self.capture_frame(&hub, backend.defers_submission(), |frame| {
+            if kind == OverlayKind::OcrResult && previous_bounds != Some(frame.receipt.bounds) {
                 backend.hide(kind);
             }
-            backend.upload_surface(kind, frame.shared_handle, capture)
+            backend.upload_surface(kind, frame, capture)
         })
     }
 
     fn capture_frame(
         &mut self,
         hub: &SurfaceHub,
-        upload: impl FnOnce(windows_wgc::Captured) -> Result<(), String>,
-    ) -> Result<bool, windows_wgc::CaptureError> {
+        defer: bool,
+        upload: impl FnOnce(&frame::Captured) -> Result<(), String>,
+    ) -> Result<bool, frame::CaptureError> {
+        if self.pending_frame.is_some() {
+            return Ok(true);
+        }
         let capture = self.capture.as_ref().expect("capture exists").clone();
-        let mut capture = capture.borrow_mut();
-        if let Some(frame) = capture.poll()? {
+        let mut capture_guard = capture.borrow_mut();
+        if let Some(frame) = capture_guard.poll()? {
+            let receipt = frame.receipt;
             let key = SurfaceKey {
-                generation: frame.generation,
-                revision: frame.revision,
+                generation: receipt.generation,
+                revision: receipt.revision,
             };
-            let mut uploaded = false;
-            let activity = hub.submit_frame(self.surface, frame, || {
-                upload(frame)?;
-                // Protect the slot even if the document changes during the external call.
-                capture.submitted(frame).map_err(String::from)?;
-                uploaded = true;
+            let outcome = hub.submit_frame(self.surface, receipt, defer, || {
+                upload(&frame)?;
                 Ok(())
             })?;
-            if let Some(activity) = activity {
-                self.visible_frame = true;
-                self.retained_key = Some(key);
-                self.retained_activity = activity;
-                self.output_bounds = Some(frame.bounds);
-            } else if uploaded {
-                self.visible_frame = false;
+            match outcome {
+                SubmitOutcome::Committed(activity) => {
+                    // Protect the slot even if the document changes during the external call.
+                    capture_guard.submitted(&frame).map_err(String::from)?;
+                    if let Some(activity) = activity {
+                        self.visible_frame = true;
+                        self.retained_key = Some(key);
+                        self.retained_activity = activity;
+                        self.output_bounds = Some(receipt.bounds);
+                    } else {
+                        self.visible_frame = false;
+                    }
+                }
+                SubmitOutcome::Pending(token) => {
+                    drop(capture_guard);
+                    self.pending_frame = Some(PendingSubmission {
+                        token,
+                        capture,
+                        frame,
+                        key,
+                        receipt,
+                    });
+                    return Ok(true);
+                }
             }
         }
         let now = Instant::now();
@@ -2024,14 +1632,42 @@ impl SurfaceRenderer {
             (self.capture_needed(entry, now), requested, bounds)
         };
         if needed {
-            capture.resume()?;
-            if capture.start_cropped(requested, bounds)? {
+            capture_guard.resume()?;
+            if capture_guard.start_cropped(requested, bounds)? {
                 self.copied(now);
             }
         } else {
-            capture.suspend();
+            capture_guard.suspend();
         }
         Ok(self.visible_frame)
+    }
+
+    /// Confirm or reject a frame that was uploaded before the backend presented
+    /// it. OpenXR calls this after `xrEndFrame`; OpenVR has no pending frame.
+    pub fn confirm_frame(&mut self, app: &AppHandle, accepted: bool) {
+        let Some(pending) = self.pending_frame.take() else {
+            return;
+        };
+        let hub = app.state::<SurfaceHub>();
+        if accepted {
+            if let Ok(Some(activity)) =
+                hub.commit_pending(self.surface, pending.token, pending.receipt)
+            {
+                if pending
+                    .capture
+                    .borrow_mut()
+                    .submitted(&pending.frame)
+                    .is_ok()
+                {
+                    self.visible_frame = true;
+                    self.retained_key = Some(pending.key);
+                    self.retained_activity = activity;
+                    self.output_bounds = Some(pending.receipt.bounds);
+                    return;
+                }
+            }
+        }
+        self.visible_frame = false;
     }
 
     fn capture_needed(&mut self, entry: &Entry, now: Instant) -> bool {
@@ -2049,6 +1685,7 @@ impl SurfaceRenderer {
             < Duration::from_millis(250)
     }
 
+    #[cfg(windows)]
     pub fn output_bounds(&self) -> [u32; 4] {
         self.output_bounds
             .unwrap_or([0, 0, self.surface.size().0, self.surface.size().1])
@@ -2070,30 +1707,9 @@ impl SurfaceRenderer {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
-
-    #[test]
-    fn expanded_menu_keeps_capsule_and_panel_hits_separate() {
-        assert_eq!(SurfaceId::Menu.size(), (1280, 1280));
-        let value: SurfaceLayout = serde_json::from_value(serde_json::json!({
-            "key": {"generation": 1, "revision": 1},
-            "regions": [
-                {"id": 4, "bounds": [0.6, 0.84, 0.725, 0.965], "circle": true, "menu": {"page": "players"}},
-                {"id": 17, "bounds": [0.1, 0.3, 0.4, 0.4], "menu": {"display": {"show_all_tracks": null}}}
-            ],
-            "menu_bounds": [0.0125, 0.80625, 0.9875, 0.99375],
-            "panels": [{"bounds": [0.0125, 0.0125, 0.9875, 0.7875], "radius": [0.025, 0.025]}],
-            "page_count": 1
-        })).unwrap();
-        value.validate(SurfaceId::Menu).unwrap();
-        assert!(value.pointer_contains([0.5, 0.5]));
-        assert!(value.pointer_contains([0.5, 0.9]));
-        assert!(!value.pointer_contains([0.5, 0.8]));
-        assert_eq!(value.hit([0.2, 0.35]), Some(17));
-        assert!(value.validate(SurfaceId::Dialogue).is_err());
-    }
 
     #[test]
     fn copy_budget_does_not_halve_the_worker_tick_rate() {
@@ -2448,16 +2064,18 @@ mod tests {
             entry.accept_layout_paint(surface, layout(key), 1).unwrap();
             key
         };
-        let mut frame = windows_wgc::Captured {
+        let mut frame = frame::Captured {
             shared_handle: 1,
-            generation: key.generation,
-            revision: key.revision,
-            paint_serial: 1,
-            requested_serial: 1,
-            bounds: [0, 0, 1280, 1280],
+            receipt: crate::vr_overlay::frame_receipt::FrameReceipt {
+                generation: key.generation,
+                revision: key.revision,
+                paint_serial: 1,
+                requested_serial: 1,
+                bounds: [0, 0, 1280, 1280],
+            },
         };
         assert!(hub
-            .submit_frame(surface, frame, || {
+            .submit_frame(surface, frame.receipt, false, || {
                 assert!(
                     hub.0.try_lock().is_ok(),
                     "OpenVR must not hold the shared hub lock"
@@ -2466,10 +2084,10 @@ mod tests {
             })
             .unwrap()
             .is_some());
-        frame.paint_serial = 2;
+        frame.receipt.paint_serial = 2;
         hub.0.lock().unwrap()[surface.index()].accept_paint(key, 2);
         assert!(hub
-            .submit_frame(surface, frame, || {
+            .submit_frame(surface, frame.receipt, false, || {
                 hub.0.try_lock().unwrap()[surface.index()].publish(
                     SurfaceView::OcrSelection { dark: false },
                     None,
@@ -2621,7 +2239,7 @@ mod tests {
             let mut entries = hub.0.lock().unwrap();
             let entry = &mut entries[SurfaceId::Menu.index()];
             entry.set_active(true, Instant::now());
-            renderer.capture_fault = Some(windows_wgc::CaptureError::new(
+            renderer.capture_fault = Some(frame::CaptureError::new(
                 recovery::Fault::Unsupported,
                 "unsupported",
             ));
@@ -2919,87 +2537,6 @@ mod tests {
     }
 
     #[test]
-    fn photo_gesture_region_keeps_the_personnel_navigation_region() {
-        use super::super::{control_protocol::ControlAction, wrist_menu};
-        let mut layout = layout(SurfaceKey {
-            generation: 1,
-            revision: 1,
-        });
-        let gesture = wrist_menu::Command::Control(ControlAction::SetOcrGestureEnabled(false));
-        layout.regions[0].id = 4;
-        layout.regions[0].menu = Some(wrist_menu::Command::Page(wrist_menu::Page::Players));
-        layout.regions.push(Region {
-            id: 30,
-            bounds: [0.3, 0., 0.5, 0.2],
-            circle: true,
-            dashboard: None,
-            menu: Some(gesture.clone()),
-        });
-        assert!(layout.validate(SurfaceId::Menu).is_ok());
-        assert_eq!(layout.hit([0.4, 0.1]), Some(30));
-        assert_eq!(layout.menu_command(30), Some(gesture.clone()));
-        assert_eq!(
-            layout.menu_command(4),
-            Some(wrist_menu::Command::Page(wrist_menu::Page::Players))
-        );
-        layout.regions[0].menu = Some(gesture);
-        assert!(layout.validate(SurfaceId::Menu).is_err());
-    }
-
-    #[test]
-    fn menu_same_layout_detects_photo_gesture_visibility_changes() {
-        let mut shown = ControlSnapshot::default();
-        shown.items[4].hidden = false;
-        let mut hidden = shown.clone();
-        hidden.items[4].hidden = true;
-        let view = |controls| SurfaceView::Menu {
-            players: Default::default(),
-            ui: Default::default(),
-            controls,
-            hold_progress: None,
-        };
-        assert!(view(shown.clone()).same_layout(&view(shown.clone())));
-        assert!(!view(shown).same_layout(&view(hidden)));
-    }
-
-    #[test]
-    fn slider_regions_resolve_release_positions_to_quantized_values() {
-        use super::super::{
-            player_display::Action,
-            wrist_menu::{Command, Slider, SliderAction},
-        };
-        let mut layout = layout(SurfaceKey {
-            generation: 1,
-            revision: 1,
-        });
-        layout.regions[0] = Region {
-            id: 32,
-            bounds: [0.1, 0.4, 0.9, 0.5],
-            circle: false,
-            dashboard: None,
-            menu: Some(Command::Slider(Slider {
-                action: SliderAction::ProximityRadius,
-                min: 0.0,
-                max: 10.0,
-                step: 0.1,
-            })),
-        };
-        assert!(layout.validate(SurfaceId::Menu).is_ok());
-        assert_eq!(
-            layout.menu_action(32, [0.1, 0.45]),
-            Some(Command::Display(Action::SetProximityRadius(0.0)))
-        );
-        assert_eq!(
-            layout.menu_action(32, [0.5, 0.45]),
-            Some(Command::Display(Action::SetProximityRadius(5.0)))
-        );
-        assert_eq!(
-            layout.menu_action(32, [0.9, 0.45]),
-            Some(Command::Display(Action::SetProximityRadius(10.0)))
-        );
-    }
-
-    #[test]
     fn pointer_updates_keep_the_submitted_layout_and_reject_inactive_or_invalid_hits() {
         let mut entry = active_entry();
         entry.publish(
@@ -3223,118 +2760,6 @@ mod tests {
         assert!(!entry.accept_layout(SurfaceId::Menu, layout(key)).unwrap());
         assert!(!entry.commit(key));
     }
-    #[test]
-    fn malformed_and_overlapping_regions_are_rejected() {
-        let key = SurfaceKey {
-            generation: 1,
-            revision: 1,
-        };
-        let mut value = layout(key);
-        assert!(value.validate(SurfaceId::Menu).is_ok());
-        value.regions.push(value.regions[0].clone());
-        assert!(value.validate(SurfaceId::Menu).is_err());
-        value.regions.pop();
-        value.regions[0].bounds[0] = f32::NAN;
-        assert!(value.validate(SurfaceId::Menu).is_err());
-    }
-
-    #[test]
-    fn dialogue_toolbar_accepts_the_follow_button_with_the_existing_controls() {
-        let mut value = layout(SurfaceKey {
-            generation: 1,
-            revision: 1,
-        });
-        value.regions = [
-            (0, 0.05, 0.55),
-            (1, 0.6, 0.7),
-            (3, 0.72, 0.82),
-            (2, 0.84, 0.94),
-        ]
-        .into_iter()
-        .map(|(id, left, right)| Region {
-            id,
-            bounds: [left, 0.02, right, 0.12],
-            circle: id != 0,
-            dashboard: None,
-            menu: None,
-        })
-        .collect();
-        assert!(value.validate(SurfaceId::Dialogue).is_ok());
-        assert_eq!(value.hit([0.77, 0.07]), Some(3));
-    }
-
-    #[test]
-    fn menu_background_bounds_require_a_valid_capsule() {
-        let mut value = layout(SurfaceKey {
-            generation: 1,
-            revision: 1,
-        });
-        value.regions.clear();
-        value.menu_bounds = Some([0.015625, 0.03125, 0.984375, 0.96875]);
-        assert!(value.validate(SurfaceId::Menu).is_ok());
-        assert!(value.validate(SurfaceId::Dialogue).is_err());
-        for bounds in [
-            [-0.1, 0., 1., 1.],
-            [f32::NAN, 0., 1., 1.],
-            [0.9, 0., 0.1, 1.],
-            [0., 0.5, 1., 0.5],
-            [0.4, 0., 0.6, 1.],
-        ] {
-            value.menu_bounds = Some(bounds);
-            assert!(value.validate(SurfaceId::Menu).is_err());
-        }
-    }
-
-    #[test]
-    fn passive_surfaces_cannot_publish_input_regions_or_pages() {
-        let key = SurfaceKey {
-            generation: 1,
-            revision: 1,
-        };
-        for name in [
-            "headset",
-            "ocr_progress",
-            "dashboard_thumbnail",
-            "ocr_selection",
-            "ocr_result",
-        ] {
-            let surface: SurfaceId = serde_json::from_value(serde_json::json!(name)).unwrap();
-            let mut value = SurfaceLayout {
-                key,
-                regions: vec![],
-                menu_bounds: None,
-                panels: vec![],
-                page_count: 1,
-                unplaced: vec![],
-                capture_bounds: None,
-            };
-            assert!(value.validate(surface).is_ok());
-            assert_eq!(value.hit([0.5, 0.5]), None);
-            value.page_count = 2;
-            assert!(value.validate(surface).is_err());
-            value.page_count = 1;
-            value.regions = layout(key).regions;
-            assert!(value.validate(surface).is_err());
-        }
-    }
-
-    #[test]
-    fn dashboard_regions_keep_their_dom_ids_and_require_dashboard_commands() {
-        let mut value = layout(SurfaceKey {
-            generation: 1,
-            revision: 1,
-        });
-        value.regions[0].id = 42;
-        value.regions[0].circle = false;
-        value.regions[0].menu = None;
-        assert!(value.validate(SurfaceId::Dashboard).is_err());
-        value.regions[0].dashboard = Some(DashboardCommand::Page(
-            super::super::dashboard::DashboardPage::Language,
-        ));
-        assert!(value.validate(SurfaceId::Dashboard).is_ok());
-        assert_eq!(value.hit([0.1, 0.1]), Some(42));
-        assert!(value.validate(SurfaceId::Menu).is_err());
-    }
 
     #[test]
     fn overflow_requires_current_scene_ids_and_a_committed_frame() {
@@ -3412,24 +2837,31 @@ mod tests {
             assert!(entry.accept_layout_paint(surface, value, 1).unwrap());
             key
         };
-        let frame = windows_wgc::Captured {
+        let frame = frame::Captured {
             shared_handle: 1,
-            generation: key.generation,
-            revision: key.revision,
-            paint_serial: 1,
-            requested_serial: 1,
-            bounds: [0, 0, 2048, 2048],
+            receipt: crate::vr_overlay::frame_receipt::FrameReceipt {
+                generation: key.generation,
+                revision: key.revision,
+                paint_serial: 1,
+                requested_serial: 1,
+                bounds: [0, 0, 2048, 2048],
+            },
         };
         assert!(hub
-            .submit_frame(surface, frame, || panic!("stale crop uploaded"))
+            .submit_frame(surface, frame.receipt, false, || panic!(
+                "stale crop uploaded"
+            ))
             .unwrap()
             .is_none());
-        let frame = windows_wgc::Captured {
-            bounds: [100, 200, 500, 600],
+        let frame = frame::Captured {
+            receipt: crate::vr_overlay::frame_receipt::FrameReceipt {
+                bounds: [100, 200, 500, 600],
+                ..frame.receipt
+            },
             ..frame
         };
         assert!(hub
-            .submit_frame(surface, frame, || Ok(()))
+            .submit_frame(surface, frame.receipt, false, || Ok(()))
             .unwrap()
             .is_some());
         let mut value = hub.0.lock().unwrap()[surface.index()]
@@ -3439,7 +2871,7 @@ mod tests {
             .unwrap();
         value.capture_bounds = Some([200, 200, 600, 600]);
         assert!(hub
-            .submit_frame(surface, frame, || {
+            .submit_frame(surface, frame.receipt, false, || {
                 assert!(hub.0.lock().unwrap()[surface.index()]
                     .accept_layout_paint(surface, value, 2)
                     .unwrap());
@@ -3453,10 +2885,11 @@ mod tests {
         assert!(hub
             .submit_frame(
                 surface,
-                windows_wgc::Captured {
+                crate::vr_overlay::frame_receipt::FrameReceipt {
                     paint_serial: 2,
-                    ..frame
+                    ..frame.receipt
                 },
+                false,
                 || panic!("old crop accepted under the new layout")
             )
             .unwrap()

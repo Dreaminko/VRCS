@@ -32,6 +32,8 @@
 - クラウド認識、翻訳、学習分析には各プロバイダーのAPI認証情報が必要です。利用料金が発生する場合があります。
 - OCRはローカルPP-OCRv6モデルをダウンロードしてください。
 
+Linux GNU `x86_64`（ARM64は当面対象外）向けに `.deb` と AppImage パッケージを提供しています。PipeWire（システム音声・VRChatプロセス・マイク）、Secret Service、ローカルQwen CPU/Vulkan、ローカルPLaMo CPU翻訳、Screenshot Portal によるデスクトップOCR／画像質問応答、X11 / Portal グローバルショートカット、および OpenXR/OpenVR のVR字幕・手首パネル・ダッシュボード・コントローラー入力に対応しています（VRシーンキャプチャは上流OpenXR/Monado API待ちのため無効）。Linuxでのプレイヤー別音声・Chatboxネットワーク受信は実験的機能であり、完全版 `.deb`（または `--network-helper` 内蔵の `/usr/bin/vrcs-desktop` と polkit ポリシーの手動配置）、polkit認証エージェント、および `libopus0` が必要です。詳細は [Linux開発ガイド](CONTRIBUTING.md#linux-development-initial-adaptation) を参照してください。
+
 ## はじめに
 
 1. セットアップウィザードで表示言語、機能モード（`翻訳のみ` / `全機能` / `カスタム`）、およびローカルまたはクラウド認識を選択します。

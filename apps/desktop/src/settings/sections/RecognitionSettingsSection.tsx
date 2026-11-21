@@ -14,6 +14,7 @@ import { recognitionSourceValue } from "../settings-derived";
 import { MANAGED_QWEN_RECOGNITION_SOURCE } from "../../providers/recognition-services";
 import type { RecognitionActions, RecognitionModels } from "../settings-types";
 import { Select } from "../SettingsControls";
+import { CapabilityNotice, usePlatformCapabilities } from "../../core-client/capabilities";
 
 const KNOWN_RUNTIME_STATUSES = new Set(["not_loaded", "loading", "ready", "error", "unknown"]);
 
@@ -35,13 +36,15 @@ export function RecognitionSettingsSection({
   onManageLocalModels?: () => void;
 }) {
   const { t } = useTranslation();
+  const { core } = usePlatformCapabilities();
   const usesManagedQwen = draft.asr.backend === "qwen_local_managed";
   const localizedModelStatus = KNOWN_RUNTIME_STATUSES.has(modelStatus)
     ? t(`settings.recognition.runtimeStatus.${modelStatus}`)
     : modelStatus;
   const recognitionSource = recognitionSourceValue(draft.asr);
   const sourceOptions = [
-    { value: MANAGED_QWEN_RECOGNITION_SOURCE, label: t("settings.recognition.managedQwenSource") },
+    { value: MANAGED_QWEN_RECOGNITION_SOURCE, label: t("settings.recognition.managedQwenSource"),
+      disabled: !core?.inference.qwen_cpu.supported, description: !core?.inference.qwen_cpu.supported ? t("platform.qwen_unavailable") : undefined },
     ...recognitionProfiles(apiProfiles)
       .map((profile) => {
         const providerLabel = profile.provider_display_name;
@@ -66,6 +69,7 @@ export function RecognitionSettingsSection({
           <HardDrive size={15} />{t("settings.modelAssignments.manageLocalModels")}
         </button>}
       </div>
+      {usesManagedQwen && <CapabilityNotice capability={core?.inference.qwen_cpu} />}
       <div className="recognition-config">
         <div className="recognition-config-row recognition-source-row">
           <div className="recognition-config-title">
@@ -98,7 +102,7 @@ export function RecognitionSettingsSection({
           models={models.qwen}
           ready={models.qwenReady}
           runtime={models.qwenRuntime}
-          disabled={false}
+          disabled={!core?.inference.qwen_cpu.supported}
           onUpdateAsr={actions.updateAsr}
           onUpdateQwen={actions.updateManagedQwen}
         />}

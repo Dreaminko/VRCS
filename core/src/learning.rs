@@ -714,7 +714,7 @@ impl LearningService {
         request
             .validate()
             .map_err(|detail| learning_error("learning.invalid_request", detail, false))?;
-        let (profile, api_key) = resolve_generation_profile(profiles, &request.profile_id)?;
+        let (profile, api_key) = resolve_generation_profile(profiles, &request.profile_id).await?;
         let deadline = Instant::now() + Duration::from_millis(profile.timeout_ms);
         let (instructions, input) = analysis_prompt(item, request, profile);
         let llm_request = LlmRequest {
@@ -765,7 +765,7 @@ impl LearningService {
         request
             .validate()
             .map_err(|detail| learning_error("learning.invalid_request", detail, false))?;
-        let (profile, api_key) = resolve_generation_profile(profiles, &request.profile_id)?;
+        let (profile, api_key) = resolve_generation_profile(profiles, &request.profile_id).await?;
         let deadline = Instant::now() + Duration::from_millis(profile.timeout_ms);
         let (instructions, input) = selection_query_prompt(request);
         let output = self
@@ -814,7 +814,7 @@ impl LearningService {
     }
 }
 
-fn resolve_generation_profile<'a>(
+async fn resolve_generation_profile<'a>(
     profiles: &'a [ApiProfile],
     profile_id: &str,
 ) -> Result<(&'a ApiProfile, String), LearningError> {
@@ -836,7 +836,8 @@ fn resolve_generation_profile<'a>(
         ));
     }
     let api_key = if profile.requires_api_key() {
-        credentials::read_credential(&profile.id, &profile.provider)
+        credentials::read_credential_async(&profile.id, &profile.provider)
+            .await
             .map_err(|detail| learning_error("learning.credential_failed", detail, false))?
             .ok_or_else(|| {
                 learning_error(

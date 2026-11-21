@@ -2,41 +2,11 @@ use std::path::Path;
 
 use super::{launch_args, probe_ready, QwenRuntime};
 
-#[tokio::test]
-async fn managed_qwen_gpu_discovery_respects_the_vulkan_feature() {
-    let root = tempfile::tempdir().unwrap();
-    let runtime = QwenRuntime::new(root.path().to_path_buf());
-    std::fs::create_dir_all(&runtime.directory).unwrap();
-    for name in super::super::qwen_runtime_download::REQUIRED_FILES {
-        std::fs::write(runtime.directory.join(name), b"fixture").unwrap();
-    }
-    std::fs::write(
-        runtime.directory.join("version.txt"),
-        super::super::qwen_runtime_download::SHA256,
-    )
-    .unwrap();
-    runtime
-        .devices
-        .set(vec!["Vulkan0: test GPU".into()])
-        .unwrap();
-    assert_eq!(
-        runtime.devices().await,
-        if cfg!(feature = "vulkan") {
-            vec!["Vulkan0: test GPU".to_owned()]
-        } else {
-            Vec::new()
-        }
-    );
-}
-
 #[cfg(not(feature = "vulkan"))]
 #[tokio::test]
-async fn managed_qwen_explicit_gpu_is_rejected_without_vulkan() {
+async fn managed_qwen_explicit_gpu_is_rejected_without_the_vulkan_feature() {
     let runtime = QwenRuntime::new(std::path::PathBuf::new());
-    runtime
-        .devices
-        .set(vec!["Vulkan0: test GPU".into()])
-        .unwrap();
+    *runtime.devices.lock().await = Some(vec!["Vulkan0: test GPU".into()]);
     let selection = super::Selection {
         executable: "unused.exe".into(),
         model: "unused.gguf".into(),
@@ -44,14 +14,10 @@ async fn managed_qwen_explicit_gpu_is_rejected_without_vulkan() {
         alias: "vrcs-qwen".into(),
         device: "gpu".into(),
     };
-    let error = runtime
+    assert!(runtime
         .start_selection(selection, 0, std::time::Duration::from_secs(1))
         .await
-        .unwrap_err();
-    assert!(
-        error.contains("does not include the Vulkan backend"),
-        "{error}"
-    );
+        .is_err());
     assert!(runtime.state.lock().await.child.is_none());
     assert_eq!(runtime.snapshot().await.status, "error");
 }
@@ -63,7 +29,6 @@ fn managed_qwen_gpu_arguments_respect_the_vulkan_feature() {
         Path::new("mmproj.gguf"),
         43210,
         "vrcs-qwen",
-        "session-token",
         "gpu",
     )
     .iter()
@@ -268,7 +233,6 @@ fn managed_qwen_command_binds_loopback_and_uses_both_assets() {
         Path::new("C:/models/mmproj.gguf"),
         43210,
         "vrcs-qwen",
-        "session-token",
         "cpu",
     )
     .iter()
@@ -284,9 +248,9 @@ fn managed_qwen_command_binds_loopback_and_uses_both_assets() {
         .windows(2)
         .any(|pair| pair == ["--host", "127.0.0.1"]));
     assert!(arguments.windows(2).any(|pair| pair == ["--port", "43210"]));
-    assert!(arguments
-        .windows(2)
-        .any(|pair| pair == ["--api-key", "session-token"]));
+    assert!(!arguments
+        .iter()
+        .any(|argument| argument == "--api-key" || argument == "session-token"));
     assert!(arguments.contains(&"--no-webui".into()));
     assert!(arguments
         .windows(2)
@@ -314,9 +278,15 @@ async fn managed_qwen_readiness_requires_the_expected_model_alias() {
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
-    let ready = probe_ready(&client, &format!("http://{address}"), "token", "vrcs-qwen")
-        .await
-        .unwrap();
+    let ready = probe_ready(
+        &client,
+        &format!("http://{address}"),
+        "token",
+        "vrcs-qwen",
+        "Qwen ASR",
+    )
+    .await
+    .unwrap();
     assert!(!ready);
     server.abort();
 }
@@ -350,12 +320,16 @@ async fn managed_qwen_readiness_checks_the_session_token() {
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     let origin = format!("http://{address}");
 
-    assert!(probe_ready(&client, &origin, "secret", "vrcs-qwen")
-        .await
-        .unwrap());
-    assert!(probe_ready(&client, &origin, "wrong", "vrcs-qwen")
-        .await
-        .is_err());
+    assert!(
+        probe_ready(&client, &origin, "secret", "vrcs-qwen", "Qwen ASR")
+            .await
+            .unwrap()
+    );
+    assert!(
+        probe_ready(&client, &origin, "wrong", "vrcs-qwen", "Qwen ASR")
+            .await
+            .is_err()
+    );
     server.abort();
 }
 

@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+#[cfg(windows)]
 pub fn failure_code(error: &str) -> &'static str {
     if error.contains("timed out") {
         "timeout"
@@ -30,23 +31,41 @@ pub fn failure_code(error: &str) -> &'static str {
 #[serde(rename_all = "snake_case")]
 pub enum OcrState {
     Disabled,
+    #[cfg(windows)]
     WaitingVr,
+    #[cfg(windows)]
     Ready,
+    #[cfg(windows)]
     Unbound,
+    #[cfg(windows)]
     Selecting,
+    #[cfg(windows)]
     Capturing,
+    #[cfg(windows)]
     LoadingModel,
+    #[cfg(windows)]
     Recognizing,
+    #[cfg(windows)]
     Translating,
+    #[cfg(windows)]
     Recognized,
+    #[cfg(any(windows, test))]
     NoText,
+    #[cfg(any(windows, test))]
     LowConfidence,
+    #[cfg(any(windows, test))]
     SourceVisible,
+    #[cfg(any(windows, test))]
     PartialVisible,
+    #[cfg(any(windows, test))]
     TranslationFailed,
+    #[cfg(any(windows, test))]
     TimedOut,
+    #[cfg(any(windows, test))]
     Visible,
+    #[cfg(any(windows, test))]
     Invalid,
+    #[cfg(any(windows, test))]
     Error,
 }
 
@@ -74,8 +93,11 @@ pub struct OcrStatus {
 pub enum OcrWristState {
     #[default]
     Hidden,
+    #[cfg(windows)]
     Visible,
+    #[cfg(windows)]
     DeviceUnavailable,
+    #[cfg(windows)]
     Error,
 }
 

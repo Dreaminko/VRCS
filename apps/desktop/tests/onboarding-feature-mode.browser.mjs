@@ -35,6 +35,7 @@ for (const width of [1200, 380]) {
           import { useSettingsRuntime } from './src/settings/hooks/useSettingsRuntime';
           import { OnboardingWizard } from './src/onboarding/OnboardingWizard';
           import { DEFAULT_FEATURE_SETTINGS } from './src/settings/feature-availability';
+          import { WindowsCapabilities } from './tests/fixtures/platform-capabilities';
           import { updateReducedMotionPreference } from './src/app/app-motion';
           import './src/styles.css';
 
@@ -110,6 +111,7 @@ for (const width of [1200, 380]) {
             const runtime = useSettingsRuntime({
               active: false,
               coreConfigured: true,
+              audioSupported: true,
               health,
               stopMicrophoneTest: noopAsync,
               setCaptureRunning: async () => true,
@@ -149,7 +151,7 @@ for (const width of [1200, 380]) {
           }
 
           const root = createRoot(document.getElementById('root'));
-          root.render(<Harness />);
+          root.render(<WindowsCapabilities><Harness /></WindowsCapabilities>);
 
           const check = (condition, message) => { if (!condition) throw new Error(message); };
           const settle = () => new Promise((resolve) => setTimeout(resolve, 16));

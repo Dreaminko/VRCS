@@ -3,12 +3,14 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager as _};
 use vrcs_core::VrOverlayConfig;
 
-use super::backend::{menu_config, CursorTarget, OpenVrBackend, OverlayKind};
+use super::backend::{menu_config, Backend, BackendKind, CursorTarget, OverlayKind};
 use super::control_protocol::{ControlHub, ControlSource};
 use super::interaction::{Hit, Key, Kind, Router, Sample, Surface};
 use super::ocr_wrist::LaserEvent;
 use super::placement::{Mode, Placement, Request};
-use super::surface::{SurfaceHub, SurfaceId, SurfaceLayout, SurfaceRenderer, SurfaceView};
+use super::pose::{DeviceId, PointerId, PointerInput, SpaceId};
+use super::surface::{SurfaceHub, SurfaceRenderer};
+use super::surface_protocol::{SurfaceId, SurfaceLayout, SurfaceView};
 use super::visibility::Fade;
 use super::{dialogue, wrist_menu};
 
@@ -20,7 +22,7 @@ struct Pointer {
     position: [f32; 3],
     distance: f32,
     scroll_y: f32,
-    origin: i32,
+    origin: SpaceId,
     panel: [[f32; 4]; 3],
     panel_width: f32,
 }
@@ -163,18 +165,19 @@ pub struct UiRuntime {
     menu_frame: Option<SurfaceView>,
     menu_ui: wrist_menu::Ui,
     pub menu_visible: bool,
+    menu_was_visible: bool,
     pub dialogue_hover: Option<u8>,
     pub dialogue_visible: bool,
     pub dialogue_revision: Option<u64>,
     pub generation: u64,
     context: UiContext,
-    origin: Option<i32>,
-    current_origin: Option<i32>,
+    origin: Option<SpaceId>,
+    current_origin: Option<SpaceId>,
     pressed: Option<u8>,
     menu_error: Option<String>,
     last_input: Instant,
     pointer_targets: Vec<(OverlayKind, Key, Option<u32>)>,
-    pointer_devices: Vec<(u32, u64)>,
+    pointer_devices: Vec<(DeviceId, PointerId)>,
     pointer: Option<Pointer>,
     cursor_error: Option<String>,
     menu_surface: SurfaceRenderer,
@@ -205,6 +208,7 @@ impl UiRuntime {
             menu_frame: None,
             menu_ui: Default::default(),
             menu_visible: false,
+            menu_was_visible: false,
             dialogue_hover: None,
             dialogue_visible: false,
             dialogue_revision: None,
@@ -226,21 +230,26 @@ impl UiRuntime {
         }
     }
 
-    pub fn current_origin(&self) -> Option<i32> {
+    pub fn current_origin(&self) -> Option<SpaceId> {
         self.current_origin
     }
 
-    pub fn finish_surfaces(&mut self, app: &AppHandle, mut backend: Option<&mut OpenVrBackend>) {
+    pub fn finish_surfaces(&mut self, app: &AppHandle, mut backend: Option<&mut Backend>) {
         self.menu_surface
             .finish_tick(app, backend.as_deref_mut(), OverlayKind::WristMenu);
         self.dialogue_surface
             .finish_tick(app, backend, OverlayKind::Wrist);
     }
 
-    pub fn stop_surfaces(&mut self, app: &AppHandle, mut backend: Option<&mut OpenVrBackend>) {
+    pub fn stop_surfaces(&mut self, app: &AppHandle, mut backend: Option<&mut Backend>) {
         self.menu_surface
             .stop(app, backend.as_deref_mut(), OverlayKind::WristMenu);
         self.dialogue_surface.stop(app, backend, OverlayKind::Wrist);
+    }
+
+    pub fn confirm_frames(&mut self, app: &AppHandle, accepted: bool) {
+        self.menu_surface.confirm_frame(app, accepted);
+        self.dialogue_surface.confirm_frame(app, accepted);
     }
 
     pub fn fast_tick(&self) -> bool {
@@ -299,6 +308,7 @@ impl UiRuntime {
         self.menu_surface.reset();
         self.dialogue_surface.reset();
         self.menu_visible = false;
+        self.menu_was_visible = false;
         self.dialogue_visible = false;
         self.dialogue_revision = None;
         self.dialogue_hover = None;
@@ -315,7 +325,7 @@ impl UiRuntime {
     pub fn place(
         &mut self,
         app: &AppHandle,
-        backend: &OpenVrBackend,
+        backend: &Backend,
         controls: &Mutex<ControlHub>,
         mode: Mode,
     ) {
@@ -352,30 +362,30 @@ impl UiRuntime {
 
     fn probe_device_pointer(
         &self,
-        backend: &OpenVrBackend,
+        backend: &Backend,
         layouts: &[Option<Arc<SurfaceLayout>>; 3],
-        device: u32,
-        source: u64,
+        device: DeviceId,
+        pointer: PointerId,
         scroll_y: f32,
     ) -> Option<Option<Pointer>> {
-        let ray = backend.controller_pointer_pose(openvr::TrackedDeviceIndex(device), source)?;
-        if self.origin != Some(ray.1) {
+        let ray = backend.pointer_pose(pointer)?;
+        if self.origin != Some(ray.space) {
             return None;
         }
         Some(nearest_pointer(
             self.pointer_targets
                 .iter()
-                .filter(|(_, _, bound)| *bound != Some(device))
+                .filter(|(_, _, bound)| *bound != Some(device.0))
                 .filter_map(|&(kind, key, _)| {
                     let hit = backend.intersect(kind, device, ray)?;
                     Some(Pointer {
-                        device,
+                        device: device.0,
                         key,
                         point: hit.point,
                         position: hit.position,
                         distance: hit.distance,
                         scroll_y,
-                        origin: ray.1,
+                        origin: ray.space,
                         panel: hit.panel,
                         panel_width: hit.panel_width,
                     })
@@ -392,17 +402,17 @@ impl UiRuntime {
 
     fn sample_pointer(
         &mut self,
-        backend: &OpenVrBackend,
+        backend: &Backend,
         layouts: &[Option<Arc<SurfaceLayout>>; 3],
-    ) -> Vec<super::ocr_input::UiInput> {
-        let mut inputs = backend.ui_inputs();
+    ) -> Vec<PointerInput> {
+        let mut inputs = backend.pointer_inputs();
         let mut pointers = Vec::with_capacity(inputs.len());
         inputs.retain(|input| {
             match self.probe_device_pointer(
                 backend,
                 layouts,
                 input.device,
-                input.source,
+                input.pointer,
                 input.scroll_y,
             ) {
                 None => false,
@@ -416,12 +426,12 @@ impl UiRuntime {
         });
         self.pointer_devices.clear();
         self.pointer_devices
-            .extend(inputs.iter().map(|input| (input.device, input.source)));
+            .extend(inputs.iter().map(|input| (input.device, input.pointer)));
         self.finish_pointer_selection(pointers);
         inputs
     }
 
-    pub fn sync_cursor(&mut self, app: &AppHandle, backend: &mut OpenVrBackend) {
+    pub fn sync_cursor(&mut self, app: &AppHandle, backend: &mut Backend) {
         let target = self.pointer.map(|p| {
             let (kind, surface) = pointer_overlay(p.key.surface);
             CursorTarget {
@@ -468,7 +478,7 @@ impl UiRuntime {
     }
 
     /// Updates only the shared cursor; panel content stays on the regular render tick.
-    pub fn update_pointer(&mut self, app: &AppHandle, backend: &mut OpenVrBackend) {
+    pub fn update_pointer(&mut self, app: &AppHandle, backend: &mut Backend) {
         if self.pointer_targets.is_empty()
             || self.pointer_devices.is_empty()
             || backend.system_dashboard_visible()
@@ -483,9 +493,9 @@ impl UiRuntime {
                 surfaces.pointer_layout(SurfaceId::Reader),
             ];
             let mut pointers = Vec::with_capacity(self.pointer_devices.len());
-            for &(device, source) in &self.pointer_devices {
+            for &(device, pointer) in &self.pointer_devices {
                 if let Some(Some(pointer)) =
-                    self.probe_device_pointer(backend, &layouts, device, source, 0.0)
+                    self.probe_device_pointer(backend, &layouts, device, pointer, 0.0)
                 {
                     pointers.push(pointer);
                 }
@@ -498,7 +508,7 @@ impl UiRuntime {
     pub fn tick_with_cadence(
         &mut self,
         app: &AppHandle,
-        backend: &mut OpenVrBackend,
+        backend: &mut Backend,
         config: &VrOverlayConfig,
         controls: &Mutex<ControlHub>,
         tick: UiTick,
@@ -574,8 +584,8 @@ impl UiRuntime {
             placement.initialize_world(dialogue::in_front(head));
         }
         if let Some(device) = placement.dragging() {
-            if let Some((controller, _)) = backend.controller_pose(device) {
-                placement.drag(device, controller);
+            if let Some(controller) = backend.controller_pose(DeviceId(device)) {
+                placement.drag(device, controller.pose);
             } else {
                 placement.cancel_drag();
             }
@@ -619,8 +629,16 @@ impl UiRuntime {
         let generation =
             |surface| (self.generation << 32) | u64::from(surfaces.generation(surface));
         let menu_layout = surfaces.layout(SurfaceId::Menu);
+        let mut menu_controls = view.clone();
+        // SteamVR owns its dashboard; only the OpenXR backend exposes the
+        // application-owned settings quad from the wrist menu.
+        if backend.kind() == BackendKind::OpenXr {
+            menu_controls
+                .labels
+                .insert("settings_available".into(), "1".into());
+        }
         let menu_view = business.then(|| SurfaceView::Menu {
-            controls: view.clone(),
+            controls: menu_controls.clone(),
             players: players.clone(),
             ui: self.menu_ui.clone(),
             hold_progress: None,
@@ -684,13 +702,18 @@ impl UiRuntime {
             backend.visible(OverlayKind::OcrWrist),
         ];
         self.pointer_targets = [
-            (OverlayKind::WristMenu, menu_key, menu_device),
+            (
+                OverlayKind::WristMenu,
+                menu_key,
+                menu_device.map(|device| device.0),
+            ),
             (
                 OverlayKind::Wrist,
                 dialogue_key,
                 (placement.display_mode() == Mode::Wrist)
                     .then_some(dialogue_device)
-                    .flatten(),
+                    .flatten()
+                    .map(|device| device.0),
             ),
             (OverlayKind::OcrWrist, reader_key, None),
         ]
@@ -718,23 +741,25 @@ impl UiRuntime {
         let samples: Vec<_> = inputs
             .into_iter()
             .map(|input| {
-                let hit = pointer.filter(|p| p.device == input.device).and_then(|p| {
-                    let region = match p.key.surface {
-                        Surface::Menu => {
-                            active_slider.or_else(|| menu_layout.as_ref()?.hit(p.point))?
-                        }
-                        Surface::Dialogue => dialogue_layout.as_ref()?.hit(p.point)?,
-                        Surface::Reader => reader_layout.as_ref()?.hit(p.point)?,
-                    };
-                    Some(Hit {
-                        key: p.key,
-                        region,
-                        point: p.point,
-                        distance: p.distance,
-                    })
-                });
+                let hit = pointer
+                    .filter(|p| p.device == input.device.0)
+                    .and_then(|p| {
+                        let region = match p.key.surface {
+                            Surface::Menu => {
+                                active_slider.or_else(|| menu_layout.as_ref()?.hit(p.point))?
+                            }
+                            Surface::Dialogue => dialogue_layout.as_ref()?.hit(p.point)?,
+                            Surface::Reader => reader_layout.as_ref()?.hit(p.point)?,
+                        };
+                        Some(Hit {
+                            key: p.key,
+                            region,
+                            point: p.point,
+                            distance: p.distance,
+                        })
+                    });
                 Sample {
-                    device: input.device,
+                    device: input.device.0,
                     trigger: input.trigger,
                     grip: input.grip,
                     hit,
@@ -818,8 +843,10 @@ impl UiRuntime {
                 },
                 Surface::Dialogue => match event.kind {
                     Kind::Grab if !placement.busy() => {
-                        if let (Some((controller, _)), Some(panel)) = (
-                            backend.controller_pose(event.device),
+                        if let (Some(controller), Some(panel)) = (
+                            backend
+                                .controller_pose(DeviceId(event.device))
+                                .map(|pose| pose.pose),
                             placement
                                 .absolute_pose()
                                 .or_else(|| backend.wrist_pose(&config.wrist)),
@@ -883,15 +910,27 @@ impl UiRuntime {
                     (view.owner_epoch, players_revision),
                     action,
                 ),
+                wrist_menu::Command::Dashboard => {
+                    if let Err(error) = backend.toggle_dashboard() {
+                        tracing::debug!(%error, "VR settings toggle unavailable");
+                    }
+                }
                 navigation => {
                     self.menu_ui.apply(&navigation, players);
                 }
             }
         }
+        let rising = self.menu_visible && !self.menu_was_visible;
+        self.menu_was_visible = self.menu_visible;
+        if rising {
+            // A faded-out menu may still own a capture that never produced a
+            // frame; rebuild it so the next appearance republishes the state.
+            self.menu_surface.reset();
+        }
         let result = (|| -> Result<(), String> {
             let ready = if self.menu_visible && business {
                 let frame = SurfaceView::Menu {
-                    controls: view.clone(),
+                    controls: menu_controls.clone(),
                     players: players.clone(),
                     ui: self.menu_ui.clone(),
                     hold_progress,
@@ -951,7 +990,7 @@ impl UiRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::super::surface;
+    use super::super::surface_protocol;
     use super::*;
 
     #[test]
@@ -984,11 +1023,11 @@ mod tests {
             revision: 2,
         };
         let mut layout = SurfaceLayout {
-            key: surface::SurfaceKey {
+            key: surface_protocol::SurfaceKey {
                 generation: 1,
                 revision: 7,
             },
-            regions: vec![surface::Region {
+            regions: vec![surface_protocol::Region {
                 id: 0,
                 bounds: [0.4375, 0.8375, 0.5625, 0.9625],
                 circle: true,
@@ -1012,7 +1051,7 @@ mod tests {
             position: [0., 0., -1.],
             distance: 1.,
             scroll_y: 0.,
-            origin: 1,
+            origin: SpaceId(1),
             panel: [[0.; 4]; 3],
             panel_width: 1.,
         };
@@ -1082,7 +1121,7 @@ mod tests {
             position: [0., 0., -1.],
             distance: 1.,
             scroll_y: 0.,
-            origin: 1,
+            origin: SpaceId(1),
             panel: [[0.; 4]; 3],
             panel_width: 1.,
         };

@@ -16,6 +16,7 @@ pub struct PresentationFrame {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PresentationContent {
     Headset(Vec<WristMessage>),
+    #[cfg(any(windows, linux_vr, test))]
     Wrist(Vec<WristMessage>),
 }
 
@@ -60,6 +61,7 @@ impl PresentationFrame {
         }
     }
 
+    #[cfg(any(windows, linux_vr, test))]
     pub fn wrist(messages: Vec<WristMessage>) -> Self {
         Self {
             content: PresentationContent::Wrist(messages),
@@ -131,10 +133,12 @@ pub struct HeadsetPresentation {
 }
 
 impl HeadsetPresentation {
+    #[cfg(any(windows, linux_vr, test))]
     pub fn revision(&self) -> u64 {
         self.revision
     }
 
+    #[cfg(any(windows, linux_vr, test))]
     pub fn next_change(&self, now: Instant, config: &VrOverlayHeadsetConfig) -> Option<Instant> {
         self.recent
             .iter()
@@ -473,16 +477,19 @@ pub struct WristPresentation {
     partials: VecDeque<PresentationItem>,
     player_limit: Option<usize>,
     terminated: TerminatedUtterances,
+    #[cfg(any(windows, linux_vr, test))]
     last_activity: Option<Instant>,
     retention_revision: u64,
     revision: u64,
 }
 
 impl WristPresentation {
+    #[cfg(any(windows, linux_vr, test))]
     pub fn revision(&self) -> u64 {
         self.revision
     }
 
+    #[cfg(any(windows, linux_vr, test))]
     pub fn idle_expires_at(&self, config: &VrOverlayWristConfig) -> Option<Instant> {
         (config.idle_hide_seconds > 0).then(|| {
             self.last_activity
@@ -498,14 +505,17 @@ impl WristPresentation {
         self.player_limit = limit;
     }
 
+    #[cfg(any(windows, linux_vr, test))]
     pub fn retention_revision(&self) -> u64 {
         self.retention_revision
     }
 
+    #[cfg(any(windows, linux_vr))]
     pub fn has_candidates(&self) -> bool {
         !self.entries.is_empty() || !self.partials.is_empty()
     }
 
+    #[cfg(any(windows, linux_vr, test))]
     pub fn idle_expired(&self, now: Instant, config: &VrOverlayWristConfig) -> bool {
         config.idle_hide_seconds > 0
             && self.last_activity.is_some_and(|last| {
@@ -560,6 +570,7 @@ impl WristPresentation {
                 if !has_content && replaced {
                     self.retention_revision += 1;
                 }
+                #[cfg(any(windows, linux_vr, test))]
                 if has_content {
                     self.last_activity = Some(now);
                 }
@@ -579,7 +590,10 @@ impl WristPresentation {
                 let mut item = item_from_partial(utterance_id, source, text, language, now);
                 item.speaker = speaker;
                 upsert_partial(&mut self.partials, item);
-                self.last_activity = Some(now);
+                #[cfg(any(windows, linux_vr, test))]
+                {
+                    self.last_activity = Some(now);
+                }
                 self.revision = self.revision.wrapping_add(1);
             }
             PresentationEvent::RecognitionCancelled {
@@ -623,6 +637,7 @@ impl WristPresentation {
                 }
                 if source_enabled(&subtitle.source, config) {
                     let item = item_from_subtitle(subtitle, utterance_id, now);
+                    #[cfg(any(windows, linux_vr, test))]
                     let has_content = !wrist_message(
                         &item,
                         selected_caption_mode(
@@ -636,6 +651,7 @@ impl WristPresentation {
                     .is_empty();
                     self.entries.push_back(item);
                     self.trim(config.max_entries);
+                    #[cfg(any(windows, linux_vr, test))]
                     if has_content {
                         self.last_activity = Some(now);
                     }
@@ -655,6 +671,7 @@ impl WristPresentation {
                 {
                     if update_translation(item, target_language, text, preferred) {
                         self.revision = self.revision.wrapping_add(1);
+                        #[cfg(any(windows, linux_vr, test))]
                         if source_enabled(&item.source, config) {
                             self.last_activity = Some(now);
                         }
@@ -683,6 +700,7 @@ impl WristPresentation {
                         .map(|translation| translation.target_language.as_str())
                         .collect::<Vec<_>>()
                         .join(",");
+                    #[cfg(any(windows, linux_vr, test))]
                     if accepted && source_enabled(&item.source, config) {
                         self.last_activity = Some(now);
                     }
@@ -719,6 +737,7 @@ impl WristPresentation {
         self.frame_with_translation_display(now, config, "all_languages")
     }
 
+    #[cfg(any(windows, linux_vr, test))]
     pub fn frame_with_translation_display(
         &self,
         now: Instant,
@@ -1001,6 +1020,7 @@ fn update_translation(
     true
 }
 
+#[cfg(any(windows, linux_vr, test))]
 fn wrist_message(item: &PresentationItem, mode: &str, translation_display: &str) -> WristMessage {
     WristMessage {
         original: Some(caption_original(item, false, None)),

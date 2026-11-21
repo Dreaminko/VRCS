@@ -102,6 +102,7 @@ impl Feedback {
         self.displayed = !needs_wrist;
     }
 
+    #[cfg(windows)]
     pub fn results_changed(&mut self) {
         self.displayed = false;
     }
@@ -228,6 +229,13 @@ impl Feedback {
             if now.saturating_duration_since(ended) >= duration {
                 return None;
             }
+            // Recognition-only completion shares the displayed-source presentation.
+            #[cfg(windows)]
+            let state = if state == OcrState::Recognized {
+                OcrState::SourceVisible
+            } else {
+                state
+            };
             match state {
                 OcrState::Disabled => {
                     stages = [Stage::Skipped; 4];
@@ -247,7 +255,6 @@ impl Feedback {
                     };
                 }
                 OcrState::Visible
-                | OcrState::Recognized
                 | OcrState::SourceVisible
                 | OcrState::PartialVisible
                 | OcrState::TranslationFailed => {

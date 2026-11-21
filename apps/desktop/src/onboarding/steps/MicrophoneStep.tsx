@@ -7,6 +7,7 @@ import type { MicrophoneCalibrationPhase } from "../../settings/hooks/useMicroph
 import type { AudioLevel } from "../../capture/types";
 import type { Health } from "../../core-client/types";
 import type { Settings } from "../../settings/types";
+import { CapabilitySection, usePlatformCapabilities } from "../../core-client/capabilities";
 
 export function MicrophoneStep({
   settings,
@@ -40,13 +41,14 @@ export function MicrophoneStep({
   onSkipCalibration: () => void;
 }) {
   const { t } = useTranslation();
+  const { core } = usePlatformCapabilities();
 
   return (
     <div className="onboarding-step-content">
       {settings.audio.microphone.mode === "disabled" ? (
         <div className="onboarding-disabled-feature"><Mic size={28} /><h2>{t("onboarding.microphone.disabledTitle")}</h2><p>{t("onboarding.microphone.disabledDescription")}</p></div>
       ) : (
-        <>
+        <CapabilitySection capability={core?.audio.microphone}>
           <div className="onboarding-intro"><p>{t("onboarding.microphone.description")}</p></div>
           <MicrophoneLevelSetting
             level={microphoneLevel}
@@ -78,7 +80,7 @@ export function MicrophoneStep({
             </div>
           </div>
           {!microphoneReviewed && <button className="onboarding-text-action" type="button" onClick={onSkipCalibration}>{t("onboarding.microphone.skipCalibration")}</button>}
-        </>
+        </CapabilitySection>
       )}
     </div>
   );

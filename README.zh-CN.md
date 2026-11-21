@@ -32,6 +32,9 @@
 - 云端识别、翻译和学习分析需要对应服务商的 API 凭据，服务商可能收取费用。
 - OCR 需下载本地 PP-OCRv6 模型。
 
+Linux GNU x86_64 原生支持（暂不发布 ARM64）：已实现 PipeWire 采集（系统音频、VRChat 进程与麦克风）、Secret Service、托管 Qwen CPU/Vulkan、Screenshot Portal 选区（用于桌面 OCR 与桌面视觉问答）、X11 / Portal 全局快捷键与 `.deb` / AppImage 原生打包。GPU 开发使用 `npm run dev:vulkan`，Linux 原生包已启用 Vulkan 支持。
+Linux GNU x86_64 已支持 PLaMo 本地 CPU 翻译，并已默认开放 VR 字幕、腕部面板、Dashboard 与控制器输入（OpenXR/OpenVR）；由于上游 OpenXR/Monado 尚未提供开放给第三方应用的 VR 场景捕获 API，Linux 下的 VR OCR 与 VR 视觉问答暂不开放。完整桌面与硬件验收仍在进行中，实测结果、功能限制与发布门槛见 [Linux 开发说明](CONTRIBUTING.md#linux-development-initial-adaptation)。
+
 想试用 Nightly 时，可在「设置 › 系统 › 软件更新」开启「接收 Nightly 更新」。应用在检查到新版本后提示，由你确认安装。Nightly 可能不稳定，与正式版共用本机数据。关闭订阅后，应用只检查比已安装版本更新的正式版。
 
 ## 首次使用
@@ -61,11 +64,11 @@
 
 ## 接收 VRChat Chatbox
 
-此功能为实验性功能，仅支持 Windows。真实 VRC 环境中的接收和展示仍需实机验收。
+此功能为实验性功能。Windows 使用分页文件与内存压缩准备；Linux x86_64 的完整 `.deb` 会在同一包内安装内置 `--network-helper` 的 `/usr/bin/vrcs-desktop` 与 polkit 策略，首次实际采集时通过会话中的 polkit 认证代理授权。AppImage 不安装系统二进制或策略，目前也没有单独发布的助手包；须手动安装 `/usr/bin/vrcs-desktop` 与策略，或使用完整 deb。Arch 开发安装、更新及卸载命令见 [Linux 开发说明](CONTRIBUTING.md#linux-development-initial-adaptation)，`npm run dev` 不会自动安装。真实 VRC 环境中的接收和展示仍需实机验收；ARM64 暂不发布。
 
 在「设置 › 采集」打开「接收并翻译 VRChat Chatbox」，默认关闭。它独立于语音来源，实际接收由全局「开始／停止采集」控制。只接收文字时，将「其他人的声音」和麦克风均设为关闭，再开始采集；纯文字模式不需要 Opus、ASR 或 VAD。
 
-Chatbox 和分玩家音轨共用 Windows 网络准备：以管理员权限运行、选择实际分页文件所在盘，并关闭 Windows 内存压缩。分页文件所在盘及内存压缩管理位于「设置 › 采集」底部的「VRChat 网络采集」；修改内存压缩后需重启电脑，程序不会自动替你更改系统设置。使用前请阅读网络采集的服务条款、隐私与账号风险提示。
+Chatbox 和分玩家音轨共用网络采集后端。Windows 需以管理员权限运行、选择实际分页文件所在盘并关闭内存压缩；Linux 需安装匹配的 `/usr/bin/vrcs-desktop`（内置 `--network-helper`）与 polkit 策略，并在会话 polkit 认证代理的系统授权框中确认，音频还需要系统 Opus（Ubuntu 为 `libopus0`）。AppImage 用户须手动安装系统程序与策略，或使用完整 deb。修改内存压缩后需重启电脑，程序不会自动替你更改系统设置。使用前请阅读网络采集的服务条款、隐私与账号风险提示。
 
 自动翻译使用当前语言会话中「其他玩家」的目标语言，需要配置支持文字翻译的服务；实时音频翻译服务不能替代文字翻译。手动或禁用翻译时仍保留原文。接收到的其他玩家文字及译文不会通过 OSC 再次发送回 VRChat，本机 Chatbox 输出仍是独立功能。
 

@@ -12,7 +12,7 @@ import { usesVrchatNetwork } from "../capture/vrchat-network";
 
 const CONTROL_LABEL_KEYS = [
   "emptyDialogue", "dragHint", "anchorWrist", "anchorWorld", "followView",
-  "controlBusy", "controlFailed", "masterOff", "waitingContent",
+  "controlBusy", "controlFailed", "masterOff", "waitingContent", "settings",
 ] as const;
 
 interface VrControlBridgeOptions {
@@ -20,6 +20,7 @@ interface VrControlBridgeOptions {
   getSettings: () => Settings | null;
   update: (apply: (settings: Settings) => Settings) => Promise<Settings>;
   available: boolean;
+  sceneCapture: boolean;
   requested: boolean | undefined;
   getRequested: () => boolean;
   running: boolean;
@@ -53,7 +54,7 @@ function buildControlView(
       item(settings?.osc.enabled ?? false, settings?.osc.enabled ?? false, options.available && Boolean(settings), "OSC"),
       item(requested, options.running, options.available, t(requested ? "capture.stop" : "capture.start"), options.busy),
       item(settings?.ocr.hand_gesture_enabled ?? false, settings?.ocr.hand_gesture_enabled ?? false,
-        options.available && gesture.available, t("settings.vrDashboard.gesture"), false, null, gesture.hidden),
+        options.available && options.sceneCapture && gesture.available, t("settings.vrDashboard.gesture"), false, null, gesture.hidden),
     ],
   };
 }
@@ -236,6 +237,7 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
     options.available,
     options.running,
     options.busy,
+    options.sceneCapture,
     t,
   ]);
 

@@ -18,6 +18,8 @@ import { clearLegacyLearningBinding, learningPreferencesSnapshot, legacyLearning
 export function useSettingsRuntime({
   active,
   coreConfigured,
+  audioSupported,
+  refreshCapabilities,
   health,
   stopMicrophoneTest,
   setCaptureRunning,
@@ -30,6 +32,8 @@ export function useSettingsRuntime({
   health: CoreHealthController;
   stopMicrophoneTest: () => Promise<void>;
   setCaptureRunning: (running: boolean) => Promise<boolean>;
+  audioSupported: boolean | undefined;
+  refreshCapabilities?: () => Promise<void>;
   playerAudioStart: PlayerAudioStart;
   clearErrorFrom: (source: string) => void;
   reportError: ReportRuntimeError;
@@ -38,6 +42,7 @@ export function useSettingsRuntime({
   const persistedSettingsRef = useRef<Settings | null>(null);
   const [devices, setDevices] = useState<AudioDevice[]>([]);
   const [devicesReady, setDevicesReady] = useState(false);
+  const [devicesError, setDevicesError] = useState(false);
 
   const loadSettings = useCallback(async () => {
     if (!coreConfigured) return;
@@ -50,15 +55,32 @@ export function useSettingsRuntime({
 
   const loadDevices = useCallback(async () => {
     if (!coreConfigured) return;
+    if (audioSupported === undefined) return;
+    if (!audioSupported) {
+      setDevices([]);
+      setDevicesReady(true);
+      setDevicesError(false);
+      clearErrorFrom("devices");
+      return;
+    }
+    setDevicesError(false);
     try {
       setDevices(await captureApi.devices());
       setDevicesReady(true);
+      setDevicesError(false);
       clearErrorFrom("devices");
     } catch (reason) {
       setDevicesReady(false);
+      setDevicesError(true);
       reportError(reason, "errors.audio.devices", "devices");
     }
-  }, [clearErrorFrom, coreConfigured, reportError]);
+  }, [audioSupported, clearErrorFrom, coreConfigured, reportError]);
+
+  const refreshDevices = useCallback(async () => {
+    if (!coreConfigured) return;
+    await refreshCapabilities?.();
+    await loadDevices();
+  }, [coreConfigured, loadDevices, refreshCapabilities]);
 
   const refreshModels = loadSettings;
 
@@ -108,6 +130,7 @@ export function useSettingsRuntime({
     const microphoneRouteChanged = previous !== null && (
       previous.audio.microphone.mode !== next.audio.microphone.mode
       || previous.audio.microphone.device_id !== next.audio.microphone.device_id
+      || previous.audio.microphone.device_key !== next.audio.microphone.device_key
     );
     if (health.getCurrent()?.microphone_test_running && microphoneRouteChanged) {
       await stopMicrophoneTest();
@@ -190,15 +213,16 @@ export function useSettingsRuntime({
       .catch(() => { /* Shared settings errors report failures; the next health update retries. */ })
       .finally(() => { refreshingPlayerNames.current = false; });
   }, []);
-  const observedPlayers = health.value?.player_audio?.players;
+  const observedPlayersFrom = (current: Health | null) => current?.network_players ?? current?.player_audio?.players;
+  const observedPlayers = observedPlayersFrom(health.value);
   useEffect(() => {
     syncObservedPlayers(observedPlayers);
   }, [observedPlayers, syncObservedPlayers]);
   useEffect(() => {
-    if (settings) syncObservedPlayers(getCurrentHealth()?.player_audio?.players);
+    if (settings) syncObservedPlayers(observedPlayersFrom(getCurrentHealth()));
   }, [settings, syncObservedPlayers]);
   useEffect(() => subscribeHealth(() => {
-    syncObservedPlayers(getCurrentHealth()?.player_audio?.players);
+    syncObservedPlayers(observedPlayersFrom(getCurrentHealth()));
   }), [syncObservedPlayers]);
 
   const testOsc = useCallback(async () => {
@@ -211,7 +235,7 @@ export function useSettingsRuntime({
     value: settings,
     getCurrent: () => persistedSettingsRef.current,
     getOptimistic: () => settingsAutosaveRef.current?.getDesired() ?? persistedSettingsRef.current ?? null,
-    devices: { items: devices, ready: devicesReady, refresh: loadDevices },
+    devices: { items: devices, ready: devicesReady, error: devicesError, refresh: refreshDevices },
     asr: { refresh: refreshModels },
     refresh: loadSettings,
     reload: async () => { await loadSettings(); return persistedSettingsRef.current ?? undefined; },

@@ -32,6 +32,22 @@ Download `VRCS-<version>-windows-x64.exe` from [GitHub Releases](https://github.
 - Cloud recognition, translation, and learning analysis require the selected provider's API credentials. Provider charges may apply.
 - For OCR, download the local PP-OCRv6 models.
 
+Native Linux support targets GNU `x86_64` (ARM64 is deferred for now): PipeWire capture (system, VRChat process, and microphone), Secret Service,
+managed Qwen CPU/Vulkan, Screenshot Portal region selection (for desktop OCR and visual question answering), native X11 / Portal global shortcuts, and native `.deb`/AppImage packaging are implemented.
+Use `npm run dev:vulkan` for GPU recognition; native Linux packages include Vulkan support.
+Linux GNU x86_64 also supports local PLaMo CPU translation, as well as VR subtitles, wrist overlays, dashboard, and controller input (OpenXR/OpenVR). VR scene capture for VR OCR and VR visual question answering remains disabled on Linux pending upstream OpenXR/Monado scene-capture APIs; full desktop/hardware acceptance is still in progress. See [Linux development](CONTRIBUTING.md#linux-development-initial-adaptation)
+for measured results and release gates.
+
+Linux x86_64 player audio and Chatbox network reception remain experimental;
+real VRChat/Proton reception and sustained operation still require game acceptance.
+The full Ubuntu deb installs `/usr/bin/vrcs-desktop` with built-in `--network-helper`
+support and the polkit policy, declaring `pkexec`, `polkitd` and `libopus0`
+dependencies. Capture also needs a polkit authentication agent running in your
+graphical session. AppImage installs neither `/usr/bin/vrcs-desktop` nor its
+policy: use manual installation or the full deb; no standalone helper package is
+currently published. See the Linux development guide above for Arch installation,
+updates and removal. `npm run dev` does not install the privileged binary or policy.
+
 ## Getting started
 
 1. Follow the setup wizard to select a UI language, feature mode (`Translation only` / `All features` / `Custom`), and local or cloud recognition.

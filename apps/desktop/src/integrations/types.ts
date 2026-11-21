@@ -29,6 +29,8 @@ export interface VrcxRuntimeStatus {
 }
 
 export type VrOverlayTranslationDisplay = "preferred_only" | "all_languages";
+export type VrOverlayBackend = "auto" | "openvr" | "openxr";
+export type VrOverlayActiveBackend = Exclude<VrOverlayBackend, "auto">;
 export type VrOverlayHand = "left" | "right" | "dominant";
 export type VrOverlayControllerHand = "left" | "right";
 
@@ -83,6 +85,7 @@ export interface VrOverlayWristSettings {
 export interface VrOverlaySettings {
   wrist_menu: { enabled: boolean; hand: VrOverlayControllerHand };
   enabled: boolean;
+  backend: VrOverlayBackend;
   translation_display: VrOverlayTranslationDisplay;
   headset: VrOverlayHeadsetSettings;
   wrist: VrOverlayWristSettings;
@@ -162,6 +165,8 @@ export interface VrDashboardStatus {
 
 export interface VrOverlayStatus {
   state: VrOverlayRuntimeState;
+  requested_backend: VrOverlayBackend;
+  backend: VrOverlayActiveBackend | null;
   runtime_installed: boolean;
   hmd_present: boolean;
   last_connected_at: string | null;

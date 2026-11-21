@@ -14,16 +14,20 @@
 .device-group + .device-group { margin-top: 24px; }
 .device-group-content { display: grid; grid-column: 2; min-width: 0; gap: 16px; }
 .device-group-content > * { min-width: 0; margin: 0; }
-.audio-section > :is(.device-group, .capture-chatbox-settings) {
+.audio-section > :is(.device-group, .capture-chatbox-settings),
+.audio-section > .platform-capability-section > :is(.device-group, .capture-chatbox-settings) {
   min-width: 0;
   padding: var(--settings-card-padding);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
 }
-.audio-section > :is(.device-group, .capture-chatbox-settings) + :is(.device-group, .capture-chatbox-settings) { margin-top: var(--settings-group-gap); }
+.audio-section > :is(.device-group, .capture-chatbox-settings, .platform-capability-section) + :is(.device-group, .capture-chatbox-settings, .platform-capability-section, .capability-notice),
+.audio-section > .platform-capability-section > :is(.device-group, .capture-chatbox-settings) + :is(.device-group, .capture-chatbox-settings) { margin-top: var(--settings-group-gap); }
+.audio-section > .capability-notice + :is(.device-group, .capture-chatbox-settings, .player-audio-settings, .platform-capability-section, .capability-notice) { margin-top: 12px; }
 .player-audio-settings { margin: 16px 0 24px; }
-.audio-section > .player-audio-settings { margin: var(--settings-group-gap) 0 0; }
+.audio-section > .player-audio-settings,
+.audio-section > .platform-capability-section > .player-audio-settings { margin: var(--settings-group-gap) 0 0; }
 .device-group-content > .player-audio-settings { margin: 0; }
 .player-audio-settings .settings-field-note,
 .capture-chatbox-settings .settings-field-note { margin: 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }

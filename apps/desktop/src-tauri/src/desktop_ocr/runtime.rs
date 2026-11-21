@@ -1,6 +1,6 @@
 use super::status::DesktopOcrStatus;
 use std::sync::Mutex;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -22,14 +22,18 @@ struct State {
     status: DesktopOcrStatus,
     task: Option<tauri::async_runtime::JoinHandle<()>>,
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     selection_cancelled: Arc<AtomicBool>,
+    #[cfg(target_os = "linux")]
+    selection_cancel_notify: Arc<tokio::sync::Notify>,
 }
 
 impl State {
     fn cancel(&mut self) {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         self.selection_cancelled.store(true, Ordering::Release);
+        #[cfg(target_os = "linux")]
+        self.selection_cancel_notify.notify_waiters();
         if let Some(task) = self.task.take() {
             task.abort();
         }
@@ -44,7 +48,8 @@ impl State {
         }
         if self.active_config.as_ref() != Some(config) {
             self.cancel();
-            self.status.state = if config.desktop_enabled && cfg!(windows) {
+            self.status.state = if config.desktop_enabled && cfg!(any(windows, target_os = "linux"))
+            {
                 "idle"
             } else {
                 "disabled"
@@ -81,6 +86,17 @@ impl Manager {
 
     pub fn status(&self) -> DesktopOcrStatus {
         self.state.lock().unwrap().status.clone()
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn shortcut_binding(&self) -> Option<String> {
+        self.state
+            .lock()
+            .unwrap()
+            .config
+            .as_ref()
+            .filter(|config| config.desktop_enabled)
+            .map(|config| config.shortcut.clone())
     }
 
     pub fn start(
@@ -137,6 +153,8 @@ impl Manager {
                 self.shortcut_error(Some("desktop_ocr.unavailable".into()));
             }
         }
+        #[cfg(target_os = "linux")]
+        crate::desktop_capture::portal_shortcuts::sync(self.app.clone());
     }
 
     #[cfg(windows)]
@@ -150,6 +168,7 @@ impl Manager {
         Ok(())
     }
 
+    #[cfg(windows)]
     pub fn shortcut_error(&self, error: Option<String>) {
         let mut state = self.state.lock().unwrap();
         if state.status.shortcut_error != error {
@@ -275,25 +294,28 @@ impl Manager {
         });
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     pub fn scan(&self) -> Result<(), String> {
         Err("desktop_ocr.unavailable".into())
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub fn scan(&self) -> Result<(), String> {
+        #[cfg(windows)]
         use vrcs_core::ocr::desktop_capture::capture_desktop;
         if self.status().state == "selecting" {
             self.close();
             return Ok(());
         }
         // Native getters can wait for the UI thread. Do not hold scan state here.
+        #[cfg(windows)]
         let result_windows: Vec<isize> = ["ocr", "vision"]
             .into_iter()
             .filter_map(|label| self.app.get_webview_window(label))
             .filter_map(|window| window.hwnd().ok())
             .map(|hwnd| hwnd.0 as isize)
             .collect();
+        #[cfg(windows)]
         let hint = crate::desktop_capture::selection_hint(&self.app, "ocrWindow");
         let mut state = self.state.lock().unwrap();
         let service = state
@@ -304,6 +326,7 @@ impl Manager {
         if !config.ocr().desktop_enabled {
             return Err("desktop_ocr.disabled".into());
         }
+        #[cfg(windows)]
         let picker =
             crate::desktop_capture::reserve_picker().map_err(|_| "desktop_ocr.selection_busy")?;
         state.cancel();
@@ -311,6 +334,12 @@ impl Manager {
         state.active_config = Some(config.ocr().clone());
         let selection_cancelled = Arc::new(AtomicBool::new(false));
         state.selection_cancelled = selection_cancelled.clone();
+        #[cfg(target_os = "linux")]
+        let selection_cancel_notify = Arc::new(tokio::sync::Notify::new());
+        #[cfg(target_os = "linux")]
+        {
+            state.selection_cancel_notify = selection_cancel_notify.clone();
+        }
         state.status.state = "capturing";
         state.status.blocks.clear();
         state.status.error = None;
@@ -320,39 +349,61 @@ impl Manager {
         let app = self.app.clone();
         state.task = Some(tauri::async_runtime::spawn(async move {
             let result = async {
-                let mut capture =
-                    tauri::async_runtime::spawn_blocking(move || capture_desktop(&result_windows))
-                        .await
-                        .map_err(|_| "desktop_ocr.capture_failed".to_string())??;
-
-                if !app
-                    .state::<Self>()
-                    .update(scan_id, |status| status.state = "selecting")
-                {
-                    return Ok(None);
-                }
-                let selected = tauri::async_runtime::spawn_blocking(move || {
-                    let region = super::selection_window::select_region_reserved(
-                        &capture,
-                        &selection_cancelled,
-                        &hint,
-                        &picker,
-                    )?;
-                    let Some(region) = region else {
-                        return Ok::<_, String>(None);
+                #[cfg(target_os = "linux")]
+                let capture = {
+                    let selected = crate::desktop_capture::portal::capture_region(
+                        selection_cancelled.clone(),
+                        selection_cancel_notify,
+                        || {
+                            app.state::<Self>()
+                                .update(scan_id, |status| status.state = "selecting");
+                        },
+                    )
+                    .await?;
+                    let Some(image) = selected else {
+                        return Ok(None);
                     };
-                    if selection_cancelled.load(Ordering::Acquire) {
+                    image
+                };
+                #[cfg(windows)]
+                let capture = {
+                    let mut capture = tauri::async_runtime::spawn_blocking(move || {
+                        capture_desktop(&result_windows)
+                    })
+                    .await
+                    .map_err(|_| "desktop_ocr.capture_failed".to_string())??;
+
+                    if !app
+                        .state::<Self>()
+                        .update(scan_id, |status| status.state = "selecting")
+                    {
                         return Ok(None);
                     }
-                    capture.pixels = region.crop(capture.width, capture.height, &capture.pixels)?;
-                    capture.width = region.width;
-                    capture.height = region.height;
-                    Ok(Some(capture))
-                })
-                .await
-                .map_err(|_| "desktop_ocr.capture_failed".to_string())??;
-                let Some(capture) = selected else {
-                    return Ok(None);
+                    let selected = tauri::async_runtime::spawn_blocking(move || {
+                        let region = super::selection_window::select_region_reserved(
+                            &capture,
+                            &selection_cancelled,
+                            &hint,
+                            &picker,
+                        )?;
+                        let Some(region) = region else {
+                            return Ok::<_, String>(None);
+                        };
+                        if selection_cancelled.load(Ordering::Acquire) {
+                            return Ok(None);
+                        }
+                        capture.pixels =
+                            region.crop(capture.width, capture.height, &capture.pixels)?;
+                        capture.width = region.width;
+                        capture.height = region.height;
+                        Ok(Some(capture))
+                    })
+                    .await
+                    .map_err(|_| "desktop_ocr.capture_failed".to_string())??;
+                    let Some(capture) = selected else {
+                        return Ok(None);
+                    };
+                    capture
                 };
                 if !app
                     .state::<Self>()
@@ -412,11 +463,13 @@ impl Manager {
                     tracing::warn!(scan_id, %error, "Desktop OCR scan failed");
                     if manager.update(scan_id, |status| {
                         status.state = "error";
-                        status.error = Some(if error.starts_with("desktop_ocr.") {
-                            error
-                        } else {
-                            "desktop_ocr.failed".into()
-                        });
+                        status.error = Some(
+                            if error.starts_with("desktop_ocr.") || error.starts_with("capture.") {
+                                error
+                            } else {
+                                "desktop_ocr.failed".into()
+                            },
+                        );
                     }) {
                         manager.show_result(scan_id);
                     }
@@ -443,6 +496,15 @@ fn sort_blocks(blocks: &mut [TranslatedBlock]) {
     blocks.sort_by_key(|block| block.source.id);
 }
 
+#[cfg(target_os = "linux")]
+fn prepare_image(capture: crate::desktop_capture::image::Image) -> vrcs_core::ocr::OcrImage {
+    vrcs_core::ocr::OcrImage {
+        data: vrcs_core::ocr::OcrImageData::Rgba(capture.pixels),
+        width: capture.width,
+        height: capture.height,
+    }
+}
+
 #[cfg(windows)]
 fn prepare_image(
     capture: vrcs_core::ocr::desktop_capture::DesktopCapture,
@@ -458,7 +520,7 @@ fn prepare_image(
 mod tests {
     use super::*;
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     #[test]
     fn cancelling_a_scan_signals_its_native_picker() {
         let mut state = State::default();

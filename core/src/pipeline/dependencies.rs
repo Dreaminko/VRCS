@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, RwLock, Weak};
+#[cfg(any(windows, target_os = "linux", test))]
+use std::sync::Weak;
+use std::sync::{Arc, Mutex, RwLock};
 
 use tokio::sync::broadcast;
 
@@ -29,6 +31,7 @@ struct RecognizedText {
 }
 
 type PlayerIdentity = Arc<RwLock<crate::models::SpeakerIdentity>>;
+#[cfg(any(windows, target_os = "linux", test))]
 type PlayerIdentities = Arc<Mutex<HashMap<String, Weak<RwLock<crate::models::SpeakerIdentity>>>>>;
 
 #[derive(Clone)]
@@ -44,6 +47,7 @@ pub(crate) struct PipelineDependencies {
     managed_qwen: Option<(Arc<QwenRuntime>, Arc<ModelManager>)>,
     player: Option<(PlayerIdentity, String)>,
     player_validity: Option<TaskValidity>,
+    #[cfg(any(windows, target_os = "linux", test))]
     player_identities: PlayerIdentities,
     player_previews: Arc<Mutex<HashSet<String>>>,
     room_context: crate::room_context::RoomContextReader,
@@ -100,6 +104,7 @@ impl PipelineDependencies {
             managed_qwen: None,
             player: None,
             player_validity: None,
+            #[cfg(any(windows, target_os = "linux", test))]
             player_identities: Arc::default(),
             player_previews: Arc::default(),
             room_context: crate::room_context::RoomContextReader::default(),
@@ -144,6 +149,7 @@ impl PipelineDependencies {
         self.managed_qwen.clone()
     }
 
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(crate) fn with_player(mut self, speaker: crate::models::SpeakerIdentity) -> Self {
         let shared = {
             let mut identities = self.player_identities.lock().expect("player identities");
@@ -180,6 +186,7 @@ impl PipelineDependencies {
         self.player_validity.clone()
     }
 
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(super) fn invalidate_player(&self) {
         if let Some(validity) = &self.player_validity {
             validity.invalidate();
@@ -192,6 +199,7 @@ impl PipelineDependencies {
             .map(|(speaker, _)| speaker.read().expect("player identity").clone())
     }
 
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn update_player(&self, speaker: &crate::models::SpeakerIdentity) -> bool {
         let Some((current, _)) = &self.player else {
             return false;
@@ -207,6 +215,7 @@ impl PipelineDependencies {
         true
     }
 
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(super) async fn publish_speaker(&self, speaker: crate::models::SpeakerIdentity) {
         // Retiring ASR tasks can still be saving their last sentence.
         // They share this identity even after removal from the active task map.

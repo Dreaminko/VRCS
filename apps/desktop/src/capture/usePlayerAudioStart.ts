@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 
+import { runtimeApi } from "../core-client/runtime-api";
 import { PLAYER_AUDIO_READING_MS, type PlayerAudioPreparation } from "./player-audio-vr";
 export { PLAYER_AUDIO_READING_MS } from "./player-audio-vr";
 
@@ -14,7 +15,7 @@ export interface MemoryCompressionStatus {
 }
 type MemoryDialog = "manage" | "disable" | "enable" | null;
 
-export function usePlayerAudioStart(options?: { beforeMemoryChange: () => Promise<boolean> }) {
+export function usePlayerAudioStart(options?: { os?: string; beforeMemoryChange: () => Promise<boolean> }) {
   const { t } = useTranslation();
   const optionsRef = useRef(options);
   optionsRef.current = options;
@@ -124,6 +125,10 @@ export function usePlayerAudioStart(options?: { beforeMemoryChange: () => Promis
 
   const checkMemoryBeforeStart = useCallback(async () => {
     if (!isTauri()) return true;
+    // Linux has no Windows pagefile/MMAgent prerequisite; Core requests the
+    // network helper through polkit only after a VRChat process is found.
+    const os = optionsRef.current?.os ?? (await runtimeApi.platformCapabilities().catch(() => null))?.os;
+    if (os === "linux") return true;
     setPreparation({ stage: "memory", detail: null });
     try {
       const status = await refreshMemory();

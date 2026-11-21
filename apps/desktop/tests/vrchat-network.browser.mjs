@@ -35,7 +35,7 @@ test("Chatbox capture prepares before start and hot save without restarting othe
         ensurePrivileges:async()=>{testing.events.push('privileges');if(privileges==='cancelled')throw Error('UAC cancelled');return privileges==='ready';},
         prepare:async()=>{testing.events.push('prepare');await new Promise(resolve=>setTimeout(resolve,20));return confirmed;}};
       function Fixture(){
-        runtime=useSettingsRuntime({active:false,coreConfigured:true,health,stopMicrophoneTest:async()=>{},setCaptureRunning:setRunning,
+        runtime=useSettingsRuntime({active:false,coreConfigured:true,audioSupported:true,health,stopMicrophoneTest:async()=>{},setCaptureRunning:setRunning,
           playerAudioStart:gate,clearErrorFrom:noop,reportError:noop});
         capture=useCaptureControl({coreReady:true,getRunning:()=>testing.running,outputMode:runtime.value?.audio.output.mode,
           networkCaptureEnabled:usesVrchatNetwork(runtime.value),preparePlayerAudioStart:gate.prepare,

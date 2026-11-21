@@ -3,7 +3,7 @@
 //! The watcher runs independently of network capture, discovers the current
 //! VRChat process itself, and publishes a small snapshot. Consumers such as the
 //! player-audio worker read the snapshot instead of owning file polling.
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod watcher;
 
 use std::sync::Arc;
@@ -24,6 +24,7 @@ pub(crate) struct Snapshot {
     pub room_token: Option<u64>,
     pub world_session_token: Option<u64>,
     pub world_name: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Clone)]
@@ -41,7 +42,7 @@ impl Default for VrchatLog {
 impl VrchatLog {
     pub(crate) fn start(shutdown: watch::Receiver<bool>) -> Self {
         let log = Self::default();
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         {
             let tx = Arc::clone(&log.tx);
             if let Err(error) = std::thread::Builder::new()
@@ -51,7 +52,7 @@ impl VrchatLog {
                 tracing::warn!(%error, "VRChat log watcher could not start");
             }
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux")))]
         let _ = shutdown;
         log
     }
@@ -65,7 +66,7 @@ impl VrchatLog {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn run(tx: Arc<watch::Sender<Snapshot>>, shutdown: watch::Receiver<bool>) {
     let mut active: Option<(ProcessIdentity, watcher::WorldWatcher)> = None;
     let mut discovered_at = Instant::now()
@@ -100,6 +101,7 @@ fn run(tx: Arc<watch::Sender<Snapshot>>, shutdown: watch::Receiver<bool>) {
             let room_token = watcher.room_token();
             let world_session_token = watcher.world_session_token();
             let world_name = watcher.world_name().map(str::to_owned);
+            let error = watcher.error().map(str::to_owned);
             publish(
                 &tx,
                 Snapshot {
@@ -108,6 +110,7 @@ fn run(tx: Arc<watch::Sender<Snapshot>>, shutdown: watch::Receiver<bool>) {
                     room_token,
                     world_session_token,
                     world_name,
+                    error,
                 },
             );
         }
@@ -145,6 +148,7 @@ mod tests {
             room_token: Some(11),
             world_session_token: Some(22),
             world_name: Some("Test World".into()),
+            error: None,
         };
         publish(&log.tx, next.clone());
         assert_eq!(log.snapshot(), next);

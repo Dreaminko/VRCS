@@ -32,6 +32,7 @@ import type { PlayerAudioStart } from "../capture/usePlayerAudioStart";
 import { applyModelDefaults } from "./model-selection";
 import type { ApplySettings } from "./settings-types";
 import { useApiProfileCatalog } from "../providers/useApiProfileCatalog";
+import { usePlatformCapabilities } from "../core-client/capabilities";
 
 export function SettingsPanel({
   initialCategory = "system",
@@ -41,6 +42,7 @@ export function SettingsPanel({
   interfaceScale,
   devices,
   devicesReady,
+  devicesError = false,
   onStartMicrophoneTest,
   onStopMicrophoneTest,
   dictionaries,
@@ -64,6 +66,7 @@ export function SettingsPanel({
   interfaceScale: number;
   devices: AudioDevice[];
   devicesReady: boolean;
+  devicesError?: boolean;
   onStartMicrophoneTest: () => Promise<void>;
   onStopMicrophoneTest: () => Promise<void>;
   dictionaries: DictionarySource[];
@@ -84,6 +87,7 @@ export function SettingsPanel({
   updater: AppUpdaterState;
 }) {
   const { t, i18n } = useTranslation();
+  const capabilities = usePlatformCapabilities();
   const locale = i18n.resolvedLanguage ?? "en-US";
   const [requestedCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
   const [apiTab, setApiTab] = useState<ApiSettingsTab>("models");
@@ -213,6 +217,7 @@ export function SettingsPanel({
           onOpenTranslation={() => setActiveCategory("translation")}
           devices={devices}
           devicesReady={devicesReady}
+          devicesError={devicesError}
           microphoneRunning={Boolean(health?.capture_running && health.microphone_device)}
           transcriptionRunning={health?.capture_requested ?? false}
           microphoneTestRunning={health?.microphone_test_running ?? false}
@@ -307,7 +312,7 @@ export function SettingsPanel({
       )}
 
       {activeCategory === "vision" && (
-        <OcrSettingsSection vrAvailable={settings.features.vr_overlay} draft={draft}
+        <OcrSettingsSection vrAvailable={settings.features.vr_overlay && Boolean(capabilities.desktop?.vr.scene_capture.supported)} draft={draft}
           profiles={apiProfileCatalog.profiles} applySettings={applySettings}
           onManageLocalModels={openLocalModels} />
       )}
@@ -317,6 +322,7 @@ export function SettingsPanel({
       {activeCategory === "vr_overlay" && (
         <VrOverlaySettingsSection
           draft={draft}
+          os={capabilities.desktop?.os}
           saveState={saveState}
           applySettings={applySettings}
         />

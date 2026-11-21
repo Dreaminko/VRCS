@@ -28,6 +28,7 @@ for (const width of [1200, 861, 860, 681, 680, 380]) {
         import zh from './src/i18n/locales/zh-CN.json';
         import { CaptureSettingsSection } from './src/settings/sections/CaptureSettingsSection';
         import { AudioStep } from './src/onboarding/steps/AudioStep';
+        import { WindowsCapabilities } from './tests/fixtures/platform-capabilities';
         import './src/styles.css';
         window.requestAnimationFrame = callback => window.setTimeout(() => callback(performance.now()), 16);
         window.cancelAnimationFrame = id => window.clearTimeout(id);
@@ -53,7 +54,7 @@ for (const width of [1200, 861, 860, 681, 680, 380]) {
         let draft;
         let releaseMicrophoneTest;
         const startMicrophoneTest = () => new Promise(resolve => { releaseMicrophoneTest = resolve; });
-        function Harness({ onboarding = false, busy = false, ready = true, empty = false, settings = initial }) {
+        function Harness({ onboarding = false, busy = false, ready = true, empty = false, keyed = false, settings = initial }) {
           const [current, setDraft] = useState(settings);
           draft = current;
           const applySettings = update => {
@@ -61,15 +62,18 @@ for (const width of [1200, 861, 860, 681, 680, 380]) {
             updates.push(next);
             setDraft(next);
           };
-          const devices = { outputDevices: empty ? [] : outputDevices, microphoneDevices: empty ? [] : microphoneDevices,
-            devicesReady: ready, deviceErrors: [] };
-          return <I18nextProvider i18n={i18n}>{onboarding
+          const devices = {
+            outputDevices: empty ? [] : outputDevices.map(device => keyed ? { ...device, device_key: 'pipewire:sink:' + device.id } : device),
+            microphoneDevices: empty ? [] : microphoneDevices.map(device => keyed ? { ...device, device_key: 'pipewire:source:' + device.id } : device),
+            devicesReady: ready, deviceErrors: [],
+          };
+          return <WindowsCapabilities><I18nextProvider i18n={i18n}>{onboarding
             ? <AudioStep settings={current} {...devices} hasAudioSource={true} audioBusy={busy}
                 onRefreshDevices={noop} onUpdateSettings={applySettings} onSetMicrophoneReviewed={value => reviewed.push(value)} />
             : <CaptureSettingsSection draft={current} {...devices} devices={[...devices.outputDevices, ...devices.microphoneDevices]}
                 microphoneRunning={false} transcriptionRunning={false} microphoneTestRunning={false} saveState="saved"
                 onRefresh={noop} applySettings={applySettings} onStartMicrophoneTest={startMicrophoneTest} onStopMicrophoneTest={noop} />
-          }</I18nextProvider>;
+          }</I18nextProvider></WindowsCapabilities>;
         }
         const root = createRoot(document.getElementById('root'));
         const check = (condition, message) => { if (!condition) throw new Error(message); };
@@ -202,7 +206,7 @@ for (const width of [1200, 861, 860, 681, 680, 380]) {
           check(groups()[0].textContent.includes(i18n.t('settings.audio.scanning')), 'Scan progress is visible');
           flushSync(() => root.render(<Harness key="missing" settings={missing} empty={true} />));
           checkLayout();
-          check(trigger(0).textContent === i18n.t('common.unavailable'), 'A missing device is not presented as the system default');
+          check(trigger(0).textContent === i18n.t('settings.audio.reselectionRequired'), 'A missing device is not presented as the system default');
           check(groups()[0].textContent.includes(i18n.t('settings.audio.noDevices')), 'An empty scan has an explicit result');
           check(updates.length === savedCount && draft.audio.output.device_id === 99, 'Scanning does not overwrite the saved source');
           await select(0, i18n.t('settings.audio.systemOutput'));
@@ -218,6 +222,26 @@ for (const width of [1200, 861, 860, 681, 680, 380]) {
           await select(1, microphoneDevices[0].name);
           check(reviewed.at(-1) === false, 'Changing the onboarding microphone resets its review');
           checkLayout();
+
+          stage = 'persistent keys and rediscovery';
+          for (const onboarding of [false, true]) {
+            const fixtureKey = 'keyed-' + onboarding;
+            flushSync(() => root.render(<Harness key={fixtureKey} keyed={true} onboarding={onboarding} />));
+            await select(0, outputDevices[0].name);
+            await select(1, microphoneDevices[0].name);
+            check(draft.audio.output.device_key === 'pipewire:sink:0' && draft.audio.output.device_id === null, 'Persistent output keys never save a transient numeric ID');
+            check(draft.audio.microphone.device_key === 'pipewire:source:2' && draft.audio.microphone.device_id === null, 'Persistent microphone keys never save a transient numeric ID');
+            const saved = updates.length;
+            flushSync(() => root.render(<Harness key={fixtureKey} keyed={true} onboarding={onboarding} empty={true} />));
+            check(trigger(0).textContent !== i18n.t('settings.audio.systemOutput') && trigger(1).textContent !== i18n.t('settings.audio.defaultMicrophone'), 'Missing keyed devices never appear as default sources');
+            check(updates.length === saved && draft.audio.output.device_key === 'pipewire:sink:0', 'Device loss preserves the saved persistent selection');
+            flushSync(() => root.render(<Harness key={fixtureKey} keyed={true} onboarding={onboarding} />));
+            check(trigger(0).textContent === outputDevices[0].name && trigger(1).textContent === microphoneDevices[0].name, 'Rediscovery restores the saved keyed selections without rewriting preferences');
+            check(updates.length === saved, 'Rediscovery does not save settings');
+            await select(0, i18n.t('settings.audio.systemOutput'));
+            await select(1, i18n.t('settings.audio.defaultMicrophone'));
+            check(draft.audio.output.device_key === null && draft.audio.output.device_id === null && draft.audio.microphone.device_key === null && draft.audio.microphone.device_id === null, 'Default sources clear both device identities');
+          }
 
           stage = 'open menu layout';
           flushSync(() => root.render(<Harness key="preview" />));

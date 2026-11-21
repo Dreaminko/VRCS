@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useLayoutEffect, useMemo, useRef, type ComponentType, type CSSProperties, type ReactNode } from "react";
-import { Captions, ChevronLeft, ChevronRight, Crop, Eye, GripHorizontal, Hand, Languages, MessageSquare, Mic, Pin, PinOff, Radio, ScanEye, Square, UsersRound, X } from "lucide-react";
+import { Captions, ChevronLeft, ChevronRight, Crop, Eye, GripHorizontal, Hand, Languages, MessageSquare, Mic, Pin, PinOff, Radio, ScanEye, Settings2, Square, UsersRound, X } from "lucide-react";
 import "./surface.css";
 import type { WristMenuCommand } from "../vr-controls/player-display-protocol";
 import type { ControlAction } from "../vr-controls/protocol";
@@ -85,6 +85,8 @@ function Menu({ state, view }: { state: SurfaceState; view: Extract<SurfaceView,
           </svg>}
         </SurfaceButton>;
       })}
+      {view.controls.labels.settings_available && <SurfaceButton state={state} id={31}
+        label={view.controls.labels.settings || "Settings"} menu="dashboard"><Settings2 /></SurfaceButton>}
     </nav>
   </>;
 }

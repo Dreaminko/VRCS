@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(any(windows, linux_vr))]
 pub const REQUEST_EVENT: &str = "vr-overlay-control-request";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,6 +30,7 @@ impl ControlAction {
         }
     }
 
+    #[cfg(any(windows, linux_vr, test))]
     pub fn region_id(self) -> u8 {
         match self {
             // Keep personnel navigation and pages at 4 and above; reserve 30 for this gesture.
@@ -93,6 +95,7 @@ pub struct ControlHub {
     active: bool,
     snapshot: ControlSnapshot,
     version: u64,
+    #[cfg(any(windows, linux_vr, test))]
     sequence: u32,
     pending: [Option<ControlRequest>; 5],
     failures: [Option<String>; 5],
@@ -101,20 +104,24 @@ pub struct ControlHub {
     player_audio_revision: u32,
     player_display: super::player_display::View,
     player_display_revision: u32,
+    #[cfg(any(windows, linux_vr, test))]
     player_display_sequence: u32,
     player_display_pending: BTreeMap<u32, super::player_display::Request>,
     player_display_failure: Option<String>,
 }
 
 impl ControlHub {
+    #[cfg(any(windows, linux_vr, test))]
     pub fn ui_version(&self) -> u64 {
         self.version
     }
 
+    #[cfg(any(windows, linux_vr, test))]
     pub fn player_display(&self) -> &super::player_display::View {
         &self.player_display
     }
 
+    #[cfg(any(windows, linux_vr, test))]
     pub fn player_display_revision(&self) -> u32 {
         self.player_display_revision
     }
@@ -141,6 +148,7 @@ impl ControlHub {
         true
     }
 
+    #[cfg(any(windows, linux_vr, test))]
     pub fn begin_player_display(
         &mut self,
         source: ControlSource,
@@ -190,12 +198,16 @@ impl ControlHub {
     fn reset_player_display(&mut self) {
         self.player_display = Default::default();
         self.player_display_revision = 0;
-        self.player_display_sequence = 0;
+        #[cfg(any(windows, linux_vr, test))]
+        {
+            self.player_display_sequence = 0;
+        }
         self.player_display_pending.clear();
         self.player_display_failure = None;
         self.version = self.version.wrapping_add(1);
     }
 
+    #[cfg(any(windows, linux_vr, test))]
     pub fn player_audio(&self) -> &super::player_audio_ui::View {
         &self.player_audio
     }
@@ -217,6 +229,7 @@ impl ControlHub {
         true
     }
 
+    #[cfg(any(windows, linux_vr, test))]
     pub fn player_audio_decision(
         &self,
         request_id: u32,
@@ -236,10 +249,12 @@ impl ControlHub {
         self.active
     }
 
+    #[cfg(any(windows, linux_vr, test))]
     pub(super) fn owns_epoch(&self, epoch: u32) -> bool {
         self.active && self.snapshot.owner_epoch == epoch
     }
 
+    #[cfg(any(windows, linux_vr))]
     pub(super) fn dark(&self) -> bool {
         self.snapshot.dark
     }
@@ -272,7 +287,10 @@ impl ControlHub {
         self.snapshot = view;
         self.pending = Default::default();
         self.failures = Default::default();
-        self.sequence = 0;
+        #[cfg(any(windows, linux_vr, test))]
+        {
+            self.sequence = 0;
+        }
         self.player_audio = Default::default();
         self.player_audio_revision = 0;
         self.reset_player_display();
@@ -323,6 +341,7 @@ impl ControlHub {
         Ok(self.snapshot())
     }
 
+    #[cfg(any(windows, linux_vr, test))]
     pub fn begin(
         &mut self,
         source: ControlSource,

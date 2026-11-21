@@ -1,46 +1,60 @@
-#[cfg(windows)]
+#[cfg(any(windows, linux_vr))]
+#[derive(Debug, Clone, Copy)]
+pub struct CursorTarget {
+    pub kind: OverlayKind,
+    pub position: [f32; 3],
+    pub origin: SpaceId,
+    pub panel: Pose,
+    pub panel_width: f32,
+    pub texture_width: u32,
+}
+
+#[cfg(any(windows, linux_vr))]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RayHit {
+    pub point: [f32; 2],
+    pub position: [f32; 3],
+    pub distance: f32,
+    pub panel: Pose,
+    pub panel_width: f32,
+}
+
+#[cfg(any(windows, linux_vr))]
 mod platform {
     use openvr::overlay::OverlayHandle;
     use openvr::pose::Matrix3x4;
     use openvr::tracked_device_index;
     use openvr::{ApplicationType, Context, Overlay, System, TrackedControllerRole};
-    use vrcs_core::{VrOcrWristConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig};
+    #[cfg(windows)]
+    use vrcs_core::VrOcrWristConfig;
+    use vrcs_core::{VrOverlayHeadsetConfig, VrOverlayWristConfig};
 
-    use super::{menu_config, ControllerBinding, OverlayKind};
+    use super::{menu_config, ControllerBinding, CursorTarget, OverlayKind, RayHit};
+    #[cfg(windows)]
     use crate::vr_overlay::d3d11_texture::{Device, Readback};
     use crate::vr_overlay::dashboard::{
         pointer_from_openvr, DashboardPointerEvent, DASHBOARD_HEIGHT, DASHBOARD_WIDTH,
     };
+    #[cfg(windows)]
     use crate::vr_overlay::ocr_capture::{
         center_bounds, crop_projection, pose_within_translation_limit_m, projection_from_openvr,
         EyeCapture, StereoCapture, OCR_MOVEMENT_LIMIT_M,
     };
-    use crate::vr_overlay::renderer::{dashboard_placeholder, Texture};
-    use crate::vr_overlay::surface::windows_wgc::Capture;
-    use crate::vr_overlay::surface::SurfaceId;
-    use crate::vr_overlay::transform;
-    use std::{cell::RefCell, collections::HashMap, rc::Rc};
+    #[cfg(windows)]
+    use crate::vr_overlay::pose::SpaceId;
+    use crate::vr_overlay::renderer::dashboard_placeholder;
+    #[cfg(windows)]
+    use crate::vr_overlay::renderer::Texture;
+    use crate::vr_overlay::surface_protocol::SurfaceId;
+    use crate::vr_overlay::{cursor, ocr_input, transform};
+    use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
+
+    #[cfg(windows)]
+    type SurfaceCapture = crate::vr_overlay::surface::windows_wgc::Capture;
+    #[cfg(linux_vr)]
+    type SurfaceCapture = crate::vr_overlay::surface::frame::Capture;
 
     type TipPoseMap = HashMap<(u32, u64), Option<[[f32; 4]; 3]>>;
-
-    #[derive(Debug, Clone, Copy)]
-    pub struct CursorTarget {
-        pub kind: OverlayKind,
-        pub position: [f32; 3],
-        pub origin: i32,
-        pub panel: [[f32; 4]; 3],
-        pub panel_width: f32,
-        pub texture_width: u32,
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    pub struct RayHit {
-        pub point: [f32; 2],
-        pub position: [f32; 3],
-        pub distance: f32,
-        pub panel: [[f32; 4]; 3],
-        pub panel_width: f32,
-    }
 
     const HEADSET_KEY: &str = "org.vrcs.overlay.headset\0";
     const HEADSET_NAME: &str = "VRCS Headset Subtitles\0";
@@ -50,6 +64,26 @@ mod platform {
     const DASHBOARD_NAME: &str = "VRCS\0";
     const DASHBOARD_THUMBNAIL: tauri::image::Image<'_> =
         tauri::include_image!("icons/128x128@2x.png");
+    #[allow(clippy::unnecessary_cast)]
+    const fn event_u32(value: openvr_sys::EVREventType) -> u32 {
+        value as u32
+    }
+
+    #[allow(clippy::unnecessary_cast)]
+    const fn tracking_space_i32(value: openvr_sys::ETrackingUniverseOrigin) -> i32 {
+        value as i32
+    }
+
+    #[allow(clippy::unnecessary_cast)]
+    const MOUSE_LEFT_BUTTON: u32 = openvr_sys::EVRMouseButton_VRMouseButton_Left as u32;
+
+    const VREVENT_MOUSE_MOVE: u32 = event_u32(openvr_sys::EVREventType_VREvent_MouseMove);
+    const VREVENT_MOUSE_DOWN: u32 = event_u32(openvr_sys::EVREventType_VREvent_MouseButtonDown);
+    const VREVENT_MOUSE_UP: u32 = event_u32(openvr_sys::EVREventType_VREvent_MouseButtonUp);
+    const VREVENT_SCROLL_SMOOTH: u32 = event_u32(openvr_sys::EVREventType_VREvent_ScrollSmooth);
+    const VREVENT_SCROLL_DISCRETE: u32 = event_u32(openvr_sys::EVREventType_VREvent_ScrollDiscrete);
+    const VREVENT_SHOWN: u32 = event_u32(openvr_sys::EVREventType_VREvent_OverlayShown);
+    const VREVENT_HIDDEN: u32 = event_u32(openvr_sys::EVREventType_VREvent_OverlayHidden);
 
     fn clear_surface_reference<T>(
         table: &openvr_sys::VR_IVROverlay_FnTable,
@@ -69,50 +103,49 @@ mod platform {
         Ok(())
     }
 
-    pub struct OpenVrBackend {
+    pub struct VrBackend {
         context: Context,
         system: System,
         raw_system: *const openvr_sys::VR_IVRSystem_FnTable,
         raw_compositor: Option<*const openvr_sys::VR_IVRCompositor_FnTable>,
         raw_render_models: Option<*const openvr_sys::VR_IVRRenderModels_FnTable>,
+        #[cfg(windows)]
         adapter_index: Option<u32>,
         tip_cache: RefCell<TipPoseMap>,
         overlay: Overlay,
         raw_overlay: *const openvr_sys::VR_IVROverlay_FnTable,
+        #[cfg(windows)]
         capture_resources: CaptureResources,
         headset: Option<OverlayHandle>,
         wrist: Option<OverlayHandle>,
         wrist_menu: Option<OverlayHandle>,
         tracking_reset: bool,
         ocr_wrist: Option<OverlayHandle>,
+        #[cfg(windows)]
         ocr_progress: Option<OverlayHandle>,
         player_audio: Option<OverlayHandle>,
         ocr_wrist_device: Option<u32>,
+        #[cfg(windows)]
         ocr_frame: Option<OverlayHandle>,
+        #[cfg(windows)]
         ocr_result: Option<OverlayHandle>,
         dashboard: DashboardOverlay,
-        headset_state: SubmittedState,
-        wrist_state: SubmittedState,
-        wrist_menu_state: SubmittedState,
-        ocr_wrist_state: SubmittedState,
-        ocr_progress_state: SubmittedState,
-        player_audio_state: SubmittedState,
-        ocr_frame_state: SubmittedState,
-        ocr_result_state: SubmittedState,
-        dashboard_state: SubmittedState,
-        ocr_input: Option<crate::vr_overlay::ocr_input::OcrInput>,
-        cursor: crate::vr_overlay::cursor::CursorOverlay,
-        cursor_interval: std::time::Duration,
+        states: [SubmittedState; 9],
+        ocr_input: Option<ocr_input::OcrInput>,
+        cursor: cursor::CursorOverlay,
+        cursor_interval: Duration,
         // The backend also owns submitted textures, even if a caller resets its renderer.
-        surface_captures: [Option<Rc<RefCell<Capture>>>; 9],
+        surface_captures: [Option<Rc<RefCell<SurfaceCapture>>>; 9],
     }
 
+    #[cfg(windows)]
     struct PendingCapture {
         capture: StereoCapture,
         readbacks: Vec<Readback>,
         head: [[f32; 4]; 3],
     }
 
+    #[cfg(windows)]
     #[derive(Default)]
     struct CaptureResources {
         pending: Option<PendingCapture>,
@@ -120,6 +153,7 @@ mod platform {
         device: Option<Device>,
     }
 
+    #[cfg(windows)]
     impl CaptureResources {
         fn reset(&mut self) {
             self.pending = None;
@@ -148,7 +182,9 @@ mod platform {
         width_m: Option<f32>,
         premultiplied: bool,
         transform: Option<OverlayTransform>,
+        #[cfg(windows)]
         interactive: Option<bool>,
+        #[cfg(windows)]
         plane: Option<(crate::vr_overlay::ocr_plane::PlaneOverlay, i32)>,
     }
 
@@ -290,11 +326,13 @@ mod platform {
         }
     }
 
+    #[cfg(windows)]
     struct Mirror {
         view: *mut std::ffi::c_void,
         release: unsafe extern "C" fn(*mut std::ffi::c_void),
     }
 
+    #[cfg(windows)]
     impl Mirror {
         fn get_or_create(
             slot: &mut Option<Self>,
@@ -307,6 +345,7 @@ mod platform {
         }
     }
 
+    #[cfg(windows)]
     impl Drop for Mirror {
         fn drop(&mut self) {
             if !self.view.is_null() {
@@ -317,7 +356,8 @@ mod platform {
         }
     }
 
-    impl OpenVrBackend {
+    impl VrBackend {
+        #[cfg(windows)]
         pub fn hide_ocr(&mut self) {
             // Static WGC surfaces may not produce another frame when shown again.
             self.hide(OverlayKind::OcrFrame);
@@ -346,9 +386,10 @@ mod platform {
                     table
                         .GetLastFrameRenderer
                         .ok_or("Scene query unavailable")?(),
-                    table
+                    tracking_space_i32(table
                         .GetTrackingSpace
-                        .ok_or("Tracking space query unavailable")?(),
+                        .ok_or("Tracking space query unavailable")?(
+                    )),
                 ))
             }
         }
@@ -356,15 +397,17 @@ mod platform {
             if self.ocr_input.is_none() {
                 let table = load_raw_interface(openvr_sys::IVRInput_Version, "input")?
                     as *const openvr_sys::VR_IVRInput_FnTable;
-                self.ocr_input =
-                    Some(unsafe { crate::vr_overlay::ocr_input::OcrInput::new(table, path)? });
+                self.ocr_input = Some(unsafe { ocr_input::OcrInput::new(table, path)? });
             }
             self.ocr_input
                 .as_mut()
                 .expect("OCR input initialized")
                 .update_actions()
         }
+    }
 
+    #[cfg(windows)]
+    impl VrBackend {
         pub fn ocr_input(
             &mut self,
             gesture_enabled: bool,
@@ -465,7 +508,7 @@ mod platform {
             let pending = self.capture_resources.pending.take().unwrap();
             let (head, pid, origin) = self.ocr_tracking()?;
             if pid != pending.capture.scene_pid
-                || origin != pending.capture.origin
+                || SpaceId(origin as u32) != pending.capture.origin
                 || !pose_within_translation_limit_m(pending.head, head, OCR_MOVEMENT_LIMIT_M)
             {
                 return Err("Headset position or scene changed during capture; scan again".into());
@@ -521,9 +564,10 @@ mod platform {
                     return Err("Headset pose is unavailable".into());
                 }
                 let captured_at = std::time::Instant::now();
-                let origin = compositor
+                let origin = tracking_space_i32(compositor
                     .GetTrackingSpace
-                    .ok_or("Tracking space query unavailable")?();
+                    .ok_or("Tracking space query unavailable")?(
+                ));
                 let get_mirror = compositor
                     .GetMirrorTextureD3D11
                     .ok_or("D3D11 mirror capture unavailable")?;
@@ -651,10 +695,10 @@ mod platform {
                         .GetLastFrameRenderer
                         .ok_or("Scene renderer query unavailable")?()
                         != scene_pid
-                    || compositor
+                    || tracking_space_i32(compositor
                         .GetTrackingSpace
-                        .ok_or("Tracking space query unavailable")?()
-                        != origin
+                        .ok_or("Tracking space query unavailable")?(
+                    )) != origin
                 {
                     return Err(
                         "Headset position or scene changed during capture; scan again".into(),
@@ -669,18 +713,61 @@ mod platform {
                         pose: after.mDeviceToAbsoluteTracking.m,
                         scene_pid,
                         captured_at,
-                        origin,
+                        origin: SpaceId(origin as u32),
                     },
                 });
                 Ok(())
             }
         }
+    }
+
+    impl VrBackend {
         pub fn runtime_installed() -> bool {
             openvr::is_runtime_installed()
         }
 
         pub fn hmd_present() -> bool {
             openvr::is_hmd_present()
+        }
+
+        pub fn runtime_path() -> Option<std::path::PathBuf> {
+            #[cfg(linux_vr)]
+            {
+                if let Some(override_dir) =
+                    std::env::var_os("VR_OVERRIDE").filter(|value| !value.is_empty())
+                {
+                    return Some(std::path::PathBuf::from(override_dir));
+                }
+                extern "C" {
+                    fn VR_GetRuntimePath(
+                        pch_path_buffer: *mut std::ffi::c_char,
+                        un_buffer_size: u32,
+                        pun_required_buffer_size: *mut u32,
+                    ) -> bool;
+                }
+                let mut buffer = vec![0 as std::ffi::c_char; 512];
+                let mut required = 0u32;
+                let mut ok = unsafe {
+                    VR_GetRuntimePath(buffer.as_mut_ptr(), buffer.len() as u32, &mut required)
+                };
+                if ok && required as usize > buffer.len() {
+                    buffer.resize(required as usize, 0);
+                    ok = unsafe {
+                        VR_GetRuntimePath(buffer.as_mut_ptr(), buffer.len() as u32, &mut required)
+                    };
+                }
+                if !ok {
+                    return None;
+                }
+                let path = unsafe { std::ffi::CStr::from_ptr(buffer.as_ptr()) }
+                    .to_string_lossy()
+                    .into_owned();
+                (!path.is_empty()).then(|| std::path::PathBuf::from(path))
+            }
+            #[cfg(not(linux_vr))]
+            {
+                None
+            }
         }
 
         pub fn connect() -> Result<Self, String> {
@@ -692,8 +779,10 @@ mod platform {
             let overlay = context
                 .overlay()
                 .map_err(|error| format!("OpenVR overlay interface failed: {error:?}"))?;
-            let raw_overlay = load_raw_overlay()?;
-            let raw_system = load_raw_system()?;
+            let raw_overlay = load_raw_interface(openvr_sys::IVROverlay_Version, "overlay")?
+                as *const openvr_sys::VR_IVROverlay_FnTable;
+            let raw_system = load_raw_interface(openvr_sys::IVRSystem_Version, "system")?
+                as *const openvr_sys::VR_IVRSystem_FnTable;
             let raw_compositor =
                 load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor")
                     .ok()
@@ -702,8 +791,9 @@ mod platform {
                 load_raw_interface(openvr_sys::IVRRenderModels_Version, "render models")
                     .ok()
                     .map(|pointer| pointer as *const openvr_sys::VR_IVRRenderModels_FnTable);
+            #[cfg(windows)]
             let adapter_index = dxgi_adapter_index_from(raw_system).ok();
-            let cursor_interval = crate::vr_overlay::cursor::frame_interval(
+            let cursor_interval = cursor::frame_interval(
                 system
                     .float_tracked_device_property(
                         tracked_device_index::HMD,
@@ -717,31 +807,28 @@ mod platform {
                 raw_system,
                 raw_compositor,
                 raw_render_models,
+                #[cfg(windows)]
                 adapter_index,
                 tip_cache: RefCell::new(HashMap::new()),
                 overlay,
                 raw_overlay,
+                #[cfg(windows)]
                 capture_resources: CaptureResources::default(),
                 headset: None,
                 wrist: None,
                 wrist_menu: None,
                 tracking_reset: false,
                 ocr_wrist: None,
+                #[cfg(windows)]
                 ocr_progress: None,
                 player_audio: None,
                 ocr_wrist_device: None,
+                #[cfg(windows)]
                 ocr_frame: None,
+                #[cfg(windows)]
                 ocr_result: None,
                 dashboard: DashboardOverlay::default(),
-                headset_state: SubmittedState::default(),
-                wrist_state: SubmittedState::default(),
-                wrist_menu_state: SubmittedState::default(),
-                ocr_wrist_state: SubmittedState::default(),
-                ocr_progress_state: SubmittedState::default(),
-                player_audio_state: SubmittedState::default(),
-                ocr_frame_state: SubmittedState::default(),
-                ocr_result_state: SubmittedState::default(),
-                dashboard_state: SubmittedState::default(),
+                states: std::array::from_fn(|_| SubmittedState::default()),
                 surface_captures: std::array::from_fn(|_| None),
                 ocr_input: None,
                 cursor: Default::default(),
@@ -779,7 +866,7 @@ mod platform {
                 .unwrap_or(false)
         }
 
-        pub fn poll_dashboard_events(&self) -> Result<Vec<DashboardPointerEvent>, String> {
+        pub fn poll_dashboard_events(&mut self) -> Result<Vec<DashboardPointerEvent>, String> {
             let Some(handle) = self.dashboard.main() else {
                 return Ok(Vec::new());
             };
@@ -797,36 +884,34 @@ mod platform {
                 } {
                     break;
                 }
-                let pointer = match event.eventType as i32 {
-                    openvr_sys::EVREventType_VREvent_MouseMove => {
+                let pointer = match event.eventType {
+                    VREVENT_MOUSE_MOVE => {
                         let mouse = unsafe { event.data.mouse };
                         let (x, y) = pointer_from_openvr(mouse.x, mouse.y, DASHBOARD_HEIGHT);
                         Some(DashboardPointerEvent::Move { x, y })
                     }
-                    openvr_sys::EVREventType_VREvent_MouseButtonDown => {
+                    VREVENT_MOUSE_DOWN => {
                         let mouse = unsafe { event.data.mouse };
                         let (x, y) = pointer_from_openvr(mouse.x, mouse.y, DASHBOARD_HEIGHT);
-                        (mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left as u32 != 0)
+                        (mouse.button & MOUSE_LEFT_BUTTON != 0)
                             .then_some(DashboardPointerEvent::Down { x, y })
                     }
-                    openvr_sys::EVREventType_VREvent_MouseButtonUp => {
+                    VREVENT_MOUSE_UP => {
                         let mouse = unsafe { event.data.mouse };
                         let (x, y) = pointer_from_openvr(mouse.x, mouse.y, DASHBOARD_HEIGHT);
-                        (mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left as u32 != 0)
+                        (mouse.button & MOUSE_LEFT_BUTTON != 0)
                             .then_some(DashboardPointerEvent::Up { x, y })
                     }
-                    openvr_sys::EVREventType_VREvent_ScrollSmooth
-                    | openvr_sys::EVREventType_VREvent_ScrollDiscrete => {
+                    VREVENT_SCROLL_SMOOTH | VREVENT_SCROLL_DISCRETE => {
                         let ydelta = unsafe { event.data.scroll }.ydelta;
-                        (ydelta.is_finite() && ydelta != 0.0)
-                            .then_some(DashboardPointerEvent::Scroll { ydelta })
+                        (ydelta.is_finite() && ydelta != 0.0).then_some(
+                            DashboardPointerEvent::Scroll {
+                                delta: (-ydelta * 0.25).clamp(-0.85, 0.85),
+                            },
+                        )
                     }
-                    openvr_sys::EVREventType_VREvent_OverlayShown => {
-                        Some(DashboardPointerEvent::Shown)
-                    }
-                    openvr_sys::EVREventType_VREvent_OverlayHidden => {
-                        Some(DashboardPointerEvent::Hidden)
-                    }
+                    VREVENT_SHOWN => Some(DashboardPointerEvent::Shown),
+                    VREVENT_HIDDEN => Some(DashboardPointerEvent::Hidden),
                     _ => None,
                 };
                 if let Some(event) = pointer {
@@ -845,16 +930,16 @@ mod platform {
                 self.headset = Some(handle);
             }
             let handle = self.headset.expect("headset overlay exists");
-            if self.headset_state.width_m != Some(config.width_m) {
+            if self.state(OverlayKind::Headset).width_m != Some(config.width_m) {
                 self.overlay
                     .set_width(handle, config.width_m)
                     .map_err(|error| format!("Configure headset overlay failed: {error:?}"))?;
-                self.headset_state.width_m = Some(config.width_m);
+                self.state_mut(OverlayKind::Headset).width_m = Some(config.width_m);
             }
             let raw_matrix = transform::headset(config);
             let target_transform =
                 OverlayTransform::DeviceRelative(tracked_device_index::HMD.0, raw_matrix);
-            if self.headset_state.transform != Some(target_transform) {
+            if self.state(OverlayKind::Headset).transform != Some(target_transform) {
                 let matrix = Matrix3x4(raw_matrix);
                 self.overlay
                     .set_transform_tracked_device_relative(
@@ -863,7 +948,7 @@ mod platform {
                         &matrix,
                     )
                     .map_err(|error| format!("Position headset overlay failed: {error:?}"))?;
-                self.headset_state.transform = Some(target_transform);
+                self.state_mut(OverlayKind::Headset).transform = Some(target_transform);
             }
             Ok(())
         }
@@ -881,27 +966,28 @@ mod platform {
                 self.player_audio = Some(handle);
             }
             let handle = self.player_audio.expect("player audio overlay");
-            if self.player_audio_state.width_m != Some(0.75) {
+            if self.state(OverlayKind::PlayerAudio).width_m != Some(0.75) {
                 self.overlay
                     .set_width(handle, 0.75)
                     .map_err(|e| format!("Set player audio overlay width failed: {e:?}"))?;
-                self.player_audio_state.width_m = Some(0.75);
+                self.state_mut(OverlayKind::PlayerAudio).width_m = Some(0.75);
             }
             let target_transform = OverlayTransform::Absolute(origin, pose);
-            if self.player_audio_state.transform != Some(target_transform) {
+            if self.state(OverlayKind::PlayerAudio).transform != Some(target_transform) {
                 let mut matrix = openvr_sys::HmdMatrix34_t { m: pose };
                 check_wrist_input(unsafe {
                     (*self.raw_overlay)
                         .SetOverlayTransformAbsolute
                         .ok_or("Absolute overlays unavailable")?(
-                        handle.0, origin, &mut matrix
+                        handle.0, origin as _, &mut matrix
                     )
                 })?;
-                self.player_audio_state.transform = Some(target_transform);
+                self.state_mut(OverlayKind::PlayerAudio).transform = Some(target_transform);
             }
             Ok(())
         }
 
+        #[cfg(windows)]
         pub fn ensure_ocr_progress(&mut self) -> Result<(), String> {
             if self.ocr_progress.is_none() {
                 self.ocr_progress = Some(
@@ -932,6 +1018,7 @@ mod platform {
             Ok(())
         }
 
+        #[cfg(windows)]
         pub fn ensure_ocr_plane(
             &mut self,
             kind: OverlayKind,
@@ -995,6 +1082,7 @@ mod platform {
             self.ensure_controller_overlay(OverlayKind::Wrist, config)
         }
 
+        #[cfg(windows)]
         pub fn ensure_ocr_wrist(
             &mut self,
             config: &VrOcrWristConfig,
@@ -1003,13 +1091,13 @@ mod platform {
             let binding =
                 self.ensure_controller_overlay(OverlayKind::OcrWrist, &config.overlay_config())?;
             if binding.available {
-                if self.ocr_wrist_state.interactive.is_none() {
+                if self.state(OverlayKind::OcrWrist).interactive.is_none() {
                     configure_ocr_wrist_input(
                         unsafe { &*self.raw_overlay },
                         self.ocr_wrist.ok_or("OCR wrist overlay unavailable")?,
                     )?;
                 }
-                self.ocr_wrist_state.interactive = Some(interactive);
+                self.state_mut(OverlayKind::OcrWrist).interactive = Some(interactive);
             }
             Ok(binding)
         }
@@ -1100,7 +1188,7 @@ mod platform {
                 return None;
             }
             Some((pose.mDeviceToAbsoluteTracking.m, unsafe {
-                table.GetTrackingSpace?()
+                tracking_space_i32(table.GetTrackingSpace?())
             }))
         }
 
@@ -1230,16 +1318,16 @@ mod platform {
                 self.wrist = Some(handle);
             }
             let handle = self.wrist.expect("dialogue overlay");
-            if self.wrist_state.width_m != Some(config.width_m) {
+            if self.state(OverlayKind::Wrist).width_m != Some(config.width_m) {
                 self.overlay
                     .set_width(handle, config.width_m)
                     .map_err(|e| format!("Set dialogue width failed: {e:?}"))?;
-                self.wrist_state.width_m = Some(config.width_m);
+                self.state_mut(OverlayKind::Wrist).width_m = Some(config.width_m);
             }
             if let Some(relative) = head_relative {
                 let target_transform =
                     OverlayTransform::DeviceRelative(tracked_device_index::HMD.0, relative);
-                if self.wrist_state.transform != Some(target_transform) {
+                if self.state(OverlayKind::Wrist).transform != Some(target_transform) {
                     self.overlay
                         .set_transform_tracked_device_relative(
                             handle,
@@ -1247,26 +1335,26 @@ mod platform {
                             &Matrix3x4(relative),
                         )
                         .map_err(|e| format!("Set dialogue follow transform failed: {e:?}"))?;
-                    self.wrist_state.transform = Some(target_transform);
+                    self.state_mut(OverlayKind::Wrist).transform = Some(target_transform);
                 }
                 return Ok(());
             }
             let target_transform = OverlayTransform::Absolute(origin, pose);
-            if self.wrist_state.transform != Some(target_transform) {
+            if self.state(OverlayKind::Wrist).transform != Some(target_transform) {
                 let mut matrix = openvr_sys::HmdMatrix34_t { m: pose };
                 check_wrist_input(unsafe {
                     (*self.raw_overlay)
                         .SetOverlayTransformAbsolute
                         .ok_or("Absolute overlays unavailable")?(
-                        handle.0, origin, &mut matrix
+                        handle.0, origin as _, &mut matrix
                     )
                 })?;
-                self.wrist_state.transform = Some(target_transform);
+                self.state_mut(OverlayKind::Wrist).transform = Some(target_transform);
             }
             Ok(())
         }
 
-        pub fn ui_inputs(&self) -> Vec<crate::vr_overlay::ocr_input::UiInput> {
+        pub fn ui_inputs(&self) -> Vec<ocr_input::UiInput> {
             self.ocr_input
                 .as_ref()
                 .map(|input| input.ui_samples())
@@ -1282,10 +1370,11 @@ mod platform {
             if !self.state(kind).visible {
                 return None;
             }
-            if kind == OverlayKind::OcrWrist
-                && (self.ocr_wrist_device == Some(device)
-                    || self.ocr_wrist_state.interactive != Some(true))
-            {
+            if kind == OverlayKind::OcrWrist && self.ocr_wrist_device == Some(device) {
+                return None;
+            }
+            #[cfg(windows)]
+            if kind == OverlayKind::OcrWrist && self.state(kind).interactive != Some(true) {
                 return None;
             }
             let handle = self.handle(kind)?;
@@ -1318,7 +1407,7 @@ mod platform {
                             api,
                             handle.0,
                             target.position,
-                            target.origin,
+                            target.origin.0 as i32,
                             target.panel,
                             target.panel_width,
                             target.texture_width,
@@ -1332,19 +1421,27 @@ mod platform {
         }
 
         pub fn surface_adapter_index(&self) -> Result<u32, String> {
-            self.adapter_index
-                .map_or_else(|| dxgi_adapter_index_from(self.raw_system), Ok)
+            #[cfg(windows)]
+            {
+                self.adapter_index
+                    .map_or_else(|| dxgi_adapter_index_from(self.raw_system), Ok)
+            }
+            #[cfg(linux_vr)]
+            {
+                Ok(0)
+            }
         }
 
         pub fn has_surface_texture(&self, kind: OverlayKind) -> bool {
             self.surface_captures[kind as usize].is_some()
         }
 
+        #[cfg(windows)]
         pub fn upload_surface(
             &mut self,
             kind: OverlayKind,
-            shared_handle: usize,
-            capture: Rc<RefCell<Capture>>,
+            frame: &crate::vr_overlay::surface::frame::Captured,
+            capture: Rc<RefCell<SurfaceCapture>>,
         ) -> Result<(), String> {
             if self.surface_captures[kind as usize]
                 .as_ref()
@@ -1357,9 +1454,62 @@ mod platform {
             submit_shared_texture_checked(
                 raw_overlay,
                 handle,
-                shared_handle as *mut std::ffi::c_void,
+                frame.shared_handle as *mut std::ffi::c_void,
                 &mut self.state_mut(kind).premultiplied,
             )?;
+            self.surface_captures[kind as usize] = Some(capture);
+            if kind == OverlayKind::Dashboard {
+                self.dashboard.placeholder = None;
+            }
+            Ok(())
+        }
+
+        #[cfg(linux_vr)]
+        pub fn upload_surface(
+            &mut self,
+            kind: OverlayKind,
+            frame: &crate::vr_overlay::surface::frame::Captured,
+            capture: Rc<RefCell<SurfaceCapture>>,
+        ) -> Result<(), String> {
+            if self.surface_captures[kind as usize]
+                .as_ref()
+                .is_some_and(|current| !Rc::ptr_eq(current, &capture))
+            {
+                self.clear_surface_texture(kind)?;
+            }
+            let handle = self.handle(kind).ok_or("Overlay is not created")?;
+            let texture = &frame.texture;
+            if texture.pixels.len() != texture.width as usize * texture.height as usize * 4 {
+                return Err("Invalid overlay texture".into());
+            }
+            let api = unsafe { &*self.raw_overlay };
+            if !self.state(kind).premultiplied {
+                let error = unsafe {
+                    api.SetOverlayFlag
+                        .ok_or("Overlay alpha mode is unavailable")?(
+                        handle.0,
+                        openvr_sys::VROverlayFlags_IsPremultiplied,
+                        true,
+                    )
+                };
+                if error != openvr_sys::EVROverlayError_VROverlayError_None {
+                    return Err(format!("Set overlay alpha mode failed with code {error}"));
+                }
+                self.state_mut(kind).premultiplied = true;
+            }
+            let error = unsafe {
+                api.SetOverlayRaw
+                    .ok_or("OpenVR SetOverlayRaw is unavailable")?(
+                    handle.0,
+                    texture.pixels.as_ptr().cast_mut().cast(),
+                    texture.width,
+                    texture.height,
+                    4,
+                )
+            };
+            if error != openvr_sys::EVROverlayError_VROverlayError_None {
+                return Err(format!("Submit overlay texture failed with code {error}"));
+            }
             self.surface_captures[kind as usize] = Some(capture);
             if kind == OverlayKind::Dashboard {
                 self.dashboard.placeholder = None;
@@ -1425,21 +1575,29 @@ mod platform {
 
         pub fn hide_all(&mut self) {
             let _ = self.cursor.hide(unsafe { &*self.raw_overlay });
-            self.hide(OverlayKind::Headset);
-            self.hide(OverlayKind::Wrist);
-            self.hide(OverlayKind::WristMenu);
-            self.hide(OverlayKind::OcrWrist);
-            self.hide(OverlayKind::OcrProgress);
-            self.hide(OverlayKind::PlayerAudio);
-            self.hide(OverlayKind::OcrFrame);
-            self.hide(OverlayKind::OcrResult);
+            for kind in [
+                OverlayKind::Headset,
+                OverlayKind::Wrist,
+                OverlayKind::WristMenu,
+                OverlayKind::OcrWrist,
+                OverlayKind::OcrProgress,
+                OverlayKind::PlayerAudio,
+                OverlayKind::OcrFrame,
+                OverlayKind::OcrResult,
+            ] {
+                self.hide(kind);
+            }
+        }
+
+        pub fn close_dashboard(&mut self) {
+            self.hide(OverlayKind::Dashboard);
         }
 
         pub fn reset(&mut self, kind: OverlayKind) {
             if kind == OverlayKind::Dashboard {
                 // Surface recovery must not unregister the SteamVR dashboard tab.
                 if self.clear_surface_texture(kind).is_ok() {
-                    self.dashboard_state = SubmittedState::default();
+                    self.states[kind as usize] = SubmittedState::default();
                 } else {
                     self.hide(kind);
                 }
@@ -1455,40 +1613,25 @@ mod platform {
                 OverlayKind::Wrist => self.wrist,
                 OverlayKind::WristMenu => self.wrist_menu,
                 OverlayKind::OcrWrist => self.ocr_wrist,
-                OverlayKind::OcrProgress => self.ocr_progress,
                 OverlayKind::PlayerAudio => self.player_audio,
-                OverlayKind::OcrFrame => self.ocr_frame,
-                OverlayKind::OcrResult => self.ocr_result,
                 OverlayKind::Dashboard => self.dashboard.main(),
+                #[cfg(windows)]
+                OverlayKind::OcrProgress => self.ocr_progress,
+                #[cfg(windows)]
+                OverlayKind::OcrFrame => self.ocr_frame,
+                #[cfg(windows)]
+                OverlayKind::OcrResult => self.ocr_result,
+                #[cfg(not(windows))]
+                OverlayKind::OcrProgress | OverlayKind::OcrFrame | OverlayKind::OcrResult => None,
             }
         }
 
         fn state(&self, kind: OverlayKind) -> &SubmittedState {
-            match kind {
-                OverlayKind::Headset => &self.headset_state,
-                OverlayKind::Wrist => &self.wrist_state,
-                OverlayKind::WristMenu => &self.wrist_menu_state,
-                OverlayKind::OcrWrist => &self.ocr_wrist_state,
-                OverlayKind::OcrProgress => &self.ocr_progress_state,
-                OverlayKind::PlayerAudio => &self.player_audio_state,
-                OverlayKind::OcrFrame => &self.ocr_frame_state,
-                OverlayKind::OcrResult => &self.ocr_result_state,
-                OverlayKind::Dashboard => &self.dashboard_state,
-            }
+            &self.states[kind as usize]
         }
 
         fn state_mut(&mut self, kind: OverlayKind) -> &mut SubmittedState {
-            match kind {
-                OverlayKind::Headset => &mut self.headset_state,
-                OverlayKind::Wrist => &mut self.wrist_state,
-                OverlayKind::WristMenu => &mut self.wrist_menu_state,
-                OverlayKind::OcrWrist => &mut self.ocr_wrist_state,
-                OverlayKind::OcrProgress => &mut self.ocr_progress_state,
-                OverlayKind::PlayerAudio => &mut self.player_audio_state,
-                OverlayKind::OcrFrame => &mut self.ocr_frame_state,
-                OverlayKind::OcrResult => &mut self.ocr_result_state,
-                OverlayKind::Dashboard => &mut self.dashboard_state,
-            }
+            &mut self.states[kind as usize]
         }
 
         fn destroy(&mut self, kind: OverlayKind) {
@@ -1504,14 +1647,19 @@ mod platform {
                     self.ocr_wrist_device = None;
                     self.ocr_wrist.take()
                 }
-                OverlayKind::OcrFrame => self.ocr_frame.take(),
-                OverlayKind::OcrProgress => self.ocr_progress.take(),
                 OverlayKind::PlayerAudio => self.player_audio.take(),
-                OverlayKind::OcrResult => self.ocr_result.take(),
                 OverlayKind::Dashboard => {
                     self.dashboard.destroy(unsafe { &*self.raw_overlay });
                     None
                 }
+                #[cfg(windows)]
+                OverlayKind::OcrFrame => self.ocr_frame.take(),
+                #[cfg(windows)]
+                OverlayKind::OcrProgress => self.ocr_progress.take(),
+                #[cfg(windows)]
+                OverlayKind::OcrResult => self.ocr_result.take(),
+                #[cfg(not(windows))]
+                OverlayKind::OcrFrame | OverlayKind::OcrProgress | OverlayKind::OcrResult => None,
             };
             if let Some(handle) = handle {
                 unsafe {
@@ -1528,8 +1676,9 @@ mod platform {
         }
     }
 
-    impl Drop for OpenVrBackend {
+    impl Drop for VrBackend {
         fn drop(&mut self) {
+            #[cfg(windows)]
             self.capture_resources.reset();
             self.hide_all();
             self.destroy(OverlayKind::Headset);
@@ -1558,21 +1707,20 @@ mod platform {
             if !unsafe { poll(&mut event, std::mem::size_of_val(&event) as u32) } {
                 return (false, reset, devices_changed);
             }
-            let event_type = event.eventType as i32;
-            reset |= matches!(
-                event_type,
-                openvr_sys::EVREventType_VREvent_SeatedZeroPoseReset
-                    | openvr_sys::EVREventType_VREvent_ChaperoneUniverseHasChanged
-                    | openvr_sys::EVREventType_VREvent_ChaperoneDataHasChanged
-            );
-            devices_changed |= matches!(
-                event_type,
-                openvr_sys::EVREventType_VREvent_TrackedDeviceActivated
-                    | openvr_sys::EVREventType_VREvent_TrackedDeviceDeactivated
-                    | openvr_sys::EVREventType_VREvent_TrackedDeviceUpdated
-                    | openvr_sys::EVREventType_VREvent_TrackedDeviceRoleChanged
-            );
-            if event.eventType == openvr_sys::EVREventType_VREvent_Quit as u32 {
+            let event_type = event.eventType;
+            reset |= event_type == event_u32(openvr_sys::EVREventType_VREvent_SeatedZeroPoseReset)
+                || event_type
+                    == event_u32(openvr_sys::EVREventType_VREvent_ChaperoneUniverseHasChanged)
+                || event_type
+                    == event_u32(openvr_sys::EVREventType_VREvent_ChaperoneDataHasChanged);
+            devices_changed |= event_type
+                == event_u32(openvr_sys::EVREventType_VREvent_TrackedDeviceActivated)
+                || event_type
+                    == event_u32(openvr_sys::EVREventType_VREvent_TrackedDeviceDeactivated)
+                || event_type == event_u32(openvr_sys::EVREventType_VREvent_TrackedDeviceUpdated)
+                || event_type
+                    == event_u32(openvr_sys::EVREventType_VREvent_TrackedDeviceRoleChanged);
+            if event_type == event_u32(openvr_sys::EVREventType_VREvent_Quit) {
                 unsafe {
                     system
                         .AcknowledgeQuit_Exiting
@@ -1583,6 +1731,7 @@ mod platform {
         }
     }
 
+    #[cfg(windows)]
     fn create_texture_device(adapter_index: Result<u32, String>) -> Option<Device> {
         let adapter_index = match adapter_index {
             Ok(index) => index,
@@ -1604,23 +1753,7 @@ mod platform {
         }
     }
 
-    fn set_wrist_interactive(
-        api: &openvr_sys::VR_IVROverlay_FnTable,
-        handle: OverlayHandle,
-        focused: bool,
-    ) -> Result<(), String> {
-        let error = unsafe {
-            api.SetOverlayFlag
-                .ok_or("SteamVR OCR wrist flags unavailable")?(
-                handle.0,
-                openvr_sys::VROverlayFlags_MakeOverlaysInteractiveIfVisible,
-                focused,
-            )
-        };
-        check_wrist_input(error)
-    }
-
-    fn check_wrist_input(error: i32) -> Result<(), String> {
+    fn check_wrist_input(error: openvr_sys::EVROverlayError) -> Result<(), String> {
         if error == openvr_sys::EVROverlayError_VROverlayError_None {
             Ok(())
         } else {
@@ -1641,8 +1774,14 @@ mod platform {
                 handle.0,
                 openvr_sys::VROverlayInputMethod_None,
             ))?;
+            check_wrist_input(api
+                .SetOverlayFlag
+                .ok_or("SteamVR OCR wrist flags unavailable")?(
+                handle.0,
+                openvr_sys::VROverlayFlags_MakeOverlaysInteractiveIfVisible,
+                false,
+            ))
         }
-        set_wrist_interactive(api, handle, false)
     }
 
     fn wrist_ray_hit(
@@ -1660,7 +1799,7 @@ mod platform {
             vDirection: openvr_sys::HmdVector3_t {
                 v: std::array::from_fn(|i| -matrix[i][2]),
             },
-            eOrigin: origin,
+            eOrigin: origin as _,
         };
         let mut hit: openvr_sys::VROverlayIntersectionResults_t = unsafe { std::mem::zeroed() };
         let found = unsafe { intersection(handle.0, &mut ray, &mut hit) };
@@ -1676,7 +1815,7 @@ mod platform {
         unsafe {
             check_wrist_input(overlay.GetTransformForOverlayCoordinates?(
                 handle.0,
-                origin,
+                origin as _,
                 openvr_sys::HmdVector2_t { v: [0.5, 0.5] },
                 &mut panel,
             ))
@@ -1706,6 +1845,7 @@ mod platform {
             })
     }
 
+    #[cfg(windows)]
     fn dxgi_adapter_index_from(
         raw_system: *const openvr_sys::VR_IVRSystem_FnTable,
     ) -> Result<u32, String> {
@@ -1721,7 +1861,7 @@ mod platform {
             .map_err(|_| "OpenVR did not provide a DXGI adapter".to_string())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     fn submit_shared_texture(
         raw_overlay: *const openvr_sys::VR_IVROverlay_FnTable,
         handle: OverlayHandle,
@@ -1731,6 +1871,7 @@ mod platform {
         submit_shared_texture_checked(raw_overlay, handle, shared_handle, &mut premultiplied)
     }
 
+    #[cfg(windows)]
     fn submit_shared_texture_checked(
         raw_overlay: *const openvr_sys::VR_IVROverlay_FnTable,
         handle: OverlayHandle,
@@ -1783,16 +1924,6 @@ mod platform {
         }
     }
 
-    fn load_raw_system() -> Result<*const openvr_sys::VR_IVRSystem_FnTable, String> {
-        load_raw_interface(openvr_sys::IVRSystem_Version, "system")
-            .map(|pointer| pointer as *const openvr_sys::VR_IVRSystem_FnTable)
-    }
-
-    fn load_raw_overlay() -> Result<*const openvr_sys::VR_IVROverlay_FnTable, String> {
-        load_raw_interface(openvr_sys::IVROverlay_Version, "overlay")
-            .map(|pointer| pointer as *const openvr_sys::VR_IVROverlay_FnTable)
-    }
-
     fn load_raw_interface(version: &[u8], name: &str) -> Result<isize, String> {
         let mut interface = Vec::from(b"FnTable:".as_ref());
         interface.extend(version);
@@ -1807,7 +1938,7 @@ mod platform {
         Ok(pointer)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     mod tests {
         use super::Mirror;
         use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
@@ -2152,7 +2283,7 @@ mod platform {
 
         #[test]
         fn wrist_ray_matches_texture_aspect_and_visible_menu() {
-            use crate::vr_overlay::surface::{SurfaceId, SurfaceLayout};
+            use crate::vr_overlay::surface_protocol::{SurfaceId, SurfaceLayout};
             use std::cell::Cell;
             thread_local! {
                 static PANEL: Cell<[[f32; 4]; 3]> = const { Cell::new([[0.; 4]; 3]) };
@@ -2397,69 +2528,557 @@ mod platform {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(linux_vr)))]
 mod platform {
-    use vrcs_core::{VrOverlayHeadsetConfig, VrOverlayWristConfig};
+    use vrcs_core::VrOverlayHeadsetConfig;
 
-    use super::{ControllerBinding, OverlayKind};
+    use super::OverlayKind;
 
-    pub struct OpenVrBackend;
+    pub struct VrBackend;
 
-    impl OpenVrBackend {
-        pub fn quit_requested(&self) -> bool {
+    impl VrBackend {
+        pub fn quit_requested(&mut self) -> bool {
             false
         }
 
         pub fn runtime_installed() -> bool {
             false
         }
-        #[allow(dead_code)]
-        pub fn ensure_ocr_progress(&mut self) -> Result<(), String> {
-            Err("VR Overlay is only supported on Windows".into())
-        }
         pub fn hmd_present() -> bool {
             false
         }
+        pub fn runtime_path() -> Option<std::path::PathBuf> {
+            None
+        }
         pub fn connect() -> Result<Self, String> {
-            Err("VR Overlay is only supported on Windows".into())
+            Err("VR Overlay is not available on this platform".into())
         }
         pub fn ensure_headset(&mut self, _: &VrOverlayHeadsetConfig) -> Result<(), String> {
-            Err("VR Overlay is only supported on Windows".into())
-        }
-        pub fn ensure_wrist(
-            &mut self,
-            _: &VrOverlayWristConfig,
-        ) -> Result<ControllerBinding, String> {
-            Err("VR Overlay is only supported on Windows".into())
-        }
-        pub fn set_opacity(&mut self, _: OverlayKind, _: f32) -> Result<(), String> {
-            Err("VR Overlay is only supported on Windows".into())
-        }
-        pub fn show(&mut self, _: OverlayKind) -> Result<(), String> {
-            Err("VR Overlay is only supported on Windows".into())
+            Err("VR Overlay is not available on this platform".into())
         }
         pub fn hide(&mut self, _: OverlayKind) {}
+        pub fn close_dashboard(&mut self) {}
         pub fn hide_all(&mut self) {}
         pub fn reset(&mut self, _: OverlayKind) {}
-        pub fn ensure_dashboard(&mut self) -> Result<(), String> {
-            Err("VR Overlay is only supported on Windows".into())
+    }
+}
+
+pub use platform::VrBackend;
+
+#[cfg(all(linux_vr, target_arch = "x86_64"))]
+use crate::vr_overlay::openxr::OpenXrBackend;
+#[cfg(any(windows, linux_vr))]
+use crate::vr_overlay::pose::{DeviceId, PointerId, PointerInput, Pose, SpaceId, TrackedPose};
+
+/// The closed backend boundary used by the worker and shared VR modules.
+///
+/// One backend is active per process; shared code never sees native handles.
+pub struct Backend {
+    inner: Inner,
+}
+
+enum Inner {
+    Vr(Box<VrBackend>),
+    #[cfg(all(linux_vr, target_arch = "x86_64"))]
+    Xr(Box<OpenXrBackend>),
+}
+
+macro_rules! backend_mut {
+    ($self:ident, $method:ident($($arg:expr),*)) => {
+        match &mut $self.inner {
+            Inner::Vr(vr) => vr.$method($($arg),*),
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.$method($($arg),*),
         }
-        pub fn dashboard_visible(&self) -> bool {
-            false
+    };
+}
+
+#[cfg(any(windows, linux_vr))]
+macro_rules! backend_ref {
+    ($self:ident, $method:ident($($arg:expr),*)) => {
+        match &$self.inner {
+            Inner::Vr(vr) => vr.$method($($arg),*),
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.$method($($arg),*),
         }
-        pub fn poll_dashboard_events(
-            &self,
-        ) -> Result<Vec<crate::vr_overlay::dashboard::DashboardPointerEvent>, String> {
-            Ok(Vec::new())
+    };
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum BackendKind {
+    #[serde(rename = "openvr")]
+    OpenVr,
+    #[serde(rename = "openxr")]
+    OpenXr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenXrProbe {
+    pub runtime_installed: bool,
+    pub hmd_present: bool,
+    pub detail: Option<String>,
+}
+
+impl Backend {
+    pub fn kind(&self) -> BackendKind {
+        match self.inner {
+            Inner::Vr(_) => BackendKind::OpenVr,
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(_) => BackendKind::OpenXr,
+        }
+    }
+
+    #[cfg(all(test, any(windows, linux_vr)))]
+    fn choose_kind(preference: &str, openxr_available: bool) -> Result<BackendKind, String> {
+        match preference {
+            "openxr" => Ok(BackendKind::OpenXr),
+            "openvr" => Ok(BackendKind::OpenVr),
+            "auto" => Ok(if openxr_available {
+                BackendKind::OpenXr
+            } else {
+                BackendKind::OpenVr
+            }),
+            other => Err(format!("Unsupported VR Overlay backend: {other}")),
+        }
+    }
+
+    /// `auto` follows the platform backend; an explicit backend never falls
+    /// back to the other implementation.
+    pub fn connect(preference: &str) -> Result<Self, String> {
+        match preference {
+            "openxr" => {
+                #[cfg(all(linux_vr, target_arch = "x86_64"))]
+                {
+                    Ok(Self {
+                        inner: Inner::Xr(Box::new(OpenXrBackend::connect()?)),
+                    })
+                }
+                #[cfg(not(all(linux_vr, target_arch = "x86_64")))]
+                {
+                    Err("vr.openxr_backend_unavailable".into())
+                }
+            }
+            "auto" => {
+                #[cfg(all(linux_vr, target_arch = "x86_64"))]
+                if crate::vr_overlay::xr::probe().is_ok() {
+                    return Ok(Self {
+                        inner: Inner::Xr(Box::new(OpenXrBackend::connect()?)),
+                    });
+                }
+                Ok(Self {
+                    inner: Inner::Vr(Box::new(VrBackend::connect()?)),
+                })
+            }
+            "openvr" => Ok(Self {
+                inner: Inner::Vr(Box::new(VrBackend::connect()?)),
+            }),
+            other => Err(format!("Unsupported VR Overlay backend: {other}")),
+        }
+    }
+
+    pub fn runtime_installed() -> bool {
+        VrBackend::runtime_installed()
+    }
+
+    pub fn hmd_present() -> bool {
+        VrBackend::hmd_present()
+    }
+
+    pub fn openvr_runtime_path() -> Option<std::path::PathBuf> {
+        VrBackend::runtime_path()
+    }
+
+    pub fn openxr_probe() -> OpenXrProbe {
+        #[cfg(all(linux_vr, target_arch = "x86_64"))]
+        {
+            match crate::vr_overlay::xr::probe_status() {
+                Ok(status) => OpenXrProbe {
+                    runtime_installed: status.runtime_installed,
+                    hmd_present: status.hmd_present,
+                    detail: None,
+                },
+                Err(error) => OpenXrProbe {
+                    runtime_installed: false,
+                    hmd_present: false,
+                    detail: Some(error),
+                },
+            }
+        }
+        #[cfg(not(all(linux_vr, target_arch = "x86_64")))]
+        {
+            OpenXrProbe {
+                runtime_installed: false,
+                hmd_present: false,
+                detail: Some("vr.openxr_backend_unavailable".into()),
+            }
+        }
+    }
+
+    pub fn quit_requested(&mut self) -> bool {
+        backend_mut!(self, quit_requested())
+    }
+
+    pub fn ensure_headset(
+        &mut self,
+        config: &vrcs_core::VrOverlayHeadsetConfig,
+    ) -> Result<(), String> {
+        backend_mut!(self, ensure_headset(config))
+    }
+
+    pub fn hide(&mut self, kind: OverlayKind) {
+        backend_mut!(self, hide(kind));
+    }
+
+    pub fn close_dashboard(&mut self) {
+        backend_mut!(self, close_dashboard());
+    }
+
+    pub fn hide_all(&mut self) {
+        backend_mut!(self, hide_all());
+    }
+
+    pub fn reset(&mut self, kind: OverlayKind) {
+        backend_mut!(self, reset(kind));
+    }
+
+    /// Begin one backend frame. OpenVR returns immediately; OpenXR blocks in
+    /// `xrWaitFrame`. `false` means the session is not ready for rendering.
+    pub fn begin_frame(&mut self) -> Result<bool, String> {
+        match &mut self.inner {
+            Inner::Vr(_) => Ok(true),
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.begin_frame(),
+        }
+    }
+
+    pub fn end_frame(&mut self) -> Result<bool, String> {
+        match &mut self.inner {
+            Inner::Vr(_) => Ok(true),
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.end_frame(),
+        }
+    }
+
+    /// OpenXR confirms a frame only after `xrEndFrame`; OpenVR confirms at upload.
+    #[cfg(any(windows, linux_vr))]
+    pub fn defers_submission(&self) -> bool {
+        match self.inner {
+            Inner::Vr(_) => false,
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(_) => true,
+        }
+    }
+}
+
+#[cfg(any(windows, linux_vr))]
+impl Backend {
+    pub fn surface_adapter_index(&self) -> Result<u32, String> {
+        backend_ref!(self, surface_adapter_index())
+    }
+
+    pub fn ensure_wrist(
+        &mut self,
+        config: &vrcs_core::VrOverlayWristConfig,
+    ) -> Result<ControllerBinding, String> {
+        backend_mut!(self, ensure_wrist(config))
+    }
+
+    pub fn ensure_wrist_menu(&mut self, hand: &str) -> Result<(), String> {
+        backend_mut!(self, ensure_wrist_menu(hand))
+    }
+
+    pub fn ensure_world_wrist(
+        &mut self,
+        config: &vrcs_core::VrOverlayWristConfig,
+        pose: Pose,
+        space: SpaceId,
+        head_relative: Option<Pose>,
+    ) -> Result<(), String> {
+        match &mut self.inner {
+            Inner::Vr(vr) => vr.ensure_world_wrist(config, pose, space.0 as i32, head_relative),
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.ensure_world_wrist(config, pose, space, head_relative),
+        }
+    }
+
+    pub fn ocr_wrist_on_same_hand(&self, config: &vrcs_core::VrOverlayWristConfig) -> bool {
+        backend_ref!(self, ocr_wrist_on_same_hand(config))
+    }
+
+    pub fn controller_pose(&self, device: DeviceId) -> Option<TrackedPose> {
+        match &self.inner {
+            Inner::Vr(vr) => {
+                let (pose, origin) = vr.controller_pose(device.0)?;
+                Some(TrackedPose {
+                    pose,
+                    space: SpaceId(origin as u32),
+                })
+            }
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.controller_pose(device),
+        }
+    }
+
+    pub fn pointer_pose(&self, pointer: PointerId) -> Option<TrackedPose> {
+        match &self.inner {
+            Inner::Vr(vr) => {
+                let (pose, origin) = vr.controller_pointer_pose(
+                    openvr::TrackedDeviceIndex(pointer.device.0),
+                    pointer.source,
+                )?;
+                Some(TrackedPose {
+                    pose,
+                    space: SpaceId(origin as u32),
+                })
+            }
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.pointer_pose(pointer),
+        }
+    }
+
+    pub fn wrist_pose(&self, config: &vrcs_core::VrOverlayWristConfig) -> Option<Pose> {
+        backend_ref!(self, wrist_pose(config))
+    }
+
+    pub fn wrist_device_and_angle(
+        &self,
+        config: &vrcs_core::VrOverlayWristConfig,
+        head: Option<Pose>,
+    ) -> (Option<DeviceId>, Option<f32>) {
+        match &self.inner {
+            Inner::Vr(vr) => {
+                let (device, angle) = vr.wrist_device_and_angle(config, head);
+                (device.map(DeviceId), angle)
+            }
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.wrist_device_and_angle(config, head),
+        }
+    }
+
+    pub fn intersect(
+        &self,
+        kind: OverlayKind,
+        device: DeviceId,
+        ray: TrackedPose,
+    ) -> Option<RayHit> {
+        match &self.inner {
+            Inner::Vr(vr) => vr.intersect(kind, device.0, (ray.pose, ray.space.0 as i32)),
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.intersect(kind, device, ray),
+        }
+    }
+
+    pub fn cursor_interval(&self) -> std::time::Duration {
+        backend_ref!(self, cursor_interval())
+    }
+
+    pub fn update_cursor(&mut self, target: Option<CursorTarget>) -> Result<(), String> {
+        backend_mut!(self, update_cursor(target))
+    }
+
+    pub fn pointer_inputs(&self) -> Vec<PointerInput> {
+        match &self.inner {
+            Inner::Vr(vr) => vr
+                .ui_inputs()
+                .into_iter()
+                .map(|input| PointerInput {
+                    pointer: PointerId::new(DeviceId(input.device), input.source),
+                    device: DeviceId(input.device),
+                    trigger: input.trigger,
+                    grip: input.grip,
+                    scroll_y: input.scroll_y,
+                })
+                .collect(),
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.pointer_inputs(),
+        }
+    }
+
+    pub fn update_ocr_input(&mut self, path: &std::path::Path) -> Result<(), String> {
+        backend_mut!(self, update_ocr_input(path))
+    }
+
+    #[cfg(windows)]
+    pub fn ocr_input(
+        &mut self,
+        gesture_enabled: bool,
+        reading_focus: bool,
+        vision_enabled: bool,
+    ) -> Result<crate::vr_overlay::ocr_input::InputActions, String> {
+        backend_mut!(
+            self,
+            ocr_input(gesture_enabled, reading_focus, vision_enabled)
+        )
+    }
+
+    #[cfg(windows)]
+    pub fn freeze_ocr_frame(&mut self) {
+        backend_mut!(self, freeze_ocr_frame());
+    }
+
+    #[cfg(windows)]
+    pub fn open_ocr_bindings(&mut self) -> Result<(), String> {
+        backend_mut!(self, open_ocr_bindings())
+    }
+
+    pub fn ocr_tracking(&self) -> Result<(Pose, u32, SpaceId), String> {
+        match &self.inner {
+            Inner::Vr(vr) => vr
+                .ocr_tracking()
+                .map(|(pose, pid, origin)| (pose, pid, SpaceId(origin as u32))),
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.ocr_tracking(),
+        }
+    }
+
+    pub fn system_dashboard_visible(&mut self) -> bool {
+        backend_mut!(self, system_dashboard_visible())
+    }
+
+    pub fn ensure_dashboard(&mut self) -> Result<(), String> {
+        backend_mut!(self, ensure_dashboard())
+    }
+
+    pub fn show_dashboard_placeholder(&mut self, error: Option<&str>) -> Result<(), String> {
+        backend_mut!(self, show_dashboard_placeholder(error))
+    }
+
+    pub fn dashboard_visible(&self) -> bool {
+        backend_ref!(self, dashboard_visible())
+    }
+
+    /// Open or close the application-owned settings quad. OpenVR's dashboard is
+    /// owned by SteamVR, so only the OpenXR backend can change it here.
+    pub fn toggle_dashboard(&mut self) -> Result<bool, String> {
+        match &mut self.inner {
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.toggle_dashboard(),
+            Inner::Vr(_) => Ok(false),
+        }
+    }
+
+    pub fn poll_dashboard_events(
+        &mut self,
+    ) -> Result<Vec<crate::vr_overlay::dashboard::DashboardPointerEvent>, String> {
+        backend_mut!(self, poll_dashboard_events())
+    }
+
+    pub fn visible(&self, kind: OverlayKind) -> bool {
+        backend_ref!(self, visible(kind))
+    }
+
+    pub fn tracking_reset(&mut self) -> bool {
+        backend_mut!(self, tracking_reset())
+    }
+
+    pub fn has_surface_texture(&self, kind: OverlayKind) -> bool {
+        backend_ref!(self, has_surface_texture(kind))
+    }
+
+    pub fn upload_surface(
+        &mut self,
+        kind: OverlayKind,
+        frame: &crate::vr_overlay::surface::frame::Captured,
+        capture: std::rc::Rc<std::cell::RefCell<crate::vr_overlay::surface::frame::Capture>>,
+    ) -> Result<(), String> {
+        backend_mut!(self, upload_surface(kind, frame, capture))
+    }
+
+    pub fn clear_surface_texture(&mut self, kind: OverlayKind) -> Result<(), String> {
+        backend_mut!(self, clear_surface_texture(kind))
+    }
+
+    pub fn set_opacity(&mut self, kind: OverlayKind, opacity: f32) -> Result<(), String> {
+        backend_mut!(self, set_opacity(kind, opacity))
+    }
+
+    pub fn show(&mut self, kind: OverlayKind) -> Result<(), String> {
+        backend_mut!(self, show(kind))
+    }
+
+    pub fn ensure_player_audio(&mut self, pose: Pose, space: SpaceId) -> Result<(), String> {
+        match &mut self.inner {
+            Inner::Vr(vr) => vr.ensure_player_audio(pose, space.0 as i32),
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.ensure_player_audio(pose, space),
         }
     }
 }
 
 #[cfg(windows)]
-pub use platform::CursorTarget;
-pub use platform::OpenVrBackend;
+impl Backend {
+    fn vr(&mut self) -> &mut VrBackend {
+        match &mut self.inner {
+            Inner::Vr(vr) => vr,
+        }
+    }
 
-#[cfg(windows)]
+    fn vr_ref(&self) -> &VrBackend {
+        match &self.inner {
+            Inner::Vr(vr) => vr,
+        }
+    }
+
+    pub fn hide_ocr(&mut self) {
+        self.vr().hide_ocr();
+    }
+
+    pub fn ocr_view(
+        &self,
+    ) -> Result<
+        (
+            [crate::vr_overlay::ocr_capture::EyeCapture; 2],
+            u32,
+            SpaceId,
+        ),
+        String,
+    > {
+        self.vr_ref()
+            .ocr_view()
+            .map(|(eyes, pid, origin)| (eyes, pid, SpaceId(origin as u32)))
+    }
+
+    pub fn cancel_ocr_capture(&mut self) {
+        self.vr().cancel_ocr_capture();
+    }
+
+    pub fn poll_ocr_capture(
+        &mut self,
+    ) -> Result<Option<crate::vr_overlay::ocr_capture::StereoCapture>, String> {
+        self.vr().poll_ocr_capture()
+    }
+
+    pub fn begin_ocr_capture(
+        &mut self,
+        config: &vrcs_core::VrOcrConfig,
+        selection: Option<&crate::vr_overlay::ocr_selection::Selection>,
+    ) -> Result<(), String> {
+        self.vr().begin_ocr_capture(config, selection)
+    }
+
+    pub fn ensure_ocr_progress(&mut self) -> Result<(), String> {
+        self.vr().ensure_ocr_progress()
+    }
+
+    pub fn ensure_ocr_plane(
+        &mut self,
+        kind: OverlayKind,
+        plane: &crate::vr_overlay::ocr_plane::PlaneOverlay,
+        space: SpaceId,
+    ) -> Result<(), String> {
+        self.vr().ensure_ocr_plane(kind, plane, space.0 as i32)
+    }
+
+    pub fn ensure_ocr_wrist(
+        &mut self,
+        config: &vrcs_core::VrOcrWristConfig,
+        interactive: bool,
+    ) -> Result<ControllerBinding, String> {
+        self.vr().ensure_ocr_wrist(config, interactive)
+    }
+}
+
+#[cfg(any(windows, linux_vr))]
 pub fn menu_config(hand: &str) -> vrcs_core::VrOverlayWristConfig {
     vrcs_core::VrOverlayWristConfig {
         hand: hand.into(),
@@ -2491,6 +3110,7 @@ fn expanded_menu_keeps_quick_buttons_at_the_original_wrist_anchor() {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Not every platform constructs every overlay kind.
 pub enum OverlayKind {
     PlayerAudio,
     Headset,
@@ -2503,8 +3123,48 @@ pub enum OverlayKind {
     Dashboard,
 }
 
+#[cfg(any(windows, linux_vr))]
 #[derive(Debug, Clone)]
 pub struct ControllerBinding {
     pub role: Option<String>,
     pub available: bool,
+}
+
+#[cfg(all(test, any(windows, linux_vr)))]
+mod selection_tests {
+    use super::{Backend, BackendKind};
+
+    #[test]
+    fn backend_status_uses_the_public_name() {
+        assert_eq!(
+            serde_json::to_value(BackendKind::OpenVr).unwrap(),
+            serde_json::json!("openvr")
+        );
+    }
+
+    #[test]
+    fn selection_policy_prefers_openxr_only_when_available() {
+        assert_eq!(
+            Backend::choose_kind("auto", true).unwrap(),
+            BackendKind::OpenXr
+        );
+        assert_eq!(
+            Backend::choose_kind("auto", false).unwrap(),
+            BackendKind::OpenVr
+        );
+        assert_eq!(
+            Backend::choose_kind("openvr", true).unwrap(),
+            BackendKind::OpenVr
+        );
+        assert_eq!(
+            Backend::choose_kind("openxr", false).unwrap(),
+            BackendKind::OpenXr
+        );
+        assert!(Backend::choose_kind("steamvr", true).is_err());
+    }
+
+    #[test]
+    fn explicit_backend_names_are_validated_without_falling_back() {
+        assert!(Backend::connect("steamvr").is_err());
+    }
 }

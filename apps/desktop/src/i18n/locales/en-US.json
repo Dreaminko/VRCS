@@ -6,6 +6,27 @@
     "status": "complete"
   },
   "translation": {
+    "platform": {
+      "audio_unavailable": "Audio capture is not implemented for this platform yet.",
+      "application_audio_unavailable": "Application-only capture is unavailable. System output is a separate option; it is never selected automatically.",
+      "credentials_unavailable": "Secure credential storage is not implemented for this platform yet. Use the existing environment-variable credentials; secrets are never saved as plain text.",
+      "qwen_unavailable": "The managed Qwen runtime is not available on this platform or is not running. Cloud recognition remains available.",
+      "local_translation_unavailable": "Local PLaMo translation is unavailable on this platform or is not running. Saved model bindings are preserved; choose a cloud profile explicitly if needed.",
+      "network_capture_unsupported": "This platform does not support experimental player audio or Chatbox network reception. OSC Chatbox sending is independent and remains available.",
+      "network_helper_missing": "System network capture authorization is unavailable. Install the VRCS system package (/usr/bin/vrcs-desktop) with polkit before enabling player audio or Chatbox network reception.",
+      "windows_only": "This option is only available on Windows.",
+      "directml_unsupported": "DirectML is only supported on Windows. Use CPU for local OCR on Linux.",
+      "vr_unavailable": "Linux VR subtitles and controller input are not implemented yet. Desktop subtitles remain available.",
+      "vr": {
+        "runtime_arch_unverified": "This ARM64 build does not include a verified native VR backend.",
+        "scene_capture_unavailable": "VR scene capture for OCR and visual questions is not available on Linux yet. Subtitles, wrist overlays, Dashboard and controller input remain available."
+      },
+      "screenshot_unavailable": "Authorized desktop capture is not implemented for this platform yet. OCR and visual-assistant capture are unavailable.",
+      "window_stacking_unavailable": "This session cannot guarantee always-on-top windows. Compact subtitles use a normal window.",
+      "shortcuts_unavailable": "System-wide shortcuts are unavailable in this session. Use application buttons instead.",
+      "manual_updates": "This Linux build does not use in-app updates. Install upgrades through the package manager or a downloaded package.",
+      "capture_unavailable": "The selected capture source is unavailable on this platform. Your settings are preserved."
+    },
     "wristReader": {
       "visionTitle": "Visual assistant",
       "ocrTitle": "OCR",
@@ -187,6 +208,7 @@
       "vrchat": "VRChat send",
       "networkChecking": "Checking",
       "networkStarting": "Preparing",
+      "networkAuthorizing": "Waiting for system authorization…",
       "networkStopped": "Network capture stopped",
       "networkWaitingGame": "Waiting for VRChat",
       "networkWaitingWorld": "Waiting for world",
@@ -661,6 +683,7 @@
       "availableTitle": "VRCS {{version}} ({{channel}}) is available",
       "availableDescription": "A new version of VRCS is ready to install.",
       "downloadAndInstall": "Download and install",
+      "openReleasePage": "Open release page",
       "later": "Later",
       "stopTranscriptionFirst": "Stop transcription before installing the update.",
       "status": {
@@ -993,19 +1016,25 @@
       },
       "vrOverlay": {
         "title": "VR Overlay",
-        "runtimeTitle": "SteamVR runtime",
+        "runtimeTitle": "VR runtime",
         "statusLoadFailed": "Could not read the VR Overlay status.",
         "nativeActionFailed": "Could not update the VR Overlay runtime.",
         "enable": "Enable VR Overlay",
         "enableHeadset": "Enable headset subtitles",
         "enableWrist": "Enable wrist conversation",
-        "runtimeInstalled": "SteamVR installation",
-        "hmdPresent": "Headset",
+        "runtimeInstalled": "VR runtime installed",
+        "backend": "Backend",
+        "backends": {
+          "auto": "Auto",
+          "openxr": "OpenXR",
+          "openvr": "OpenVR"
+        },
+        "hmdPresent": "Headset detected",
         "reconnectAttempt": "Reconnect attempt {{count}}",
         "runtimeStates": {
           "unsupported": "Unsupported",
           "disabled": "Disabled",
-          "waiting_runtime": "Waiting for SteamVR",
+          "waiting_runtime": "Waiting for VR runtime",
           "initializing": "Initializing",
           "ready": "Ready",
           "reconnecting": "Reconnecting",
@@ -1085,7 +1114,8 @@
         "waitingContent": "Enabled; waiting for content",
         "masterOff": "Subtitle master switch is off",
         "controlBusy": "Working",
-        "controlFailed": "Action failed; try again"
+        "controlFailed": "Action failed; try again",
+        "settings": "Settings"
       },
       "conversationTitles": {
         "title": "Conversation management",
@@ -1095,6 +1125,16 @@
         "autoLanguage": "Use the main conversation language"
       },
       "system": {
+        "shortcutAuthorization": {
+          "title": "Global screenshot shortcuts",
+          "authorize": "Authorize global screenshot shortcuts",
+          "busy": "Waiting for authorization…",
+          "granted": "Global shortcuts authorized: {{shortcuts}}",
+          "unavailable": "This desktop portal cannot register global shortcuts. Use the screenshot buttons instead.",
+          "disabled": "Enable desktop OCR or the desktop visual assistant before authorizing shortcuts.",
+          "conflict": "The configured shortcuts conflict. Choose different OCR and visual-assistant shortcuts.",
+          "notCompleted": "Shortcut authorization was cancelled, denied, or could not finish. You can retry; screenshot buttons remain available."
+        },
         "title": "System",
         "general": "General settings",
         "language": "Interface language",
@@ -1441,7 +1481,7 @@
         "configured": "Configured",
         "notConfigured": "Not configured",
         "sourceEnvironment": "From an environment variable",
-        "sourceCredentialManager": "Stored in Windows Credential Manager",
+        "sourceCredentialManager": "Stored in system credential storage",
         "credentialConfigured": "Configured securely; enter a new key to replace it",
         "credentialSaved": "API key saved securely.",
         "testConnection": "Test connection",
@@ -1623,6 +1663,7 @@
           "opusAuto": "Automatically use the running VRChat installation",
           "activeTracks": "Connected player tracks: {{players}}",
           "waitingSpeech": "Waiting for player voice audio",
+          "noVoiceSources": "No player voice sources enabled",
           "keyElapsed": "Elapsed: {{seconds}} s",
           "phase": {
             "stopped": "Stopped",
@@ -1632,6 +1673,7 @@
             "streaming": "Receiving per-player independent tracks",
             "failed": "Player audio stopped with an error",
             "waiting_game": "Waiting for VRChat to start",
+            "authorizing": "Waiting for system authorization…",
             "waiting_world": "Waiting for the VRChat world to finish loading",
             "retrying_key": "Key acquisition failed; retrying shortly"
           },
@@ -1677,6 +1719,7 @@
         "deviceDescription": "{{sampleRate}} Hz · {{channels}} channels{{defaultSuffix}}",
         "defaultSuffix": " · default",
         "scanning": "Scanning devices…",
+        "reselectionRequired": "Device unavailable — select again",
         "noDevices": "No other available devices were found."
       },
       "learning": {
@@ -1811,7 +1854,7 @@
       },
       "capture": {
         "openTranslation": "Open translation settings",
-        "unsupported": "VRChat network capture is supported only in the Windows desktop app.",
+        "unsupported": "VRChat network capture is unavailable in this build. Windows uses the desktop app; Linux x86_64 requires the system VRCS installation (/usr/bin/vrcs-desktop) with polkit.",
         "networkTitle": "VRChat network capture",
         "networkEnable": "Enable VRChat network capture",
         "networkRequired": "Enable VRChat network capture in Capture settings before using Chatbox capture or separate player audio tracks.",
@@ -1820,6 +1863,7 @@
           "enable": "Receive and translate VRChat Chatbox",
           "translationUnavailable": "Automatic translation is off or no usable text translation profile is configured under \"Translate the other party's speech into\". Original text is still saved; manual translation remains available.",
           "phase": {
+            "authorizing": "Waiting for system authorization…",
             "waiting_game": "Waiting for VRChat to start",
             "waiting_world": "Waiting for the VRChat world to finish loading",
             "waiting_traffic": "Waiting for VRChat network traffic",
@@ -2112,24 +2156,41 @@
         "initialize": "Could not initialize VRCS Core.",
         "connect": "Could not connect to VRCS Core."
       },
+      "credentials": {
+        "not_set": "No API key is stored yet.",
+        "locked": "The system keyring is locked. Enter and save a key to request unlocking; approve the system prompt.",
+        "no_service": "Secure credential storage is unavailable. Install or enable a user Secret Service (GNOME Keyring or KWallet), or use environment-variable credentials. Keys are never saved as plain text.",
+        "cancelled": "The keyring unlock request was cancelled. Save again to retry.",
+        "read_failed": "Could not read the system keyring. Check the Secret Service and try again.",
+        "write_failed": "Could not save to the system keyring. Unlock it and try again.",
+        "rollback_failed": "The credential operation failed and the original credentials could not be restored. Check the system keyring before retrying.",
+        "task_failed": "The credential operation stopped unexpectedly. Check the system keyring and try again.",
+        "unsupported": "Secure credential storage is unsupported on this platform. Use environment-variable credentials; keys are never saved as plain text."
+      },
       "audio": {
         "devices": "Could not load audio devices.",
         "microphoneTestFailed": "Could not test the microphone.",
         "microphone_test_disabled": "Select a microphone first.",
         "microphone_test_capture_running": "Stop transcription before testing the microphone.",
         "microphone_test_already_running": "The microphone test is already running.",
-        "device_unavailable": "The selected or default audio device is unavailable. Reconnect it, choose another device, and rescan.",
+        "service_disconnected": "The connection to PipeWire was lost. Restart the user audio service and rescan devices.",
+        "service_timeout": "PipeWire device discovery timed out. Check the user audio service and rescan.",
+        "device_ambiguous": "Multiple PipeWire nodes share the saved device identity. Resolve duplicate device identities and select the device again.",
+        "device_reselection_required": "The saved audio device belongs to another backend. Select a device again; capture will not fall back to another source.",
+        "pipewire_failed": "PipeWire audio capture failed. Check the user audio service and device permissions, then rescan.",
+        "device_task_failed": "Audio device enumeration failed unexpectedly. Try rescanning devices.",
+        "device_unavailable": "The selected or default audio device is unavailable. Reconnect it, choose a device explicitly, and rescan.",
         "device_in_use": "The audio device is in use. Close apps using exclusive audio mode, or disable exclusive control in Windows Sound settings.",
-        "service_not_running": "The Windows Audio service is not running. Start or restart Windows Audio, then try again.",
-        "permission_denied": "Windows denied audio access. Allow desktop apps to access the microphone and check security software.",
-        "unsupported_format": "This audio device uses an unsupported format. Choose another device or select a standard PCM format in Windows Sound settings.",
+        "service_not_running": "The audio service is unavailable. On Linux, start the user PipeWire service; on Windows, start or restart Windows Audio.",
+        "permission_denied": "Audio access was denied. Allow microphone or audio access in the system permissions and approve any authorization prompt.",
+        "unsupported_format": "The audio device could not provide the required capture format. Choose another device or check the system audio format settings.",
         "process_loopback_unavailable": "VRChat-only audio capture is unavailable. Use Windows 11 or Windows 10 build 20348 or later, or select System output.",
         "com_initialization_failed": "Windows audio initialization failed. Restart VRCS; if the problem continues, restart Windows.",
-        "start_timeout": "The audio device did not respond in time. Wait for device switching to finish, reconnect the device, and try again.",
+        "start_timeout": "The audio stream did not become ready in time. Wait for device switching to finish, reconnect the device, and try again.",
         "start_thread_failed": "VRCS could not create the audio capture worker. Close other applications or restart VRCS.",
         "start_task_failed": "The audio startup task stopped unexpectedly. Restart VRCS and check the diagnostic detail.",
-        "unsupported_platform": "Audio capture is supported only on Windows.",
-        "unavailable": "Audio capture failed. Rescan devices, select another audio source, and check Windows Sound settings.",
+        "unsupported_platform": "Audio capture is unavailable on this platform.",
+        "unavailable": "Audio capture failed. Rescan devices, select another audio source, and check the system audio settings.",
         "diagnostic_detail": "Diagnostic detail: {{detail}}",
         "vrchat_not_running": "VRChat is not running. Start VRChat and try again."
       },
@@ -2210,6 +2271,11 @@
         "invalid_configuration": "The Anki card configuration is invalid."
       },
       "capture": {
+        "no_portal": "No desktop capture portal is available. Enable a portal backend for your desktop.",
+        "rejected": "Screenshot permission was denied. Allow screenshot access and try again.",
+        "portal_failed": "The desktop capture portal failed. Check the portal service and try again.",
+        "invalid_frame": "The screenshot returned an invalid image. Try capturing again.",
+        "selection_busy": "A screenshot selection is already open. Finish or cancel it first.",
         "invalid_sample_rate": "The audio sample rate is invalid.",
         "already_running": "Transcription is already running.",
         "no_audio_sources": "Enable at least one audio source."

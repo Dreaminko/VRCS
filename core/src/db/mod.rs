@@ -142,6 +142,19 @@ impl Database {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        #[cfg(unix)]
+        if path != Path::new(":memory:") {
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .mode(0o600)
+                .open(path)?;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            tighten_wal_sidecar_permissions(path)?;
+        }
         let conn = Connection::open(path)?;
         conn.execute_batch(
             "PRAGMA foreign_keys = ON;
@@ -152,6 +165,10 @@ impl Database {
              PRAGMA mmap_size = 268435456;
              PRAGMA busy_timeout = 5000;",
         )?;
+        #[cfg(unix)]
+        if path != Path::new(":memory:") {
+            tighten_wal_sidecar_permissions(path)?;
+        }
         let mut database = Self {
             conn,
             subtitle_history_max_bytes: u64::MAX,
@@ -449,6 +466,22 @@ fn ensure_column(
             &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
             [],
         )?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn tighten_wal_sidecar_permissions(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    for suffix in ["-wal", "-shm"] {
+        let mut sidecar = path.as_os_str().to_os_string();
+        sidecar.push(suffix);
+        match std::fs::set_permissions(Path::new(&sidecar), std::fs::Permissions::from_mode(0o600))
+        {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
     }
     Ok(())
 }

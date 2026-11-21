@@ -162,6 +162,7 @@ impl<R: Read + Seek> Ntfs<R> {
         }
     }
 
+    #[cfg(windows)]
     /// Each parallel scanner needs an independently opened volume handle:
     /// duplicating a File would share its seek position on Windows.
     pub(super) fn with_reader<T: Read + Seek>(&self, disk: T) -> Ntfs<T> {

@@ -1,13 +1,26 @@
-use std::sync::{Arc, Mutex, RwLock};
+#[cfg(any(windows, target_os = "linux", test))]
+use std::sync::Mutex;
+use std::sync::{Arc, RwLock};
 
-use tokio::sync::{broadcast, mpsc, watch};
+#[cfg(any(windows, target_os = "linux", test))]
+use tokio::sync::broadcast;
+#[cfg(any(windows, target_os = "linux"))]
+use tokio::sync::mpsc;
+use tokio::sync::watch;
 
+#[cfg(any(windows, target_os = "linux", test))]
 use crate::config::AppConfig;
+#[cfg(any(windows, target_os = "linux", test))]
 use crate::db::conversations::{CatalogRefresh, ConversationCatalog};
+#[cfg(any(windows, target_os = "linux", test))]
 use crate::db::Database;
+#[cfg(any(windows, target_os = "linux", test))]
 use crate::language_session::ActiveLanguageSession;
+#[cfg(any(windows, target_os = "linux", test))]
 use crate::models::{SpeakerIdentity, Subtitle};
+#[cfg(any(windows, target_os = "linux", test))]
 use crate::subtitle_output::{SubtitleLifecyclePublisher, TranslationFailure};
+#[cfg(any(windows, target_os = "linux", test))]
 use crate::translation::TranslationDispatcher;
 
 #[derive(Debug, Clone)]
@@ -54,6 +67,7 @@ impl TaskValidity {
     }
 }
 
+#[cfg(any(windows, target_os = "linux", test))]
 pub(crate) struct ChatboxMessage {
     pub text: String,
     pub speaker: SpeakerIdentity,
@@ -62,10 +76,13 @@ pub(crate) struct ChatboxMessage {
 }
 
 pub(crate) enum ChatboxEvent {
+    #[cfg(any(windows, target_os = "linux"))]
     Message(ChatboxMessage),
+    #[cfg(any(windows, target_os = "linux", test))]
     Speaker(SpeakerIdentity),
 }
 
+#[cfg(any(windows, target_os = "linux", test))]
 pub(crate) struct ChatboxConsumer {
     database: Arc<Mutex<Database>>,
     catalog: CatalogRefresh,
@@ -76,6 +93,7 @@ pub(crate) struct ChatboxConsumer {
     room_context: crate::room_context::RoomContextReader,
 }
 
+#[cfg(any(windows, target_os = "linux", test))]
 impl ChatboxConsumer {
     pub(crate) fn new(
         database: Arc<Mutex<Database>>,
@@ -96,6 +114,7 @@ impl ChatboxConsumer {
         }
     }
 
+    #[cfg(any(windows, target_os = "linux"))]
     pub(crate) fn with_room_context(
         mut self,
         room_context: crate::room_context::RoomContextReader,
@@ -104,6 +123,7 @@ impl ChatboxConsumer {
         self
     }
 
+    #[cfg(any(windows, target_os = "linux"))]
     pub(crate) async fn run(self, mut receiver: mpsc::Receiver<ChatboxEvent>) {
         while let Some(event) = receiver.recv().await {
             let result = match event {

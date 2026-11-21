@@ -47,33 +47,43 @@ pub(super) async fn update_settings(
         })
         .transpose()
         .map_err(unprocessable)?;
-    let _config_control = state.config.config_control.lock().await;
-    let current_revision = state.config.config_revision.load(Ordering::SeqCst);
-    let current_revision_token = revision_token(&state, current_revision);
-    if expected_revision
-        .as_deref()
-        .is_some_and(|revision| revision != current_revision_token)
-    {
-        return Err(api_error(
-            StatusCode::CONFLICT,
-            "settings.stale",
-            "Settings changed since they were loaded; reload and try again",
-        ));
-    }
-    let _capture_control = state.capture.capture_control.lock().await;
-    let result = change_plan::SettingsChangePlan::prepare_update(
-        &state,
-        candidate,
-        expected_revision.is_some(),
-    )
-    .await?
-    .apply(&state)
-    .await?;
-    state.capture.room_context.notify_settings_changed();
-    Ok((
-        revision_headers(&state, result.revision),
-        Json(json!(result.config)),
-    ))
+    crate::credentials::finish_mutation(async move {
+        let _config_control = state.config.config_control.lock().await;
+        let current_revision = state.config.config_revision.load(Ordering::SeqCst);
+        let current_revision_token = revision_token(&state, current_revision);
+        if expected_revision
+            .as_deref()
+            .is_some_and(|revision| revision != current_revision_token)
+        {
+            return Err(api_error(
+                StatusCode::CONFLICT,
+                "settings.stale",
+                "Settings changed since they were loaded; reload and try again",
+            ));
+        }
+        let _capture_control = state.capture.capture_control.lock().await;
+        let result = change_plan::SettingsChangePlan::prepare_update(
+            &state,
+            candidate,
+            expected_revision.is_some(),
+        )
+        .await?
+        .apply(&state)
+        .await?;
+        state.capture.room_context.notify_settings_changed();
+        Ok((
+            revision_headers(&state, result.revision),
+            Json(json!(result.config)),
+        ))
+    })
+    .await
+    .map_err(|error| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "credentials.task_failed",
+            error,
+        )
+    })?
 }
 
 fn config_from_update(update: SettingsUpdate) -> AppConfig {

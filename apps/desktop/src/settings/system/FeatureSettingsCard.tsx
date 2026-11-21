@@ -13,6 +13,7 @@ import {
 } from "../feature-presets";
 import { PreferenceToggle } from "../SettingsControls";
 import type { FeatureKey, FeatureSettings } from "../types";
+import { usePlatformCapabilities } from "../../core-client/capabilities";
 
 export function FeatureSettingsCard({
   features,
@@ -27,6 +28,7 @@ export function FeatureSettingsCard({
   ) => void;
 }) {
   const { t } = useTranslation();
+  const { desktop } = usePlatformCapabilities();
   const [manualCustom, setManualCustom] = useState(false);
   const matchedPreset = matchFeaturePreset(features);
   const activeMode: FeaturePresetMode =
@@ -84,7 +86,10 @@ export function FeatureSettingsCard({
               key={key}
               title={t(`settings.features.${key}`)}
               checked={features[key]}
-              disabled={disabled}
+              disabled={disabled || (key === "vr_overlay" && !desktop?.vr.subtitles.supported)}
+              description={key === "vr_overlay" && !desktop?.vr.subtitles.supported && desktop?.vr.subtitles.reason_code
+                ? t(`platform.${desktop.vr.subtitles.reason_code.replace(/^platform\./, "")}`)
+                : undefined}
               onChange={(enabled) => toggleFeature(key, enabled)}
             />
           ))}

@@ -13,6 +13,7 @@ import {
 } from "../../settings/feature-presets";
 import { PreferenceToggle } from "../../settings/SettingsControls";
 import type { FeatureKey, FeatureSettings } from "../../settings/types";
+import { usePlatformCapabilities } from "../../core-client/capabilities";
 
 const MODE_ICONS: Record<FeaturePresetMode, ReactNode> = {
   translation_only: <Languages size={18} />,
@@ -30,6 +31,7 @@ export function FeatureModeSection({
   onUpdateFeatures: (update: (current: FeatureSettings) => FeatureSettings) => Promise<boolean>;
 }) {
   const { t } = useTranslation();
+  const { desktop } = usePlatformCapabilities();
   const [manualCustom, setManualCustom] = useState(false);
   const matchedPreset = matchFeaturePreset(features);
   const activeMode: FeaturePresetMode =
@@ -102,7 +104,10 @@ export function FeatureModeSection({
                 key={key}
                 title={t(`settings.features.${key}`)}
                 checked={features[key]}
-                disabled={disabled}
+                disabled={disabled || (key === "vr_overlay" && !desktop?.vr.subtitles.supported)}
+                description={key === "vr_overlay" && !desktop?.vr.subtitles.supported && desktop?.vr.subtitles.reason_code
+                  ? t(`platform.${desktop.vr.subtitles.reason_code.replace(/^platform\./, "")}`)
+                  : undefined}
                 onChange={(enabled) => void toggleFeature(key, enabled)}
               />
             ))}

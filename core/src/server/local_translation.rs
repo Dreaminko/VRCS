@@ -23,6 +23,13 @@ pub(super) async fn download(
     State(state): State<ServiceContext>,
     Json(input): Json<DownloadInput>,
 ) -> ApiResult<Json<Value>> {
+    crate::platform_capabilities::require_local_translation().map_err(|code| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            code,
+            "Local PLaMo translation is not implemented for this platform",
+        )
+    })?;
     require_model(&input.id)?;
     let models = Arc::clone(&state.content.local_translation_models);
     let lifecycle = models.lock_exclusive().await;

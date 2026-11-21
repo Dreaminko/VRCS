@@ -168,6 +168,7 @@
 .api-profile-editor-heading strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 
 .api-profile-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.api-profile-form-grid > .capability-notice { grid-column: 1 / -1; }
 .api-profile-key-field { grid-column: 1 / -1; }
 .api-profile-capabilities {
   display: grid;

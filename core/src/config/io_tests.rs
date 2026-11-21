@@ -2,6 +2,139 @@ use std::fs;
 
 use super::{load_config, AppConfig};
 
+#[cfg(target_os = "linux")]
+#[test]
+fn config_and_existing_backups_are_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let parent = directory.path().join("settings");
+    let path = parent.join("config.json");
+    let config = AppConfig::default();
+    super::save_config(&path, &config).unwrap();
+    assert_eq!(
+        fs::metadata(&parent).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+
+    let backup = path.with_extension("v41.backup.json");
+    fs::copy(&path, &backup).unwrap();
+    for file in [&path, &backup] {
+        fs::set_permissions(file, fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    assert_eq!(load_config(&path).unwrap(), config);
+    for file in [&path, &backup] {
+        assert_eq!(
+            fs::metadata(file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    assert_eq!(fs::read(&backup).unwrap(), fs::read(&path).unwrap());
+}
+
+#[test]
+fn v41_audio_device_keys_upgrade_preserves_settings_and_backup() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    let mut expected = AppConfig::default();
+    expected.audio.output.device_id = Some(10);
+    expected.audio.microphone.mode = "device".into();
+    expected.audio.microphone.device_id = Some(20);
+    expected.asr.managed_qwen.device = "cpu".into();
+    expected.vrchat_chatbox.enabled = true;
+    expected.audio.output.player_audio.enabled = true;
+    expected.audio.output.player_audio.max_visible_players = 8;
+    let user = "usr_00000000-0000-4000-8000-000000000007";
+    expected.audio.output.player_audio.selected_tracks = Some(vec![user.into()]);
+    expected
+        .audio
+        .output
+        .player_audio
+        .selected_user_names
+        .insert(user.into(), "Saved player".into());
+    let mut raw = serde_json::to_value(&expected).unwrap();
+    raw["schema_version"] = 41.into();
+    let original = serde_json::to_vec(&raw).unwrap();
+    fs::write(&path, &original).unwrap();
+    expected.audio.output.player_audio.selected_tracks = None;
+
+    let mut migrated = load_config(&path).unwrap();
+
+    assert_eq!(migrated, expected);
+    assert_eq!(
+        fs::read(path.with_extension("v41.backup.json")).unwrap(),
+        original
+    );
+    let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(saved["schema_version"], super::SCHEMA_VERSION);
+    assert_eq!(saved["audio"]["output"]["device_id"], 10);
+    assert_eq!(saved["audio"]["microphone"]["device_id"], 20);
+    assert!(saved["audio"]["output"].get("device_key").is_none());
+    assert!(saved["audio"]["microphone"].get("device_key").is_none());
+
+    migrated.audio.output.device_key = Some("pipewire:output:saved-device".into());
+    migrated.audio.microphone.device_key = Some("pipewire:input:saved-device".into());
+    super::save_config(&path, &migrated).unwrap();
+    assert_eq!(load_config(&path).unwrap(), migrated);
+}
+
+#[test]
+fn v42_upgrade_preserves_stable_audio_devices_and_backs_up_retired_selection() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    let user = "usr_00000000-0000-4000-8000-000000000007";
+    let mut expected = AppConfig::default();
+    expected.audio.output.device_id = Some(10);
+    expected.audio.output.device_key = Some("pipewire:output:saved-device".into());
+    expected.audio.microphone.mode = "device".into();
+    expected.audio.microphone.device_id = Some(20);
+    expected.audio.microphone.device_key = Some("pipewire:input:saved-device".into());
+    expected.audio.output.player_audio.enabled = true;
+    expected
+        .audio
+        .output
+        .player_audio
+        .selected_user_names
+        .insert(user.into(), "Saved player".into());
+    let mut raw = serde_json::to_value(&expected).unwrap();
+    raw["schema_version"] = 42.into();
+    let player_audio = raw["audio"]["output"]["player_audio"]
+        .as_object_mut()
+        .unwrap();
+    player_audio.remove("source_mode");
+    player_audio.remove("source_overrides");
+    player_audio.remove("view_priority");
+    player_audio.insert("selected_tracks".into(), serde_json::json!([]));
+    let original = serde_json::to_vec(&raw).unwrap();
+    fs::write(&path, &original).unwrap();
+
+    let migrated = load_config(&path).unwrap();
+
+    assert_eq!(migrated, expected);
+    let backup = path.with_extension("v42.backup.json");
+    assert_eq!(fs::read(&backup).unwrap(), original);
+    let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(saved["schema_version"], super::SCHEMA_VERSION);
+    assert_eq!(
+        saved["audio"]["output"]["player_audio"]["source_mode"],
+        "allowlist"
+    );
+    assert_eq!(
+        saved["audio"]["output"]["player_audio"]["source_overrides"],
+        serde_json::json!({})
+    );
+    assert!(saved["audio"]["output"]["player_audio"]["selected_tracks"].is_null());
+    assert_eq!(load_config(&path).unwrap(), migrated);
+    assert_eq!(fs::read(backup).unwrap(), original);
+    assert!(!path
+        .with_extension(format!("v{}.backup.json", super::SCHEMA_VERSION))
+        .exists());
+}
+
 #[test]
 fn vrchat_chatbox_upgrade_defaults_off_and_preserves_enabled_on_save() {
     let directory = tempfile::tempdir().unwrap();

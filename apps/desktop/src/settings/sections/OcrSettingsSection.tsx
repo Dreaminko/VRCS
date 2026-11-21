@@ -13,6 +13,7 @@ import { OcrSettingsCard } from "./OcrSettingsCard";
 import { VisionSettingsCard } from "./VisionSettingsCard";
 import { patchVision } from "../vision-settings";
 import { PreferenceToggle } from "../SettingsControls";
+import { CapabilityNotice, CapabilitySection, usePlatformCapabilities } from "../../core-client/capabilities";
 
 export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings, onManageLocalModels }: {
   vrAvailable: boolean;
@@ -22,9 +23,11 @@ export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings
   onManageLocalModels?: () => void;
 }) {
   const { t } = useTranslation();
+  const { desktop } = usePlatformCapabilities();
   const [runtime, setRuntime] = useState<VrOcrStatus>();
   const [desktopStatus, setDesktopStatus] = useState<DesktopOcrStatus | null>(null);
   const [bindingError, setBindingError] = useState("");
+  const showVrSceneCaptureNotice = draft.features.vr_overlay && Boolean(desktop && !desktop.vr.scene_capture.supported);
   const vrInputEnabled = draft.features.vr_overlay && (
     (draft.features.ocr && draft.ocr.master_enabled && draft.ocr.enabled)
     || (draft.features.visual_question_answering && draft.vision.enabled && draft.vision.vr_enabled)
@@ -61,24 +64,30 @@ export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings
         <HardDrive size={15} />{t("settings.modelAssignments.manageLocalModels")}
       </button>}
     </div>
-    {vrAvailable && <section className="vr-overlay-card" aria-label={t("settings.vrOcr.gesture")}>
-      <PreferenceToggle title={t("settings.vrOcr.gesture")} checked={draft.ocr.hand_gesture_enabled}
-        description={t("settings.vrOcr.gestureDescription")}
-        disabled={false} onChange={(hand_gesture_enabled) => applySettings((current) => patchOcr(current, { hand_gesture_enabled }))} />
-      <div className="vr-overlay-card-actions">
-        <button className="secondary-button" type="button" disabled={!vrInputEnabled}
-          onClick={() => { setBindingError(""); void openVrOcrBindings().catch(() => setBindingError(t("settings.vrOcr.bindingFailed"))); }}>
-          <Gamepad2 size={15} />{t("settings.vrOcr.bindings")}
-        </button>
-      </div>
-      {bindingError && <p className="vr-overlay-native-error" role="alert">{bindingError}</p>}
-    </section>}
-    {draft.features.ocr && <div id="vision-ocr"><OcrSettingsCard vrAvailable={vrAvailable} config={draft.ocr} profiles={profiles} disabled={false}
-      defaultModel={draft.model_defaults?.translation}
-      runtime={runtime} desktopStatus={desktopStatus}
-      onChange={(patch) => applySettings((current) => patchOcr(current, patch))} /></div>}
-    {draft.features.visual_question_answering && <VisionSettingsCard config={draft.vision} profiles={profiles}
-      vrAvailable={vrAvailable} disabled={false}
-      onChange={(patch) => applySettings((current) => patchVision(current, patch))} />}
+    <CapabilitySection capability={desktop?.screenshot}>
+      {showVrSceneCaptureNotice && (
+        <CapabilityNotice capability={desktop?.vr.scene_capture} />
+      )}
+      {vrAvailable && <section className="vr-overlay-card" aria-label={t("settings.vrOcr.gesture")}>
+        <PreferenceToggle title={t("settings.vrOcr.gesture")} checked={draft.ocr.hand_gesture_enabled}
+          description={t("settings.vrOcr.gestureDescription")}
+          disabled={false} onChange={(hand_gesture_enabled) => applySettings((current) => patchOcr(current, { hand_gesture_enabled }))} />
+        <div className="vr-overlay-card-actions">
+          <button className="secondary-button" type="button" disabled={!vrInputEnabled}
+            onClick={() => { setBindingError(""); void openVrOcrBindings().catch(() => setBindingError(t("settings.vrOcr.bindingFailed"))); }}>
+            <Gamepad2 size={15} />{t("settings.vrOcr.bindings")}
+          </button>
+        </div>
+        {bindingError && <p className="vr-overlay-native-error" role="alert">{bindingError}</p>}
+      </section>}
+      {draft.features.ocr && <div id="vision-ocr"><OcrSettingsCard vrAvailable={vrAvailable} config={draft.ocr} profiles={profiles} disabled={false}
+        defaultModel={draft.model_defaults?.translation}
+        runtime={runtime} desktopStatus={desktopStatus}
+        onChange={(patch) => applySettings((current) => patchOcr(current, patch))} /></div>}
+      {draft.features.visual_question_answering && <VisionSettingsCard config={draft.vision} profiles={profiles}
+        vrAvailable={vrAvailable} disabled={false}
+        hideVrSceneCaptureNotice={showVrSceneCaptureNotice}
+        onChange={(patch) => applySettings((current) => patchVision(current, patch))} />}
+    </CapabilitySection>
   </div>;
 }

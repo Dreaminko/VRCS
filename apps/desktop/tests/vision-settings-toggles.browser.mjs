@@ -31,9 +31,10 @@ for (const width of [1200, 500]) {
         import { DEFAULT_OCR_SETTINGS, DEFAULT_VR_OVERLAY_SETTINGS } from './src/settings/vr-overlay-settings';
         import { VrOverlaySettingsSection } from './src/settings/sections/VrOverlaySettingsSection';
         import { DEFAULT_VISION_SETTINGS, selectVisionProfile } from './src/settings/vision-settings';
+        import { WindowsCapabilities } from './tests/fixtures/platform-capabilities';
         await i18next.use(initReactI18next).init({ lng: 'en-US', resources: { 'en-US': { translation: en.translation } } });
         window.fetch = async () => new Response(JSON.stringify({
-          configured: true, stored_configured: true, environment_override: false,
+          configured: true, stored_configured: true, environment_override: false, storage_available: true, reason_code: null, source: 'credential_manager',
           state: 'ready', downloaded_bytes: 1, total_bytes: 1, models: ['image-model'],
         }), { status: 200 });
         const profiles = [{ id: 'images', name: 'Image service', provider: 'openai',
@@ -66,7 +67,7 @@ for (const width of [1200, 500]) {
         window.requestAnimationFrame = callback => window.setTimeout(() => callback(performance.now()), 16);
         window.cancelAnimationFrame = id => window.clearTimeout(id);
         const root = createRoot(document.getElementById('root'));
-        root.render(<Harness />);
+        root.render(<WindowsCapabilities><Harness /></WindowsCapabilities>);
         const check = (condition, message) => { if (!condition) throw new Error(message); };
         const settle = () => new Promise(resolve => setTimeout(resolve, 20));
         const wait = async predicate => {

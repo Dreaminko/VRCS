@@ -221,16 +221,19 @@ impl Registry {
         (enabled, local_view, visible, Some(valid_until))
     }
 
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn remove(&mut self, id: &str) {
         self.players.remove(id);
     }
 
+    #[cfg(any(windows, target_os = "linux", test))]
     pub(super) fn clear(&mut self) {
         self.local = None;
         self.heading = None;
         self.players.clear();
     }
 
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn fresh_players(&self, now: Instant) -> usize {
         self.players
             .values()
@@ -238,10 +241,12 @@ impl Registry {
             .count()
     }
 
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn local_fresh(&self, now: Instant) -> bool {
         self.local.as_ref().is_some_and(|value| fresh(value, now))
     }
 
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn player_ids(&self) -> impl Iterator<Item = &str> {
         self.players.keys().map(String::as_str)
     }

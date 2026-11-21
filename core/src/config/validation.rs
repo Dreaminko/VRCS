@@ -358,7 +358,9 @@ fn validate_audio(audio: &AudioConfig, vad: &VadConfig) -> Result<(), String> {
     }
     match audio.output.mode.as_str() {
         "system" => {}
-        "vrchat" | "vrchat_players" | "disabled" if audio.output.device_id.is_some() => {
+        "vrchat" | "vrchat_players" | "disabled"
+            if audio.output.device_id.is_some() || audio.output.device_key.is_some() =>
+        {
             return Err(
                 "VRChat or disabled output mode cannot specify a system output device".into(),
             );
@@ -370,9 +372,12 @@ fn validate_audio(audio: &AudioConfig, vad: &VadConfig) -> Result<(), String> {
     if players.max_visible_players > 64 {
         return Err("Visible player limit must be between 0 and 64".into());
     }
-    let drive = players.pagefile_drive.as_bytes();
-    if drive.len() != 2 || !drive[0].is_ascii_alphabetic() || drive[1] != b':' {
-        return Err("Player audio pagefile drive must be a drive letter such as C:".into());
+    #[cfg(windows)]
+    {
+        let drive = players.pagefile_drive.as_bytes();
+        if drive.len() != 2 || !drive[0].is_ascii_alphabetic() || drive[1] != b':' {
+            return Err("Player audio pagefile drive must be a drive letter such as C:".into());
+        }
     }
     if players.max_players > 8 {
         return Err("Player audio max_players must be 0 (unlimited) or between 1 and 8".into());
@@ -435,11 +440,15 @@ fn validate_audio(audio: &AudioConfig, vad: &VadConfig) -> Result<(), String> {
         return Err("Output trigger_threshold_dbfs must be between -80 and -10".into());
     }
     match audio.microphone.mode.as_str() {
-        "device" if audio.microphone.device_id.is_none() => {
+        "device"
+            if audio.microphone.device_id.is_none() && audio.microphone.device_key.is_none() =>
+        {
             return Err("A device must be selected in microphone device mode".into());
         }
         "device" => {}
-        "default" | "disabled" if audio.microphone.device_id.is_some() => {
+        "default" | "disabled"
+            if audio.microphone.device_id.is_some() || audio.microphone.device_key.is_some() =>
+        {
             return Err("Default or disabled microphone mode cannot specify a device".into());
         }
         "default" | "disabled" => {}
@@ -532,6 +541,12 @@ fn validate_recognition_models(asr: &AsrConfig, vad: &VadConfig) -> Result<(), S
 }
 
 fn validate_vr_overlay(config: &VrOverlayConfig) -> Result<(), String> {
+    if !["auto", "openvr", "openxr"].contains(&config.backend.as_str()) {
+        return Err(format!(
+            "Unsupported VR Overlay backend: {}",
+            config.backend
+        ));
+    }
     if !["left", "right"].contains(&config.wrist_menu.hand.as_str()) {
         return Err("VR Overlay wrist menu hand must be left or right".into());
     }
@@ -1149,8 +1164,11 @@ mod player_audio_tests {
         audio.output.device_id = Some(1);
         assert!(validate_audio(&audio, &vad).is_err());
         audio.output.device_id = None;
-        audio.output.player_audio.pagefile_drive = "C:\\other".into();
-        assert!(validate_audio(&audio, &vad).is_err());
+        #[cfg(windows)]
+        {
+            audio.output.player_audio.pagefile_drive = "C:\\other".into();
+            assert!(validate_audio(&audio, &vad).is_err());
+        }
         let legacy: AudioConfig = serde_json::from_str(r#"{"output":{"mode":"vrchat"}}"#).unwrap();
         assert_eq!(
             legacy.output.player_audio,

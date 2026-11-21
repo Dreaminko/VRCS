@@ -131,3 +131,41 @@ test("handshake timeout and native rejection clean up without leaking requests",
   await assert.rejects(request, /stale_session/);
   bridge.dispose();
 });
+
+test("injected platform port takes precedence without exposing DOM message transport", async () => {
+  const linux = fixture();
+  const windows = fixture();
+  Object.defineProperty(window, "__vrcsSurfacePort", { configurable: true, value: {
+    postMessage(message: Record<string, unknown>) { linux.sent.push(message); },
+    addEventListener(_event: "message", listener: (event: { data: unknown }) => void) { linux.listeners.add(listener); },
+    removeEventListener(_event: "message", listener: (event: { data: unknown }) => void) { linux.listeners.delete(listener); },
+  } satisfies WebviewMessagePort });
+  const connecting = connectSurfaceBridge("reader", new AbortController().signal);
+  assert.equal(windows.sent.length, 0);
+  assert.deepEqual(linux.sent, [{ version: 1, op: "connect" }]);
+  linux.welcome();
+  const bridge = await connecting;
+  const pending = bridge.ready();
+  windows.lifecycle.dispatchEvent(new MessageEvent("message", { data: { version: 1, op: "reply", nonce: "document-a", request_id: (linux.sent.at(-1)! as Record<string, unknown>).request_id, ok: true, value: { forged: true } } }));
+  linux.reply("document-a", linux.sent.at(-1)!, null);
+  assert.equal(await pending, null);
+  bridge.dispose();
+  assert.equal(linux.listeners.size, 0);
+});
+
+test("explicit surface port cancels pending calls when its page aborts", async () => {
+  const f = fixture();
+  const abort = new AbortController();
+  const port: WebviewMessagePort = {
+    postMessage(message) { f.sent.push(message); },
+    addEventListener(_event, listener) { f.listeners.add(listener); },
+    removeEventListener(_event, listener) { f.listeners.delete(listener); },
+  };
+  const connecting = connectSurfaceBridge("reader", abort.signal, port);
+  f.welcome();
+  const bridge = await connecting;
+  const pending = bridge.ready();
+  abort.abort();
+  await assert.rejects(pending, /closed/);
+  assert.equal(f.listeners.size, 0);
+});

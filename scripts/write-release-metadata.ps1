@@ -8,20 +8,36 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$tag = $Version
-$repository = 'Dreaminko/VRCS'
-$metadataName = 'latest.json'
-if ($Channel -eq 'nightly') {
-    $dateSuffix = $BuildDate.Replace('-', '')
-    if ($BuildDate -cnotmatch '^\d{4}-\d{2}-\d{2}$' -or
-        $SourceSha -cnotmatch '^[0-9a-f]{40}$' -or
-        $Version -cnotmatch "^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-nightly\.$dateSuffix$") {
-        throw 'Nightly metadata requires a matching version, build date, and full source SHA'
+if ($Channel -ne 'nightly') {
+    # A build job only describes its own package. The publish job is the sole
+    # writer of latest.json after every native architecture has been validated.
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = & node (Join-Path $PSScriptRoot "release-metadata.mjs") target $ArtifactRoot $Version windows x86_64 nsis 2>&1
+        $exitCode = $LASTEXITCODE
     }
-    $tag = "nightly-$dateSuffix"
-    if ($env:GITHUB_REPOSITORY) { $repository = $env:GITHUB_REPOSITORY }
-    $metadataName = 'nightly.json'
+    finally {
+        $ErrorActionPreference = $previousErrorAction
+        $global:LASTEXITCODE = 0
+    }
+    if ($exitCode -ne 0) {
+        $detail = (($output | ForEach-Object { "$_" }) -join "`n").Trim()
+        throw "Windows target manifest generation failed: $detail"
+    }
+    return (($output | ForEach-Object { "$_" } | Select-Object -Last 1)).Trim()
 }
+
+$dateSuffix = $BuildDate.Replace('-', '')
+if ($BuildDate -cnotmatch '^\d{4}-\d{2}-\d{2}$' -or
+    $SourceSha -cnotmatch '^[0-9a-f]{40}$' -or
+    $Version -cnotmatch "^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-nightly\.$dateSuffix$") {
+    throw 'Nightly metadata requires a matching version, build date, and full source SHA'
+}
+$tag = "nightly-$dateSuffix"
+$repository = 'Dreaminko/VRCS'
+if ($env:GITHUB_REPOSITORY) { $repository = $env:GITHUB_REPOSITORY }
+$metadataName = 'nightly.json'
 $artifactName = "VRCS-$Version-windows-x64.exe"
 $installers = @(Get-ChildItem -LiteralPath $ArtifactRoot -Filter "VRCS-$Version-windows-x64*.exe" -File)
 if ($installers.Count -ne 1 -or $installers[0].Name -ne $artifactName -or $installers[0].Length -eq 0) {
@@ -41,16 +57,13 @@ $platform = [ordered]@{
 }
 $latest = [ordered]@{
     version = $Version
-    notes = "Windows 10/11 x64 release for VRCS $Version."
+    notes = "Windows 10/11 x64 Nightly for VRCS $Version, built from the last main update on $BuildDate (Beijing time)."
     pub_date = [DateTime]::UtcNow.ToString("o")
     platforms = [ordered]@{
         'windows-x86_64-standard' = $platform
     }
-}
-if ($Channel -eq 'nightly') {
-    $latest.notes = "Windows 10/11 x64 Nightly for VRCS $Version, built from the last main update on $BuildDate (Beijing time)."
-    $latest['build_date'] = $BuildDate
-    $latest['source_sha'] = $SourceSha
+    build_date = $BuildDate
+    source_sha = $SourceSha
 }
 $metadataPath = Join-Path $ArtifactRoot $metadataName
 [System.IO.File]::WriteAllText($metadataPath, ($latest | ConvertTo-Json -Depth 4), [System.Text.UTF8Encoding]::new($false))

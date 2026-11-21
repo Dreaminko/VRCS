@@ -1,10 +1,17 @@
 #[cfg(windows)]
 pub mod hotkey;
-#[cfg(windows)]
+pub mod image;
+#[cfg(target_os = "linux")]
+pub mod portal;
+#[cfg(target_os = "linux")]
+pub mod portal_shortcuts;
+#[cfg(any(windows, test))]
 mod selection;
 #[cfg(windows)]
 pub mod selection_window;
 pub mod shortcut;
+#[cfg(target_os = "linux")]
+pub mod x11_shortcuts;
 
 #[derive(Default)]
 pub struct ShortcutRecording {
@@ -40,7 +47,9 @@ impl ShortcutRecording {
                 return Err(error);
             }
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
+        portal_shortcuts::set_paused(app, recording);
+        #[cfg(not(any(windows, target_os = "linux")))]
         let _ = app;
         Ok(())
     }
@@ -72,15 +81,15 @@ pub fn finish_shortcut_recording(app: &tauri::AppHandle) {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 static PICKER_RESERVED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub struct PickerPermit {
     _private: (),
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub fn reserve_picker() -> Result<PickerPermit, &'static str> {
     use std::sync::atomic::Ordering;
     PICKER_RESERVED
@@ -89,7 +98,7 @@ pub fn reserve_picker() -> Result<PickerPermit, &'static str> {
         .map_err(|_| "selection_busy")
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 impl Drop for PickerPermit {
     fn drop(&mut self) {
         PICKER_RESERVED.store(false, std::sync::atomic::Ordering::Release);

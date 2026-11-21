@@ -276,7 +276,7 @@ pub(crate) async fn download_file(
         .await
         .map_err(|error| format!("Could not save model download: {error}"))?;
     drop(file);
-    if path.exists() {
+    if cfg!(windows) && path.exists() {
         tokio::fs::remove_file(path)
             .await
             .map_err(|error| format!("Could not replace invalid model asset: {error}"))?;

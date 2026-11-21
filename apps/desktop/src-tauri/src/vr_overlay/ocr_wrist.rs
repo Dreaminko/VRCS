@@ -1,8 +1,12 @@
+#[cfg(windows)]
 use vrcs_core::ocr::TranslatedBlock;
 
+#[cfg(windows)]
 use super::ocr_status::OcrState;
+#[cfg(windows)]
 use super::wrist_labels::WristLabels;
 
+#[cfg(windows)]
 pub fn input_revision(view: Option<&View>, session: u64) -> u64 {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut hash = DefaultHasher::new();
@@ -15,6 +19,7 @@ pub fn input_revision(view: Option<&View>, session: u64) -> u64 {
     hash.finish()
 }
 
+#[cfg(windows)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Action {
@@ -28,11 +33,13 @@ pub enum Action {
     Close,
 }
 
+#[cfg(windows)]
 pub struct Button {
     pub action: Action,
     pub bounds: [f32; 4],
 }
 
+#[cfg(windows)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ViewMode {
@@ -40,6 +47,7 @@ pub enum ViewMode {
     Vision,
 }
 
+#[cfg(windows)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct View {
     pub mode: ViewMode,
@@ -58,6 +66,7 @@ pub struct View {
     pub hovered: Option<Action>,
 }
 
+#[cfg(windows)]
 impl View {
     pub fn busy(&self) -> bool {
         self.mode == ViewMode::Vision
@@ -68,6 +77,7 @@ impl View {
     }
 }
 
+#[cfg(windows)]
 #[derive(Default)]
 pub struct Reader {
     scan_id: u64,
@@ -78,6 +88,7 @@ pub struct Reader {
     pub pinned: bool,
 }
 
+#[cfg(windows)]
 impl Reader {
     pub fn sync(&mut self, scan_id: u64, blocks: &[TranslatedBlock]) {
         if self.scan_id != scan_id {
@@ -211,6 +222,7 @@ impl Reader {
     }
 }
 
+#[cfg(windows)]
 pub fn state_label(state: OcrState) -> &'static str {
     match state {
         OcrState::Capturing => "capturing",
@@ -236,6 +248,7 @@ pub enum LaserEvent {
     Leave,
 }
 
+#[cfg(windows)]
 impl LaserEvent {
     pub fn point(self) -> Option<[f32; 2]> {
         match self {
@@ -247,12 +260,14 @@ impl LaserEvent {
     }
 }
 
+#[cfg(windows)]
 pub struct Pointer {
     pressed: bool,
     captured: Option<Action>,
     device: Option<u32>,
 }
 
+#[cfg(windows)]
 impl Default for Pointer {
     fn default() -> Self {
         Self {
@@ -263,6 +278,7 @@ impl Default for Pointer {
     }
 }
 
+#[cfg(windows)]
 impl Pointer {
     pub fn event(&mut self, event: LaserEvent, hit: Option<Action>) -> Option<Action> {
         let device = match event {
@@ -303,7 +319,7 @@ impl Pointer {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
     use vrcs_core::ocr::{BlockTranslation, TextBlock};

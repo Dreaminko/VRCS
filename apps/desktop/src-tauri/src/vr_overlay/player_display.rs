@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::control_protocol::ControlSource;
 
+#[cfg(any(windows, linux_vr))]
 pub const REQUEST_EVENT: &str = "vr-overlay-player-display-request";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -33,6 +34,7 @@ pub enum Action {
     },
 }
 
+#[cfg(any(windows, linux_vr, test))]
 impl Action {
     pub(super) fn allowed(&self, view: &View) -> bool {
         match self {

@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { ChevronDown, ChevronUp, Settings2, SlidersHorizontal } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
@@ -28,6 +29,7 @@ import { SoftwareUpdateSettings } from "../../updates/SoftwareUpdateSettings";
 import type { AppUpdaterState } from "../../updates/useAppUpdater";
 import { ConversationTitleSettingsSection } from "./ConversationTitleSettingsSection";
 import { DebugSettingsSection } from "./DebugSettingsSection";
+import { CapabilityNotice, usePlatformCapabilities } from "../../core-client/capabilities";
 
 export function SystemSettingsSection({
   desktopPreferences,
@@ -67,9 +69,12 @@ export function SystemSettingsSection({
   debugRows: DebugRow[];
 }) {
   const { t } = useTranslation();
+  const { core, desktop } = usePlatformCapabilities();
   const { themePreference, setThemePreference } = useAppTheme();
   const reducedMotion = useSyncExternalStore(subscribeReducedMotionPreference, currentReducedMotionPreference);
   const [interfaceScaleText, setInterfaceScaleText] = useState(() => String(interfaceScale));
+  const [shortcutsBusy, setShortcutsBusy] = useState(false);
+  const [shortcutResult, setShortcutResult] = useState<{ key: string; shortcuts?: string; error?: boolean } | null>(null);
 
   useEffect(() => {
     setInterfaceScaleText(String(interfaceScale));
@@ -90,6 +95,31 @@ export function SystemSettingsSection({
     setInterfaceScaleText(String(next));
     if (next !== interfaceScale) onInterfaceScaleChange(next);
   };
+
+  const authorizeShortcuts = async () => {
+    if (shortcutsBusy || desktop?.os !== "linux" || desktop.session_type !== "wayland" || !desktop.global_shortcuts.available) return;
+    setShortcutsBusy(true);
+    setShortcutResult(null);
+    try {
+      await invoke("desktop_capture_register_shortcuts");
+    } catch (error) {
+      const code = String(error);
+      setShortcutResult({
+        key: code === "capture.shortcuts_unavailable" ? "unavailable"
+          : code === "capture.shortcuts_disabled" ? "disabled"
+            : code === "desktop_vision.shortcut_conflict" ? "conflict" : "notCompleted",
+        error: true,
+      });
+    } finally {
+      setShortcutsBusy(false);
+    }
+  };
+
+  const shortcutMessage = shortcutResult ?? (desktop?.global_shortcuts.available && desktop.shortcut_bindings?.length ? {
+    key: "granted",
+    shortcuts: desktop.shortcut_bindings.join(" · "),
+    error: false,
+  } : null);
 
   return (
     <div className="settings-section settings-section-active system-section" id="settings-panel-system" role="tabpanel" aria-labelledby="settings-tab-system">
@@ -223,7 +253,8 @@ export function SystemSettingsSection({
             <PreferenceToggle
               title={t("settings.system.runAsAdministrator")}
               checked={desktopPreferences.runAsAdministrator}
-              disabled={!desktopPreferencesReady}
+              disabled={!desktopPreferencesReady || core?.os !== "windows"}
+              description={core?.os !== "windows" ? t("platform.windows_only") : undefined}
               onChange={(enabled) => void onUpdateDesktop("runAsAdministrator", enabled)}
             />
             <PreferenceToggle
@@ -233,6 +264,20 @@ export function SystemSettingsSection({
               onChange={(enabled) => void onUpdateDesktop("minimizeToTray", enabled)}
             />
           </div>
+          {desktop?.os === "linux" && desktop.session_type === "wayland" && desktop.global_shortcuts.supported && (
+            <div className="system-onboarding-setting">
+              <div>
+                <strong>{t("settings.system.shortcutAuthorization.title")}</strong>
+                {!desktop.global_shortcuts.available && <CapabilityNotice capability={desktop.global_shortcuts} />}
+                {shortcutMessage && <p className={shortcutMessage.error ? "settings-validation-error" : "settings-inline-message"} role={shortcutMessage.error ? "alert" : "status"}>
+                  {t(`settings.system.shortcutAuthorization.${shortcutMessage.key}`, { shortcuts: shortcutMessage.shortcuts })}
+                </p>}
+              </div>
+              <button className="secondary-button" type="button" disabled={shortcutsBusy || !desktop.global_shortcuts.available} onClick={() => void authorizeShortcuts()}>
+                {t(shortcutsBusy ? "settings.system.shortcutAuthorization.busy" : "settings.system.shortcutAuthorization.authorize")}
+              </button>
+            </div>
+          )}
           <div className="system-onboarding-setting">
             <div>
               <strong>{t("settings.system.runOnboarding")}</strong>

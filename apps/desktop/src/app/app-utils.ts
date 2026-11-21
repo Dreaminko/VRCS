@@ -33,6 +33,7 @@ export function localizedError(
 ): string {
   const missing = "__VRCS_UNTRANSLATED_ERROR__";
   if (reason instanceof ApiError) {
+    if (reason.code.startsWith("platform.")) return t(reason.code);
     const localized = t(`errors.${reason.code}`, {
       ...reason.params,
       defaultValue: missing,
@@ -50,12 +51,14 @@ export function localizedError(
     && "code" in reason
     && typeof reason.code === "string"
   ) {
+    if (reason.code.startsWith("platform.")) return t(reason.code);
     const localized = t(`errors.${reason.code}`, { defaultValue: missing });
     if (localized !== missing) return localized;
     return "detail" in reason && typeof reason.detail === "string" && reason.detail
       ? reason.detail
       : t(fallbackKey);
   }
+  if (typeof reason === "string" && reason.startsWith("platform.")) return t(reason);
   return reason instanceof Error ? reason.message : t(fallbackKey);
 }
 

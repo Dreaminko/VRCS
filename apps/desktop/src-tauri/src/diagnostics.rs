@@ -51,6 +51,11 @@ pub(crate) struct FrontendErrorReport {
 }
 
 pub(crate) fn desktop_log_dir() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    {
+        vrcs_core::linux_log_directory()
+    }
+    #[cfg(not(target_os = "linux"))]
     std::env::var("LOCALAPPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir().join("VRCS"))
@@ -83,6 +88,9 @@ fn redaction_prefixes() -> &'static [(String, &'static str)] {
         [
             ("USERPROFILE", "%USERPROFILE%"),
             ("LOCALAPPDATA", "%LOCALAPPDATA%"),
+            ("XDG_DATA_HOME", "$XDG_DATA_HOME"),
+            ("XDG_STATE_HOME", "$XDG_STATE_HOME"),
+            ("HOME", "$HOME"),
         ]
         .into_iter()
         .filter_map(|(variable, replacement)| {
@@ -234,18 +242,7 @@ pub(crate) fn report_frontend_error(
 
 fn open_directory(path: &Path) -> Result<(), String> {
     std::fs::create_dir_all(path).map_err(|error| error.to_string())?;
-
-    #[cfg(target_os = "windows")]
-    let mut command = std::process::Command::new("explorer.exe");
-    #[cfg(target_os = "macos")]
-    let mut command = std::process::Command::new("open");
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let mut command = std::process::Command::new("xdg-open");
-
-    command
-        .arg(path)
-        .spawn()
-        .map(|_| ())
+    crate::open_external(path.as_os_str())
         .map_err(|error| format!("Failed to open log directory: {error}"))
 }
 

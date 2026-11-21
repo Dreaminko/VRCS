@@ -35,6 +35,7 @@ export function SoftwareUpdateSettings({ updater }: { updater: AppUpdaterState }
             version: updater.update?.version,
             channel: updater.update ? t(`updates.channel.${updater.update.channel}`) : undefined,
           })}</p>
+          {updater.buildInfo?.os === "linux" && updater.buildInfo.canInstall === false && <p role="status">{t("platform.manual_updates")}</p>}
         </div>
         <button
           className="secondary-button"
@@ -49,16 +50,18 @@ export function SoftwareUpdateSettings({ updater }: { updater: AppUpdaterState }
       <PreferenceToggle
         title={t("updates.automaticChecks")}
         checked={updater.automaticChecks}
-        disabled={!updater.preferenceReady || busy}
+        disabled={!updater.buildInfo?.updaterAvailable || !updater.preferenceReady || busy}
         onChange={(enabled) => void updater.setAutomaticChecks(enabled)}
       />
-      <PreferenceToggle
-        title={t("updates.receiveNightlyUpdates")}
-        description={t("updates.nightlyDescription")}
-        checked={updater.receiveNightlyUpdates}
-        disabled={!updater.preferenceReady || busy}
-        onChange={(enabled) => void updater.setReceiveNightlyUpdates(enabled)}
-      />
+      {updater.buildInfo?.os !== "linux" && (
+        <PreferenceToggle
+          title={t("updates.receiveNightlyUpdates")}
+          description={t("updates.nightlyDescription")}
+          checked={updater.receiveNightlyUpdates}
+          disabled={!updater.buildInfo?.updaterAvailable || !updater.preferenceReady || busy}
+          onChange={(enabled) => void updater.setReceiveNightlyUpdates(enabled)}
+        />
+      )}
     </section>
   );
 }

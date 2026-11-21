@@ -6,6 +6,27 @@
     "status": "complete"
   },
   "translation": {
+    "platform": {
+      "audio_unavailable": "当前平台尚未实现音频采集。",
+      "application_audio_unavailable": "暂不支持单应用音频。系统输出是独立选项，不会自动切换为全系统采集。",
+      "credentials_unavailable": "当前平台尚未实现安全凭据存储。可使用现有环境变量方式，不会将密钥明文保存。",
+      "qwen_unavailable": "当前平台的托管 Qwen 运行组件不可用或尚未运行，可显式选择云端识别。",
+      "local_translation_unavailable": "当前平台的 PLaMo 本地翻译不可用或尚未运行。已保存的模型绑定会保留，需要时请显式选择云端配置。",
+      "network_capture_unsupported": "当前平台不支持实验性分玩家音轨和 Chatbox 网络接收；OSC Chatbox 发送独立可用。",
+      "network_helper_missing": "系统网络采集授权不可用。启用分玩家音轨或 Chatbox 网络接收前，请先通过系统安装包（如 .deb）安装 VRCS 与 polkit 策略。",
+      "windows_only": "此选项仅在 Windows 上可用。",
+      "directml_unsupported": "DirectML 仅支持 Windows，Linux 本地 OCR 请使用 CPU。",
+      "vr_unavailable": "Linux VR 字幕与控制器输入尚未实现，桌面字幕仍可使用。",
+      "vr": {
+        "runtime_arch_unverified": "此 ARM64 构建未包含通过验证的原生 VR 后端。",
+        "scene_capture_unavailable": "Linux 暂不支持供 OCR 与视觉问答使用的 VR 场景捕获。字幕、腕部面板、Dashboard 与控制器输入仍可用。"
+      },
+      "screenshot_unavailable": "当前平台尚未实现桌面授权截图，OCR 与视觉问答的截图入口不可用。",
+      "window_stacking_unavailable": "当前会话无法保证窗口全局置顶，紧凑字幕使用普通窗口。",
+      "shortcuts_unavailable": "当前会话不支持系统全局快捷键，请使用应用内按钮。",
+      "manual_updates": "此 Linux 构建不使用应用内更新，请通过包管理器或下载新安装包升级。",
+      "capture_unavailable": "当前平台无法使用所选采集源，已保存的设置会保留。"
+    },
     "wristReader": {
       "visionTitle": "视觉问答",
       "ocrTitle": "OCR",
@@ -187,6 +208,7 @@
       "vrchat": "VRChat 发送",
       "networkChecking": "检查中",
       "networkStarting": "准备中",
+      "networkAuthorizing": "等待系统授权…",
       "networkStopped": "网络采集已停止",
       "networkWaitingGame": "等待 VRChat",
       "networkWaitingWorld": "等待世界加载",
@@ -661,6 +683,7 @@
       "availableTitle": "VRCS {{version}}（{{channel}}）已发布",
       "availableDescription": "新版本已可下载并安装。",
       "downloadAndInstall": "下载并安装",
+      "openReleasePage": "打开发布页面",
       "later": "稍后",
       "stopTranscriptionFirst": "请先停止转写，再安装更新。",
       "status": {
@@ -993,19 +1016,25 @@
       },
       "vrOverlay": {
         "title": "VR Overlay",
-        "runtimeTitle": "SteamVR 运行环境",
+        "runtimeTitle": "VR 运行环境",
         "statusLoadFailed": "无法读取 VR Overlay 状态。",
         "nativeActionFailed": "无法更新 VR Overlay 运行状态。",
         "enable": "启用 VR Overlay",
         "enableHeadset": "启用头显字幕",
         "enableWrist": "启用手腕对话",
-        "runtimeInstalled": "SteamVR 安装",
-        "hmdPresent": "VR 头显",
+        "runtimeInstalled": "已安装 VR 运行环境",
+        "backend": "后端",
+        "backends": {
+          "auto": "自动",
+          "openxr": "OpenXR",
+          "openvr": "OpenVR"
+        },
+        "hmdPresent": "已检测到头显",
         "reconnectAttempt": "第 {{count}} 次重新连接",
         "runtimeStates": {
           "unsupported": "不受支持",
           "disabled": "已停用",
-          "waiting_runtime": "正在等待 SteamVR",
+          "waiting_runtime": "正在等待 VR 运行环境",
           "initializing": "正在初始化",
           "ready": "就绪",
           "reconnecting": "正在重新连接",
@@ -1085,7 +1114,8 @@
         "waitingContent": "已开启，等待字幕内容",
         "masterOff": "VR Overlay 总开关已关闭",
         "controlBusy": "正在处理",
-        "controlFailed": "操作失败，请重试"
+        "controlFailed": "操作失败，请重试",
+        "settings": "设置"
       },
       "conversationTitles": {
         "title": "对话管理",
@@ -1095,6 +1125,16 @@
         "autoLanguage": "跟随对话主要语言"
       },
       "system": {
+        "shortcutAuthorization": {
+          "title": "全局截图快捷键",
+          "authorize": "授权全局截图快捷键",
+          "busy": "正在等待授权…",
+          "granted": "已授权全局快捷键：{{shortcuts}}",
+          "unavailable": "当前桌面 Portal 无法注册全局快捷键，请使用截图按钮。",
+          "disabled": "请先启用桌面 OCR 或桌面视觉助手，再授权快捷键。",
+          "conflict": "已配置的快捷键冲突，请为 OCR 和视觉助手选择不同组合。",
+          "notCompleted": "快捷键授权已取消、被拒绝或未能完成。可以重试；截图按钮仍可使用。"
+        },
         "title": "系统",
         "general": "一般设置",
         "language": "界面语言",
@@ -1441,7 +1481,7 @@
         "configured": "已配置",
         "notConfigured": "未配置",
         "sourceEnvironment": "来自环境变量",
-        "sourceCredentialManager": "保存在 Windows 凭据管理器",
+        "sourceCredentialManager": "已保存在系统凭据存储中",
         "credentialConfigured": "已安全配置，可输入新密钥替换",
         "credentialSaved": "API Key 已安全保存。",
         "testConnection": "测试连接",
@@ -1623,6 +1663,7 @@
           "opusAuto": "自动使用运行中的 VRChat 安装目录",
           "activeTracks": "已接入 {{players}} 位玩家的音轨",
           "waitingSpeech": "等待玩家语音",
+          "noVoiceSources": "尚未启用任何玩家的语音采集",
           "keyElapsed": "已用时 {{seconds}} 秒",
           "phase": {
             "stopped": "已停止",
@@ -1632,6 +1673,7 @@
             "streaming": "正在接收分玩家独立音轨",
             "failed": "分玩家独立音轨采集因错误停止",
             "waiting_game": "等待 VRChat 启动",
+            "authorizing": "等待系统授权…",
             "waiting_world": "等待 VRChat 世界加载完成",
             "retrying_key": "密钥获取未成功，稍后自动重试"
           },
@@ -1677,6 +1719,7 @@
         "deviceDescription": "{{sampleRate}} Hz · {{channels}} 声道{{defaultSuffix}}",
         "defaultSuffix": " · 默认",
         "scanning": "正在扫描设备…",
+        "reselectionRequired": "设备不可用，请重新选择",
         "noDevices": "未发现其他可用设备。"
       },
       "learning": {
@@ -1811,7 +1854,7 @@
       },
       "capture": {
         "openTranslation": "打开翻译设置",
-        "unsupported": "VRChat 网络采集仅支持 Windows 桌面版。",
+        "unsupported": "当前构建无法使用 VRChat 网络采集。Windows 需要桌面版；Linux x86_64 需要系统安装的 VRCS（/usr/bin/vrcs-desktop）与 polkit 授权。",
         "networkTitle": "VRChat 网络采集",
         "networkEnable": "启用 VRChat 网络采集",
         "networkRequired": "请先在采集设置中开启「VRChat 网络采集」，才能使用 Chatbox 采集或分玩家独立音轨。",
@@ -1820,6 +1863,7 @@
           "enable": "接收并翻译 VRChat Chatbox",
           "translationUnavailable": "尚未启用自动翻译，或「将对方的语言翻译为」尚未配置可用的文字翻译服务。原文仍会保存，可手动翻译。",
           "phase": {
+            "authorizing": "等待系统授权…",
             "waiting_game": "等待 VRChat 启动",
             "waiting_world": "等待 VRChat 世界加载完成",
             "waiting_traffic": "等待 VRChat 网络数据",
@@ -2112,24 +2156,41 @@
         "initialize": "无法初始化 VRCS Core。",
         "connect": "无法连接 VRCS Core。"
       },
+      "credentials": {
+        "not_set": "尚未保存 API 密钥。",
+        "locked": "系统密钥环已锁定。输入并保存密钥可请求解锁，请批准系统授权提示。",
+        "no_service": "安全凭据存储不可用。请安装或启用用户 Secret Service（GNOME Keyring 或 KWallet），也可使用环境变量提供凭据；密钥不会明文保存。",
+        "cancelled": "已取消密钥环解锁。再次保存可重试。",
+        "read_failed": "无法读取系统密钥环。请检查 Secret Service 后重试。",
+        "write_failed": "无法将密钥保存到系统密钥环。请解锁后重试。",
+        "rollback_failed": "凭据操作失败，且无法恢复原凭据。请检查系统密钥环后重试。",
+        "task_failed": "凭据操作任务异常退出。请检查系统密钥环后重试。",
+        "unsupported": "此平台不支持安全凭据存储。请使用环境变量提供凭据；密钥不会明文保存。"
+      },
       "audio": {
         "devices": "无法加载音频设备。",
         "microphoneTestFailed": "无法测试麦克风。",
         "microphone_test_disabled": "请先选择一个麦克风。",
         "microphone_test_capture_running": "请先停止转写，再测试麦克风。",
         "microphone_test_already_running": "麦克风测试已在运行。",
-        "device_unavailable": "所选或默认音频设备不可用。请重新连接设备、改选其他设备，然后重新扫描。",
+        "service_disconnected": "与 PipeWire 的连接已断开。请重启用户音频服务并重新扫描设备。",
+        "service_timeout": "PipeWire 设备枚举超时。请检查用户音频服务并重新扫描。",
+        "device_ambiguous": "多个 PipeWire 节点使用相同的已保存设备标识。请解决标识冲突后重新选择设备。",
+        "device_reselection_required": "已保存的音频设备属于其他后端。请重新选择设备；不会自动改采其他音源。",
+        "pipewire_failed": "PipeWire 音频采集失败。请检查用户音频服务和设备权限，然后重新扫描。",
+        "device_task_failed": "音频设备枚举任务意外失败，请尝试重新扫描设备。",
+        "device_unavailable": "所选或默认音频设备不可用。请重新连接设备、明确选择设备并重新扫描。",
         "device_in_use": "音频设备正被占用。请关闭以独占模式使用该设备的程序，或在 Windows 声音设置中关闭独占控制。",
-        "service_not_running": "Windows Audio 服务未运行。请启动或重启该服务后再试。",
-        "permission_denied": "Windows 拒绝了音频访问。请允许桌面应用访问麦克风，并检查安全软件设置。",
-        "unsupported_format": "该音频设备使用了不支持的格式。请改选其他设备，或在 Windows 声音设置中选择标准 PCM 格式。",
+        "service_not_running": "音频服务不可用。Linux 请启动用户 PipeWire 服务；Windows 请启动或重启 Windows Audio。",
+        "permission_denied": "音频访问被拒绝。请在系统权限中允许麦克风或音频访问，并批准授权提示。",
+        "unsupported_format": "音频设备无法提供所需的采集格式。请改选设备或检查系统音频格式设置。",
         "process_loopback_unavailable": "无法仅采集 VRChat 音频。请使用 Windows 11 或 Windows 10 Build 20348 及以上版本，或改选“系统输出”。",
         "com_initialization_failed": "Windows 音频初始化失败。请重启 VRCS；如果问题仍然存在，请重启 Windows。",
-        "start_timeout": "音频设备未及时响应。请等待设备切换完成、重新连接设备，然后重试。",
+        "start_timeout": "音频流未及时就绪。请等待设备切换完成、重新连接设备后重试。",
         "start_thread_failed": "VRCS 无法创建音频采集工作线程。请关闭其他程序或重启 VRCS。",
         "start_task_failed": "音频启动任务意外停止。请重启 VRCS，并查看下方诊断详情。",
-        "unsupported_platform": "音频采集仅支持 Windows。",
-        "unavailable": "音频采集失败。请重新扫描设备、改选其他音频来源，并检查 Windows 声音设置。",
+        "unsupported_platform": "此平台不支持音频采集。",
+        "unavailable": "音频采集失败。请重新扫描设备、改选音源并检查系统音频设置。",
         "diagnostic_detail": "诊断详情：{{detail}}",
         "vrchat_not_running": "VRChat 未运行，请启动 VRChat 后重试。"
       },
@@ -2210,6 +2271,11 @@
         "invalid_configuration": "Anki 制卡配置无效。"
       },
       "capture": {
+        "no_portal": "未找到桌面采集 Portal，请启用适用于当前桌面的 Portal 后端。",
+        "rejected": "截图权限被拒绝，请允许访问后重试。",
+        "portal_failed": "桌面采集 Portal 失败，请检查 Portal 服务后重试。",
+        "invalid_frame": "截图返回了无效图像，请重新截图。",
+        "selection_busy": "截图选择界面已打开，请先完成或取消。",
         "invalid_sample_rate": "音频采样率无效。",
         "already_running": "转写已在运行。",
         "no_audio_sources": "请至少启用一个声音来源。"

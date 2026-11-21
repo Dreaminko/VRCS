@@ -36,6 +36,7 @@ test("feature presets and custom switches commit visibility and roll back on sav
         import { FeatureSettingsCard } from './src/settings/system/FeatureSettingsCard';
         import { SettingsTabBar } from './src/settings/components/SettingsTabBar';
         import { DEFAULT_FEATURE_SETTINGS, visibleSettingsCategories } from './src/settings/feature-availability';
+        import { WindowsCapabilities } from './tests/fixtures/platform-capabilities';
         import { updateReducedMotionPreference } from './src/app/app-motion';
         import './src/styles.css';
 
@@ -91,6 +92,7 @@ test("feature presets and custom switches commit visibility and roll back on sav
           const runtime = useSettingsRuntime({
             active: false,
             coreConfigured: true,
+            audioSupported: true,
             health,
             stopMicrophoneTest: async () => {},
             setCaptureRunning: async () => true,
@@ -102,7 +104,7 @@ test("feature presets and custom switches commit visibility and roll back on sav
         }
 
         const root = createRoot(document.getElementById('root'));
-        root.render(<Harness />);
+        root.render(<WindowsCapabilities><Harness /></WindowsCapabilities>);
 
         const check = (condition, message) => { if (!condition) throw new Error(message); };
         const settle = () => new Promise((resolve) => setTimeout(resolve, 16));

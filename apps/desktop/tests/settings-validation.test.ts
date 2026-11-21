@@ -81,3 +81,51 @@ test("requires at least one enabled audio source", () => {
     },
   }), false);
 });
+
+test("foreign device keys never match a numeric device or the system default", () => {
+  const imported: Settings = {
+    ...settings,
+    audio: {
+      ...settings.audio,
+      output: { ...settings.audio.output, device_id: null, device_key: "pipewire:sink:saved" },
+      microphone: { ...settings.audio.microphone, device_key: "pipewire:source:saved" },
+    },
+  };
+  assert.deepEqual(audioSelectionErrors(imported, devices), [
+    "The selected system output device is no longer available",
+    "The selected microphone device is no longer available",
+  ]);
+});
+
+test("persistent keys take precedence over transient IDs and survive device refresh", () => {
+  const keyed: Settings = {
+    ...settings,
+    audio: {
+      ...settings.audio,
+      output: { ...settings.audio.output, device_id: 999, device_key: "pipewire:sink:saved" },
+      microphone: { ...settings.audio.microphone, device_id: null, device_key: "pipewire:source:saved" },
+    },
+  };
+  const refreshed = devices.map((device) => ({
+    ...device,
+    device_key: device.is_loopback ? "pipewire:sink:saved" : "pipewire:source:saved",
+  }));
+  assert.equal(audioSelectionErrors(keyed, []).length, 2);
+  assert.deepEqual(audioSelectionErrors(keyed, refreshed), []);
+  assert.equal(keyed.audio.output.device_key, "pipewire:sink:saved");
+  assert.equal(audioSelectionErrors(keyed, refreshed.map((device) => ({ ...device, is_loopback: !device.is_loopback }))).length, 2);
+});
+
+test("legacy numeric IDs do not match PipeWire nodes with coincident IDs", () => {
+  const pipewire = devices.map((device) => ({ ...device, device_key: `pipewire:${device.id}` }));
+  assert.equal(audioSelectionErrors(settings, pipewire).length, 2);
+});
+
+test("explicit keys on default microphones still require an exact source match", () => {
+  const keyed: Settings = {
+    ...settings,
+    audio: { ...settings.audio, microphone: { ...settings.audio.microphone, mode: "default", device_id: null, device_key: "pipewire:source:saved" } },
+  };
+  assert.equal(audioSelectionErrors(keyed, devices).length, 1);
+  assert.deepEqual(audioSelectionErrors(keyed, devices.map((device) => ({ ...device, device_key: device.is_loopback ? null : "pipewire:source:saved" }))), []);
+});

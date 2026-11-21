@@ -1,40 +1,54 @@
-//! Experimental local-player network audio, independent of WASAPI and routing.
-#[cfg(any(windows, test))]
+//! Experimental Windows/Linux network audio, independent of device capture and routing.
+//! Portable parsers and session algorithms remain available to cross-platform tests.
+#[cfg(any(windows, target_os = "linux", test))]
 mod buffer;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod cache;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod chatbox;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub(crate) use cache::SessionCache;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
+mod connection;
+#[cfg(any(windows, target_os = "linux", test))]
 mod crypto;
+#[cfg(any(windows, target_os = "linux", test))]
+pub(crate) mod helper;
 #[cfg(any(windows, test))]
 mod key;
-#[cfg(any(windows, test))]
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(any(windows, target_os = "linux", test))]
 mod names;
 #[cfg(any(windows, test))]
 mod ntfs;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod opus;
+#[cfg(any(windows, target_os = "linux"))]
+mod platform;
 mod priority;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod protocol;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 mod proximity;
 #[cfg(test)]
 mod replay_tests;
 
-pub(crate) use priority::{
-    clear as clear_view_priority, is_visible as is_view_priority, replace as publish_view_priority,
-};
+#[cfg(any(windows, target_os = "linux"))]
+pub(crate) use priority::replace as publish_view_priority;
+pub(crate) use priority::{clear as clear_view_priority, is_visible as is_view_priority};
 pub(crate) mod session;
+#[cfg(target_os = "linux")]
+pub(crate) use helper::run as run_network_helper;
+#[cfg(target_os = "linux")]
+pub(crate) use linux::network_available;
 #[cfg(windows)]
 mod windows;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 mod worker;
 
 use serde::Serialize;
+#[cfg(any(windows, target_os = "linux"))]
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
@@ -63,6 +77,7 @@ pub(crate) struct ProximityStatus {
     pub view_enabled: bool,
     pub local_view: bool,
     pub in_view_players: usize,
+    #[cfg(any(windows, target_os = "linux"))]
     #[serde(skip)]
     pub blocked_players: HashSet<String>,
 }
@@ -107,17 +122,23 @@ impl Default for Status {
 pub(crate) type SharedStatus = Arc<Mutex<Status>>;
 
 pub(crate) enum AudioEvent {
+    #[cfg(any(windows, target_os = "linux", test))]
     Speaker(crate::models::SpeakerIdentity),
+    #[cfg(any(windows, target_os = "linux"))]
     Frame {
         speaker: crate::models::SpeakerIdentity,
         samples: Vec<f32>,
         position: u64,
     },
+    #[cfg(any(windows, target_os = "linux"))]
     Closed(String),
+    #[cfg(any(windows, target_os = "linux"))]
     /// The player left the configured proximity window during recognition.
     Excluded(String),
+    #[cfg(any(windows, target_os = "linux"))]
     /// A prior exclusion barrier has drained; new voice frames may start a fresh batch.
     Admitted(String),
+    #[cfg(any(windows, target_os = "linux"))]
     /// Decoder retired after silence; the player/identity is still in the room.
     Idle(String),
 }
@@ -138,18 +159,18 @@ impl Capture {
         status: SharedStatus,
         outputs: session::SharedOutputs,
         log: crate::vrchat_log::VrchatLog,
-        #[cfg(windows)] cache: Arc<SessionCache>,
+        #[cfg(any(windows, target_os = "linux"))] cache: Arc<SessionCache>,
         settings: Arc<std::sync::RwLock<crate::config::AppConfig>>,
         room_context: crate::room_context::NetworkCapturePublisher,
     ) -> Result<Self, String> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         {
             worker::start(config, status, outputs, cache, settings, log, room_context)
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             let _ = (config, status, outputs, log, settings, room_context);
-            Err("VRChat network capture is available only on Windows".into())
+            Err("VRChat network capture is available only on Windows and Linux".into())
         }
     }
     pub(crate) async fn shutdown(mut self) {

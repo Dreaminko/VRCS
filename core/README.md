@@ -4,6 +4,36 @@ VRCS 的本地后端。数据面、音频采集、VAD、本地/云端 ASR 与字
 
 ## 当前状态
 
+VRCS 已包含 Linux 适配（当前面向 GNU `x86_64`，ARM64 暂缓发布）。Linux GNU x86_64 已实现需
+polkit 授权的实验性分玩家音轨与 Chatbox 网络接收；抓包和取钥均由内嵌的
+`--network-helper` 子模式（`/usr/bin/vrcs-desktop --network-helper`，独立运行亦支持
+`vrcs-core --network-helper`）在独立特权进程内完成，Core 只接收已归属的数据包与认证后的密钥。`.deb`
+会在同一包内安装主程序及 polkit 策略；AppImage 不安装系统可执行文件或策略，
+须手动安装 `/usr/bin/vrcs-desktop` 或使用完整 deb，目前没有单独发布的助手包。Arch 开发安装、更新和卸载
+命令见下方 Linux 开发说明；`npm run dev` 不自动安装。运行时需会话 polkit 认证代理，
+音频需系统 Opus（Ubuntu 为 `libopus0`）。
+
+Linux 助手按目标进程持有的 socket inode、本地/远端端点确认流量归属；取钥时打开
+绑定原进程内存的 `/proc/<pid>/mem`，并在读取前后复核 PID/starttime。扫描取消和
+40 秒预算覆盖读取失败路径，Core 的扫描结果等待另有 45 秒上限；明确访问拒绝会
+结束网络会话。世界日志优先从目标的 Wine/Proton 环境定位，日志尚未出现时继续等待。
+独立日志监视器在 Linux 上共享同一份进程、房间与玩家身份快照，玩家音轨和世界切换历史
+无需各自轮询日志；未启动网络接收时也能记录世界名称，不触发 polkit 授权。
+
+`GET /api/capabilities` 沿用 Bearer 鉴权，返回 OS、arch 与各功能的
+`supported`／`available`／`reason_code`，不包含凭据。已接入 PipeWire 麦克风／系统输出／VRChat 进程音频采集、
+Secret Service 和固定 llama.cpp b11501 的托管 Qwen CPU/Vulkan（当前面向 GNU x86_64，ARM64 暂缓发布）。
+Linux GNU x86_64 支持 PLaMo 本地 CPU 翻译，复用 b11501 运行组件（ARM64 PLaMo 保持禁用）。网络接收仅支持 x86_64 且需系统安装匹配的 `/usr/bin/vrcs-desktop` 与策略，AppImage 不含系统安装的程序。OSC 发送独立，用户偏好与模型绑定保留。
+schema 42 增加 `audio.output.device_key`／`audio.microphone.device_key`，保留旧 `device_id`。
+PipeWire key 不存在时要求重选，不回退其他设备；旧 Windows 数值 ID 不在 Linux 猜测映射。
+schema 43 在此基础上迁移为按账号控制语音／Chatbox 来源；升级时保留 schema 41／42
+备份、稳定设备键与数值 ID，旧的空玩家选择仍禁止接收未配置来源。
+已启动的默认麦克风／系统输出采集会在设备暂缺、流断开或 PipeWire 服务重启后自动重建，
+保留原 PCM 通道，等待恢复时仍可停止。显式设备失效以及权限、格式等永久错误仍会上报。
+完整范围与实测限制见 [Linux 开发说明](../CONTRIBUTING.md#linux-development-initial-adaptation)。
+网络助手尚未完成真实 VRChat/Proton、polkit、EAC 姿态与 AppImage 配套安装的验收，不能
+把构建成功当作接收可用。
+
 | 能力 | 状态 |
 |---|---|
 | 配置读写、schema v1→v29 迁移 | 已实现（`src/config.rs`） |
@@ -28,11 +58,25 @@ Qwen 模型包通过 `/api/asr/local-models/qwen` 管理，支持 0.6B Q8_0 和 
 
 同一来源最多尝试 4 次。连接失败、超时、HTTP 408／429／5xx 和响应体中断会在有界等待后重试；已接收前缀在当前下载任务内通过 HTTP Range 续传。`206` 响应的范围起点、终点、总量必须与请求及模型清单一致，错误范围不会写入文件；来源忽略 Range 并返回完整响应时从头下载。取消、任务重启或切换来源不保留未完成文件的续传进度，已校验完成的同包文件可复用。
 
+模型目录的后台刷新使用 Core 初始化时保存的 Tokio runtime；同步配置／诊断调用与
+Linux 凭据工作线程不会因缺少调用线程的 runtime 而触发刷新崩溃。
+
 Core 默认构建和 `--no-default-features` 均支持云端功能和托管 Qwen CPU 识别。`--features vulkan` 允许独立 `llama-server` 运行时使用 Vulkan GPU，无需 Vulkan SDK 或着色器编译器。自动设备模式优先使用可用 GPU；GPU 启动失败且启动时限仍有剩余时尝试 CPU。未启用 Vulkan 时不探测 GPU，自动模式使用 CPU，显式选择 GPU 会报告 Vulkan 后端不可用。语音在本机处理。
+
+Linux GNU x86_64 的 Vulkan 构建下载对应的固定 Vulkan 运行包，包含 CPU 后端，无需 Vulkan SDK 或编译着色器；系统需安装 Vulkan loader（Ubuntu 为 `libvulkan1`）及显卡驱动。桌面开发用 `npm run dev:vulkan`，独立 Core 用 `cargo run --manifest-path core/Cargo.toml --features vulkan`。默认开发构建仍仅使用 CPU，Linux 发布/预览包已启用 Vulkan。CPU/Vulkan 运行包按后端分别存放；首次切换到 Vulkan 构建需在模型设置中下载该运行组件，已有 ASR 模型不需重下。
 
 升级配置时，旧本地 Whisper 选择迁移为托管 Qwen；已有 Qwen 设置、目录及校验记录保留。缺少 Qwen 模型或运行时时，需要先安装再开始识别。云端连接失败继续重连，不再回退到 Whisper。远程服务的 Whisper 模型仍可使用。
 
 Windows 构建的本地 PP-OCRv6 small 支持 ONNX Runtime DirectML，无需 CUDA 或 Vulkan SDK。`ocr.device` 默认为 `cpu`，设为 `directml` 时会优先选择高性能兼容 GPU；模型加载或推理失败后回退 CPU。回退后的 CPU 会话保持使用，直到切换推理设备或重新启动服务。`GET /api/ocr/runtime` 返回最近请求的设备、实际加载的设备和回退原因。其他平台会回退 CPU。
+
+Linux GNU x86_64 的 PLaMo 使用固定 `plamo-3-translate-0.8b-Q4_K_M.gguf`
+（revision `dbeb0856cb0b004b484f190bb71dd65876297013`，573,123,200 字节），
+下载后验证 SHA-256 与许可证文件；使用前须确认对应 revision 的 PLaMo Community License。
+在 API 和模型设置中下载共享 llama.cpp 运行组件与 PLaMo 模型，将翻译模型设为 Local PLaMo。
+纯 CPU、无需云端凭据；完整安装后可离线翻译。Linux 启动子进程不继承
+`LD_LIBRARY_PATH`／`LD_PRELOAD`，不需要手工指定系统库路径。
+PLaMo 与 Qwen 使用独立进程、loopback 端口和会话 token，共享已校验的 runtime 文件。
+ARM64 目前暂缓发布，ARM64 PLaMo 前后端保持禁用。
 
 ## 实验性视野优先
 

@@ -31,13 +31,14 @@ test("settings follow the configured translation, recognition, network and VR se
       import { useApiProfileViews } from './src/settings/hooks/useApiProfileViews';
       import { DEFAULT_OCR_SETTINGS } from './src/settings/vr-overlay-settings';
       import { DEFAULT_VISION_SETTINGS } from './src/settings/vision-settings';
+      import { WindowsCapabilities } from './tests/fixtures/platform-capabilities';
       await i18next.use(initReactI18next).init({ lng: 'en', resources: { en: { translation: {
         settings: { apiManagement: { confirmDelete: 'Delete {{name}}? {{impact}}', affectedFeatures: 'Affected: {{features}}', usedBy: 'Linked: {{features}}' } },
       } } } });
       const profile = (id, provider, llm, local = false) => ({
         id, name: id, provider, provider_display_name: provider, is_local: local,
         enabled_capabilities: id === 'asr' ? ['speech_to_text'] : llm ? ['text_generation', 'text_translation'] : ['text_translation'],
-        credential: { configured: true }, support_levels: {},
+        credential: { configured: true, stored_configured: true, environment_override: false, storage_available: false, reason_code: 'credentials.locked', source: 'credential_manager' }, support_levels: {},
         usages: id === 'deepseek' ? [
           { kind: 'translation', capability: 'text_translation', scope: 'microphone', index: 0, target_language: 'ja' },
           { kind: 'language_preset', capability: 'text_translation', scope: 'speaker', index: 1,
@@ -138,14 +139,14 @@ test("settings follow the configured translation, recognition, network and VR se
         sharedCatalog = useApiProfileViews('fixture');
         asrActions = useAsrModels({ active: false, settings: draft, onModelsChanged: noop,
           draftController: { applySettings: setDraft }, apiProfiles: profiles, providerDefinitions: definitions });
-        return <>
+        return <WindowsCapabilities credentials={{ supported: true, available: false, reason_code: 'credentials.locked' }}>
           <TranslationSettingsSection draft={draft} apiProfiles={profiles} applySettings={setDraft} />
           <VadSettings vad={draft.vad} backend={draft.asr.backend} disabled={false} onUpdate={asrActions.updateVad} />
           <ApiManagementSettingsSection settings={draft} onRefreshSettings={refreshSettings} />
           <ExternalApiSettingsCard config={draft.external_api} saveState="saved"
             onChange={patch => setDraft(current => ({ ...current, external_api: { ...current.external_api, ...patch } }))} />
           <OcrSettingsSection vrAvailable={true} draft={draft} profiles={profiles} providerDefinitions={definitions} applySettings={setDraft} />
-        </>;
+        </WindowsCapabilities>;
       }
       const root = createRoot(document.getElementById('root'));
       root.render(<Harness />);
@@ -191,6 +192,9 @@ test("settings follow the configured translation, recognition, network and VR se
         await settle();
         apiRow.querySelector('[aria-label="common.edit"]').click();
         await wait(() => document.querySelector('.api-profile-editor'));
+        check(!document.querySelector('.api-profile-editor [data-profile-field=api_key] input').disabled, 'A locked supported keyring still accepts an explicit replacement key');
+        check(!document.querySelector('.api-profile-editor button[type=submit]').disabled, 'A locked supported keyring does not prevent an explicit save');
+        check(document.querySelectorAll('.api-profile-editor [role=status]').length === 1, 'A locked credential shows one availability notice');
         check(!document.querySelector('[aria-label="settings.apiManagement.testCapability"]'), 'Each capability has its own test action without a selector');
         for (const [capability, label] of [['text_generation', 'testText'], ['text_translation', 'testTranslation']]) {
           const toggle = document.querySelector('.api-profile-capabilities [role=switch][aria-label="settings.apiManagement.capabilities.' + capability + '"]');

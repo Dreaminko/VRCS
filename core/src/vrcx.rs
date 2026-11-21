@@ -213,9 +213,13 @@ async fn run_connector(
     let mut backoff = Duration::from_millis(500);
     loop {
         set_shared_status(&shared, VrcxRuntimeStatus::with_state("connecting"));
+        let started = std::time::Instant::now();
         let result = run_connection(&shared, &config, &token, &mut shutdown, &mut stop).await;
         if *shutdown.borrow() || *stop.borrow() {
             return;
+        }
+        if started.elapsed() >= Duration::from_secs(5) {
+            backoff = Duration::from_millis(500);
         }
         clear_shared_room(&shared);
         let mut status = VrcxRuntimeStatus::with_state("error");

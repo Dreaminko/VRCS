@@ -12,6 +12,9 @@ const LINE_LIMIT: usize = 4096;
 
 pub(super) struct WorldWatcher {
     directory: PathBuf,
+    #[cfg(target_os = "linux")]
+    pid: Option<u32>,
+    error: Option<String>,
     started: SystemTime,
     file: Option<File>,
     dir_modified: Option<SystemTime>,
@@ -41,9 +44,19 @@ impl WorldWatcher {
         )
     }
 
+    #[cfg(target_os = "linux")]
+    pub(super) fn for_process(owner: crate::vrchat_process::ProcessIdentity) -> Self {
+        let mut watcher = Self::new(PathBuf::new(), linux_process_start(owner.created));
+        watcher.pid = Some(owner.pid);
+        watcher
+    }
+
     fn new(directory: PathBuf, started: SystemTime) -> Self {
         Self {
             directory,
+            #[cfg(target_os = "linux")]
+            pid: None,
+            error: None,
             started,
             file: None,
             dir_modified: None,
@@ -61,12 +74,20 @@ impl WorldWatcher {
     }
 
     pub fn poll(&mut self) -> bool {
-        if self.refresh().is_err() {
-            self.ready = false;
-            self.file = None;
-            self.dir_modified = None;
-        }
+        self.error = match self.refresh() {
+            Ok(()) => None,
+            Err(error) => {
+                self.ready = false;
+                self.file = None;
+                self.dir_modified = None;
+                Some(format!("Cannot read the current VRChat world log: {error}"))
+            }
+        };
         self.ready && self.caught_up
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
     }
 
     pub fn world_name(&self) -> Option<&str> {
@@ -95,13 +116,33 @@ impl WorldWatcher {
     }
 
     fn refresh(&mut self) -> std::io::Result<()> {
+        let earliest = self
+            .started
+            .checked_sub(Duration::from_secs(2))
+            .unwrap_or(self.started);
+        #[cfg(target_os = "linux")]
+        if self.path.is_none() {
+            if let Some(pid) = self.pid {
+                let home = std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .unwrap_or_default();
+                let env_dir = || {
+                    let environment = fs::read(format!("/proc/{pid}/environ")).unwrap_or_default();
+                    linux_log_directory(&environment, &home, earliest)
+                };
+                self.directory = linux_proc_fd_log_directory(pid, earliest)
+                    .or_else(env_dir)
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "waiting for an output_log in the target Wine/Proton prefix",
+                        )
+                    })?;
+            }
+        }
         let dir_modified = fs::metadata(&self.directory)?.modified().ok();
         let mut path_changed = false;
         if self.file.is_none() || dir_modified.is_none() || dir_modified != self.dir_modified {
-            let earliest = self
-                .started
-                .checked_sub(Duration::from_secs(2))
-                .unwrap_or(self.started);
             let newest = fs::read_dir(&self.directory)?
                 .filter_map(Result::ok)
                 .filter_map(|entry| {
@@ -234,6 +275,156 @@ impl WorldWatcher {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn linux_proc_fd_log_directory(pid: u32, earliest: SystemTime) -> Option<PathBuf> {
+    let entries = fs::read_dir(format!("/proc/{pid}/fd")).ok()?;
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let target = fs::read_link(entry.path()).ok()?;
+            let name = target.file_name()?.to_str()?;
+            if !name.starts_with("output_log_") || !name.ends_with(".txt") {
+                return None;
+            }
+            let metadata = fs::metadata(&target).ok()?;
+            if !metadata.is_file() {
+                return None;
+            }
+            let created = metadata.created().or_else(|_| metadata.modified()).ok()?;
+            (created >= earliest).then(|| Some((created, target.parent()?.to_path_buf())))?
+        })
+        .max_by_key(|(created, _)| *created)
+        .map(|(_, directory)| directory)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_vdf_library_paths(contents: &str) -> Vec<PathBuf> {
+    let mut libraries = Vec::new();
+    for line in contents.lines() {
+        let mut tokens = Vec::new();
+        let mut rest = line.trim();
+        while let Some(start) = rest.find('"') {
+            rest = &rest[start + 1..];
+            let Some(end) = rest.find('"') else {
+                break;
+            };
+            tokens.push(&rest[..end]);
+            rest = &rest[end + 1..];
+        }
+        if tokens.len() >= 2 && tokens[0].eq_ignore_ascii_case("path") && !tokens[1].is_empty() {
+            let path = tokens[1].replace("\\\\", "\\");
+            libraries.push(PathBuf::from(path));
+        }
+    }
+    libraries
+}
+
+#[cfg(target_os = "linux")]
+fn linux_log_directory(
+    environment: &[u8],
+    home: &std::path::Path,
+    earliest: SystemTime,
+) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let variable = |name: &[u8]| {
+        environment
+            .split(|byte| *byte == 0)
+            .find_map(|value| value.strip_prefix(name))
+            .map(|value| PathBuf::from(std::ffi::OsStr::from_bytes(value)))
+            .filter(|path| path.is_absolute())
+    };
+    let flatpak_id = environment
+        .split(|byte| *byte == 0)
+        .find_map(|value| value.strip_prefix(b"FLATPAK_ID="))
+        .and_then(|value| std::str::from_utf8(value).ok())
+        .filter(|id| !id.is_empty() && !id.contains('/') && !id.contains(".."));
+    let mut prefixes = Vec::new();
+    let push_unique = |prefixes: &mut Vec<PathBuf>, candidate: PathBuf| {
+        if !prefixes.contains(&candidate) {
+            prefixes.push(candidate);
+        }
+    };
+    let push_prefix = |prefixes: &mut Vec<PathBuf>, prefix: PathBuf| {
+        if let (Some(app_id), Ok(relative)) = (flatpak_id, prefix.strip_prefix(home)) {
+            push_unique(prefixes, home.join(".var/app").join(app_id).join(relative));
+        }
+        push_unique(prefixes, prefix);
+    };
+    if let Some(prefix) = variable(b"WINEPREFIX=") {
+        push_prefix(&mut prefixes, prefix);
+    }
+    if let Some(prefix) = variable(b"STEAM_COMPAT_DATA_PATH=").map(|path| path.join("pfx")) {
+        push_prefix(&mut prefixes, prefix);
+    }
+    if let Some(prefix) = variable(b"STEAM_COMPAT_INSTALL_PATH=")
+        .and_then(|path| Some(path.parent()?.parent()?.join("compatdata/438100/pfx")))
+    {
+        push_prefix(&mut prefixes, prefix);
+    }
+    // Only fall back to default Steam/Snap/Flatpak/libraryfolders.vdf prefixes
+    // when no explicit prefix env var targeted this VRChat process.
+    if prefixes.is_empty() {
+        let steam_roots = [
+            home.join(".steam/steam"),
+            home.join(".local/share/Steam"),
+            home.join("snap/steam/common/.local/share/Steam"),
+            home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam"),
+        ];
+        for root in &steam_roots {
+            push_unique(&mut prefixes, root.join("steamapps/compatdata/438100/pfx"));
+            for vdf_rel in ["steamapps/libraryfolders.vdf", "config/libraryfolders.vdf"] {
+                if let Ok(contents) = fs::read_to_string(root.join(vdf_rel)) {
+                    for lib in parse_vdf_library_paths(&contents) {
+                        push_unique(&mut prefixes, lib.join("steamapps/compatdata/438100/pfx"));
+                    }
+                }
+            }
+        }
+    }
+    prefixes
+        .iter()
+        .flat_map(|prefix| {
+            fs::read_dir(prefix.join("drive_c/users"))
+                .into_iter()
+                .flatten()
+        })
+        .filter_map(Result::ok)
+        .filter_map(|user| {
+            let directory = user.path().join("AppData/LocalLow/VRChat/VRChat");
+            let latest = fs::read_dir(&directory)
+                .ok()?
+                .filter_map(Result::ok)
+                .filter(|entry| {
+                    let name = entry.file_name();
+                    let name = name.to_string_lossy();
+                    name.starts_with("output_log_") && name.ends_with(".txt")
+                })
+                .filter_map(|entry| entry.metadata().ok())
+                .filter(|metadata| metadata.is_file())
+                .filter_map(|metadata| metadata.created().or_else(|_| metadata.modified()).ok())
+                .filter(|created| *created >= earliest)
+                .max()?;
+            Some((latest, directory))
+        })
+        .max_by_key(|(latest, _)| *latest)
+        .map(|(_, directory)| directory)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_start(created: u64) -> SystemTime {
+    let seconds = fs::read_to_string("/proc/stat").ok().and_then(|stat| {
+        stat.lines()
+            .find_map(|line| line.strip_prefix("btime "))
+            .and_then(|value| value.trim().parse::<u64>().ok())
+    });
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    let hz = u64::try_from(hz).unwrap_or(100).max(1);
+    seconds
+        .map(|seconds| SystemTime::UNIX_EPOCH + Duration::from_secs(seconds + created / hz))
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+}
+
 fn read_range(file: &mut File, offset: u64, length: u64) -> std::io::Result<Vec<u8>> {
     file.seek(SeekFrom::Start(offset))?;
     let mut bytes = Vec::with_capacity(length as usize);
@@ -344,6 +535,37 @@ fn identity_marker(bytes: &[u8], base: u64, include_membership: bool) -> Option<
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn waits_for_the_target_prefix_log_instead_of_using_another_prefix() {
+        let home = tempfile::tempdir().unwrap();
+        let unrelated = home.path().join(".local/share/Steam/steamapps/compatdata/438100/pfx/drive_c/users/steamuser/AppData/LocalLow/VRChat/VRChat");
+        fs::create_dir_all(&unrelated).unwrap();
+        fs::write(
+            unrelated.join("output_log_other.txt"),
+            line("Memory Usage: after world loaded"),
+        )
+        .unwrap();
+        let prefix = home.path().join("custom-wine-prefix");
+        let environment = format!("WINEPREFIX={}\0", prefix.display());
+        assert!(
+            linux_log_directory(environment.as_bytes(), home.path(), SystemTime::UNIX_EPOCH)
+                .is_none()
+        );
+        let directory = prefix.join("drive_c/users/player/AppData/LocalLow/VRChat/VRChat");
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(
+            directory.join("output_log_current.txt"),
+            line("Memory Usage: after world loaded"),
+        )
+        .unwrap();
+        let discovered =
+            linux_log_directory(environment.as_bytes(), home.path(), SystemTime::UNIX_EPOCH)
+                .unwrap();
+        assert_eq!(discovered, directory);
+        assert!(WorldWatcher::new(discovered, SystemTime::UNIX_EPOCH).poll());
+    }
     fn line(message: &str) -> String {
         format!("2026.10.25 03:00:00 Debug      -  {message}\n")
     }
@@ -546,5 +768,61 @@ mod tests {
             latest_name_update(line("[Behaviour] Entering Room: ").as_bytes()),
             Some(NameUpdate::Clear)
         ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn resolves_flatpak_steam_compat_data_log_directory() {
+        let home = tempfile::tempdir().unwrap();
+        let compat = home
+            .path()
+            .join(".local/share/Steam/steamapps/compatdata/438100");
+        let translated = home
+            .path()
+            .join(".var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/compatdata/438100/pfx/drive_c/users/steamuser/AppData/LocalLow/VRChat/VRChat");
+        fs::create_dir_all(&translated).unwrap();
+        fs::write(translated.join("output_log_2026-01-01.txt"), "ok\n").unwrap();
+        let env = format!(
+            "FLATPAK_ID=com.valvesoftware.Steam\0STEAM_COMPAT_DATA_PATH={}\0",
+            compat.display()
+        );
+        let found = linux_log_directory(env.as_bytes(), home.path(), SystemTime::UNIX_EPOCH);
+        assert_eq!(found, Some(translated));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn resolves_libraryfolders_vdf_and_multiple_env_prefixes() {
+        let home = tempfile::tempdir().unwrap();
+        let steam = home.path().join(".local/share/Steam/steamapps");
+        fs::create_dir_all(&steam).unwrap();
+        let ext_lib = home.path().join("external_steam");
+        let vdf = format!(
+            "\"libraryfolders\"\n{{\n\t\"0\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t}}\n}}\n",
+            ext_lib.display()
+        );
+        fs::write(steam.join("libraryfolders.vdf"), vdf).unwrap();
+        let logs = ext_lib
+            .join("steamapps/compatdata/438100/pfx/drive_c/users/steamuser/AppData/LocalLow/VRChat/VRChat");
+        fs::create_dir_all(&logs).unwrap();
+        fs::write(logs.join("output_log_2026-01-02.txt"), "ok\n").unwrap();
+        assert_eq!(
+            linux_log_directory(b"", home.path(), SystemTime::UNIX_EPOCH),
+            Some(logs)
+        );
+
+        let compat = home.path().join("compat-prefix");
+        let compat_logs = compat.join("pfx/drive_c/users/steamuser/AppData/LocalLow/VRChat/VRChat");
+        fs::create_dir_all(&compat_logs).unwrap();
+        fs::write(compat_logs.join("output_log_2026-01-03.txt"), "ok\n").unwrap();
+        let env = format!(
+            "WINEPREFIX={}\0STEAM_COMPAT_DATA_PATH={}\0",
+            home.path().join("missing/pfx").display(),
+            compat.display()
+        );
+        assert_eq!(
+            linux_log_directory(env.as_bytes(), home.path(), SystemTime::UNIX_EPOCH),
+            Some(compat_logs)
+        );
     }
 }
