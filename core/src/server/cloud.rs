@@ -280,7 +280,7 @@ async fn profile_value_resolved(
     }))
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 fn unavailable_profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Value {
     let mut resolved = config.clone();
     resolved.resolve_model_assignments();

@@ -239,12 +239,6 @@ export function useCompactWindow({
     (onExitCompact?: () => void) => setCompactMode(false, onExitCompact),
     [setCompactMode],
   );
-  const toggleCompact = useCallback(
-    (onExitCompact: () => void) => compact
-      ? exitCompact(onExitCompact)
-      : enterCompact(),
-    [compact, enterCompact, exitCompact],
-  );
 
   const startCompactResize = useCallback(async () => {
     if (!NATIVE_APP) return;
@@ -278,7 +272,6 @@ export function useCompactWindow({
     ensureCaptionHeight,
     enterCompact,
     exitCompact,
-    toggleCompact,
     closeWindow,
     startCompactResize,
   };

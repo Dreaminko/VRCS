@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { providersApi } from "../providers/api";
 import { localizedError } from "../app/app-utils";
 import { ApiError } from "../core-client/api-error";
+import { formatLocalizedList } from "../i18n/format-list";
 import { refreshApiProfileCatalog, useApiProfileCatalog } from "../providers/useApiProfileCatalog";
 import { supportsLlmModels } from "../providers/api-profile-purpose";
 import type {
@@ -20,7 +21,7 @@ export interface ApiModelCatalogState {
 }
 
 export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const catalog = useApiProfileCatalog();
   const [busyKeys, setBusyKeys] = useState(new Set<string>());
   const operations = useRef(new Set<string>());
@@ -109,7 +110,12 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
       if (refreshProfiles || refreshSettings) refreshes.push(Promise.resolve().then(() => refreshApiProfileCatalog(true)));
       const refreshed = await Promise.allSettled(refreshes);
       const effects = (result as { side_effects?: ApiProfileUsage[] }).side_effects;
-      const features = effects && [...new Set(effects.map((usage) => t(`settings.apiManagement.usages.${usage.kind}`)))].join(", ");
+      const features = effects
+        ? formatLocalizedList(
+            [...new Set(effects.map((usage) => t(`settings.apiManagement.usages.${usage.kind}`)))],
+            i18n.resolvedLanguage ?? i18n.language ?? "en-US",
+          )
+        : "";
       const success = t(successKey)
         + (features ? ` ${t("settings.apiManagement.appliedEffects", { features })}` : "")
         + (refreshed.some((refresh) => refresh.status === "rejected") ? ` ${t("settings.apiManagement.refreshFailed")}` : "");

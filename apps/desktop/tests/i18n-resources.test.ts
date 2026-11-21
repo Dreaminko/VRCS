@@ -114,3 +114,24 @@ test("every statically referenced translation key exists", () => {
     }
   }
 });
+
+test("every locale translates recognition runtime status values", async () => {
+  const i18n = createInstance();
+  await i18n.init({
+    resources: Object.fromEntries(localeNames.map((name) => [name, {
+      translation: loadLocale(name).translation as JsonObject,
+    }])),
+    lng: "en-US",
+    fallbackLng: "en-US",
+    interpolation: { escapeValue: false },
+  });
+
+  for (const locale of localeNames) {
+    await i18n.changeLanguage(locale);
+    for (const status of ["not_loaded", "loading", "ready", "error", "unknown"]) {
+      const key = `settings.recognition.runtimeStatus.${status}`;
+      const value = i18n.t(key);
+      assert.ok(value && value !== key, `${locale}:${key} must have a translation`);
+    }
+  }
+});

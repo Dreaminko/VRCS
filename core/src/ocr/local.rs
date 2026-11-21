@@ -609,7 +609,6 @@ mod tests {
                 1,
                 tokio::time::Instant::now() + std::time::Duration::from_secs(2),
                 |_| {},
-                |_| async { Ok(()) },
                 |_| {},
             )
             .await
@@ -631,11 +630,12 @@ mod tests {
         );
         let snapshot = service.configuration().unwrap();
         let error = service
-            .process_vr_scan(
+            .process_vr_scan_with_progress(
                 vec![sample()],
                 &snapshot,
                 1,
                 tokio::time::Instant::now() + std::time::Duration::from_secs(2),
+                |_| {},
                 |_| {},
                 |_| {},
             )
@@ -645,11 +645,12 @@ mod tests {
         assert!(error.contains("models are missing"), "{error}");
         for images in [vec![], vec![sample(), sample(), sample()]] {
             let error = service
-                .process_vr_scan(
+                .process_vr_scan_with_progress(
                     images,
                     &snapshot,
                     1,
                     tokio::time::Instant::now() + std::time::Duration::from_secs(2),
+                    |_| {},
                     |_| {},
                     |_| {},
                 )
@@ -662,11 +663,12 @@ mod tests {
         service.config.write().unwrap().ocr.desktop_enabled = true;
         let snapshot = service.configuration().unwrap();
         let error = service
-            .process_vr_scan(
+            .process_vr_scan_with_progress(
                 vec![sample()],
                 &snapshot,
                 1,
                 tokio::time::Instant::now() + std::time::Duration::from_secs(2),
+                |_| {},
                 |_| {},
                 |_| {},
             )
@@ -848,98 +850,6 @@ mod tests {
             runtime.execution_status().fallback_reason,
             status.fallback_reason
         );
-    }
-
-    #[tokio::test]
-    #[ignore = "requires downloaded official PP-OCRv6 small weights"]
-    async fn ocr_local_service_verifies_both_eyes_before_translating() {
-        use axum::{routing::post, Json, Router};
-        use std::sync::atomic::AtomicUsize;
-        let verified = Arc::new(AtomicBool::new(false));
-        let requests = Arc::new(AtomicUsize::new(0));
-        let handler_verified = verified.clone();
-        let handler_requests = requests.clone();
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let origin = format!("http://{}", listener.local_addr().unwrap());
-        let router = Router::new().route("/chat/completions", post(move || {
-            let verified = handler_verified.clone();
-            let requests = handler_requests.clone();
-            async move {
-                assert!(verified.load(Ordering::Acquire));
-                requests.fetch_add(1, Ordering::Relaxed);
-                Json(serde_json::json!({"choices":[{"message":{"content":"translated sample"}}]}))
-            }
-        }));
-        let server = tokio::spawn(async move {
-            axum::serve(listener, router).await.unwrap();
-        });
-        let mut config = crate::config::AppConfig::default();
-        config.ocr.enabled = true;
-        config.ocr.targets[0].profile_id = Some("ocr-test".into());
-        config.asr.api_profiles.push(crate::config::ApiProfile {
-            id: "ocr-test".into(),
-            provider: crate::providers::OPENAI_COMPATIBLE_PROVIDER.into(),
-            base_url: Some(origin),
-            auth_mode: crate::config::ApiAuthMode::None,
-            is_local: true,
-            enabled_capabilities: vec![crate::providers::CAPABILITY_TEXT_TRANSLATION.into()],
-            ..crate::config::ApiProfile::default()
-        });
-        let directory = std::env::var_os("VRCS_TEST_OCR_MODELS")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("models/ocr/ppocrv6-small")
-            });
-        let service = super::super::VrOcrService::new(
-            Arc::new(std::sync::RwLock::new(config)),
-            Arc::new(crate::translation::TranslationService::new().unwrap()),
-            Arc::new(LocalOcrRuntime::new(directory)),
-        );
-        let mut phases = Vec::new();
-        let result = service
-            .process(
-                [sample(), sample_offset(30)],
-                |phase| phases.push(phase),
-                move |regions| async move {
-                    assert_eq!((regions[0].len(), regions[1].len()), (4, 4));
-                    assert!((regions[1][0][0][0] - regions[0][0][0][0] - 30.0).abs() <= 5.0);
-                    verified.store(true, Ordering::Release);
-                    Ok(())
-                },
-            )
-            .await
-            .unwrap();
-        server.abort();
-        assert_eq!(requests.load(Ordering::Relaxed), 1);
-        assert!(phases.contains(&Phase::Recognizing));
-        assert!(phases.contains(&Phase::Translating));
-        for eye in result {
-            assert_eq!(eye.len(), 1);
-            assert!(eye
-                .iter()
-                .any(|block| block.source.text.contains("LOCAL OCR TEST 123")));
-            assert!(eye
-                .iter()
-                .all(|block| block.translations[0].text.as_deref() == Some("translated sample")));
-        }
-        service.config.write().unwrap().ocr.targets[0].profile_id = None;
-        phases.clear();
-        let original = service
-            .process(
-                [sample(), sample_offset(30)],
-                |phase| phases.push(phase),
-                |regions| async move {
-                    assert_eq!((regions[0].len(), regions[1].len()), (4, 4));
-                    Ok(())
-                },
-            )
-            .await
-            .unwrap();
-        assert!(original
-            .iter()
-            .all(|eye| eye.len() == 1 && eye.iter().all(|block| block.translations.is_empty())));
-        assert_eq!(requests.load(Ordering::Relaxed), 1);
-        assert!(!phases.contains(&Phase::Translating));
     }
 
     #[tokio::test]

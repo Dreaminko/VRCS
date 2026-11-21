@@ -24,8 +24,6 @@ import { Select } from "../SettingsControls";
 import { ApiCapabilitySelector, type ApiCapabilityTests } from "./ApiCapabilitySelector";
 import { CapabilityNotice, usePlatformCapabilities } from "../../core-client/capabilities";
 
-export type { ApiProfileEditorDraft } from "../../providers/api-profile-draft";
-
 export function ApiProfileEditor({
   draft,
   saving,

@@ -36,7 +36,28 @@
 .capture-chatbox-settings .settings-toggle-row { min-height: 0; padding: 0; }
 .capture-room-context-settings > .device-group-title { align-self: start; align-items: start; }
 .capture-room-context-settings > .device-group-title > .device-group-icon { height: 20px; }
-.capture-chatbox-translation { display: grid; justify-items: start; gap: 10px; }
+.capture-chatbox-translation {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  justify-items: start;
+  gap: 10px 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+}
+.capture-chatbox-translation > svg { margin-top: 2px; color: var(--primary-ink); }
+.capture-chatbox-translation > button { grid-column: 2; }
+.player-audio-status {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+}
+.player-audio-status-head { display: flex; align-items: center; gap: 8px; color: var(--text); }
+.player-audio-status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--text-quiet); }
+.player-audio-status.is-active .player-audio-status-dot { background: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
 
 .microphone-level-setting {
   display: grid;
@@ -124,7 +145,22 @@
   50% { transform: scale(1.08); opacity: 1; }
 }
 .device-select { min-width: 0; }
-.device-empty { margin: 0; padding: 16px; border: 1px dashed var(--border); border-radius: var(--radius-md); color: var(--text-quiet); font-size: var(--settings-text-body); line-height: var(--settings-leading-reading); }
+.device-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+  color: var(--text-quiet);
+  font-size: var(--settings-text-body);
+  line-height: var(--settings-leading-reading);
+}
+.device-empty > svg { flex: 0 0 auto; }
+.device-empty > .spinning { color: var(--primary-ink); animation: device-spin 850ms linear infinite; }
+@keyframes device-spin { to { transform: rotate(360deg); } }
 @keyframes settings-panel-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }

@@ -49,8 +49,3 @@ export function visionModels(provider: string | undefined, catalog: ApiModelCata
 export function patchVision(settings: Settings, patch: Partial<VisionSettings>): Settings {
   return { ...settings, vision: { ...settings.vision, ...patch } };
 }
-
-export function selectVisionProfile(settings: Settings, profileId: string | null): Settings {
-  if (settings.vision.profile_id === profileId) return settings;
-  return patchVision(settings, { profile_id: profileId, model: "", reasoning_control: null });
-}

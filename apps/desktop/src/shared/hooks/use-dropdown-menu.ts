@@ -134,5 +134,5 @@ export function useDropdownMenu(open: boolean, {
     updateFloatingPosition();
   }, [floating, floatingMenuMounted, open, updateFloatingPosition]);
 
-  return { menuRef, menuMounted, floatingMenuMounted, floatingPosition, floatingSide };
+  return { menuRef, menuMounted, floatingPosition, floatingSide };
 }

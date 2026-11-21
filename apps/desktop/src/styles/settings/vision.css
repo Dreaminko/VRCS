@@ -45,15 +45,8 @@
   white-space: pre-wrap;
 }
 .vision-settings-card .field { min-width: 0; }
-.vision-settings-reasoning-field { padding-top: calc(var(--settings-text-label) * var(--settings-leading-label) + 6px); }
-.vision-settings-reasoning-field:empty { display: none; }
-.vision-settings-reasoning-field .settings-toggle-row { min-height: var(--settings-control-height); padding: 0; }
 .vision-settings-card .translation-model-input-row { grid-template-columns: minmax(0, 1fr) auto auto; }
 .vision-settings-card .spin { animation: model-spin 900ms linear infinite; }
-
-@media (max-width: 860px) {
-  .vision-settings-reasoning-field { padding-top: 0; }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .vision-settings-details > summary > svg { transition: none; }

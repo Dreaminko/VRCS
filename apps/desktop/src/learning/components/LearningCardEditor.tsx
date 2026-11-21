@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, ChevronDown, PlusCircle, RefreshCw, Save } from "lucide-react";
+import { Check, ChevronDown, CreditCard, PlusCircle, RefreshCw, Save } from "lucide-react";
 
 import { prefersReducedMotion } from "../../app/app-motion";
 import { useLearningCardDraftEditor } from "../hooks/useLearningCardDraftEditor";
@@ -135,7 +135,10 @@ export function LearningCardEditor({
           </details>
         </>
       ) : (
-        <p className="learning-inline-hint">{t("learning.card.empty")}</p>
+        <div className="learning-card-empty">
+          <CreditCard size={18} aria-hidden="true" />
+          <p>{t("learning.card.empty")}</p>
+        </div>
       )}
     </section>
   );

@@ -1,7 +1,6 @@
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
 use tokio::sync::Mutex;
 
 use crate::config::ModelDownloadSource;
@@ -49,21 +48,7 @@ pub(crate) fn client_builder() -> reqwest::ClientBuilder {
 
 pub(crate) struct DownloadSources {
     preference: RwLock<ModelDownloadSource>,
-    probe: Mutex<Option<ProbeResult>>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct ProbeResult {
-    pub official_latency_ms: Option<u64>,
-    pub mirror_latency_ms: Option<u64>,
-    pub recommended_source: Option<ModelDownloadSource>,
-}
-
-#[derive(Serialize)]
-pub(crate) struct DownloadSourceStatus {
-    pub configured_source: ModelDownloadSource,
-    pub active_source: Option<ModelDownloadSource>,
-    pub probe: Option<ProbeResult>,
+    probe: Mutex<Option<ModelDownloadSource>>,
 }
 
 impl DownloadSources {
@@ -88,27 +73,10 @@ impl DownloadSources {
             .unwrap_or_else(|error| error.into_inner()) = source;
     }
 
-    pub(crate) async fn status(&self) -> DownloadSourceStatus {
-        let probe = self.probe.lock().await.clone();
-        let configured_source = self.preference();
-        DownloadSourceStatus {
-            configured_source,
-            active_source: match configured_source {
-                ModelDownloadSource::Auto => {
-                    probe.as_ref().and_then(|result| result.recommended_source)
-                }
-                source => Some(source),
-            },
-            probe,
-        }
-    }
-
-    pub(crate) async fn probe(&self, refresh: bool) -> ProbeResult {
+    async fn detect_source(&self) -> Option<ModelDownloadSource> {
         let mut cached = self.probe.lock().await;
-        if !refresh {
-            if let Some(result) = cached.as_ref() {
-                return result.clone();
-            }
+        if let Some(source) = *cached {
+            return Some(source);
         }
         let (official_latency_ms, mirror_latency_ms) = match client_builder()
             .connect_timeout(Duration::from_secs(2))
@@ -121,15 +89,11 @@ impl DownloadSources {
             ),
             Err(_) => (None, None),
         };
-        let result = ProbeResult {
-            official_latency_ms,
-            mirror_latency_ms,
-            recommended_source: recommend_source(official_latency_ms, mirror_latency_ms),
-        };
+        let recommended = recommend_source(official_latency_ms, mirror_latency_ms);
         // An offline first launch must not freeze automatic selection for the
         // rest of the session. Retry when a later download needs a source.
-        *cached = result.recommended_source.map(|_| result.clone());
-        result
+        *cached = recommended;
+        recommended
     }
 
     pub(crate) async fn urls(&self, official: &str) -> Vec<String> {
@@ -137,7 +101,7 @@ impl DownloadSources {
             return vec![official.into()];
         };
         let detected = if self.preference() == ModelDownloadSource::Auto {
-            self.probe(false).await.recommended_source
+            self.detect_source().await
         } else {
             None
         };
@@ -207,14 +171,18 @@ mod tests {
     #[tokio::test]
     async fn manual_source_is_effective_without_network_detection() {
         let sources = DownloadSources::new(Modelscope);
-        let status = sources.status().await;
-        assert_eq!(status.configured_source, Modelscope);
-        assert_eq!(status.active_source, Some(Modelscope));
-        assert!(status.probe.is_none());
+        assert_eq!(sources.preference(), Modelscope);
+        assert_eq!(
+            sources.urls(MIRRORS[0].0).await,
+            vec![MIRRORS[0].1, MIRRORS[0].0]
+        );
+        assert!(sources.probe.lock().await.is_none());
         sources.set_preference(Official);
-        assert_eq!(sources.status().await.active_source, Some(Official));
+        assert_eq!(sources.preference(), Official);
+        assert_eq!(sources.urls(MIRRORS[0].0).await, vec![MIRRORS[0].0]);
+        assert!(sources.probe.lock().await.is_none());
         sources.set_preference(Auto);
-        assert_eq!(sources.status().await.active_source, None);
+        assert_eq!(sources.preference(), Auto);
     }
 
     #[tokio::test]
@@ -234,19 +202,14 @@ mod tests {
         let sources = DownloadSources::new(Auto);
         let url = "https://github.com/ggml-org/llama.cpp/releases/download/b11501/llama-b11501-bin-win-vulkan-x64.zip";
         assert_eq!(sources.urls(url).await, vec![url]);
-        assert!(sources.status().await.probe.is_none());
+        assert!(sources.probe.lock().await.is_none());
     }
 
     #[tokio::test]
     async fn automatic_selection_uses_cached_probe_and_keeps_the_other_source_as_fallback() {
         let sources = DownloadSources::new(Auto);
-        for (preferred, latencies) in [(Modelscope, (None, Some(50))), (Official, (Some(50), None))]
-        {
-            *sources.probe.lock().await = Some(ProbeResult {
-                official_latency_ms: latencies.0,
-                mirror_latency_ms: latencies.1,
-                recommended_source: Some(preferred),
-            });
+        for preferred in [Modelscope, Official] {
+            *sources.probe.lock().await = Some(preferred);
             let urls = sources.urls(MIRRORS[0].0).await;
             assert_eq!(urls.len(), 2);
             assert_eq!(
@@ -257,7 +220,6 @@ mod tests {
                     MIRRORS[0].0
                 }
             );
-            assert_eq!(sources.status().await.active_source, Some(preferred));
             sources.set_preference(Official);
             assert_eq!(sources.urls(MIRRORS[0].0).await, [MIRRORS[0].0]);
             sources.set_preference(Auto);

@@ -127,7 +127,6 @@ pub struct AudioCapture {
     output_rate: u32,
     source: CaptureSource,
     session: Option<CaptureSession>,
-    device: Option<AudioDevice>,
     microphone_tap: Option<crate::vision::MicrophoneTap>,
 }
 
@@ -147,7 +146,6 @@ impl AudioCapture {
                 priming,
                 status: None,
             }),
-            device: None,
             microphone_tap: None,
         }
     }
@@ -156,7 +154,6 @@ impl AudioCapture {
             output_rate,
             source,
             session: None,
-            device: None,
             microphone_tap: None,
         }
     }
@@ -175,11 +172,6 @@ impl AudioCapture {
             session.priming.clear();
             while session.rx.try_recv().is_ok() {}
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn device(&self) -> Option<&AudioDevice> {
-        self.device.as_ref()
     }
 
     pub fn start(
@@ -293,7 +285,6 @@ impl AudioCapture {
             status: Some(ready_rx),
             priming: Default::default(),
         });
-        self.device = Some(device.clone());
         Ok(device)
     }
 
@@ -315,13 +306,6 @@ impl AudioCapture {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn interrupt(&mut self) {
-        if let Some(session) = &self.session {
-            session.stop.store(true, Ordering::Relaxed);
-        }
-    }
-
     pub fn stop(&mut self) {
         if let Some(mut session) = self.session.take() {
             session.stop.store(true, Ordering::Relaxed);
@@ -329,19 +313,16 @@ impl AudioCapture {
                 let _ = join.join();
             }
         }
-        self.device = None;
     }
 
     pub async fn shutdown(&mut self) {
         let Some(mut session) = self.session.take() else {
-            self.device = None;
             return;
         };
         session.stop.store(true, Ordering::Relaxed);
         if let Some(join) = session.join.take() {
             let _ = tokio::task::spawn_blocking(move || join.join()).await;
         }
-        self.device = None;
     }
 }
 
@@ -586,7 +567,6 @@ mod tests {
             assert_eq!(chunk.len(), CHUNK_FRAMES);
         }
         capture.stop();
-        assert!(capture.device().is_none());
     }
 
     #[cfg(target_os = "linux")]

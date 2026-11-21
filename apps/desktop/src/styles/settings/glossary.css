@@ -1,11 +1,9 @@
-.glossary-description { margin: -4px 0 14px; color: var(--text-secondary); font-size: var(--settings-text-body); line-height: var(--settings-leading-reading); }
 .glossary-usage-toggles { margin-bottom: 20px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
 .glossary-usage-toggles .settings-toggle-row { padding: 8px var(--settings-card-padding); }
 .glossary-usage-toggles .settings-toggle-row + .settings-toggle-row { border-top: 1px solid var(--border); }
 .glossary-dialog input:focus { outline: none; border-color: var(--primary); box-shadow: var(--control-focus-shadow); }
 .glossary-heading .secondary-button,
-.glossary-card-actions .secondary-button,
-.glossary-dialog-toolbar .secondary-button { display: inline-flex; align-items: center; gap: 6px; }
+.glossary-card-actions .secondary-button { display: inline-flex; align-items: center; gap: 6px; }
 .glossary-manager { display: grid; min-width: 0; gap: 10px; padding-top: 4px; }
 .glossary-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .glossary-heading > span { display: grid; min-width: 0; gap: 2px; }
@@ -277,7 +275,8 @@
 .glossary-entry-bulk-actions > strong { color: var(--primary-ink); font-size: var(--settings-text-micro); font-weight: var(--settings-weight-heading); white-space: nowrap; }
 .glossary-entry-bulk-actions .dropdown-field { width: 210px; }
 .glossary-entry-bulk-actions .dropdown-trigger { height: var(--settings-control-compact-height); font-size: var(--settings-text-micro); }
-.glossary-dialog-empty { margin: 0; padding: 24px 18px; color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); text-align: center; }
+.glossary-dialog-empty { display: grid; justify-items: center; gap: 6px; margin: 0; padding: 28px 18px; color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); text-align: center; }
+.glossary-dialog-empty svg { opacity: 0.75; }
 .glossary-dialog-error { display: block; min-height: 16px; color: var(--error); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 
 @media (hover: hover) {

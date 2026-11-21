@@ -109,14 +109,11 @@ impl SampleKind {
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeState {
     Unsupported,
-    #[allow(dead_code)]
     Disabled,
     WaitingRuntime,
     Initializing,
     Ready,
     Reconnecting,
-    #[allow(dead_code)]
-    Error,
     ShuttingDown,
 }
 
@@ -129,8 +126,6 @@ pub enum ResourceState {
     Visible,
     Fading,
     DeviceUnavailable,
-    #[allow(dead_code)]
-    Recreating,
     Error,
 }
 

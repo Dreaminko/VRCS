@@ -1,23 +1,9 @@
-.recognition-runtime {
-  display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
-  padding: 10px 14px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-subtle);
-}
 .recognition-runtime-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--error);
 }
-.recognition-runtime.available .recognition-runtime-dot { background: var(--primary); }
-.recognition-runtime > div { display: grid; min-width: 0; gap: 2px; }
-.recognition-runtime strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
-.recognition-runtime span { color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .recognition-config,
 .translation-config {
   display: grid;
@@ -55,15 +41,12 @@
 .recognition-config-title strong,
 .translation-config-title strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 
-.recognition-config-fields,
-.translation-config-fields {
+.recognition-config-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
   gap: 12px;
 }
-.recognition-config-fields > *,
-.translation-config-fields > * { min-width: 0; }
-.recognition-config-fields .field > small,
-.translation-config-fields .field > small { overflow-wrap: anywhere; }
+.recognition-config-fields > * { min-width: 0; }
+.recognition-config-fields .field > small { overflow-wrap: anywhere; }
 .vad-smart-turn-setting { grid-column: 1 / -1; }

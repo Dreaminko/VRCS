@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { request } from "../../core-client/transport";
@@ -10,16 +10,6 @@ export function useOcrModels() {
   const [busy, setBusy] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState("");
-
-  const load = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const next = await request<VrOcrModelStatus>("/api/ocr/models", { signal });
-      setModels(next);
-      setError("");
-    } catch {
-      setError(t("settings.vrOcr.modelFailed"));
-    }
-  }, [t]);
 
   useEffect(() => {
     let disposed = false;

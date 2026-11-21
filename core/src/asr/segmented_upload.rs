@@ -66,7 +66,7 @@ pub struct SegmentedUploadSession {
 }
 
 impl SegmentedUploadSession {
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn spawn(
         profile: ApiProfile,
         api_key: String,

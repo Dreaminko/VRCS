@@ -12,7 +12,6 @@ import { updateLearningItemEdits, type LearningItemEdits } from "../learning-edi
 import type { Settings } from "../../settings/types";
 
 export type { LearningPreferences } from "./useLearningAiConfiguration";
-export type { LearningBusyAction, LearningStatusFilter } from "./useLearningInbox";
 
 export function useLearningWorkspace(active: boolean, ready = active, settings?: Settings | null) {
   const { i18n } = useTranslation();

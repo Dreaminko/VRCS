@@ -1,16 +1,3 @@
-.api-security-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 14px;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  color: var(--primary-ink);
-  background: var(--primary-softer);
-}
-.api-security-note svg { flex: 0 0 auto; margin-top: 1px; }
-.api-security-note p { margin: 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-reading); text-wrap: pretty; }
-
 .api-profile-list {
   overflow: hidden;
   border: 1px solid var(--border);
@@ -247,16 +234,6 @@
 }
 .api-profile-capability-switch { margin: 0 2px; }
 .api-profile-capability-row.required .api-profile-capability-switch:disabled { opacity: 0.78; cursor: default; }
-.api-compatible-settings {
-  display: grid;
-  grid-column: 1 / -1;
-  gap: 14px;
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-elevated);
-}
-.api-compatible-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .api-compatible-url-field { grid-column: 1 / -1; }
 .api-profile-local-field { align-self: start; }
 .api-profile-local-control {

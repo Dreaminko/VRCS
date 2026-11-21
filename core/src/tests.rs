@@ -882,96 +882,90 @@ async fn storage_stats_quota_update_and_history_clear_are_available_over_http() 
 }
 
 #[tokio::test]
-async fn subtitle_range_deletion_validates_and_deletes_only_the_requested_messages() {
+async fn model_download_source_preference_is_loaded_persisted_and_applied_only_after_commit() {
     let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.json");
+    let mut config = config::AppConfig::default();
+    config.storage.model_download_source = config::ModelDownloadSource::Official;
+    config::save_config(&config_path, &config).unwrap();
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
     let handle = start(CoreOptions {
-        config_path: directory.path().join("config.json"),
+        config_path: config_path.clone(),
         host: Some("127.0.0.1".into()),
-        port: Some(0),
-        session_token: Some("subtitle-delete-token".into()),
+        port: Some(port),
+        session_token: Some("download-source-test".into()),
         vad_model_path: Some(directory.path().join("missing-silero.onnx")),
         asr_model_dir: None,
     })
     .await
     .unwrap();
     let client = reqwest::Client::new();
-    let endpoint = format!("http://{}/api/subtitles/range", handle.address());
+    let base = format!("http://{}", handle.address());
+    let official = "https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/928ab958557df9aa2ef1c93e0e83c7ad0933fae2/Qwen3-ASR-0.6B-Q8_0.gguf";
+    let mirror = "https://modelscope.cn/api/v1/models/ggml-org/Qwen3-ASR-0.6B-GGUF/repo?Revision=86222636b790fae434fb24c03c46fc817dfb27b2&FilePath=Qwen3-ASR-0.6B-Q8_0.gguf";
+    assert_eq!(
+        handle.model_manager.download_sources.urls(official).await,
+        vec![official]
+    );
 
-    {
-        let db = handle.state.content.db.lock().unwrap();
-        for (text, created_at) in [
-            ("older", "2026-01-01T00:00:00.000000Z"),
-            ("target", "2026-01-02T00:00:00.000000Z"),
-            ("newer", "2026-01-03T00:00:00.000000Z"),
-        ] {
-            db.add_subtitle(&crate::models::Subtitle {
-                speaker: None,
-                id: None,
-                conversation_id: None,
-                text: text.into(),
-                language: Some("en".into()),
-                started_at: None,
-                ended_at: None,
-                source: "speaker".into(),
-                created_at: created_at.into(),
-                translations: Vec::new(),
-            })
-            .unwrap();
-        }
-    }
-
-    let deleted = client
-        .delete(&endpoint)
-        .bearer_auth("subtitle-delete-token")
-        .json(&serde_json::json!({
-            "started_at": "2026-01-02T08:00:00+08:00",
-            "ended_at": "2026-01-03T08:00:00+08:00"
-        }))
+    let response = client
+        .get(format!("{base}/api/settings"))
+        .bearer_auth("download-source-test")
         .send()
         .await
         .unwrap();
-    assert_eq!(deleted.status(), reqwest::StatusCode::OK);
+    let revision = response.headers()["x-vrcs-config-revision"].clone();
+    let mut settings: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(settings["storage"]["model_download_source"], "official");
+    settings["storage"]["model_download_source"] = "modelscope".into();
+    let response = client
+        .put(format!("{base}/api/settings"))
+        .bearer_auth("download-source-test")
+        .header("x-vrcs-config-revision", revision)
+        .json(&settings)
+        .send()
+        .await
+        .unwrap();
+    let status = response.status();
+    let revision = response.headers().get("x-vrcs-config-revision").cloned();
+    let mut settings: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(status, reqwest::StatusCode::OK, "{settings}");
+    let revision = revision.unwrap();
+    assert_eq!(settings["storage"]["model_download_source"], "modelscope");
     assert_eq!(
-        deleted.json::<serde_json::Value>().await.unwrap()["deleted"],
-        1
+        handle.model_manager.download_sources.urls(official).await,
+        vec![mirror, official]
     );
-    let remaining = handle
-        .state
-        .content
-        .db
-        .lock()
-        .unwrap()
-        .subtitle_history(10)
-        .unwrap()
-        .into_iter()
-        .map(|subtitle| subtitle.text)
-        .collect::<Vec<_>>();
-    assert_eq!(remaining, vec!["newer", "older"]);
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap();
+    assert_eq!(saved["storage"]["model_download_source"], "modelscope");
 
-    for input in [
-        serde_json::json!({
-            "started_at": "not-a-timestamp",
-            "ended_at": null
-        }),
-        serde_json::json!({
-            "started_at": "2026-01-03T00:00:00Z",
-            "ended_at": "2026-01-02T00:00:00Z"
-        }),
-    ] {
-        let rejected = client
-            .delete(&endpoint)
-            .bearer_auth("subtitle-delete-token")
-            .json(&input)
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(rejected.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
-        assert_eq!(
-            rejected.json::<serde_json::Value>().await.unwrap()["code"],
-            "subtitles.invalid_range"
-        );
-    }
-
+    // Block the atomic replacement to verify a failed save keeps the live preference.
+    let saved_path = directory.path().join("saved.json");
+    std::fs::rename(&config_path, &saved_path).unwrap();
+    std::fs::create_dir(&config_path).unwrap();
+    settings["storage"]["model_download_source"] = "official".into();
+    let response = client
+        .put(format!("{base}/api/settings"))
+        .bearer_auth("download-source-test")
+        .header("x-vrcs-config-revision", revision)
+        .json(&settings)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+    let error: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(error["code"], "settings.invalid");
+    assert_eq!(
+        handle.model_manager.download_sources.urls(official).await,
+        vec![mirror, official]
+    );
+    std::fs::remove_dir(&config_path).unwrap();
+    std::fs::rename(&saved_path, &config_path).unwrap();
     handle.shutdown().await.unwrap();
 }
 

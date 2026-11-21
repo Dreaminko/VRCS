@@ -3,6 +3,7 @@ import { Eye, FileText, Languages, Layers2, Link2, MessageSquareText, ScanText, 
 import { useTranslation } from "react-i18next";
 
 import { ConfirmDialog } from "../../app/components/ConfirmDialog";
+import { formatLocalizedList } from "../../i18n/format-list";
 import { profileSupportsCapability } from "../../providers/provider-catalog";
 import type { ApiProfileView } from "../../providers/types";
 import { DefaultModelEditor, ModelSelectionField } from "../api/ModelSelectionField";
@@ -21,7 +22,8 @@ export function ModelAssignmentsSection({ settings, profiles, applySettings }: {
   profiles: ApiProfileView[];
   applySettings: ApplySettings;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? "en-US";
   const [confirmBatch, setConfirmBatch] = useState(false);
   const batchRef = useRef<HTMLButtonElement>(null);
   const defaults = {
@@ -35,11 +37,14 @@ export function ModelAssignmentsSection({ settings, profiles, applySettings }: {
   const textReady = Boolean(defaults.text.model.trim() && textProfile && profileSupportsCapability(textProfile, "text_generation"));
   const translationDefaultReady = translationSelectionReady(defaults.translation, profiles);
   const visionReady = Boolean(defaults.vision.model.trim() && visionProfile && profileSupportsCapability(visionProfile, "image_understanding"));
-  const batchTasks = [
-    translationDefaultReady && t("settings.modelAssignments.translation"), translationDefaultReady && t("settings.modelAssignments.ocrTranslation"),
-    textReady && t("settings.modelAssignments.conversationTitles"), textReady && t("settings.modelAssignments.learningAi"),
+  const batchTaskItems = [
+    translationDefaultReady && t("settings.modelAssignments.translation"),
+    translationDefaultReady && t("settings.modelAssignments.ocrTranslation"),
+    textReady && t("settings.modelAssignments.conversationTitles"),
+    textReady && t("settings.modelAssignments.learningAi"),
     visionReady && t("settings.modelAssignments.visionQuestions"),
-  ].filter(Boolean).join(", ");
+  ].filter((item): item is string => Boolean(item));
+  const batchTasks = formatLocalizedList(batchTaskItems, locale);
   const followDefaults = () => update((current) => ({
     ...current,
     translation: translationDefaultReady ? { ...current.translation, model_selection: { ...DEFAULT_MODEL_SELECTION },

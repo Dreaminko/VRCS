@@ -36,7 +36,6 @@ pub(crate) use runtime_context::{AsrContextSource, AsrEchoGuard};
 pub(crate) use session::{
     prepare_managed_qwen, spawn_cloud_recognition_session_with_context, spawn_managed_qwen_session,
 };
-#[allow(unused_imports)]
 pub use session::{
     spawn_cloud_recognition_session, test_cloud_service, validate_cloud_connection,
     CloudRecognitionSession,

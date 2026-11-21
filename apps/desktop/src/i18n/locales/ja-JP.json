@@ -108,7 +108,6 @@
       "downloading": "ダウンロード中…",
       "expandNamed": "{{name}}を展開",
       "loading": "読み込み中…",
-      "ready": "準備完了",
       "refresh": "更新",
       "retry": "再試行",
       "save": "保存",
@@ -130,17 +129,6 @@
         "search": "言語名またはコードを検索",
         "empty": "一致する言語はありません",
         "useCustom": "{{code}} をカスタム言語コードとして使用"
-      },
-      "languages": {
-        "zh-Hans": "中国語（簡体字）",
-        "zh-Hant": "中国語（繁体字）",
-        "en": "英語",
-        "ja": "日本語",
-        "ko": "韓国語",
-        "es": "スペイン語",
-        "fr": "フランス語",
-        "de": "ドイツ語",
-        "ru": "ロシア語"
       }
     },
     "navigation": {
@@ -156,7 +144,6 @@
       "detailsTitle": "送信設定",
       "expandDetails": "送信設定を開く",
       "collapseDetails": "送信設定を閉じる",
-      "translationOnSend": "送信時に自動翻訳",
       "translationPreviewPending": "送信時に翻訳を自動生成します",
       "inputCount": "{{count}}文字",
       "original": "原文",
@@ -269,7 +256,6 @@
       "vrchatSendChecking": "チャットボックス送信を確認中",
       "vrchatSendError": "チャットボックス送信エラー",
       "muteUnknown": "ミュート状態を確認できないため送信を一時停止",
-      "muteSyncDisabled": "ミュート同期はオフ",
       "connection": {
         "connecting": "接続中",
         "connected": "接続済み",
@@ -334,12 +320,10 @@
       "expandSidebar": "会話サイドバーを展開",
       "collapseSidebar": "会話サイドバーを折りたたむ",
       "create": "新しい会話",
-      "viewCurrent": "現在の会話を表示",
       "current": "現在",
       "previous": "過去の会話",
       "empty": "過去の会話はありません",
       "subtitleCount": "字幕 {{count}} 件",
-      "loadOnOpen": "開いたときに読み込む",
       "loadOlderMessages": "以前のメッセージを読み込む",
       "loadingOlderMessages": "以前のメッセージを読み込み中…",
       "search": "会話を検索",
@@ -355,7 +339,6 @@
       "viewingPast": "{{time}} の会話を表示中",
       "returnCurrent": "現在の会話に戻る",
       "recent": "最近の会話",
-      "moreConversations": "その他の会話",
       "manage": "「{{title}}」を管理",
       "rename": "名前を変更",
       "changeIcon": "アイコンを変更",
@@ -452,7 +435,6 @@
       "returnToLatestShort": "最新に戻る",
       "contextMenu": {
         "label": "字幕の操作",
-        "more": "その他の字幕操作",
         "copySelection": "選択部分をコピー",
         "copyOriginal": "原文をコピー",
         "copyTranslation": "訳文をコピー",
@@ -480,7 +462,6 @@
     },
     "learning": {
       "title": "学習ワークスペース",
-      "description": "字幕を収集し、必要なときだけ分析して、編集可能な Anki カードを準備します。",
       "language": "言語",
       "dateRange": "期間",
       "allTime": "すべて",
@@ -488,11 +469,6 @@
       "loadEarlier": "以前の素材を表示",
       "loadingEarlier": "読み込み中…",
       "empty": "条件に一致する会話素材はありません。",
-      "tabs": {
-        "label": "学習ワークスペースのセクション",
-        "inbox": "収集箱",
-        "materials": "会話素材"
-      },
       "inbox": {
         "title": "収集箱",
         "count": "{{count}} 件",
@@ -517,13 +493,11 @@
           "microphone": "マイク",
           "chatbox": "Chatbox"
         },
-        "selectionHint": "任意に複数選択できます。Shift キーで連続選択できます。",
         "conversationCount": "字幕 {{count}} 件",
         "selected": "字幕を {{count}} 件選択中",
         "selectAll": "表示中を選択",
         "clearSelection": "クリア",
         "selectSubtitle": "字幕を選択",
-        "collect": "会話から収集",
         "openCollected": "項目を開く"
       },
       "filters": {
@@ -582,26 +556,11 @@
       },
       "ai": {
         "title": "AI 分析",
-        "description": "操作を選んだときだけリクエストします。",
         "configureHint": "AI を設定すると分析できます。閲覧とカード作成は今すぐ使えます。",
-        "openSettings": "学習設定を開く",
-        "actions": {
-          "contextual_word_explanation": "この単語を説明",
-          "sentence_analysis": "この文を解析",
-          "session_review": "この会話を振り返る"
-        },
-        "profile": "AI プロファイル",
-        "model": "モデル",
-        "modelPlaceholder": "モデルを選択または入力",
-        "modelUnset": "モデル未設定",
+        "openSettings": "モデル設定を開く",
         "explanationLanguage": "説明言語",
         "followUiLanguage": "アプリの言語に合わせる",
         "explanationLevel": "説明の詳しさ",
-        "profileMissing": "テキスト生成に対応する AI プロファイルを選択し、モデルを入力してください。",
-        "cloudNoticeTitle": "外部クラウドサービス",
-        "cloudNotice": "学習内容と保存済み辞書コンテキストを {{provider}} に送信し、{{model}} を使用します。",
-        "localNoticeTitle": "設定済みローカルサービス",
-        "localNotice": "学習内容をローカルサービス {{provider}} に送信し、{{model}} を使用します。このサービス独自の転送設定が適用される場合があります。",
         "quickFocus": "追加分析",
         "focus": {
           "simpler": "もっと簡単に説明",
@@ -612,11 +571,6 @@
           "contextual_word_explanation": "文脈に沿って単語を説明",
           "sentence_analysis": "文型を解析",
           "session_review": "会話を振り返る"
-        },
-        "languages": {
-          "zhCN": "簡体字中国語",
-          "enUS": "英語",
-          "jaJP": "日本語"
         },
         "levels": {
           "beginner": "初級",
@@ -703,18 +657,16 @@
       }
     },
     "selection": {
-      "actionsLabel": "「{{text}}」の選択操作",
       "close": "選択ツールを閉じる",
       "back": "選択ツールに戻る",
-      "dictionary": "辞書",
       "dictionaryLoading": "検索中…",
       "askAi": "AI に質問",
       "ai": {
         "title": "AI に質問",
         "dialogLabel": "「{{text}}」について AI に質問",
         "configureTitle": "先に AI を設定してください",
-        "configureDescription": "質問する前に、学習設定でテキスト生成対応の Profile とモデルを選択してください。",
-        "openSettings": "学習設定を開く",
+        "configureDescription": "質問する前に、「API とモデル → モデルの割り当て」で学習 AI 用のテキスト生成対応プロファイルとモデルを選択してください。",
+        "openSettings": "モデル設定を開く",
         "selectedText": "選択したテキスト",
         "answer": "回答",
         "copy": "コピー",
@@ -740,15 +692,8 @@
     },
     "validation": {
       "audio": {
-        "player_audio_unavailable": "プレイヤー別独立音声トラックを開始できません。管理者権限、NTFS ページファイルのドライブ、Opus ライブラリを確認してください。",
         "outputUnavailable": "選択したシステム出力デバイスが利用できません。選び直してください。",
         "microphoneUnavailable": "選択したマイクが利用できません。選び直してください。"
-      },
-      "asr": {
-        "cloud_connect_failed": "クラウド音声認識サービスに接続できませんでした。",
-        "cloud_disconnected": "クラウド音声認識の接続が切断されました。",
-        "cloud_error": "クラウド音声認識サービスからエラーが返されました。",
-        "cloud_reconnect_failed": "クラウド音声認識サービスへの再接続に失敗しました。"
       }
     },
     "updates": {
@@ -784,7 +729,7 @@
         "conversations": {
           "title_interrupted": "前回の生成が中断されました。再試行してください。",
           "title_service_failed": "タイトルを生成できませんでした。モデルサービスを確認して再試行してください。",
-          "title_not_configured": "会話タイトルの設定で API プロファイル、認証情報、モデルを確認してください。",
+          "title_not_configured": "「API とモデル → モデルの割り当て」で会話タイトル用のプロファイル、認証情報、モデルを確認してください。",
           "title_timeout": "タイトル生成がタイムアウトしました。再試行してください。",
           "title_empty": "この会話には要約できる字幕原文がありません。",
           "title_invalid_output": "モデルが有効な1行のタイトルを返しませんでした。再試行してください。",
@@ -859,7 +804,7 @@
         "vrEnable": "VR 画像質問応答を有効にする",
         "profile": "API プロファイル",
         "noProfile": "プロファイル未選択",
-        "noProfiles": "利用できるプロファイルがありません。API 設定でプロファイルを追加または編集し、画像理解を有効にしてください。",
+        "noProfiles": "利用できるプロファイルがありません。「API とモデル → API プロファイル」でプロファイルを追加または編集し、画像理解を有効にしてください。",
         "unavailableProfile": "選択したプロファイルは利用できません",
         "model": "モデル",
         "thinkingMode": "思考モード",
@@ -915,7 +860,6 @@
         "headset": "ヘッドセット字幕",
         "wrist": "手首の会話",
         "ocr": "VR テキスト翻訳",
-        "content": "表示内容",
         "hand": "コントローラー",
         "width": "幅",
         "opacity": "不透明度",
@@ -1001,7 +945,6 @@
         "wristDescription": "原文と訳文を比較できます。この設定は OCR パネルにのみ適用されます。",
         "wristPosition": "位置と角度",
         "results": "領域の翻訳：完了 {{completed}} 件、失敗 {{failed}} 件",
-        "sourceView": "原文と翻訳を一緒に表示します。",
         "errors": {
           "timeout": "処理がタイムアウトしました。再スキャンしてください。",
           "models_missing": "設定でローカル OCR モデルを準備してください。",
@@ -1032,7 +975,6 @@
         },
         "modelFailed": "OCR モデルを準備できません。接続を確認して再試行してください。",
         "modelDeleteFailed": "OCR モデルを削除できません。ダウンロードや文字認識が完了してから再試行してください。",
-        "controls": "枠が表示されたら、右トリガーを 0.65 秒長押しすると OCR を確定します。すでに押していた場合は、一度放してから押してください。枠がないと認識しません。左トリガーの長押しでクリア、視覚質問が有効な場合は質問します。",
         "states": {
           "disabled": "無効",
           "waiting_vr": "SteamVR を待機中",
@@ -1061,13 +1003,11 @@
         "enable": "VR OCR を有効にする",
         "translation": "OCR の翻訳言語とサービス",
         "timeout": "タスクのタイムアウト",
-        "region": "中央の撮影範囲（両手フレームを使わない場合）",
         "confidence": "認識信頼度の下限",
         "lifetime": "VR 結果の表示時間",
         "background": "VR 結果の背景の不透明度",
         "gesture": "両手のグリップボタンによる範囲選択を有効化",
         "gestureDescription": "標準設定では、両手のグリップボタンを同時に押すと範囲選択を開始します。左トリガーを長押しすると視覚質問応答が開始するので、そのまま質問を話してください。右トリガーを長押しすると OCR 翻訳を開始します。",
-        "gestureReady": "指フレームまたは両グリップを 0.65 秒保持してください。枠が表示されたら両手を動かして範囲を調整し、右トリガーを長押しすると確定します。すでに押していた場合は、一度放してから押してください。確定前に指の姿勢またはグリップを解除するとキャンセルします。",
         "gestureUnavailable": "両手とコントローラーの範囲追跡を取得できないため、VR OCR を開始できません。追跡と SteamVR の枠選択バインドを確認してください。",
         "bindings": "SteamVR のコントローラー操作設定を開く",
         "bindingFailed": "SteamVR の操作設定を開けません。VR 接続を確認してください。",
@@ -1076,7 +1016,6 @@
       "categories": {
         "label": "設定カテゴリー",
         "system": "システム",
-        "storage": "ストレージ",
         "audio": "キャプチャ",
         "recognition": "音声認識",
         "translation": "翻訳",
@@ -1086,8 +1025,7 @@
         "connections": "接続",
         "about": "このアプリについて",
         "vrOverlay": "VR Overlay",
-        "vision": "ビジョン",
-        "ocr": "OCR"
+        "vision": "ビジョン"
       },
       "about": {
         "version": "バージョン {{version}}",
@@ -1109,7 +1047,6 @@
       "vrOverlay": {
         "title": "VR Overlay",
         "runtimeTitle": "VR ランタイム",
-        "runtimeDescription": "VR に字幕を表示します。ランタイムを利用できない場合も文字起こしには影響しません。",
         "statusLoadFailed": "VR Overlay の状態を取得できませんでした。",
         "nativeActionFailed": "VR Overlay の実行状態を更新できませんでした。",
         "enable": "VR Overlay を有効にする",
@@ -1145,12 +1082,10 @@
           "error": "エラー"
         },
         "headset": {
-          "title": "ヘッドセット字幕",
-          "description": "ヘッドセットの前方に固定する単一字幕です。"
+          "title": "ヘッドセット字幕"
         },
         "wrist": {
-          "title": "手首の会話表示",
-          "description": "コントローラーに固定して最近の会話を表示します。"
+          "title": "手首の会話表示"
         },
         "translationDisplay": "多言語翻訳",
         "translationDisplays": {
@@ -1203,7 +1138,7 @@
         "anchorWorld": "空間に固定",
         "followView": "視点に追従",
         "followViewHint": "空間固定時にパネルが視点に追従します。オフにすると現在の位置に留まります。",
-        "recenterDialogue": "会話パネルを目の前に移動",
+        "recenterDialogue": "パネル位置をリセット",
         "emptyDialogue": "新しい内容はありません",
         "dragHint": "ハンドルを指してグリップを押しながら移動",
         "waitingContent": "有効・内容を待機中",
@@ -1216,14 +1151,8 @@
         "title": "会話管理",
         "autoGenerate": "会話タイトルを自動生成",
         "configureFirst": "「API とモデル → モデルの割り当て」で会話タイトル用のモデルを設定してください。",
-        "profile": "API プロファイル",
-        "noProfiles": "テキスト生成に対応する API プロファイルがありません。",
-        "selectProfile": "API プロファイルを選択",
-        "unavailableProfile": "利用不可",
         "language": "タイトルの言語",
-        "autoLanguage": "会話の主な言語に合わせる",
-        "model": "モデル",
-        "selectModel": "モデル名を選択または入力"
+        "autoLanguage": "会話の主な言語に合わせる"
       },
       "system": {
         "shortcutAuthorization": {
@@ -1239,7 +1168,6 @@
         },
         "title": "システム",
         "general": "一般設定",
-        "saveImmediately": "変更はすぐに保存されます。",
         "language": "表示言語",
         "languageDescription": "システム言語に従うか、VRCS 用の言語を選びます。",
         "followSystem": "システム設定に従う",
@@ -1248,28 +1176,21 @@
         "themeDark": "ダーク",
         "reduceMotion": "アニメーションを減らす",
         "interfaceScale": "表示サイズ",
-        "interfaceScaleDescription": "表示倍率を調整します。Ctrl + または Ctrl - でも 5% ずつ変更できます。",
         "transcriptionStartBehavior": "文字起こし開始時",
-        "transcriptionStartBehaviorDescription": "文字起こしを開始するたびに会話をどう扱うか選びます。",
         "continueCurrentConversation": "現在の会話を続ける",
         "createNewConversation": "新しい会話を作成",
         "launchAtStartup": "ログイン時に起動",
-        "launchAtStartupDescription": "サインイン後に VRCS を自動的に起動します。",
         "runAsAdministrator": "既定で管理者として実行",
         "minimizeToTray": "システムトレイに最小化",
-        "minimizeToTrayDescription": "ウィンドウを閉じても VRCS をトレイで実行し続けます。",
         "runOnboarding": "初回セットアップガイド",
-        "runOnboardingDescription": "音声認識、音声デバイス、マイクのトリガーしきい値を再設定します。",
         "runOnboardingAction": "ガイドを再実行",
         "runOnboardingStopFirst": "先に文字起こしを停止してください",
         "externalApi": {
           "title": "サードパーティ出力 API",
           "enabled": "サードパーティ出力 API を有効にする",
-          "enabledDescription": "初期状態では無効です。ヘルス、機能情報、イベント購読のみを公開します。",
           "host": "リッスンアドレス",
           "port": "ポート",
           "requireToken": "Token 認証を要求する",
-          "requireTokenDescription": "ループバック以外では必須です。Token は設定ファイルに保存されません。",
           "token": "アクセス Token",
           "tokenChecking": "Token の状態を確認しています。",
           "tokenConfigured": "安全に保存されています。再生成または削除できます。",
@@ -1297,16 +1218,13 @@
       "storage": {
         "title": "ストレージ",
         "databaseUsage": "字幕履歴の使用量",
-        "databaseUsageDescription": "字幕履歴の使用量には字幕とそのインデックスが含まれ、上限の計算に使われます。割り当て済み容量と回収可能な容量はデータベース全体の値です。",
         "ofQuota": "/ 上限 {{quota}}",
         "allocated": "割り当て済み容量",
         "reclaimable": "再利用可能な容量",
         "overLimit": "字幕履歴の使用量が上限を超えています。Core は字幕の書き込み時に古い記録から削除し、最新の1件は常に保持します。",
         "quota": "字幕履歴の容量上限",
-        "quotaDescription": "上限に達すると古い字幕から自動削除し、最新の1件は常に保持します。10 MiB～10 GiB の範囲で設定できます。",
         "quotaInvalid": "{{min}}～{{max}} MiB の範囲で容量上限を入力してください。",
         "clearHistory": "字幕履歴を消去",
-        "clearHistoryDescription": "すべての字幕と翻訳を完全に削除し、データベースファイルの空き容量を回収します。辞書や他の設定データは削除されません。",
         "clearAction": "記録を消去",
         "clearing": "消去中…",
         "clearConfirm": "字幕履歴をすべて完全に削除しますか？この操作は元に戻せません。",
@@ -1317,7 +1235,6 @@
         "liveTranslatePreview": "音声検出後にアップロードを開始し、訳文が届くとプレビューできます。ローカル整列は履歴、追加の翻訳先、OSC に対応し、同じ言語の原文は訳文を待たずに確定できます。",
         "title": "字幕翻訳",
         "mode": "翻訳モード",
-        "modeDescription": "自動モードでは他人の音声と自分のマイクの両方を翻訳します。手動モードではリクエスト時のみ翻訳します。",
         "modes": {
           "disabled": "オフ",
           "manual": "手動",
@@ -1357,18 +1274,11 @@
           "unavailable": "ランタイム利用不可"
         },
         "profile": "API プロファイル",
-        "profileDescription": "翻訳に対応する名前付き API 接続を選びます。",
-        "selectProfile": "API プロファイルを選択",
-        "noProfiles": "先に API 管理でプロファイルを追加してください。",
+        "noProfiles": "先に「API とモデル → API プロファイル」でプロファイルを追加してください。",
         "model": "LLM モデル",
         "manualModel": "モデルを選択または入力",
         "thinkingMode": "思考モード",
-        "thinkingModeDescription": "モデルが推論するかを制御します。推論内容は翻訳結果に追加されません。",
-        "thinkingModeAlwaysOn": "常に有効",
-        "thinkingModeAlwaysOnDescription": "このモデルは常に内部で推論します。VRCS は推論内容を非表示にし、最終翻訳のみを返します。",
-        "modelHint": "OpenAI、OpenAI 互換 API、Alibaba Cloud の LLM 翻訳で使用します。DeepSeek では deepseek-v4-flash などを選択できます。",
         "enhancement": "LLM 翻訳の強化",
-        "enhancementDescription": "すべての LLM プロバイダーに共通するプロンプトと最近の原文を設定します。",
         "systemPrompt": "システムプロンプト",
         "promptVariables": "変数：{source_language}、{target_language}、{glossary}、{context}",
         "restorePrompt": "既定に戻す",
@@ -1377,7 +1287,6 @@
         "promptInvalidTitle": "プロンプトが無効です",
         "contextPreview": "最近の原文 {{count}} 件、{{chars}} 文字を添付",
         "contextEnabled": "最近の原文を添付",
-        "contextEnabledDescription": "選択したソースの最近の確定原文を時系列で LLM プロンプトに追加します。既定ではオフです。",
         "contextSourcesTitle": "原文のソース",
         "contextSources": {
           "speaker": "他のプレイヤーの音声と Chatbox",
@@ -1400,7 +1309,6 @@
       },
       "glossary": {
         "title": "用語集",
-        "description": "LLM 翻訳と音声認識で使用する共通の用語を管理します。",
         "llmEnabled": "LLM 翻訳で使用",
         "llmEnabledDescription": "翻訳プロンプトと Qwen リアルタイム翻訳の用語対応に、有効な用語集ソースを適用します。",
         "asrEnabled": "ASR で使用",
@@ -1436,12 +1344,9 @@
         "confirmDeleteGlossary": "用語集「{{name}}」を削除しますか？",
         "noGlossaries": "用語集はまだありません",
         "noGlossariesHint": "ローカル用語集を追加するか、公開 VRCS 用語集 JSON を購読してください。",
-        "localGlossaryDialogHint": "ローカルの下書きを編集します。保存に成功した後、変更をまとめて適用します。",
-        "subscriptionDialogHint": "購読には HTTPS が必要です。HTTP はループバックアドレスでのみ使用できます。",
         "glossaryName": "名前",
         "glossaryNamePlaceholder": "例：VRChat の共通用語",
         "glossaryUrl": "購読 URL",
-        "glossaryUrlHint": "HTTPS、または localhost、127.0.0.0/8、::1 の HTTP を使用できます。",
         "glossaryDisplayName": "表示名（任意）",
         "glossaryDisplayNamePlaceholder": "空欄の場合は公開名または URL を使用",
         "importGlossaryJson": "JSON をインポート",
@@ -1699,22 +1604,11 @@
       },
       "recognition": {
         "title": "音声認識",
-        "backend": "認識バックエンド",
-        "backendDescription": "ローカル Qwen 認識またはクラウドサービスを使用します。",
         "source": "認識ソース",
-        "sourceDescription": "ローカル認識、または名前を付けた API 接続を直接選択します。",
         "managedQwenSource": "ローカル Qwen ASR",
         "qwenModels": "Qwen ASR モデルパッケージ",
-        "verifyModel": "検証",
-        "qwenInstallRequired": "認識を開始する前に Qwen ASR モデルをダウンロードして検証してください。",
         "qwenRuntimeComponents": "Qwen ランタイム",
         "qwenRuntimeMissing": "ローカル Qwen 認識を使うには、ランタイムをダウンロードしてください。",
-        "qwenRuntimeState": {
-          "not_loaded": "Qwen モデル未読み込み",
-          "loading": "Qwen モデルを読み込み中…",
-          "ready": "Qwen モデルの準備完了",
-          "error": "Qwen ランタイムエラー"
-        },
         "qwenCpuFallback": "GPU の読み込みに失敗したため、CPU に自動切り替えしました。",
         "qwenStatus": {
           "not_downloaded": "未ダウンロード",
@@ -1725,42 +1619,31 @@
           "error": "ダウンロード失敗"
         },
         "selectApiProfile": "API 接続を選択",
-        "manageApiHint": "API 接続の追加と管理は「API 管理」で行えます。",
         "cloudService": "認識サービス",
-        "cloudServiceDescription": "この API 接続を使用する音声認識サービスを選択します。",
         "transports": {
           "realtime_stream": "リアルタイムストリーム",
           "segmented_upload": "区間ごとのアップロード"
         },
-        "cloudDescription": "ローカルで音声を検出した間だけ音声を送信します。",
-        "region": "サービス地域",
         "context": "認識コンテキスト",
         "contextDescription": "任意：人名、専門用語、会話の背景。",
-        "apiManagedCentrally": "Workspace、サービス地域、API キーは「API 管理」で一元設定できます。",
-        "credentialConfigured": "安全に設定済み",
-        "credentialSaved": "API キーを安全に保存しました。",
-        "testConnection": "接続テスト",
-        "connectionSucceeded": "接続に成功しました。",
-        "status": "モデル：{{status}}",
-        "stopToModify": "音声認識の設定を変更する前に、文字起こしを停止してください。",
-        "applyImmediately": "変更はすぐに適用されます。",
+        "status": "モデル状態：{{status}}",
+        "runtimeStatus": {
+          "not_loaded": "未読み込み",
+          "loading": "読み込み中",
+          "ready": "準備完了",
+          "error": "エラー",
+          "unknown": "不明"
+        },
         "content": "認識内容",
-        "contentDescription": "ローカルモデルと音声言語を選択します。",
         "model": "モデル",
         "language": "音声言語",
-        "languageDescription": "単一言語の音声では言語を固定すると認識が安定します。多言語の会話には自動検出がおすすめです。",
         "execution": "実行方法",
-        "executionDescription": "CPU、GPU、または自動選択を選びます。",
         "device": "実行デバイス",
-        "deviceDescription": "自動選択では利用可能な GPU を使用し、失敗時は CPU に切り替えます。",
         "segmentation": "音声の分割",
-        "segmentationDescription": "発話区間の終了タイミングと最大長を調整します。",
         "smartTurn": "意味ベースの区切り（実験的）",
         "smartTurnDescription": "無音後に発話が完結したかを判定します。サーバー側で区切る認識サービスには影響しません。",
         "silence": "無音で終了",
-        "silenceDescription": "短くすると字幕が早く表示されます。",
         "maxSegment": "区間の目標長",
-        "maxSegmentDescription": "目標時間以降は無音を優先して分割し、連続音声は安全上限でのみ強制分割します。",
         "localModels": "ローカルモデル",
         "modelDirectory": "モデルフォルダー",
         "modelDirectoryDescription": "ダウンロードした Qwen モデルパッケージはここに保存されます。",
@@ -1850,20 +1733,16 @@
         "disableOtherVoicesDescription": "自分の声だけを文字起こしします。",
         "ownVoice": "自分の声",
         "ownVoiceDescription": "自分の音声に使用するマイクを選びます。",
-        "inputLevel": "現在の入力レベル",
         "previewDisabled": "マイクを選択するとプレビューできます",
         "previewReady": "テスト待機中",
         "previewTesting": "テスト中",
         "previewThresholdReached": "しきい値に到達",
         "previewTranscribing": "文字起こし中",
-        "microphoneTestDescription": "入力レベルのみを測定し、音声認識、字幕生成、録音保存は行いません。",
         "startMicrophoneTest": "マイクをテスト",
         "stopMicrophoneTest": "テストを停止",
         "microphoneTestBusy": "処理中…",
         "levelMeterLabel": "現在のマイク入力レベル",
         "triggerThreshold": "マイクのトリガーしきい値",
-        "triggerThresholdDescription": "音声が検出され、このレベル以上になった場合のみ発話を開始します。周囲が騒がしい場合は高くします。",
-        "thresholdMarkerLabel": "トリガーしきい値 {{value}} dBFS",
         "defaultMicrophone": "既定のマイク",
         "defaultMicrophoneDescription": "Windows の既定の入力デバイスに従います。",
         "disableMicrophone": "マイクを無効化",
@@ -1876,17 +1755,14 @@
       },
       "learning": {
         "title": "学習設定",
-        "aiDescription": "学習ワークスペースで使う解説の言語とレベルを設定します。",
-        "noAiProfiles": "テキスト生成に対応する AI プロファイルがありません"
+        "aiDescription": "学習ワークスペースで使う解説の言語とレベルを設定します。"
       },
       "dictionary": {
         "title": "辞書",
         "selectionLookup": "選択範囲の辞書検索を有効にする",
-        "selectionLookupDescription": "ライブ字幕または学習ワークスペースの会話素材でテキストを選択したときに辞書の意味を表示します。",
         "count": "{{count}} 件の辞書",
         "importedCount": "{{count}} 件をインポート済み",
         "noneImported": "未インポート",
-        "import": "インポート",
         "importYomitan": "Yomitan ZIP をインポート",
         "importing": "{{file}} をインポート中…",
         "progressLabel": "辞書インポートの進行状況",
@@ -1901,7 +1777,6 @@
       "anki": {
         "title": "AnkiConnect",
         "enable": "AnkiConnect を有効にする",
-        "enableDescription": "ローカルの Anki 接続確認と辞書検索結果からのカード作成を許可します。",
         "invalidPort": "1～65535 の有効なポートを入力してください。",
         "checking": "AnkiConnect を確認中…",
         "ready": "接続済み・作成可能",
@@ -1909,19 +1784,13 @@
         "offline": "AnkiConnect はオフラインです",
         "startHint": "Anki を起動して AnkiConnect をインストールし、接続を確認してください。",
         "address": "アドレス",
-        "addressDescription": "AnkiConnect はこのローカルアドレスだけに接続します。",
         "port": "ポート",
-        "portHint": "AnkiConnect の既定ポートは 8765 です。",
         "deck": "デッキ",
-        "deckDescription": "保存先のデッキを選択します。",
         "deckOffline": "Anki に接続するとデッキを読み込めます。",
         "noteType": "ノートタイプ",
-        "noteTypeDescription": "Anki のノートタイプを選択します。",
         "noteTypeOffline": "Anki に接続するとノートタイプを読み込めます。",
         "frontField": "表面フィールド",
-        "frontFieldDescription": "単語と読みをこのフィールドに書き込みます。",
-        "backField": "裏面フィールド",
-        "backFieldDescription": "意味と文脈をこのフィールドに書き込みます。"
+        "backField": "裏面フィールド"
       },
       "connections": {
         "title": "接続設定"
@@ -1943,7 +1812,6 @@
         "tokenConfigured": "安全に保存されています。",
         "tokenMissing": "Token は未設定です。",
         "tokenEnvironment": "Token は環境変数で管理されています。",
-        "tokenManagedHint": "Token は VRCX-0 で作成・管理します。VRCS では生成できません。",
         "tokenInput": "VRCX-0 の Token を貼り付け",
         "saveToken": "Token を保存",
         "deleteToken": "Token を削除",
@@ -1967,7 +1835,6 @@
       "osc": {
         "title": "OSC",
         "enable": "OSC を有効にする",
-        "enableDescription": "チャットボックス出力と VRChat のミュート同期をまとめて制御します。",
         "translationStrategy": "OSC多言語出力",
         "translationStrategies": {
           "preferredOnly": "優先言語のみ",
@@ -1977,13 +1844,9 @@
         "preserveOriginal": "出力に原文を残す",
         "preserveOriginalDescription": "翻訳がある場合は原文と翻訳を一緒に送信します。オフにすると翻訳だけを送信します。",
         "muteSync": "VRChat のマイクミュートと同期",
-        "muteSyncDescription": "VRChat がミュート中はマイク文字起こしとチャットボックス送信を停止し、解除後に自動で再開します。",
         "invalidPort": "1～65535 の有効なポートを入力してください。",
         "address": "IP アドレス",
-        "addressDescription": "この PC に固定し、ローカルの VRChat にだけ送信します。",
         "port": "ポート",
-        "portHint": "VRChat は既定でポート 9000 から OSC メッセージを受信します。",
-        "vrchatHint": "VRChat のアクションメニューでも OSC → Enabled をオンにしてください。訳文が必要な場合は、翻訳モードを「自動」に設定します。",
         "test": "テストメッセージを送信",
         "testing": "送信中…",
         "testQueued": "テストメッセージを送信キューに追加しました。",
@@ -1998,8 +1861,6 @@
         }
       },
       "debug": {
-        "subtitle": "実行情報とローカルエラーレポート",
-        "readOnly": "読み取り専用",
         "schema": "スキーマ",
         "coreAddress": "Core アドレス",
         "databasePath": "データベースのパス",
@@ -2009,7 +1870,6 @@
         "maxSegment": "区間の目標長",
         "historyStorageLimit": "字幕履歴の容量上限",
         "modelStatus": "モデルの状態",
-        "availableDevices": "{{count}} 台",
         "transcription": "文字起こし",
         "audioDevices": "音声デバイス",
         "audioDeviceCounts": "出力 {{outputs}} · マイク {{microphones}}",
@@ -2028,11 +1888,11 @@
         "unsupported": "このビルドでは VRChat ネットワークキャプチャを利用できません。Windows はデスクトップ版、Linux x86_64 は polkit を含むシステムインストール版 VRCS（/usr/bin/vrcs-desktop）が必要です。",
         "networkTitle": "VRChat ネットワークキャプチャ",
         "networkEnable": "VRChat ネットワークキャプチャを有効にする",
-        "networkRequired": "Chatbox キャプチャやプレイヤー別の音声トラックを使用するには、下の「VRChat ネットワークキャプチャ」を有効にしてください。",
+        "networkRequired": "Chatbox キャプチャやプレイヤー別の音声トラックを使用するには、キャプチャ設定で「VRChat ネットワークキャプチャ」を有効にしてください。",
         "chatbox": {
           "title": "Chatbox キャプチャ",
           "enable": "VRChat Chatbox を受信して翻訳",
-          "translationUnavailable": "自動翻訳が無効か、「他のプレイヤー」に利用可能なテキスト翻訳サービスが設定されていません。原文は保存され、手動で翻訳できます。",
+          "translationUnavailable": "自動翻訳が無効か、「相手の発言の翻訳先」に利用可能なテキスト翻訳サービスが設定されていません。原文は保存され、手動で翻訳できます。",
           "phase": {
             "authorizing": "システム認証を待っています…",
             "waiting_game": "VRChat の起動を待機中",
@@ -2085,7 +1945,6 @@
     },
     "onboarding": {
       "title": "初回セットアップ",
-      "setup": "初回設定",
       "stepCounter": "ステップ {{current}} / {{total}}",
       "saveImmediately": "変更はすぐに保存されます。いつでも戻って調整できます。",
       "skip": "後で設定",
@@ -2133,8 +1992,7 @@
         "addApiDescription": "API キーは Windows 資格情報マネージャーに安全に保存されます。",
         "connectionReady": "接続テストに成功しました。次へ進めます。",
         "testRequired": "次へ進む前に接続をテストしてください。",
-        "downloadRequired": "Qwen モデルとランタイムをインストールしてから続行してください。",
-        "connectionReadyShort": "接続準備完了"
+        "downloadRequired": "Qwen モデルとランタイムをインストールしてから続行してください。"
       },
       "audio": {
         "description": "文字起こしするシステム出力とマイクを選択します。デバイスがない場合は再スキャンしてください。",
@@ -2142,7 +2000,7 @@
       },
       "microphone": {
         "disabledTitle": "マイクは無効です",
-        "disabledDescription": "VRCS は他の人の音声だけを文字起こしします。後で音声設定からマイクを有効にできます。",
+        "disabledDescription": "VRCS は他の人の音声だけを文字起こしします。後で「設定 → キャプチャ」からマイクを有効にできます。",
         "description": "テストは入力レベルだけを測定し、音声認識、字幕生成、録音保存は行いません。静かなときは反応せず、通常の声で安定して反応するようにしきい値を調整してください。",
         "autoTitle": "ガイド付き調整",
         "autoDescription": "開始後は静かに待ち、案内が切り替わったら通常の声で一文を続けて話してください。推奨しきい値を計算します。",
@@ -2382,6 +2240,10 @@
         "not_found": "辞書が見つかりません。"
       },
       "asr": {
+        "cloud_connect_failed": "クラウド音声認識サービスに接続できませんでした。",
+        "cloud_disconnected": "クラウド音声認識の接続が切断されました。",
+        "cloud_error": "クラウド音声認識サービスからエラーが返されました。",
+        "cloud_reconnect_failed": "クラウド音声認識サービスへの再接続に失敗しました。",
         "alibaba_workspace_missing": "先に Alibaba Cloud の Workspace ID を設定してください。",
         "models": "ローカルモデルを読み込めませんでした。",
         "download": "モデルをダウンロードできませんでした。",
@@ -2486,12 +2348,9 @@
       "preview": "送信する選択範囲の画像",
       "selectionHint": "画像の範囲をドラッグして選択し、離すとプレビューを表示します。Esc / 右クリックでキャンセル。",
       "loadingPreview": "画像を読み込み中…",
-      "service": "サービス：{{profile}} · モデル：{{model}}",
-      "notConfigured": "未設定",
       "question": "質問",
       "answer": "回答",
       "send": "質問を送信",
-      "sendHint": "Ctrl+Enter で送信、Enter で改行します。音声認識では自動送信しません。",
       "questionTooLong": "質問が {{limit}} 文字を超えています。短くしてから送信してください。",
       "startRecording": "話し始める",
       "finishRecording": "認識を終了",
@@ -2505,19 +2364,6 @@
       "copyFailed": "回答をコピーできませんでした。",
       "errorDetail": "エラーの詳細",
       "captureHint": "下の「画面を撮影」をクリックするか、<shortcut>{{shortcut}}</shortcut> を押し、デスクトップや他のアプリに表示された内容をドラッグで選択してください。",
-      "privacy": "画面のスナップショットはローカルでの範囲選択にのみ使います。送信操作をすると、選択した範囲の画像と質問だけを選択したサービスに送ります。クラウド音声認識には音声も送信され、料金が発生する場合があります。各質問は独立しており、字幕履歴には保存しません。",
-      "states": {
-        "disabled": "デスクトップ画像質問応答は無効です。",
-        "idle": "撮影を待っています。",
-        "capturing": "画面を撮影中…",
-        "selecting": "範囲を選択してください。Esc で選択をキャンセルします。",
-        "editing": "質問を編集して送信してください。",
-        "recording": "収音中…認識を終了すると質問を編集できます。",
-        "finalizing_asr": "音声認識を確定中…",
-        "requesting": "回答を待っています…",
-        "complete": "回答が届きました。",
-        "error": "処理に失敗しました。画像と下書きは保持されています。"
-      },
       "errors": {
         "disabled": "「設定 → ビジョン」で画像質問応答とデスクトップモードを有効にしてください。",
         "unavailable": "このシステムでは画面を撮影できません。",
@@ -2568,7 +2414,7 @@
         "unavailable": "このシステムでは画面を撮影できません。",
         "capture_failed": "画面を撮影できませんでした。再試行してください。",
         "capture_timeout": "画面の撮影がタイムアウトしました。再試行してください。",
-        "disabled": "「設定 → OCR」でデスクトップ OCR を有効にしてください。",
+        "disabled": "「設定 → ビジョン」でデスクトップ OCR を有効にしてください。",
         "core_unavailable": "OCR サービスを利用できません。",
         "selection_busy": "別の範囲選択が進行中です。完了するかキャンセルしてから再試行してください。",
         "failed": "OCR を完了できませんでした。再試行してください。",

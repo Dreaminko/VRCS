@@ -108,7 +108,6 @@
       "downloading": "正在下載…",
       "expandNamed": "展開 {{name}}",
       "loading": "正在載入…",
-      "ready": "就緒",
       "refresh": "重新整理",
       "retry": "重試",
       "save": "儲存",
@@ -130,17 +129,6 @@
         "search": "搜尋語言名稱或代碼",
         "empty": "找不到相符的語言",
         "useCustom": "使用 {{code}} 作為自訂語言代碼"
-      },
-      "languages": {
-        "zh-Hans": "簡體中文",
-        "zh-Hant": "繁體中文",
-        "en": "英文",
-        "ja": "日文",
-        "ko": "韓文",
-        "es": "西班牙文",
-        "fr": "法文",
-        "de": "德文",
-        "ru": "俄文"
       }
     },
     "navigation": {
@@ -156,7 +144,6 @@
       "detailsTitle": "傳送設定",
       "expandDetails": "展開傳送設定",
       "collapseDetails": "收起傳送設定",
-      "translationOnSend": "傳送時自動翻譯",
       "translationPreviewPending": "譯文將在傳送時自動產生",
       "inputCount": "{{count}} 個字元",
       "original": "原文",
@@ -269,7 +256,6 @@
       "vrchatSendChecking": "正在檢查聊天框傳送狀態",
       "vrchatSendError": "聊天框傳送錯誤",
       "muteUnknown": "靜音狀態未知，傳送已暫停",
-      "muteSyncDisabled": "靜音同步已關閉",
       "connection": {
         "connecting": "正在連線",
         "connected": "已連線",
@@ -334,12 +320,10 @@
       "expandSidebar": "展開對話側欄",
       "collapseSidebar": "收起對話側欄",
       "create": "建立新對話",
-      "viewCurrent": "查看目前對話",
       "current": "目前",
       "previous": "先前對話",
       "empty": "沒有先前對話",
       "subtitleCount": "{{count}} 條字幕",
-      "loadOnOpen": "開啟後載入",
       "loadOlderMessages": "載入較早的訊息",
       "loadingOlderMessages": "正在載入較早的訊息…",
       "search": "搜尋對話",
@@ -355,7 +339,6 @@
       "viewingPast": "正在查看 {{time}} 的對話",
       "returnCurrent": "回到目前對話",
       "recent": "最近對話",
-      "moreConversations": "更多對話",
       "manage": "管理 {{title}}",
       "rename": "重新命名",
       "changeIcon": "更換圖示",
@@ -452,7 +435,6 @@
       "returnToLatestShort": "回到最新字幕",
       "contextMenu": {
         "label": "字幕操作",
-        "more": "更多字幕操作",
         "copySelection": "複製所選文字",
         "copyOriginal": "複製原文",
         "copyTranslation": "複製譯文",
@@ -480,7 +462,6 @@
     },
     "learning": {
       "title": "學習工作區",
-      "description": "收集字幕、視需要進行重點分析，並準備可編輯的 Anki 卡片。",
       "language": "語言",
       "dateRange": "日期範圍",
       "allTime": "不限時間",
@@ -488,11 +469,6 @@
       "loadEarlier": "查看較早的素材",
       "loadingEarlier": "正在載入…",
       "empty": "沒有符合篩選條件的對話素材。",
-      "tabs": {
-        "label": "學習工作區區段",
-        "inbox": "收件匣",
-        "materials": "對話素材"
-      },
       "inbox": {
         "title": "收件匣",
         "count": "{{count}} 個學習項目",
@@ -517,13 +493,11 @@
           "microphone": "麥克風",
           "chatbox": "Chatbox"
         },
-        "selectionHint": "可選取任意字幕；按住 Shift 可連續選取。",
         "conversationCount": "{{count}} 條字幕",
         "selected": "已選擇 {{count}} 條字幕",
         "selectAll": "選取可見項目",
         "clearSelection": "清除",
         "selectSubtitle": "選取字幕",
-        "collect": "從對話收集",
         "openCollected": "開啟項目"
       },
       "filters": {
@@ -582,26 +556,11 @@
       },
       "ai": {
         "title": "AI 分析",
-        "description": "只有你選擇動作時才會送出請求。",
         "configureHint": "設定 AI 後即可分析，目前仍可閱讀內容和製作卡片。",
-        "openSettings": "前往學習設定",
-        "actions": {
-          "contextual_word_explanation": "解釋這個詞",
-          "sentence_analysis": "解析這個句子",
-          "session_review": "回顧這段會話"
-        },
-        "profile": "AI 設定檔",
-        "model": "模型",
-        "modelPlaceholder": "選擇或輸入模型",
-        "modelUnset": "未設定模型",
+        "openSettings": "前往模型設定",
         "explanationLanguage": "解釋語言",
         "followUiLanguage": "跟隨軟體語言",
         "explanationLevel": "解釋詳細度",
-        "profileMissing": "請選擇支援文字產生的 AI 設定檔並輸入模型，再傳送內容。",
-        "cloudNoticeTitle": "第三方服務",
-        "cloudNotice": "系統會使用 {{model}}，將學習內容與已儲存的辭典語境傳送給 {{provider}}。",
-        "localNoticeTitle": "已設定的本機服務",
-        "localNotice": "系統會使用 {{model}}，將學習內容傳送給已設定的本機服務 {{provider}}。該服務可能有自己的轉送規則。",
         "quickFocus": "補充分析",
         "focus": {
           "simpler": "解釋得更簡單",
@@ -612,11 +571,6 @@
           "contextual_word_explanation": "根據語境解釋詞語",
           "sentence_analysis": "分析句子",
           "session_review": "對話回顧"
-        },
-        "languages": {
-          "zhCN": "簡體中文",
-          "enUS": "英文",
-          "jaJP": "日文"
         },
         "levels": {
           "beginner": "初階",
@@ -703,18 +657,16 @@
       }
     },
     "selection": {
-      "actionsLabel": "「{{text}}」的可用動作",
       "close": "關閉選取文字工具",
       "back": "回到選取文字工具",
-      "dictionary": "查詞",
       "dictionaryLoading": "正在查詞…",
       "askAi": "問 AI",
       "ai": {
         "title": "問 AI",
         "dialogLabel": "向 AI 詢問 {{text}}",
         "configureTitle": "請先設定 AI",
-        "configureDescription": "提問前，請先在學習設定中選擇支援文字產生的設定檔與模型。",
-        "openSettings": "開啟學習設定",
+        "configureDescription": "提問前，請先在「API 與模型 → 模型分配」為學習 AI 選擇支援文字產生的 API 設定檔與模型。",
+        "openSettings": "前往模型設定",
         "selectedText": "選取內容",
         "answer": "回答",
         "copy": "複製",
@@ -740,15 +692,8 @@
     },
     "validation": {
       "audio": {
-        "player_audio_unavailable": "無法啟動分玩家獨立音軌。請檢查系統管理員權限、NTFS 分頁檔所在磁碟及 Opus 程式庫。",
         "outputUnavailable": "所選系統輸出裝置已無法使用，請重新選擇。",
         "microphoneUnavailable": "所選麥克風裝置已無法使用，請重新選擇。"
-      },
-      "asr": {
-        "cloud_connect_failed": "無法連線雲端辨識服務。",
-        "cloud_disconnected": "雲端辨識連線已中斷。",
-        "cloud_error": "雲端辨識服務傳回錯誤。",
-        "cloud_reconnect_failed": "無法重新連線雲端辨識服務。"
       }
     },
     "updates": {
@@ -784,7 +729,7 @@
         "conversations": {
           "title_interrupted": "上次生成已中斷，請重試。",
           "title_service_failed": "無法產生標題，請檢查模型服務後重試。",
-          "title_not_configured": "請在對話標題設定中檢查 API 設定檔、憑證和模型。",
+          "title_not_configured": "請在「API 與模型 → 模型分配」中檢查標題產生模型與 API 設定檔。",
           "title_timeout": "標題生成逾時，請重試。",
           "title_empty": "此對話沒有可用於摘要的字幕原文。",
           "title_invalid_output": "模型未傳回有效的單行標題，請重試。",
@@ -859,7 +804,7 @@
         "vrEnable": "啟用 VR 視覺問答",
         "profile": "API 設定檔",
         "noProfile": "未選擇設定檔",
-        "noProfiles": "沒有可用設定檔。請在 API 設定中新增或編輯設定檔，並啟用圖像理解。",
+        "noProfiles": "沒有可用設定檔。請在「API 與模型 → API 設定檔」中新增或編輯設定檔，並啟用圖像理解。",
         "unavailableProfile": "所選設定檔無法使用",
         "model": "模型",
         "thinkingMode": "思考模式",
@@ -915,7 +860,6 @@
         "headset": "頭戴裝置字幕",
         "wrist": "手腕對話",
         "ocr": "VR 文字翻譯",
-        "content": "顯示內容",
         "hand": "控制器",
         "width": "寬度",
         "opacity": "不透明度",
@@ -1001,7 +945,6 @@
         "wristDescription": "對照閱讀原文與譯文，以下設定只影響 OCR 面板。",
         "wristPosition": "位置與角度",
         "results": "區域譯文：{{completed}} 項成功，{{failed}} 項失敗",
-        "sourceView": "原文與譯文一起顯示。",
         "errors": {
           "timeout": "工作已逾時，請重新辨識。",
           "models_missing": "請在設定中準備本機 OCR 模型。",
@@ -1032,7 +975,6 @@
         },
         "modelFailed": "無法準備 OCR 模型，請檢查連線後重試。",
         "modelDeleteFailed": "無法刪除 OCR 模型。請等待目前的下載或辨識完成後重試。",
-        "controls": "選框出現後，長按右扳機 0.65 秒確認 OCR。若此前已按住扳機，需先放開再按。未框選時不會辨識。長按左扳機可清除，啟用視覺問答時用於提問。",
         "states": {
           "disabled": "已關閉",
           "waiting_vr": "等待 SteamVR",
@@ -1061,13 +1003,11 @@
         "enable": "啟用 VR OCR",
         "translation": "OCR 翻譯語言與服務",
         "timeout": "工作逾時時間",
-        "region": "中央截圖區域（未使用雙手選框時）",
         "confidence": "最低辨識信心值",
         "lifetime": "VR 結果顯示時間",
         "background": "VR 結果背景不透明度",
         "gesture": "啟用雙手握持鍵框選",
         "gestureDescription": "預設同時按下雙手握持鍵啟動框選。長按左扳機觸發視覺問答，直接說出問題；長按右扳機觸發 OCR 翻譯。",
-        "gestureReady": "保持拍照手勢或同時按住雙握持鍵 0.65 秒，待選框出現後移動雙手調整範圍，再長按右扳機確認。若此前已按住扳機，需先放開再按。確認前放開手勢或握持鍵可取消。",
         "gestureUnavailable": "目前未取得雙手或控制器選框追蹤，無法啟動 VR OCR。請檢查追蹤與 SteamVR 選框綁定。",
         "bindings": "開啟 SteamVR 控制器綁定設定",
         "bindingFailed": "無法開啟 SteamVR 綁定設定，請檢查 VR 連線。",
@@ -1076,7 +1016,6 @@
       "categories": {
         "label": "設定分類",
         "system": "系統",
-        "storage": "儲存",
         "audio": "擷取",
         "recognition": "辨識",
         "translation": "翻譯",
@@ -1086,8 +1025,7 @@
         "connections": "連線",
         "about": "關於",
         "vrOverlay": "VR Overlay",
-        "vision": "視覺",
-        "ocr": "OCR"
+        "vision": "視覺"
       },
       "about": {
         "version": "版本 {{version}}",
@@ -1109,7 +1047,6 @@
       "vrOverlay": {
         "title": "VR Overlay",
         "runtimeTitle": "VR 執行階段",
-        "runtimeDescription": "在 VR 中顯示字幕；執行階段不可用時不會影響轉錄功能。",
         "statusLoadFailed": "無法讀取 VR Overlay 狀態。",
         "nativeActionFailed": "無法更新 VR Overlay 執行狀態。",
         "enable": "啟用 VR Overlay",
@@ -1145,12 +1082,10 @@
           "error": "錯誤"
         },
         "headset": {
-          "title": "頭戴裝置字幕",
-          "description": "固定顯示在頭戴裝置前方的單行字幕。"
+          "title": "頭戴裝置字幕"
         },
         "wrist": {
-          "title": "手腕對話",
-          "description": "在控制器上顯示最近的對話內容。"
+          "title": "手腕對話"
         },
         "translationDisplay": "多語言翻譯",
         "translationDisplays": {
@@ -1188,8 +1123,8 @@
         "roll": "滾轉",
         "appearance": "外觀",
         "width": "物理寬度",
-        "opacity": "透明度",
-        "backgroundOpacity": "背景透明度",
+        "opacity": "不透明度",
+        "backgroundOpacity": "背景不透明度",
         "fontSize": "字型大小",
         "boundRole": "綁定控制器",
         "trackedDevice": "追蹤裝置",
@@ -1203,7 +1138,7 @@
         "anchorWorld": "空間固定",
         "followView": "跟隨視角",
         "followViewHint": "空間固定時，面板隨視角移動；關閉後停留在目前位置。",
-        "recenterDialogue": "將瀏覽面板移到面前",
+        "recenterDialogue": "重設面板位置",
         "emptyDialogue": "暫無新內容",
         "dragHint": "指向把手，按住握持鍵拖動",
         "waitingContent": "設定已開啟，等待內容",
@@ -1216,14 +1151,8 @@
         "title": "對話管理",
         "autoGenerate": "自動產生對話標題",
         "configureFirst": "請在「API 與模型 → 模型分配」中設定標題生成模型。",
-        "profile": "API 設定檔",
-        "noProfiles": "目前沒有支援文字生成的 API 設定檔。",
-        "selectProfile": "選擇 API 設定檔",
-        "unavailableProfile": "無法使用",
         "language": "標題語言",
-        "autoLanguage": "跟隨對話主要語言",
-        "model": "模型",
-        "selectModel": "選擇或輸入模型名稱"
+        "autoLanguage": "跟隨對話主要語言"
       },
       "system": {
         "shortcutAuthorization": {
@@ -1239,7 +1168,6 @@
         },
         "title": "系統",
         "general": "一般設定",
-        "saveImmediately": "更改會立即儲存。",
         "language": "介面語言",
         "languageDescription": "跟隨系統語言，或單獨指定 VRCS 使用的語言。",
         "followSystem": "跟隨系統",
@@ -1248,28 +1176,21 @@
         "themeDark": "深色",
         "reduceMotion": "減少動畫效果",
         "interfaceScale": "介面大小",
-        "interfaceScaleDescription": "調整介面顯示比例，也可按 Ctrl + 或 Ctrl -，每次調整 5%。",
         "transcriptionStartBehavior": "開始轉錄時",
-        "transcriptionStartBehaviorDescription": "選擇每次開始轉錄時如何處理對話。",
         "continueCurrentConversation": "繼續目前對話",
         "createNewConversation": "建立新對話",
         "launchAtStartup": "開機啟動",
-        "launchAtStartupDescription": "登入系統後自動啟動 VRCS。",
         "runAsAdministrator": "預設以系統管理員身分執行",
         "minimizeToTray": "最小化到系統匣",
-        "minimizeToTrayDescription": "關閉視窗時讓 VRCS 繼續在系統匣中執行。",
         "runOnboarding": "首次使用指引",
-        "runOnboardingDescription": "再次設定辨識服務、音訊裝置和麥克風觸發門檻值。",
         "runOnboardingAction": "重新執行指引",
         "runOnboardingStopFirst": "請先停止轉錄",
         "externalApi": {
           "title": "第三方輸出 API",
           "enabled": "啟用第三方輸出 API",
-          "enabledDescription": "預設關閉；僅開放健康檢查、功能資訊和事件訂閱。",
           "host": "監聽位址",
           "port": "連線埠",
           "requireToken": "要求權杖驗證",
-          "requireTokenDescription": "非回送位址必須啟用此選項；權杖不會寫入設定檔。",
           "token": "存取權杖",
           "tokenChecking": "正在讀取權杖狀態。",
           "tokenConfigured": "已安全儲存，可重新產生或刪除。",
@@ -1297,16 +1218,13 @@
       "storage": {
         "title": "儲存",
         "databaseUsage": "字幕歷史使用空間",
-        "databaseUsageDescription": "字幕歷史使用量包含字幕及其索引，用於計算配額。已分配空間和可回收空間統計整個資料庫。",
         "ofQuota": "／{{quota}} 配額",
         "allocated": "已分配空間",
         "reclaimable": "可重用空間",
         "overLimit": "字幕歷史使用量已超過配額。Core 會在寫入字幕時刪除最舊記錄，並一律保留最新一筆。",
         "quota": "字幕記錄空間上限",
-        "quotaDescription": "達到上限時自動刪除最舊字幕，並一律保留最新一筆記錄。範圍：10 MiB 至 10 GiB。",
         "quotaInvalid": "請輸入 {{min}} 至 {{max}} MiB 之間的空間上限。",
         "clearHistory": "清除字幕記錄",
-        "clearHistoryDescription": "永久刪除所有字幕及其翻譯，並回收資料庫檔案中的閒置空間。辭典和其他設定資料不會被刪除。",
         "clearAction": "清除記錄",
         "clearing": "正在清除…",
         "clearConfirm": "要永久刪除所有字幕記錄嗎？此動作無法復原。",
@@ -1317,7 +1235,6 @@
         "liveTranslatePreview": "偵測到語音後開始上傳，譯文回傳即可預覽。本機對齊支援歷史記錄、額外目標翻譯及 OSC；同語言原文無需等待譯文即可完成。",
         "title": "字幕翻譯",
         "mode": "翻譯方式",
-        "modeDescription": "自動模式會翻譯其他人的聲音與你的麥克風內容；手動模式只會依要求翻譯。",
         "modes": {
           "disabled": "關閉",
           "manual": "手動翻譯",
@@ -1357,18 +1274,11 @@
           "unavailable": "執行階段無法使用"
         },
         "profile": "API 設定檔",
-        "profileDescription": "選擇支援翻譯的具名 API 連線。",
-        "selectProfile": "選擇 API 設定檔",
-        "noProfiles": "請先在 API 管理中新增設定檔。",
+        "noProfiles": "請先在「API 與模型 → API 設定檔」中新增設定檔。",
         "model": "LLM 模型",
         "manualModel": "選擇或輸入模型名稱",
         "thinkingMode": "思考模式",
-        "thinkingModeDescription": "控制模型是否進行推理；推理內容絕不會加入譯文。",
-        "thinkingModeAlwaysOn": "一律開啟",
-        "thinkingModeAlwaysOnDescription": "此模型一律會在內部推理。VRCS 會隱藏推理內容，只傳回最終譯文。",
-        "modelHint": "供 OpenAI、OpenAI 相容 API 或 Alibaba Cloud 進行 LLM 翻譯；例如使用 DeepSeek 時可選擇 deepseek-v4-flash。",
         "enhancement": "LLM 翻譯強化功能",
-        "enhancementDescription": "為所有 LLM 供應商設定提示詞與最近的原文。",
         "systemPrompt": "系統提示詞",
         "promptVariables": "可用變數：{source_language}、{target_language}、{glossary}、{context}",
         "restorePrompt": "還原預設",
@@ -1377,7 +1287,6 @@
         "promptInvalidTitle": "提示詞無效",
         "contextPreview": "最近 {{count}} 則原文，共 {{chars}} 個字元",
         "contextEnabled": "附帶最近原文",
-        "contextEnabledDescription": "依時間順序將所選來源最近完成的原文加入 LLM 提示詞。預設關閉。",
         "contextSourcesTitle": "原文來源",
         "contextSources": {
           "speaker": "其他玩家的語音和 Chatbox",
@@ -1400,7 +1309,6 @@
       },
       "glossary": {
         "title": "術語表",
-        "description": "統一管理供 LLM 翻譯和語音辨識使用的術語。",
         "llmEnabled": "用於 LLM 翻譯",
         "llmEnabledDescription": "建立翻譯提示詞和 Qwen 即時翻譯術語映射時，會套用已啟用的術語來源。",
         "asrEnabled": "用於 ASR",
@@ -1436,12 +1344,9 @@
         "confirmDeleteGlossary": "要刪除術語表「{{name}}」嗎？",
         "noGlossaries": "尚未新增術語表",
         "noGlossariesHint": "新增本機術語表，或訂閱公開的 VRCS 術語表 JSON 檔案。",
-        "localGlossaryDialogHint": "請先編輯本機草稿；只有成功儲存後，所有變更才會一併套用。",
-        "subscriptionDialogHint": "訂閱需使用 HTTPS；僅回送位址可使用 HTTP。",
         "glossaryName": "名稱",
         "glossaryNamePlaceholder": "例如：VRChat 常用術語",
         "glossaryUrl": "訂閱 URL",
-        "glossaryUrlHint": "請使用 HTTPS；localhost、127.0.0.0/8 或 ::1 可使用 HTTP。",
         "glossaryDisplayName": "顯示名稱（選填）",
         "glossaryDisplayNamePlaceholder": "留空時使用發布的名稱或 URL",
         "importGlossaryJson": "匯入 JSON",
@@ -1699,22 +1604,11 @@
       },
       "recognition": {
         "title": "語音辨識",
-        "backend": "辨識後端",
-        "backendDescription": "使用本機 Qwen 辨識或雲端服務。",
         "source": "辨識來源",
-        "sourceDescription": "使用本機辨識，或直接選擇具名的 API 連線。",
         "managedQwenSource": "本機 Qwen ASR",
         "qwenModels": "Qwen ASR 模型套件",
-        "verifyModel": "驗證",
-        "qwenInstallRequired": "開始辨識前，請下載並驗證此 Qwen ASR 模型套件。",
         "qwenRuntimeComponents": "Qwen 執行元件",
         "qwenRuntimeMissing": "下載執行元件後即可使用本機 Qwen 辨識。",
-        "qwenRuntimeState": {
-          "not_loaded": "Qwen 模型尚未載入",
-          "loading": "正在載入 Qwen 模型…",
-          "ready": "Qwen 模型已就緒",
-          "error": "Qwen 執行階段發生錯誤"
-        },
         "qwenCpuFallback": "GPU 載入失敗，已自動切換至 CPU。",
         "qwenStatus": {
           "not_downloaded": "尚未下載",
@@ -1725,42 +1619,31 @@
           "error": "下載失敗"
         },
         "selectApiProfile": "選擇 API 連線",
-        "manageApiHint": "可在「API 存取」中新增及管理 API 連線。",
         "cloudService": "辨識服務",
-        "cloudServiceDescription": "選擇要透過此 API 連線使用的辨識服務。",
         "transports": {
           "realtime_stream": "即時串流傳輸",
           "segmented_upload": "分段上傳"
         },
-        "cloudDescription": "只有偵測到語音時才會傳送音訊。",
-        "region": "服務區域",
         "context": "辨識上下文",
         "contextDescription": "選填。可輸入人名、領域術語或對話背景。",
-        "apiManagedCentrally": "請在「API 存取」中管理 Workspace、服務區域和 API 金鑰。",
-        "credentialConfigured": "已安全設定",
-        "credentialSaved": "API 金鑰已安全儲存。",
-        "testConnection": "測試連線",
-        "connectionSucceeded": "連線成功。",
-        "status": "模型 {{status}}",
-        "stopToModify": "請先停止轉錄，再修改辨識設定。",
-        "applyImmediately": "更改會立即套用。",
+        "status": "模型狀態：{{status}}",
+        "runtimeStatus": {
+          "not_loaded": "未載入",
+          "loading": "正在載入",
+          "ready": "已就緒",
+          "error": "載入失敗",
+          "unknown": "狀態未知"
+        },
         "content": "辨識內容",
-        "contentDescription": "選擇本機模型和口說語言。",
         "model": "模型",
         "language": "口說語言",
-        "languageDescription": "選擇固定語言可提高單語音訊的辨識穩定性；多語言對話建議使用自動偵測。",
         "execution": "執行方式",
-        "executionDescription": "選擇 CPU、GPU 或自動選擇。",
         "device": "運算裝置",
-        "deviceDescription": "自動選擇在可用時使用 GPU，否則回退至 CPU。",
         "segmentation": "語音分段",
-        "segmentationDescription": "控制語音片段結束時機和最大長度。",
         "smartTurn": "語意斷句（實驗性）",
         "smartTurnDescription": "在停頓後判斷話語是否完整；伺服器端斷句的識別服務不受影響。",
         "silence": "停頓後結束",
-        "silenceDescription": "停頓越短，字幕出現得越快。",
         "maxSegment": "目標片段長度",
-        "maxSegmentDescription": "達到目標時間後優先在停頓處分段；連續語音只會在安全上限強制切斷。",
         "localModels": "本機模型",
         "modelDirectory": "模型資料夾",
         "modelDirectoryDescription": "下載的 Qwen 模型套件存放在此目錄。",
@@ -1850,20 +1733,16 @@
         "disableOtherVoicesDescription": "只轉錄自己的聲音。",
         "ownVoice": "你的聲音",
         "ownVoiceDescription": "選擇用來擷取你聲音的麥克風。",
-        "inputLevel": "目前輸入音量",
         "previewDisabled": "選取麥克風以預覽",
         "previewReady": "可開始測試",
         "previewTesting": "正在測試",
         "previewThresholdReached": "已達到門檻值",
         "previewTranscribing": "轉錄中",
-        "microphoneTestDescription": "僅測量輸入音量，不會辨識、產生字幕或儲存錄音。",
         "startMicrophoneTest": "測試麥克風",
         "stopMicrophoneTest": "停止測試",
         "microphoneTestBusy": "處理中…",
         "levelMeterLabel": "麥克風目前輸入音量",
         "triggerThreshold": "麥克風觸發門檻值",
-        "triggerThresholdDescription": "只有偵測到語音且音量達到此門檻值時，才會開始記錄語句。環境雜訊較大時可調高。",
-        "thresholdMarkerLabel": "觸發門檻值 {{value}} dBFS",
         "defaultMicrophone": "預設麥克風",
         "defaultMicrophoneDescription": "跟隨 Windows 預設輸入裝置。",
         "disableMicrophone": "停用麥克風",
@@ -1876,17 +1755,14 @@
       },
       "learning": {
         "title": "學習設定",
-        "aiDescription": "設定學習工作台使用的講解語言與程度。",
-        "noAiProfiles": "沒有支援文字產生的 AI 設定檔"
+        "aiDescription": "設定學習工作台使用的講解語言與程度。"
       },
       "dictionary": {
         "title": "辭典",
         "selectionLookup": "啟用選取文字查詢",
-        "selectionLookupDescription": "在即時字幕或學習工作區的對話素材中選取文字後，顯示辭典釋義。",
         "count": "{{count}} 本辭典",
         "importedCount": "已匯入 {{count}} 本",
         "noneImported": "尚未匯入",
-        "import": "匯入",
         "importYomitan": "匯入 Yomitan ZIP",
         "importing": "正在匯入 {{file}}…",
         "progressLabel": "辭典匯入進度",
@@ -1901,7 +1777,6 @@
       "anki": {
         "title": "AnkiConnect",
         "enable": "啟用 AnkiConnect",
-        "enableDescription": "允許檢查本機 Anki 連線，並在辭典查詢中建立卡片。",
         "invalidPort": "請輸入 1 到 65535 之間的有效連線埠。",
         "checking": "正在檢查 AnkiConnect…",
         "ready": "已連線，可以建立卡片",
@@ -1909,19 +1784,13 @@
         "offline": "AnkiConnect 未連線",
         "startHint": "請啟動 Anki 並安裝 AnkiConnect 後檢查連線。",
         "address": "位址",
-        "addressDescription": "AnkiConnect 僅限使用此本機位址。",
         "port": "連線埠",
-        "portHint": "AnkiConnect 預設連線埠為 8765。",
         "deck": "牌組",
-        "deckDescription": "選擇卡片寫入的目標牌組。",
         "deckOffline": "連線 Anki 後載入可用牌組。",
         "noteType": "筆記類型",
-        "noteTypeDescription": "選擇 Anki 筆記類型。",
         "noteTypeOffline": "連線 Anki 後載入筆記類型。",
         "frontField": "正面欄位",
-        "frontFieldDescription": "詞條和讀音會寫入此欄位。",
-        "backField": "背面欄位",
-        "backFieldDescription": "釋義和語境會寫入此欄位。"
+        "backField": "背面欄位"
       },
       "connections": {
         "title": "連線設定"
@@ -1943,7 +1812,6 @@
         "tokenConfigured": "已安全儲存。",
         "tokenMissing": "尚未設定權杖。",
         "tokenEnvironment": "權杖由環境變數管理。",
-        "tokenManagedHint": "請在 VRCX-0 中建立及管理權杖；VRCS 不會產生權杖。",
         "tokenInput": "貼上 VRCX-0 提供的權杖",
         "saveToken": "儲存權杖",
         "deleteToken": "刪除權杖",
@@ -1967,7 +1835,6 @@
       "osc": {
         "title": "OSC",
         "enable": "啟用 OSC",
-        "enableDescription": "統一控制聊天框輸出和 VRChat 靜音同步。",
         "translationStrategy": "OSC 多語言傳送",
         "translationStrategies": {
           "preferredOnly": "僅偏好語言",
@@ -1977,13 +1844,9 @@
         "preserveOriginal": "輸出中保留原文",
         "preserveOriginalDescription": "有譯文時同時傳送原文和譯文；關閉後僅傳送譯文。",
         "muteSync": "同步 VRChat 麥克風靜音",
-        "muteSyncDescription": "VRChat 靜音時暫停麥克風轉錄並阻止 Chatbox 傳送；取消靜音後自動恢復。",
         "invalidPort": "請輸入 1 到 65535 之間的有效連線埠。",
         "address": "IP 位址",
-        "addressDescription": "固定使用此電腦，且只傳送給本機 VRChat 用戶端。",
         "port": "連線埠",
-        "portHint": "VRChat 預設使用 9000 連線埠接收 OSC 訊息。",
-        "vrchatHint": "另請在 VRChat 動作選單中啟用 OSC → Enabled。若要加入譯文，請將翻譯方式設為「自動翻譯」。",
         "test": "傳送測試訊息",
         "testing": "正在傳送…",
         "testQueued": "測試訊息已加入傳送佇列。",
@@ -1998,8 +1861,6 @@
         }
       },
       "debug": {
-        "subtitle": "執行資訊與本機錯誤報告",
-        "readOnly": "唯讀",
         "schema": "結構描述",
         "coreAddress": "Core 位址",
         "databasePath": "資料庫路徑",
@@ -2009,7 +1870,6 @@
         "maxSegment": "目標片段長度",
         "historyStorageLimit": "字幕記錄空間上限",
         "modelStatus": "模型狀態",
-        "availableDevices": "{{count}} 個裝置",
         "transcription": "轉錄",
         "audioDevices": "音訊裝置",
         "audioDeviceCounts": "{{outputs}} 個輸出裝置 · {{microphones}} 個麥克風",
@@ -2028,11 +1888,11 @@
         "unsupported": "目前建置無法使用 VRChat 網路擷取。Windows 需要桌面版；Linux x86_64 需要系統安裝的 VRCS（/usr/bin/vrcs-desktop）與 polkit 授權。",
         "networkTitle": "VRChat 網路擷取",
         "networkEnable": "啟用 VRChat 網路擷取",
-        "networkRequired": "請先開啟下方的「VRChat 網路擷取」，才能使用 Chatbox 擷取或分玩家獨立音軌。",
+        "networkRequired": "請先在擷取設定中開啟「VRChat 網路擷取」，才能使用 Chatbox 擷取或分玩家獨立音軌。",
         "chatbox": {
           "title": "Chatbox 擷取",
           "enable": "接收並翻譯 VRChat Chatbox",
-          "translationUnavailable": "尚未啟用自動翻譯，或「其他玩家」未設定可用的文字翻譯服務。原文仍會儲存，可手動翻譯。",
+          "translationUnavailable": "尚未啟用自動翻譯，或「將對方的語言翻譯為」尚未設定可用的文字翻譯服務。原文仍會儲存，可手動翻譯。",
           "phase": {
             "authorizing": "等待系統授權…",
             "waiting_game": "等待 VRChat 啟動",
@@ -2085,7 +1945,6 @@
     },
     "onboarding": {
       "title": "首次使用設定",
-      "setup": "初始設定",
       "stepCounter": "第 {{current}} 步，共 {{total}} 步",
       "saveImmediately": "設定變更會立即儲存，你可隨時回來調整。",
       "skip": "稍後設定",
@@ -2133,8 +1992,7 @@
         "addApiDescription": "API 金鑰會安全地儲存在 Windows 認證管理員中。",
         "connectionReady": "連線測試成功，可以繼續。",
         "testRequired": "請先測試連線。",
-        "downloadRequired": "安裝 Qwen 模型及執行階段後才能繼續。",
-        "connectionReadyShort": "連線就緒"
+        "downloadRequired": "安裝 Qwen 模型及執行階段後才能繼續。"
       },
       "audio": {
         "description": "選擇要轉錄的系統輸出與麥克風；找不到裝置時請重新掃描。",
@@ -2142,7 +2000,7 @@
       },
       "microphone": {
         "disabledTitle": "麥克風已關閉",
-        "disabledDescription": "VRCS 只會轉錄其他人的聲音。稍後可在「音訊」設定中啟用麥克風。",
+        "disabledDescription": "VRCS 只會轉錄其他人的聲音。稍後可在「設定 → 擷取」中啟用麥克風。",
         "description": "測試只測量輸入音量，不會辨識、產生字幕或儲存錄音。調整門檻值，使安靜時不觸發、正常說話時穩定觸發。",
         "autoTitle": "引導校準",
         "autoDescription": "開始後先保持安靜；提示切換後再以正常音量連續說一整句話，VRCS 會計算建議門檻值。",
@@ -2382,6 +2240,10 @@
         "not_found": "找不到該辭典。"
       },
       "asr": {
+        "cloud_connect_failed": "無法連線雲端辨識服務。",
+        "cloud_disconnected": "雲端辨識連線已中斷。",
+        "cloud_error": "雲端辨識服務傳回錯誤。",
+        "cloud_reconnect_failed": "無法重新連線雲端辨識服務。",
         "alibaba_workspace_missing": "請先為 Alibaba Cloud 設定 Workspace ID。",
         "models": "無法載入本機模型。",
         "download": "無法下載模型。",
@@ -2486,12 +2348,9 @@
       "preview": "待傳送的選區圖片",
       "selectionHint": "拖曳滑鼠框選圖像區域，放開後預覽。Esc / 右鍵取消。",
       "loadingPreview": "正在載入圖片…",
-      "service": "服務：{{profile}} · 模型：{{model}}",
-      "notConfigured": "未設定",
       "question": "問題",
       "answer": "回答",
       "send": "傳送問題",
-      "sendHint": "Ctrl+Enter 傳送，Enter 換行。語音辨識不會自動傳送。",
       "questionTooLong": "問題超過 {{limit}} 個字元，請縮短後再傳送。",
       "startRecording": "開始說話",
       "finishRecording": "結束辨識",
@@ -2505,19 +2364,6 @@
       "copyFailed": "無法複製回答。",
       "errorDetail": "錯誤詳細資訊",
       "captureHint": "點擊下方「擷取螢幕」，或按 <shortcut>{{shortcut}}</shortcut>，然後拖曳框選桌面或其他應用程式的可見內容。",
-      "privacy": "螢幕快照僅用於本機框選。明確傳送時，只有選區圖片和問題會傳給所選服務；雲端語音辨識還會接收音訊，可能產生費用。每次提問相互獨立，不寫入字幕歷史。",
-      "states": {
-        "disabled": "桌面視覺問答已關閉。",
-        "idle": "等待截圖。",
-        "capturing": "正在擷取螢幕…",
-        "selecting": "請框選區域，Esc 取消框選。",
-        "editing": "編輯問題後傳送。",
-        "recording": "正在收音…結束辨識後可編輯問題。",
-        "finalizing_asr": "正在完成語音辨識…",
-        "requesting": "正在等待回答…",
-        "complete": "回答已就緒。",
-        "error": "操作失敗，圖片和草稿已保留。"
-      },
       "errors": {
         "disabled": "請在「設定 → 視覺」中啟用視覺問答及桌面模式。",
         "unavailable": "目前系統不支援螢幕截圖。",
@@ -2568,7 +2414,7 @@
         "unavailable": "目前系統不支援螢幕截圖。",
         "capture_failed": "無法擷取螢幕，請重試。",
         "capture_timeout": "擷取螢幕逾時，請重試。",
-        "disabled": "請在「設定 → OCR」啟用桌面 OCR。",
+        "disabled": "請在「設定 → 視覺」啟用桌面 OCR。",
         "core_unavailable": "OCR 服務無法使用。",
         "selection_busy": "已有其他框選正在進行，請完成或取消後重試。",
         "failed": "OCR 未能完成，請重試。",

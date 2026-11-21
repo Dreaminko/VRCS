@@ -226,7 +226,7 @@ for (const scenario of scenarios) {
           await input(search, '一緒');
           materials.scrollTop = 200; await settle();
           await click(button('learning.inbox.back'));
-          await click(button('learning.materials.collect'));
+          await click(button('learning.materials.title'));
           check(search.value === '一緒' && materials.scrollTop >= 190, 'Source filters and scroll survive returning to the inbox');
           await click(materials.querySelector('.learning-add-action'));
           await click(button('learning.materials.openCollected'));

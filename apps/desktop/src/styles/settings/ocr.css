@@ -1,4 +1,3 @@
-.ocr-shortcut-field { max-width: 320px; }
 /* Shared divider group used by OCR and Vision cards. */
 .ocr-settings-group,
 .vision-settings-group {
@@ -34,5 +33,4 @@
   .ocr-settings-section .model-row { grid-template-columns: minmax(0, 1fr); }
   .ocr-settings-section .model-row-title .model-size { width: 100%; margin-left: 0; }
   .ocr-settings-section .model-row-action { justify-content: flex-start; }
-  .ocr-shortcut-field { max-width: none; }
 }

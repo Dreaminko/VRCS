@@ -21,6 +21,7 @@ import type {
 } from "../../providers/types";
 import type { Settings } from "../types";
 import { ConfirmDialog } from "../../app/components/ConfirmDialog";
+import { formatLocalizedList } from "../../i18n/format-list";
 import { ApiProfileEditor } from "../api/ApiProfileEditor";
 import type { ApiCapabilityTests } from "../api/ApiCapabilitySelector";
 import { SettingsDialog } from "../components/SettingsDialog";
@@ -162,9 +163,13 @@ export function ApiManagementSettingsSection({
     ].filter(Boolean).join(" · ");
     return t(`settings.apiManagement.usages.${usage.kind}`) + (details ? ` (${details})` : "");
   };
-  const affectedFeatures = (editingProfile?.usages ?? [])
-    .filter((usage) => editor && !editor.enabled_capabilities.includes(usage.capability))
-    .map(usageLabel).join(", ");
+  const locale = i18n.resolvedLanguage ?? i18n.language ?? "en-US";
+  const affectedFeatures = formatLocalizedList(
+    (editingProfile?.usages ?? [])
+      .filter((usage) => editor && !editor.enabled_capabilities.includes(usage.capability))
+      .map(usageLabel),
+    locale,
+  );
 
   const commitEditor = async (draft: ApiProfileEditorDraft) => {
     const profile = apiProfileFromEditorDraft(draft);
@@ -182,7 +187,9 @@ export function ApiManagementSettingsSection({
       if (preview.side_effects.length) {
         setPendingUpdate({
           draft: editor,
-          message: t("settings.apiManagement.affectedFeatures", { features: preview.side_effects.map(usageLabel).join(", ") }),
+          message: t("settings.apiManagement.affectedFeatures", {
+            features: formatLocalizedList(preview.side_effects.map(usageLabel), locale),
+          }),
         });
         return;
       }
@@ -203,7 +210,7 @@ export function ApiManagementSettingsSection({
     removalTriggerRef.current = button;
     const preview = await profiles.previewDeletion(profile.id);
     if (!preview) return;
-    const features = preview.side_effects.map(usageLabel).join(", ");
+    const features = formatLocalizedList(preview.side_effects.map(usageLabel), locale);
     const impact = features ? t("settings.apiManagement.affectedFeatures", { features }) : "";
     setPendingRemoval({
       profile,
@@ -271,9 +278,9 @@ export function ApiManagementSettingsSection({
             .trim()
             .charAt(0)
             .toUpperCase();
-          const capabilityLabels = profileEnabledCapabilities(profile).map(
+          const capabilityLabels = formatLocalizedList(profileEnabledCapabilities(profile).map(
             (capability) => t(`settings.apiManagement.capabilities.${capability}`),
-          ).join(", ");
+          ), locale);
           return (
             <section className={`api-profile-row ${transcriptionActive || translationActive ? "active" : ""}`} aria-label={profile.name} key={profile.id}>
                 <div className="api-profile-identity">

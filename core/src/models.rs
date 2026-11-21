@@ -54,7 +54,6 @@ fn default_source() -> String {
 }
 
 /// 音频设备枚举结果，供后续阶段的 /api/audio/devices 使用。
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub struct AudioDevice {
     pub id: i64,

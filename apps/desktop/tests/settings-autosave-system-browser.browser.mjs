@@ -68,7 +68,7 @@ test("autosave keeps settings visually stable, queues edits, and rolls back fail
             desktopMessage={desktop.message} uiLanguagePreference={desktop.uiLanguagePreference}
             interfaceScale={100} onUpdateDesktop={desktop.updateDesktop} onInterfaceScaleChange={() => {}}
             onUpdateUiLanguage={desktop.updateUiLanguage} onboardingDisabled={false} onStartOnboarding={() => {}}
-            locale="en-US" draft={controller.draft} profiles={[]} onManageProfiles={() => {}} debugRows={[]}
+            locale="en-US" draft={controller.draft} profiles={[]} debugRows={[]}
             applySettings={controller.applySettings} updater={{ phase: 'idle', automaticChecks: false }} />
           <TranslationSettingsSection {...controller} apiProfiles={[profile]} onManageLocalModels={() => {}} />
           <GlossarySettingsSection {...controller} />

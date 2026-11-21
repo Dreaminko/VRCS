@@ -97,7 +97,6 @@ impl Database {
     }
 
     /// 写入字幕，并在数据库锁内确定当前 active 会话。
-    #[allow(dead_code)]
     pub fn add_subtitle(&self, subtitle: &Subtitle) -> AppResult<Subtitle> {
         self.add_subtitle_in_scope(subtitle, None, None)
     }
@@ -289,30 +288,6 @@ impl Database {
             target_id: subtitle_id,
             has_older,
         }))
-    }
-
-    pub fn delete_subtitle_range(
-        &self,
-        started_at: &str,
-        ended_at: Option<&str>,
-    ) -> AppResult<u64> {
-        const RANGE: &str = "created_at >= ?1 AND (?2 IS NULL OR created_at < ?2)";
-        let transaction = self.conn.unchecked_transaction()?;
-        // Summaries may quote deleted speech, so user deletions invalidate them.
-        transaction.execute(
-            &format!(
-                "UPDATE conversations SET summary_title = NULL, title_generation_status = 'idle',
-                     title_generation_error_code = NULL, title_generation_request_id = NULL
-                 WHERE id IN (SELECT conversation_id FROM subtitles WHERE {RANGE})"
-            ),
-            params![started_at, ended_at],
-        )?;
-        let deleted = transaction.execute(
-            &format!("DELETE FROM subtitles WHERE {RANGE}"),
-            params![started_at, ended_at],
-        )?;
-        transaction.commit()?;
-        Ok(deleted as u64)
     }
 
     #[cfg(test)]

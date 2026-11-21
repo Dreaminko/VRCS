@@ -1,5 +1,5 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { MessageSquare, MessageSquareOff, Volume2, VolumeX, Plus, UsersRound, X } from "lucide-react";
+import { ChevronDown, Info, MessageSquare, MessageSquareOff, Volume2, VolumeX, Plus, SlidersHorizontal, UsersRound, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { PlayerProximitySettings, PlayerViewPrioritySettings } from "../../capture/types";
 import type { PlayerAudioStatus } from "../../core-client/types";
@@ -92,6 +92,20 @@ export function PlayerHistoryControls({ subtitles, status, roster, useLiveHealth
     .filter((id): id is string => id !== null)), [speakers, preferences.hiddenTracks]);
   const languages = preferences.hiddenSourceLanguages ?? [];
   const displayedRadius = proximity?.enabled ? proximity.radius_m : 0;
+  const ruleChips = [
+    proximity && {
+      key: "proximity",
+      label: t("live.players.proximityRadius"),
+      value: displayedRadius > 0 ? `${displayedRadius.toFixed(1)} m` : t("live.players.proximityOff"),
+      active: displayedRadius > 0,
+    },
+    viewPriority && {
+      key: "view",
+      label: t("live.players.viewAngle"),
+      value: viewPriority.enabled ? `${Math.round(viewPriority.horizontal_fov_deg)}°` : t("live.players.proximityOff"),
+      active: viewPriority.enabled,
+    },
+  ].filter((item): item is { key: string; label: string; value: string; active: boolean } => Boolean(item));
   const languageDetectorReady = useLanguageDetectorReady();
   const languageCodes = useMemo(
     () => panelMounted
@@ -110,6 +124,12 @@ export function PlayerHistoryControls({ subtitles, status, roster, useLiveHealth
     catch { /* The shared settings error banner reports persistence failures. */ }
     finally { setBusy(false); }
   };
+  const emptyState = !visibleSpeakers.length
+    ? splitEmptyState(t(group === "current" ? "live.players.currentEmpty" : "live.players.historyEmpty"))
+    : null;
+  const namePendingNote = group === "current" && current.some((player) => !player.speaker.display_name)
+    ? splitEmptyState(t("live.players.namePending"))
+    : null;
   return <div className="player-history-controls" ref={rootRef} onPointerDown={(event) => {
     // Portaled child menus remain inside this panel's dismissal boundary.
     if (!event.currentTarget.contains(event.target as Node)) event.stopPropagation();
@@ -125,22 +145,42 @@ export function PlayerHistoryControls({ subtitles, status, roster, useLiveHealth
     {panelMounted && <section className="player-history-panel" ref={menuRef} id={panelId}
       aria-label={t("live.players.title")} aria-hidden={!open} inert={!open}>
     <div className="player-history-body">
-      {proximity && <div className="player-history-proximity" role="group" aria-label={t("live.players.proximityRadius")}>
-        <RangeField label={t("live.players.proximityRadius")} value={displayedRadius}
-          min={0} max={10} step={0.1} disabled={!enabled || !onProximityChange}
-          formatValue={(radius) => radius > 0 ? `${radius.toFixed(1)} m` : t("live.players.proximityOff")}
-          onCommit={(radius_m) => void onProximityChange?.(radius_m)} />
-      </div>}
-      {viewPriority && <div className="player-history-proximity" role="group" aria-label={t("live.players.viewPriority")}>
-        <PreferenceToggle title={t("live.players.viewPriority")}
-          checked={viewPriority.enabled} disabled={!enabled || !onViewPriorityChange}
-          onChange={(checked) => void onViewPriorityChange?.(checked, viewPriority.horizontal_fov_deg)} />
-        <RangeField label={t("live.players.viewAngle")} value={viewPriority.horizontal_fov_deg}
-          min={30} max={180} step={1} disabled={!enabled || !viewPriority.enabled || !onViewPriorityChange}
-          formatValue={(degrees) => `${degrees}°`}
-          onCommit={(horizontal_fov_deg) => void onViewPriorityChange?.(true, horizontal_fov_deg)} />
-        {effectiveStatus?.proximity?.view_enabled && !effectiveStatus.proximity.local_view && <small role="status">{t("live.players.viewWaiting")}</small>}
-      </div>}
+      {ruleChips.length > 0 && <details className="player-history-rules">
+        <summary className="player-history-rules-summary">
+          <span className="player-history-rules-heading">
+            <SlidersHorizontal size={14} aria-hidden="true" />
+            <span>{t("live.players.rulesTab")}</span>
+          </span>
+          <span className="player-history-rules-values">
+            {ruleChips.map((chip) => <span key={chip.key} className={`player-history-rule-chip${chip.active ? " is-active" : ""}`}>
+              <span>{chip.label}</span>
+              <strong>{chip.value}</strong>
+            </span>)}
+          </span>
+          <ChevronDown className="player-history-rules-chevron" size={15} aria-hidden="true" />
+        </summary>
+        <div className="player-history-rules-content">
+          {proximity && <div className="player-history-proximity" role="group" aria-label={t("live.players.proximityRadius")}>
+            <RangeField label={t("live.players.proximityRadius")} value={displayedRadius}
+              min={0} max={10} step={0.1} disabled={!enabled || !onProximityChange}
+              formatValue={(radius) => radius > 0 ? `${radius.toFixed(1)} m` : t("live.players.proximityOff")}
+              onCommit={(radius_m) => void onProximityChange?.(radius_m)} />
+          </div>}
+          {viewPriority && <div className="player-history-proximity" role="group" aria-label={t("live.players.viewPriority")}>
+            <PreferenceToggle title={t("live.players.viewPriority")}
+              checked={viewPriority.enabled} disabled={!enabled || !onViewPriorityChange}
+              onChange={(checked) => void onViewPriorityChange?.(checked, viewPriority.horizontal_fov_deg)} />
+            <RangeField label={t("live.players.viewAngle")} value={viewPriority.horizontal_fov_deg}
+              min={30} max={180} step={1} disabled={!enabled || !viewPriority.enabled || !onViewPriorityChange}
+              formatValue={(degrees) => `${degrees}°`}
+              onCommit={(horizontal_fov_deg) => void onViewPriorityChange?.(true, horizontal_fov_deg)} />
+            {effectiveStatus?.proximity?.view_enabled && !effectiveStatus.proximity.local_view && <div className="player-history-note" role="status">
+              <Info size={13} aria-hidden="true" />
+              <span>{t("live.players.viewWaiting")}</span>
+            </div>}
+          </div>}
+        </div>
+      </details>}
       <fieldset className="player-history-languages">
         <legend>{t("live.players.languages")}</legend>
         <div className="player-history-language-list">{languages.map((language) => <button type="button" className="language-chip player-history-language" key={language} value={language}
@@ -184,12 +224,28 @@ export function PlayerHistoryControls({ subtitles, status, roster, useLiveHealth
         sourceOverrides={sourceOverrides}
         sourceMode={sourceMode}
         onSource={(source, disabled, resolved) => void setSource(resolved, source, disabled)} />)}
-        {!visibleSpeakers.length && <p className="player-history-empty">{t(group === "current" ? "live.players.currentEmpty" : "live.players.historyEmpty")}</p>}
+        {emptyState && <div className="player-history-empty" role="status">
+          <span className="player-history-empty-icon" aria-hidden="true"><UsersRound size={16} /></span>
+          <strong>{emptyState.title}</strong>
+          {emptyState.hint && <small>{emptyState.hint}</small>}
+        </div>}
       </div>
-      {group === "current" && current.some((player) => !player.speaker.display_name) && <small role="status">{t("live.players.namePending")}</small>}
+      {namePendingNote && <div className="player-history-note" role="status">
+        <Info size={14} aria-hidden="true" />
+        <div>
+          <strong>{namePendingNote.title}</strong>
+          {namePendingNote.hint && <small>{namePendingNote.hint}</small>}
+        </div>
+      </div>}
     </div>
     </section>}
   </div>;
+}
+
+function splitEmptyState(text: string): { title: string; hint?: string } {
+  const match = text.match(/^(.*?)(?:。|\.\s+)(.+)$/);
+  if (match) return { title: match[1].trim(), hint: match[2].trim() };
+  return { title: text.replace(/[。.]$/, "").trim() };
 }
 
 function sourceDisabled(overrides: Record<string, PlayerSourceOverride>, mode: PlayerSourceMode, speaker: SpeakerIdentity, source: "chatbox" | "voice"): boolean {
@@ -233,7 +289,7 @@ function PlayerRow({ speaker: identity, query, current, distance, busy, hidden, 
         ? t("live.players.distanceUnknown")
         : t("live.players.distance", { distance: distance.toFixed(1) })}</span>
     </> : t(saved ? "live.players.savedSelection" : "live.players.history")}</small>
-      {current && !userId && <small>{t("live.players.userIdPending")}</small>}</span>
+      {current && !userId && <small className="player-history-pending-badge">{t("live.players.userIdPending")}</small>}</span>
     <span className="player-history-row-actions">
       {source("vrchat_chatbox", chatboxDisabled, chatboxDisabled ? <MessageSquareOff size={15} aria-hidden="true" /> : <MessageSquare size={15} aria-hidden="true" />)}
       {source("speaker", voiceDisabled, voiceDisabled ? <VolumeX size={15} aria-hidden="true" /> : <Volume2 size={15} aria-hidden="true" />)}

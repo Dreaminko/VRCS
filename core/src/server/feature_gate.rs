@@ -39,7 +39,7 @@ fn required_features(path: &str, method: &Method) -> &'static [FeatureKey] {
     if path.starts_with("/api/anki/") {
         return &[Anki];
     }
-    if path.starts_with("/api/glossaries/") || path.starts_with("/api/translations/glossar") {
+    if path.starts_with("/api/glossaries/") {
         return &[Glossary];
     }
     if path.starts_with("/api/vision/") {

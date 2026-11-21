@@ -129,6 +129,7 @@ impl CoreHandle {
         )
     }
 
+    #[cfg(test)]
     pub fn external_api_address(&self) -> Option<SocketAddr> {
         self.state
             .integrations

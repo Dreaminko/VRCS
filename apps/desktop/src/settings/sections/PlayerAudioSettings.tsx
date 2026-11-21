@@ -58,12 +58,15 @@ export function PlayerAudioSettings({ value, status, memory, disabled, onChange 
         min={0} max={64} step={1} disabled={fieldsDisabled} formatValue={formatPlayerCount}
         onCommit={(max_visible_players) => onChange({ max_visible_players })} />
     </div>
-    <div className="settings-field-note" role="status">
-      <strong>{phase === "streaming" && status
-        ? noVoiceSources ? t("settings.audio.players.noVoiceSources")
-          : status.active_players > 0 ? t("settings.audio.players.activeTracks", { players: status.active_players })
-            : t("settings.audio.players.waitingSpeech")
-        : t(`settings.audio.players.phase.${phase}`, { defaultValue: t("status.networkStarting") })}</strong>
+    <div className={`settings-field-note player-audio-status${phase === "streaming" ? " is-active" : ""}`} role="status">
+      <div className="player-audio-status-head">
+        <span className="player-audio-status-dot" aria-hidden="true" />
+        <strong>{phase === "streaming" && status
+          ? noVoiceSources ? t("settings.audio.players.noVoiceSources")
+            : status.active_players > 0 ? t("settings.audio.players.activeTracks", { players: status.active_players })
+              : t("settings.audio.players.waitingSpeech")
+          : t(`settings.audio.players.phase.${phase}`, { defaultValue: t("status.networkStarting") })}</strong>
+      </div>
       {phase === "acquiring_key" && keyScan && <p>{t("settings.audio.players.keyElapsed", {
         seconds: (keyScan.elapsed_ms / 1000).toFixed(1),
       })}</p>}

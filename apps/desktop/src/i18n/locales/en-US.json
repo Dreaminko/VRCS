@@ -108,7 +108,6 @@
       "downloading": "Downloading…",
       "expandNamed": "Expand {{name}}",
       "loading": "Loading…",
-      "ready": "Ready",
       "refresh": "Refresh",
       "retry": "Retry",
       "save": "Save",
@@ -130,17 +129,6 @@
         "search": "Search by language or code",
         "empty": "No matching languages",
         "useCustom": "Use {{code}} as a custom language code"
-      },
-      "languages": {
-        "zh-Hans": "Simplified Chinese",
-        "zh-Hant": "Traditional Chinese",
-        "en": "English",
-        "ja": "Japanese",
-        "ko": "Korean",
-        "es": "Spanish",
-        "fr": "French",
-        "de": "German",
-        "ru": "Russian"
       }
     },
     "navigation": {
@@ -156,7 +144,6 @@
       "detailsTitle": "Send settings",
       "expandDetails": "Expand send settings",
       "collapseDetails": "Collapse send settings",
-      "translationOnSend": "Translates automatically when sent",
       "translationPreviewPending": "The translation will be generated when you send",
       "inputCount": "{{count}} characters",
       "original": "Original",
@@ -269,7 +256,6 @@
       "vrchatSendChecking": "Checking chatbox sending",
       "vrchatSendError": "Chatbox sending error",
       "muteUnknown": "Mute state unknown, sending paused",
-      "muteSyncDisabled": "Mute sync off",
       "connection": {
         "connecting": "Connecting",
         "connected": "Connected",
@@ -334,12 +320,10 @@
       "expandSidebar": "Expand conversation sidebar",
       "collapseSidebar": "Collapse conversation sidebar",
       "create": "New conversation",
-      "viewCurrent": "View current conversation",
       "current": "Current",
       "previous": "Previous",
       "empty": "No previous conversations",
       "subtitleCount": "{{count}} subtitles",
-      "loadOnOpen": "Load when opened",
       "loadOlderMessages": "Load earlier messages",
       "loadingOlderMessages": "Loading earlier messages…",
       "search": "Search conversations",
@@ -355,7 +339,6 @@
       "viewingPast": "Viewing a conversation from {{time}}",
       "returnCurrent": "Return to current conversation",
       "recent": "Recent conversations",
-      "moreConversations": "More conversations",
       "manage": "Manage {{title}}",
       "rename": "Rename",
       "changeIcon": "Change icon",
@@ -452,7 +435,6 @@
       "returnToLatestShort": "Return to latest",
       "contextMenu": {
         "label": "Subtitle actions",
-        "more": "More subtitle actions",
         "copySelection": "Copy selected text",
         "copyOriginal": "Copy original",
         "copyTranslation": "Copy translation",
@@ -480,7 +462,6 @@
     },
     "learning": {
       "title": "Learning workspace",
-      "description": "Collect subtitles, request focused analysis, and prepare editable Anki cards.",
       "language": "Language",
       "dateRange": "Date range",
       "allTime": "All time",
@@ -488,11 +469,6 @@
       "loadEarlier": "View earlier material",
       "loadingEarlier": "Loading…",
       "empty": "No conversation material matches these filters.",
-      "tabs": {
-        "label": "Learning workspace sections",
-        "inbox": "Inbox",
-        "materials": "Conversation material"
-      },
       "inbox": {
         "title": "Inbox",
         "count": "{{count}} items",
@@ -517,13 +493,11 @@
           "microphone": "Microphone",
           "chatbox": "Chatbox"
         },
-        "selectionHint": "Select any subtitles. Hold Shift to select a continuous range.",
         "conversationCount": "{{count}} subtitles",
         "selected": "{{count}} subtitles selected",
         "selectAll": "Select visible",
         "clearSelection": "Clear",
         "selectSubtitle": "Select subtitle",
-        "collect": "Collect from session",
         "openCollected": "Open item"
       },
       "filters": {
@@ -582,26 +556,11 @@
       },
       "ai": {
         "title": "AI analysis",
-        "description": "Requests run only when you choose an action.",
         "configureHint": "Set up AI to analyze this content. You can read it and make cards now.",
-        "openSettings": "Open learning settings",
-        "actions": {
-          "contextual_word_explanation": "Explain this word",
-          "sentence_analysis": "Analyze this sentence",
-          "session_review": "Review this conversation"
-        },
-        "profile": "AI profile",
-        "model": "Model",
-        "modelPlaceholder": "Select or enter a model",
-        "modelUnset": "model not set",
+        "openSettings": "Open model settings",
         "explanationLanguage": "Explanation language",
         "followUiLanguage": "Follow app language",
         "explanationLevel": "Explanation detail",
-        "profileMissing": "Choose an AI profile that supports text generation and enter a model before sending content.",
-        "cloudNoticeTitle": "Third-party service",
-        "cloudNotice": "Study content and saved dictionary context will be sent to {{provider}} using {{model}}.",
-        "localNoticeTitle": "Configured local service",
-        "localNotice": "Study content will be sent to the configured local service {{provider}} using {{model}}. That service may have its own forwarding rules.",
         "quickFocus": "Explore further",
         "focus": {
           "simpler": "Explain more simply",
@@ -612,11 +571,6 @@
           "contextual_word_explanation": "Explain word in context",
           "sentence_analysis": "Analyze sentence",
           "session_review": "Review conversation"
-        },
-        "languages": {
-          "zhCN": "Simplified Chinese",
-          "enUS": "English",
-          "jaJP": "Japanese"
         },
         "levels": {
           "beginner": "Beginner",
@@ -703,18 +657,16 @@
       }
     },
     "selection": {
-      "actionsLabel": "Actions for {{text}}",
       "close": "Close selection tools",
       "back": "Back to selection tools",
-      "dictionary": "Dictionary",
       "dictionaryLoading": "Looking up…",
       "askAi": "Ask AI",
       "ai": {
         "title": "Ask AI",
         "dialogLabel": "Ask AI about {{text}}",
         "configureTitle": "Configure AI first",
-        "configureDescription": "Choose a text-generation profile and model in Learning settings before asking a question.",
-        "openSettings": "Open Learning settings",
+        "configureDescription": "Choose a text-generation profile and model in Settings → API and models → Model assignments before asking a question.",
+        "openSettings": "Open model settings",
         "selectedText": "Selected text",
         "answer": "Answer",
         "copy": "Copy",
@@ -740,15 +692,8 @@
     },
     "validation": {
       "audio": {
-        "player_audio_unavailable": "Per-player independent tracks could not start. Check administrator access, the NTFS pagefile drive and the Opus library.",
         "outputUnavailable": "The selected system output device is no longer available. Select it again.",
         "microphoneUnavailable": "The selected microphone is no longer available. Select it again."
-      },
-      "asr": {
-        "cloud_connect_failed": "Could not connect to the cloud recognition service.",
-        "cloud_disconnected": "The cloud recognition connection was closed.",
-        "cloud_error": "The cloud recognition service returned an error.",
-        "cloud_reconnect_failed": "Could not reconnect to the cloud recognition service."
       }
     },
     "updates": {
@@ -784,7 +729,7 @@
         "conversations": {
           "title_interrupted": "The previous title request was interrupted. Try again.",
           "title_service_failed": "Title generation failed. Check the model service and try again.",
-          "title_not_configured": "Check the API profile, credentials, and model in conversation title settings.",
+          "title_not_configured": "Check the API profile, credentials, and model in Settings → API and models → Model assignments.",
           "title_timeout": "Title generation timed out. Try again.",
           "title_empty": "This conversation has no original transcript to summarize.",
           "title_invalid_output": "The model did not return a valid single-line title. Try again.",
@@ -859,7 +804,7 @@
         "vrEnable": "Enable VR visual question answering",
         "profile": "API profile",
         "noProfile": "No profile selected",
-        "noProfiles": "No eligible profiles. Add or edit a profile in API settings and enable image understanding.",
+        "noProfiles": "No eligible profiles. Add or edit a profile in API and models → API profiles and enable image understanding.",
         "unavailableProfile": "Selected profile is unavailable",
         "model": "Model",
         "thinkingMode": "Thinking mode",
@@ -915,7 +860,6 @@
         "headset": "Headset subtitles",
         "wrist": "Wrist conversation",
         "ocr": "VR text translation",
-        "content": "Content",
         "hand": "Controller",
         "width": "Width",
         "opacity": "Opacity",
@@ -1001,7 +945,6 @@
         "wristDescription": "Compare original text and translations. These settings apply only to the OCR panel.",
         "wristPosition": "Position and rotation",
         "results": "Region translations: {{completed}} completed, {{failed}} failed",
-        "sourceView": "Original text is shown with translations.",
         "errors": {
           "timeout": "The task timed out. Scan again.",
           "models_missing": "Prepare the local OCR models in settings.",
@@ -1032,7 +975,6 @@
         },
         "modelFailed": "Could not prepare the OCR models. Check the connection and try again.",
         "modelDeleteFailed": "Could not delete the OCR models. Wait for any download or recognition to finish, then try again.",
-        "controls": "After the frame appears, hold the right trigger for 0.65 seconds to confirm OCR. If the trigger was already held, release it before pressing again. OCR requires a frame. Hold the left trigger to clear, or to ask when visual questions are enabled.",
         "states": {
           "disabled": "Disabled",
           "waiting_vr": "Waiting for SteamVR",
@@ -1061,13 +1003,11 @@
         "enable": "Enable VR OCR",
         "translation": "OCR translation languages and services",
         "timeout": "Task timeout",
-        "region": "Center capture region (without a hand frame)",
         "confidence": "Minimum recognition confidence",
         "lifetime": "VR result display duration",
         "background": "VR result background opacity",
         "gesture": "Enable selection with both grip buttons",
         "gestureDescription": "By default, press both grip buttons at the same time to start selection. Hold the left trigger to start Visual Q&A, then speak your question. Hold the right trigger to start OCR translation.",
-        "gestureReady": "Hold a finger frame or both grips for 0.65 seconds. After the frame appears, move your hands to resize it, then hold the right trigger to confirm. If the trigger was already held, release it before pressing again. Release the pose or grips before confirmation to cancel.",
         "gestureUnavailable": "Hand and controller frame tracking is unavailable. VR OCR cannot start. Check tracking and the SteamVR frame bindings.",
         "bindings": "Open SteamVR controller bindings",
         "bindingFailed": "Could not open the SteamVR bindings. Check the VR connection.",
@@ -1076,7 +1016,6 @@
       "categories": {
         "label": "Settings categories",
         "system": "System",
-        "storage": "Storage",
         "audio": "Capture",
         "recognition": "Recognition",
         "translation": "Translation",
@@ -1086,8 +1025,7 @@
         "connections": "Connections",
         "about": "About",
         "vrOverlay": "VR Overlay",
-        "vision": "Vision",
-        "ocr": "OCR"
+        "vision": "Vision"
       },
       "about": {
         "version": "Version {{version}}",
@@ -1109,7 +1047,6 @@
       "vrOverlay": {
         "title": "VR Overlay",
         "runtimeTitle": "VR runtime",
-        "runtimeDescription": "Shows subtitles in VR without affecting transcription when the runtime is unavailable.",
         "statusLoadFailed": "Could not read the VR Overlay status.",
         "nativeActionFailed": "Could not update the VR Overlay runtime.",
         "enable": "Enable VR Overlay",
@@ -1145,12 +1082,10 @@
           "error": "Error"
         },
         "headset": {
-          "title": "Headset subtitles",
-          "description": "A single subtitle strip fixed in front of the headset."
+          "title": "Headset subtitles"
         },
         "wrist": {
-          "title": "Wrist conversation",
-          "description": "Recent conversation lines attached to a controller."
+          "title": "Wrist conversation"
         },
         "translationDisplay": "Multilingual translations",
         "translationDisplays": {
@@ -1203,7 +1138,7 @@
         "anchorWorld": "Anchor in space",
         "followView": "Follow view",
         "followViewHint": "When anchored in space, move the panel with your view. Turn off to leave it in place.",
-        "recenterDialogue": "Move dialogue panel in front",
+        "recenterDialogue": "Reset panel position",
         "emptyDialogue": "No recent content",
         "dragHint": "Point at the handle and hold grip to drag",
         "waitingContent": "Enabled; waiting for content",
@@ -1216,14 +1151,8 @@
         "title": "Conversation management",
         "autoGenerate": "Generate conversation titles automatically",
         "configureFirst": "Configure the title model in API and models > Model assignments.",
-        "profile": "API profile",
-        "noProfiles": "No API profiles support text generation.",
-        "selectProfile": "Select an API profile",
-        "unavailableProfile": "unavailable",
         "language": "Title language",
-        "autoLanguage": "Use the main conversation language",
-        "model": "Model",
-        "selectModel": "Select or enter a model name"
+        "autoLanguage": "Use the main conversation language"
       },
       "system": {
         "shortcutAuthorization": {
@@ -1239,7 +1168,6 @@
         },
         "title": "System",
         "general": "General settings",
-        "saveImmediately": "Changes are saved immediately.",
         "language": "Interface language",
         "languageDescription": "Use the system language or choose one for VRCS.",
         "followSystem": "Follow system",
@@ -1248,28 +1176,21 @@
         "themeDark": "Dark",
         "reduceMotion": "Reduce motion",
         "interfaceScale": "Interface size",
-        "interfaceScaleDescription": "Adjust the interface scale, or press Ctrl + or Ctrl - to change it in 5% steps.",
         "transcriptionStartBehavior": "When transcription starts",
-        "transcriptionStartBehaviorDescription": "Choose how each transcription start handles conversations.",
         "continueCurrentConversation": "Continue current conversation",
         "createNewConversation": "Create a new conversation",
         "launchAtStartup": "Launch at startup",
-        "launchAtStartupDescription": "Start VRCS automatically after you sign in.",
         "runAsAdministrator": "Run as administrator by default",
         "minimizeToTray": "Minimize to system tray",
-        "minimizeToTrayDescription": "Keep VRCS running in the tray when its window is closed.",
         "runOnboarding": "First-use guide",
-        "runOnboardingDescription": "Configure recognition, audio devices, and the microphone trigger threshold again.",
         "runOnboardingAction": "Run guide again",
         "runOnboardingStopFirst": "Stop transcription first",
         "externalApi": {
           "title": "Third-party output API",
           "enabled": "Enable third-party output API",
-          "enabledDescription": "Off by default. It exposes only health, capabilities, and event subscription routes.",
           "host": "Listen address",
           "port": "Port",
           "requireToken": "Require token authentication",
-          "requireTokenDescription": "Required outside loopback. The token is not stored in the settings file.",
           "token": "Access token",
           "tokenChecking": "Checking the token status.",
           "tokenConfigured": "Stored securely. You can regenerate or delete it.",
@@ -1297,16 +1218,13 @@
       "storage": {
         "title": "Storage",
         "databaseUsage": "Subtitle history usage",
-        "databaseUsageDescription": "Subtitle history usage includes subtitles and their indexes and counts toward the quota. Allocated and reclaimable space cover the entire database.",
         "ofQuota": "of {{quota}} quota",
         "allocated": "Allocated space",
         "reclaimable": "Reusable space",
         "overLimit": "Subtitle history usage is above the quota. Core deletes the oldest subtitles when writing new records and always retains the latest record.",
         "quota": "Subtitle history space limit",
-        "quotaDescription": "Delete the oldest subtitles automatically at the limit while always retaining the latest record. Range: 10 MiB to 10 GiB.",
         "quotaInvalid": "Enter a space limit between {{min}} and {{max}} MiB.",
         "clearHistory": "Clear subtitle history",
-        "clearHistoryDescription": "Permanently delete all subtitles and translations, then reclaim free database space. Dictionaries and other settings data are not deleted.",
         "clearAction": "Clear records",
         "clearing": "Clearing…",
         "clearConfirm": "Permanently delete all subtitle history? This action cannot be undone.",
@@ -1317,7 +1235,6 @@
         "liveTranslatePreview": "Audio uploads begin after speech is detected. Translations can be previewed as they arrive. Local alignment supports history, extra targets and OSC; same-language source text can complete without waiting for a translation.",
         "title": "Subtitle translation",
         "mode": "Translation mode",
-        "modeDescription": "Automatic mode translates both other voices and your microphone. Manual mode translates only on request.",
         "modes": {
           "disabled": "Off",
           "manual": "Manual",
@@ -1357,18 +1274,11 @@
           "unavailable": "Runtime unavailable"
         },
         "profile": "API profile",
-        "profileDescription": "Choose a named API connection that supports translation.",
-        "selectProfile": "Select an API profile",
-        "noProfiles": "Add a profile in API Management first.",
+        "noProfiles": "Add a profile in API and models → API profiles first.",
         "model": "LLM model",
         "manualModel": "Select or enter a model name",
         "thinkingMode": "Thinking mode",
-        "thinkingModeDescription": "Control whether the model reasons; reasoning content is never added to translations.",
-        "thinkingModeAlwaysOn": "Always on",
-        "thinkingModeAlwaysOnDescription": "This model always reasons internally. VRCS hides the reasoning and returns only the final translation.",
-        "modelHint": "Used for LLM translation through OpenAI, OpenAI-compatible APIs, or Alibaba Cloud; for example, choose deepseek-v4-flash with DeepSeek.",
         "enhancement": "LLM translation enhancements",
-        "enhancementDescription": "Configure the prompt and recent source text for every LLM provider.",
         "systemPrompt": "System prompt",
         "promptVariables": "Variables: {source_language}, {target_language}, {glossary}, {context}",
         "restorePrompt": "Restore default",
@@ -1377,7 +1287,6 @@
         "promptInvalidTitle": "Invalid prompt",
         "contextPreview": "{{count}} recent source messages, {{chars}} characters",
         "contextEnabled": "Include recent source text",
-        "contextEnabledDescription": "Add recent final source text from selected sources to the LLM prompt in chronological order. Off by default.",
         "contextSourcesTitle": "Source types",
         "contextSources": {
           "speaker": "Other players’ voice and Chatbox",
@@ -1400,7 +1309,6 @@
       },
       "glossary": {
         "title": "Glossaries",
-        "description": "Manage shared terminology for LLM translation and speech recognition.",
         "llmEnabled": "Use for LLM translation",
         "llmEnabledDescription": "Use enabled glossary sources in translation prompts and Qwen Live Translate term mappings.",
         "asrEnabled": "Use for ASR",
@@ -1436,12 +1344,9 @@
         "confirmDeleteGlossary": "Delete glossary “{{name}}”?",
         "noGlossaries": "No glossaries yet",
         "noGlossariesHint": "Add a local glossary or subscribe to a public VRCS glossary JSON file.",
-        "localGlossaryDialogHint": "Edit a local draft. Changes are applied together only after Save succeeds.",
-        "subscriptionDialogHint": "Subscriptions require HTTPS. HTTP is allowed only for loopback addresses.",
         "glossaryName": "Name",
         "glossaryNamePlaceholder": "For example: Common VRChat terms",
         "glossaryUrl": "Subscription URL",
-        "glossaryUrlHint": "Use HTTPS, or HTTP for localhost, 127.0.0.0/8, or ::1.",
         "glossaryDisplayName": "Display name (optional)",
         "glossaryDisplayNamePlaceholder": "Leave blank to use the published name or URL",
         "importGlossaryJson": "Import JSON",
@@ -1699,22 +1604,11 @@
       },
       "recognition": {
         "title": "Speech recognition",
-        "backend": "Recognition backend",
-        "backendDescription": "Use local Qwen recognition or a cloud service.",
         "source": "Recognition source",
-        "sourceDescription": "Use local recognition or select a named API connection directly.",
         "managedQwenSource": "Local Qwen ASR",
         "qwenModels": "Qwen ASR model packages",
-        "verifyModel": "Verify",
-        "qwenInstallRequired": "Download and verify this Qwen ASR package before starting recognition.",
         "qwenRuntimeComponents": "Qwen runtime components",
         "qwenRuntimeMissing": "Download the runtime components to use local Qwen recognition.",
-        "qwenRuntimeState": {
-          "not_loaded": "Qwen model is not loaded",
-          "loading": "Loading Qwen model…",
-          "ready": "Qwen model is ready",
-          "error": "Qwen runtime error"
-        },
         "qwenCpuFallback": "GPU loading failed. Switched to CPU automatically.",
         "qwenStatus": {
           "not_downloaded": "Not downloaded",
@@ -1725,42 +1619,31 @@
           "error": "Download failed"
         },
         "selectApiProfile": "Select an API connection",
-        "manageApiHint": "Add and maintain API connections under API access.",
         "cloudService": "Recognition service",
-        "cloudServiceDescription": "Choose which recognition service uses this API connection.",
         "transports": {
           "realtime_stream": "Real-time stream",
           "segmented_upload": "Segmented upload"
         },
-        "cloudDescription": "Audio is sent only while speech is detected.",
-        "region": "Service region",
         "context": "Recognition context",
         "contextDescription": "Optional names, domain terms, or conversation background.",
-        "apiManagedCentrally": "Manage the workspace, service region, and API key under API access.",
-        "credentialConfigured": "Configured securely",
-        "credentialSaved": "API key saved securely.",
-        "testConnection": "Test connection",
-        "connectionSucceeded": "Connection succeeded.",
-        "status": "Model {{status}}",
-        "stopToModify": "Stop transcription before changing recognition settings.",
-        "applyImmediately": "Changes are applied immediately.",
+        "status": "Model: {{status}}",
+        "runtimeStatus": {
+          "not_loaded": "Not loaded",
+          "loading": "Loading",
+          "ready": "Ready",
+          "error": "Error",
+          "unknown": "Unknown"
+        },
         "content": "Recognition content",
-        "contentDescription": "Select the local model and spoken language.",
         "model": "Model",
         "language": "Spoken language",
-        "languageDescription": "Choose a fixed language for more consistent single-language recognition, or use auto detection for multilingual conversations.",
         "execution": "Execution",
-        "executionDescription": "Choose CPU, GPU, or automatic selection.",
         "device": "Runtime device",
-        "deviceDescription": "Automatic selection uses GPU when available and falls back to CPU.",
         "segmentation": "Speech segmentation",
-        "segmentationDescription": "Control when speech segments end and their maximum length.",
         "smartTurn": "Semantic endpointing (experimental)",
         "smartTurnDescription": "Check whether speech is complete after a pause. Services with server-side endpointing are unaffected.",
         "silence": "End after silence",
-        "silenceDescription": "Shorter pauses produce subtitles sooner.",
         "maxSegment": "Target segment length",
-        "maxSegmentDescription": "After the target, pauses are preferred; continuous speech is forced to split only at the safety limit.",
         "localModels": "Local models",
         "modelDirectory": "Model directory",
         "modelDirectoryDescription": "Downloaded Qwen model packages are stored here.",
@@ -1850,20 +1733,16 @@
         "disableOtherVoicesDescription": "Only transcribe your voice.",
         "ownVoice": "Your voice",
         "ownVoiceDescription": "Choose the microphone used for your speech.",
-        "inputLevel": "Current input level",
         "previewDisabled": "Select a microphone to preview",
         "previewReady": "Ready to test",
         "previewTesting": "Testing",
         "previewThresholdReached": "Threshold reached",
         "previewTranscribing": "Transcribing",
-        "microphoneTestDescription": "Measures input level only. It does not recognize speech, create subtitles, or save audio.",
         "startMicrophoneTest": "Test microphone",
         "stopMicrophoneTest": "Stop test",
         "microphoneTestBusy": "Working…",
         "levelMeterLabel": "Current microphone input level",
         "triggerThreshold": "Microphone trigger threshold",
-        "triggerThresholdDescription": "A sentence starts only when speech is detected at or above this level. Raise it in noisy environments.",
-        "thresholdMarkerLabel": "Trigger threshold {{value}} dBFS",
         "defaultMicrophone": "Default microphone",
         "defaultMicrophoneDescription": "Follow the Windows default input device.",
         "disableMicrophone": "Disable microphone",
@@ -1876,17 +1755,14 @@
       },
       "learning": {
         "title": "Learning settings",
-        "aiDescription": "Set the explanation language and level used by the learning workspace.",
-        "noAiProfiles": "No AI profiles support text generation"
+        "aiDescription": "Set the explanation language and level used by the learning workspace."
       },
       "dictionary": {
         "title": "Dictionaries",
         "selectionLookup": "Enable selection lookup",
-        "selectionLookupDescription": "Show dictionary definitions after selecting text in live subtitles or conversation material in the learning workspace.",
         "count": "{{count}} dictionaries",
         "importedCount": "{{count}} imported",
         "noneImported": "None imported",
-        "import": "Import",
         "importYomitan": "Import Yomitan ZIP",
         "importing": "Importing {{file}}…",
         "progressLabel": "Dictionary import progress",
@@ -1901,7 +1777,6 @@
       "anki": {
         "title": "AnkiConnect",
         "enable": "Enable AnkiConnect",
-        "enableDescription": "Allow local Anki connection checks and card creation from dictionary results.",
         "invalidPort": "Enter a valid port from 1 to 65535.",
         "checking": "Checking AnkiConnect…",
         "ready": "Connected and ready",
@@ -1909,19 +1784,13 @@
         "offline": "AnkiConnect is offline",
         "startHint": "Start Anki and install AnkiConnect to check the connection.",
         "address": "Address",
-        "addressDescription": "AnkiConnect is restricted to this local address.",
         "port": "Port",
-        "portHint": "The AnkiConnect default is 8765.",
         "deck": "Deck",
-        "deckDescription": "Choose the target deck.",
         "deckOffline": "Connect to Anki to load available decks.",
         "noteType": "Note type",
-        "noteTypeDescription": "Choose the Anki note type.",
         "noteTypeOffline": "Connect to Anki to load note types.",
         "frontField": "Front field",
-        "frontFieldDescription": "The term and reading are written to this field.",
-        "backField": "Back field",
-        "backFieldDescription": "Definitions and context are written to this field."
+        "backField": "Back field"
       },
       "connections": {
         "title": "Connection settings"
@@ -1943,7 +1812,6 @@
         "tokenConfigured": "Stored securely.",
         "tokenMissing": "No token is configured.",
         "tokenEnvironment": "Managed by an environment variable.",
-        "tokenManagedHint": "Create and manage the token in VRCX-0. VRCS does not generate one.",
         "tokenInput": "Paste the token from VRCX-0",
         "saveToken": "Save token",
         "deleteToken": "Delete token",
@@ -1967,7 +1835,6 @@
       "osc": {
         "title": "OSC",
         "enable": "Enable OSC",
-        "enableDescription": "Control OSC chatbox output and VRChat mute sync.",
         "translationStrategy": "OSC multilingual output",
         "translationStrategies": {
           "preferredOnly": "Preferred language only",
@@ -1977,13 +1844,9 @@
         "preserveOriginal": "Keep original text in output",
         "preserveOriginalDescription": "When a translation is available, send the original and translation together. Turn this off to send only the translation.",
         "muteSync": "Sync VRChat microphone mute",
-        "muteSyncDescription": "Pause microphone transcription and block chatbox output while VRChat is muted, then resume automatically.",
         "invalidPort": "Enter a valid port from 1 to 65535.",
         "address": "IP address",
-        "addressDescription": "Fixed to this computer and sent only to the local VRChat client.",
         "port": "Port",
-        "portHint": "VRChat receives OSC messages on port 9000 by default.",
-        "vrchatHint": "Also enable OSC → Enabled in the VRChat Action Menu. To include translations, set Translation mode to Automatic.",
         "test": "Send test message",
         "testing": "Sending…",
         "testQueued": "The test message was added to the send queue.",
@@ -1998,8 +1861,6 @@
         }
       },
       "debug": {
-        "subtitle": "Runtime details and local error reports",
-        "readOnly": "Read only",
         "schema": "Schema",
         "coreAddress": "Core address",
         "databasePath": "Database path",
@@ -2009,7 +1870,6 @@
         "maxSegment": "Target segment length",
         "historyStorageLimit": "Subtitle history space limit",
         "modelStatus": "Model status",
-        "availableDevices": "{{count}} device(s)",
         "transcription": "Transcription",
         "audioDevices": "Audio devices",
         "audioDeviceCounts": "{{outputs}} outputs · {{microphones}} microphones",
@@ -2028,11 +1888,11 @@
         "unsupported": "VRChat network capture is unavailable in this build. Windows uses the desktop app; Linux x86_64 requires the system VRCS installation (/usr/bin/vrcs-desktop) with polkit.",
         "networkTitle": "VRChat network capture",
         "networkEnable": "Enable VRChat network capture",
-        "networkRequired": "Enable VRChat network capture below before using Chatbox capture or separate player audio tracks.",
+        "networkRequired": "Enable VRChat network capture in Capture settings before using Chatbox capture or separate player audio tracks.",
         "chatbox": {
           "title": "Chatbox capture",
           "enable": "Receive and translate VRChat Chatbox",
-          "translationUnavailable": "Automatic translation is off or no usable text translation profile is configured for Other players. Original text is still saved; manual translation remains available.",
+          "translationUnavailable": "Automatic translation is off or no usable text translation profile is configured under \"Translate the other party's speech into\". Original text is still saved; manual translation remains available.",
           "phase": {
             "authorizing": "Waiting for system authorization…",
             "waiting_game": "Waiting for VRChat to start",
@@ -2085,7 +1945,6 @@
     },
     "onboarding": {
       "title": "First-use setup",
-      "setup": "First setup",
       "stepCounter": "Step {{current}} of {{total}}",
       "saveImmediately": "Changes are saved immediately. You can return to adjust them at any time.",
       "skip": "Set up later",
@@ -2133,8 +1992,7 @@
         "addApiDescription": "The API key is stored securely in Windows Credential Manager.",
         "connectionReady": "The connection test succeeded. You can continue.",
         "testRequired": "Test the connection before continuing.",
-        "downloadRequired": "Install the Qwen model and runtime before continuing.",
-        "connectionReadyShort": "Connection ready"
+        "downloadRequired": "Install the Qwen model and runtime before continuing."
       },
       "audio": {
         "description": "Choose the system output and microphone to transcribe. Rescan if a device is missing.",
@@ -2142,7 +2000,7 @@
       },
       "microphone": {
         "disabledTitle": "The microphone is disabled",
-        "disabledDescription": "VRCS will transcribe only other voices. You can enable the microphone later under Audio settings.",
+        "disabledDescription": "VRCS will transcribe only other voices. You can enable the microphone later in Settings → Capture.",
         "description": "The test measures input level only. It does not recognize speech, create subtitles, or save recordings. Set the threshold so quiet input stays inactive and normal speech triggers reliably.",
         "autoTitle": "Guided calibration",
         "autoDescription": "Stay quiet after starting. When the prompt changes, speak one complete sentence at a normal volume. VRCS will calculate a suggested threshold.",
@@ -2382,6 +2240,10 @@
         "not_found": "The dictionary was not found."
       },
       "asr": {
+        "cloud_connect_failed": "Could not connect to the cloud recognition service.",
+        "cloud_disconnected": "The cloud recognition connection was closed.",
+        "cloud_error": "The cloud recognition service returned an error.",
+        "cloud_reconnect_failed": "Could not reconnect to the cloud recognition service.",
         "alibaba_workspace_missing": "Configure an Alibaba Cloud Workspace ID first.",
         "models": "Could not load local models.",
         "download": "Could not download the model.",
@@ -2486,12 +2348,9 @@
       "preview": "Selected image to send",
       "selectionHint": "Drag to select an image area. Release to preview. Esc / right-click to cancel.",
       "loadingPreview": "Loading image…",
-      "service": "Service: {{profile}} · Model: {{model}}",
-      "notConfigured": "Not configured",
       "question": "Question",
       "answer": "Answer",
       "send": "Send question",
-      "sendHint": "Ctrl+Enter sends. Enter adds a new line. Voice recognition never sends automatically.",
       "questionTooLong": "The question exceeds {{limit}} characters. Shorten it before sending.",
       "startRecording": "Start speaking",
       "finishRecording": "Finish recognition",
@@ -2505,19 +2364,6 @@
       "copyFailed": "Could not copy the answer.",
       "errorDetail": "Error details",
       "captureHint": "Click Capture screen below, or press <shortcut>{{shortcut}}</shortcut>, then drag to select visible content on the desktop or in another app.",
-      "privacy": "Screen snapshots are used only for local area selection. Sending shares only the selected image and question with the selected service. Cloud speech recognition also receives audio. Charges can apply. Each question is independent; nothing is added to subtitle history.",
-      "states": {
-        "disabled": "Desktop visual question answering is disabled.",
-        "idle": "Waiting for a screenshot.",
-        "capturing": "Capturing the screen…",
-        "selecting": "Select an area. Esc cancels selection.",
-        "editing": "Edit your question, then send it.",
-        "recording": "Listening… Finish recognition to edit your question.",
-        "finalizing_asr": "Finishing speech recognition…",
-        "requesting": "Waiting for the answer…",
-        "complete": "Answer ready.",
-        "error": "The operation failed. Your image and draft are retained."
-      },
       "errors": {
         "disabled": "Enable visual question answering and desktop mode in Settings → Vision.",
         "unavailable": "Screen capture is unavailable on this system.",
@@ -2568,7 +2414,7 @@
         "unavailable": "Screen capture is unavailable on this system.",
         "capture_failed": "Could not capture the screen. Try again.",
         "capture_timeout": "Screen capture timed out. Try again.",
-        "disabled": "Enable desktop OCR in Settings → OCR.",
+        "disabled": "Enable desktop OCR in Settings → Vision.",
         "core_unavailable": "The OCR service is unavailable.",
         "selection_busy": "Another area selection is active. Finish or cancel it before trying again.",
         "failed": "OCR could not complete. Try again.",

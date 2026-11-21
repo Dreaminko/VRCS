@@ -379,7 +379,7 @@ impl Admission {
 }
 
 impl TranslationDispatcher {
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn new(
         service: Arc<TranslationService>,
         database: Arc<Mutex<Database>>,

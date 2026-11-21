@@ -283,34 +283,6 @@
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
 }
-.local-model-config-note {
-  display: grid;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-subtle);
-}
-.local-model-config-note > div:first-child {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 3px 8px;
-}
-.local-model-config-note strong {
-  color: var(--text);
-  font-size: var(--settings-text-label);
-  font-weight: var(--settings-weight-heading);
-  line-height: var(--settings-leading-label);
-}
-.local-model-config-note span,
-.local-model-config-note p {
-  color: var(--text-quiet);
-  font-size: var(--settings-text-caption);
-  line-height: var(--settings-leading-copy);
-}
-.local-model-config-note .model-progress-wrap { margin-top: 0; }
 .local-license-consent {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

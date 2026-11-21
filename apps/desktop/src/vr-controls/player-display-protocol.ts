@@ -6,8 +6,6 @@ import { sourceLanguageKey, type PlayerHistoryPreferences } from "../subtitles/p
 import { applyPlayerProximity, applyPlayerSourceAction, applyPlayerSourceMode, applyPlayerViewPriority, applyPlayerVisibilityAction, isPlayerProximityAction, isPlayerSourceAction, isPlayerSourceModeAction, isPlayerViewPriorityAction, sourceMode, type PlayerDisplayAction } from "../subtitles/player-controls.ts";
 import type { ControlAction, ControlSource } from "./protocol";
 
-export type { PlayerDisplayAction } from "../subtitles/player-controls.ts";
-
 export interface PlayerDisplayRow {
   track_id: string | null;
   user_id: string | null;

@@ -37,8 +37,13 @@ mod player_audio_ui;
 mod player_display;
 #[cfg(any(windows, linux_vr))]
 mod pose;
+mod presentation;
 #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
 pub(crate) mod preview;
+mod process;
+#[cfg(any(windows, linux_vr))]
+pub(crate) mod renderer;
+mod runtime;
 #[cfg(any(windows, linux_vr))]
 pub(crate) mod surface;
 // The surface protocol and recovery rules are shared by both VR implementations.
@@ -49,25 +54,17 @@ pub(crate) mod surface_protocol;
 #[cfg(any(windows, linux_vr, test))]
 #[path = "surface/recovery.rs"]
 pub(crate) mod surface_recovery;
+#[cfg(any(windows, linux_vr, test))]
+mod transform;
 #[cfg(any(windows, linux_vr))]
 mod ui_runtime;
 #[cfg(any(windows, linux_vr, test))]
 mod visibility;
 #[cfg(windows)]
 mod vision_runtime;
+mod wrist_labels;
 #[cfg(any(windows, linux_vr, test))]
 mod wrist_menu;
-// Keep the image verifier covered without enabling scan cancellation.
-#[cfg(all(windows, test))]
-mod ocr_tracking;
-mod presentation;
-mod process;
-#[cfg(any(windows, linux_vr))]
-pub(crate) mod renderer;
-mod runtime;
-#[cfg(any(windows, linux_vr, test))]
-mod transform;
-mod wrist_labels;
 #[cfg(all(linux_vr, target_arch = "x86_64"))]
 pub(crate) mod xr;
 

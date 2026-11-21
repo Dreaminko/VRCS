@@ -35,11 +35,3 @@ export function writeTranscriptionStartBehavior(
     // Ignore unavailable storage; the current session already holds the selection.
   }
 }
-
-export function shouldCreateConversationOnCaptureToggle(
-  running: boolean,
-  behavior: unknown,
-): boolean {
-  return !running
-    && normalizeTranscriptionStartBehavior(behavior) === "new_conversation";
-}

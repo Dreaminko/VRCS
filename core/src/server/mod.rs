@@ -8,7 +8,6 @@ mod chatbox;
 mod cloud;
 mod conversations;
 mod dictionary;
-mod downloads;
 mod external;
 mod feature_gate;
 mod glossaries;
@@ -199,10 +198,6 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/subtitles",
             get(dictionary::subtitle_history).delete(storage::clear_subtitle_history),
         )
-        .route(
-            "/api/subtitles/range",
-            delete(storage::delete_subtitle_range),
-        )
         .route("/api/subtitles/search", get(search::subtitles))
         .route(
             "/api/conversations",
@@ -257,22 +252,6 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/glossaries/status", get(glossaries::statuses))
         .route("/api/glossaries/{id}/refresh", post(glossaries::refresh))
         .route(
-            "/api/translations/glossaries/status",
-            get(glossaries::statuses),
-        )
-        .route(
-            "/api/translations/glossaries/{id}/refresh",
-            post(glossaries::refresh),
-        )
-        .route(
-            "/api/translations/glossary-subscription/status",
-            get(glossaries::legacy_subscription_status),
-        )
-        .route(
-            "/api/translations/glossary-subscription/refresh",
-            post(glossaries::legacy_subscription_refresh),
-        )
-        .route(
             "/api/subtitles/{subtitle_id}/translation",
             post(translation::subtitle_translate),
         )
@@ -280,8 +259,6 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/settings",
             get(settings::get_settings).put(settings::update_settings),
         )
-        .route("/api/downloads/sources", get(downloads::sources))
-        .route("/api/downloads/probe", post(downloads::probe))
         .route(
             "/api/external-api/token",
             get(external::token_status)
