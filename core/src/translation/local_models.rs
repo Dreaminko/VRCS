@@ -433,7 +433,7 @@ fn record_license_acceptance(root: &Path, revision: &str) -> Result<(), String> 
     .map_err(|error| error.to_string())?;
     std::fs::write(&temporary, bytes)
         .map_err(|error| format!("Could not record the PLaMo license acceptance: {error}"))?;
-    if path.exists() {
+    if cfg!(windows) && path.exists() {
         std::fs::remove_file(&path)
             .map_err(|error| format!("Could not update the PLaMo license acceptance: {error}"))?;
     }

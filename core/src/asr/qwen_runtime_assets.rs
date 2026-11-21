@@ -48,21 +48,36 @@ const LINUX_FILES: &[&str] = &[
     "libllama-server-impl.so",
     "libllama.so",
     "libllama.so.0",
-    "libllama.so.0.6.0",
     "libllama-common.so",
     "libllama-common.so.0",
-    "libllama-common.so.0.6.0",
     "libmtmd.so",
     "libmtmd.so.0",
-    "libmtmd.so.0.6.0",
     "libggml.so",
     "libggml.so.0",
-    "libggml.so.0.26.0",
     "libggml-base.so",
     "libggml-base.so.0",
-    "libggml-base.so.0.26.0",
     "LICENSE",
 ];
+
+fn is_versioned_runtime_so(name: &str) -> bool {
+    const STEMS: &[&str] = &[
+        "libllama",
+        "libllama-common",
+        "libmtmd",
+        "libggml",
+        "libggml-base",
+        "libllama-server-impl",
+        "libggml-vulkan",
+    ];
+    let Some((stem, version)) = name.split_once(".so.") else {
+        return false;
+    };
+    STEMS.contains(&stem)
+        && !version.is_empty()
+        && version
+            .split('.')
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+}
 
 pub(in crate::asr) const WINDOWS: RuntimeAsset = RuntimeAsset {
     os: "windows", arch: "x86_64", backend: "vulkan", version: VERSION,
@@ -177,6 +192,9 @@ impl RuntimeAsset {
         if self.os == "windows" {
             (name.starts_with("ggml-cpu-") && name.ends_with(".dll")) || name == "ggml-rpc.dll"
         } else {
+            if is_versioned_runtime_so(name) {
+                return true;
+            }
             let variants: &[&str] = match self.arch {
                 "x86_64" => &[
                     "x64",

@@ -3,7 +3,10 @@ use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc, Mutex as StdMutex,
+};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Child;
@@ -75,9 +78,33 @@ pub(crate) struct QwenRuntime {
     state: Arc<Mutex<RuntimeState>>,
     startup: Mutex<()>,
     devices: Mutex<Option<Vec<String>>>,
+    leases: Arc<AtomicUsize>,
+    deferred_stop: Arc<AtomicBool>,
     http: reqwest::Client,
     pub(crate) requests: crate::work_priority::Gate,
 }
+
+pub(crate) struct QwenLease {
+    leases: Arc<AtomicUsize>,
+    deferred_stop: Arc<AtomicBool>,
+    runtime: Arc<QwenRuntime>,
+}
+
+impl Drop for QwenLease {
+    fn drop(&mut self) {
+        if self.leases.fetch_sub(1, Ordering::AcqRel) == 1
+            && self.deferred_stop.swap(false, Ordering::AcqRel)
+        {
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                let runtime = Arc::clone(&self.runtime);
+                handle.spawn(async move {
+                    let _ = runtime.stop().await;
+                });
+            }
+        }
+    }
+}
+
 impl QwenRuntime {
     pub(crate) fn new(directory: PathBuf) -> Self {
         Self {
@@ -85,6 +112,8 @@ impl QwenRuntime {
             state: Arc::new(Mutex::new(RuntimeState::default())),
             startup: Mutex::new(()),
             devices: Mutex::new(None),
+            leases: Arc::new(AtomicUsize::new(0)),
+            deferred_stop: Arc::new(AtomicBool::new(false)),
             requests: crate::work_priority::Gate::new(2, 32),
             http: reqwest::Client::builder()
                 .no_proxy()
@@ -92,6 +121,15 @@ impl QwenRuntime {
                 .timeout(Duration::from_secs(2))
                 .build()
                 .expect("static local HTTP client options are valid"),
+        }
+    }
+
+    pub(crate) fn acquire_lease(self: &Arc<Self>) -> QwenLease {
+        self.leases.fetch_add(1, Ordering::AcqRel);
+        QwenLease {
+            leases: Arc::clone(&self.leases),
+            deferred_stop: Arc::clone(&self.deferred_stop),
+            runtime: Arc::clone(self),
         }
     }
 
@@ -117,10 +155,21 @@ impl QwenRuntime {
         }
         let devices: Vec<String> = String::from_utf8_lossy(&output.stdout)
             .lines()
-            .filter(|line| line.trim_start().starts_with("Vulkan"))
+            .filter(|line| {
+                let trimmed = line.trim_start();
+                if !trimmed.starts_with("Vulkan") {
+                    return false;
+                }
+                let lower = trimmed.to_ascii_lowercase();
+                !lower.contains("llvmpipe")
+                    && !lower.contains("lavapipe")
+                    && !lower.contains("swiftshader")
+            })
             .map(|line| line.trim().to_owned())
             .collect();
-        *self.devices.lock().await = Some(devices.clone());
+        if !devices.is_empty() {
+            *self.devices.lock().await = Some(devices.clone());
+        }
         devices
     }
 
@@ -175,6 +224,7 @@ impl QwenRuntime {
             session,
             armed: true,
         };
+        self.deferred_stop.store(false, Ordering::Release);
         let result = self.start_selection(selection, session, timeout).await;
         guard.armed = false;
         result
@@ -407,6 +457,10 @@ impl QwenRuntime {
             .is_some_and(|selection| selection.alias == package))
     }
     pub(crate) async fn cancel_loading(&self) -> Result<(), String> {
+        if self.leases.load(Ordering::Acquire) > 0 {
+            self.deferred_stop.store(true, Ordering::Release);
+            return Ok(());
+        }
         let mut state = self.state.lock().await;
         if state.status == "loading" {
             stop_session(&mut state).await?;
@@ -414,6 +468,15 @@ impl QwenRuntime {
         Ok(())
     }
     pub(crate) async fn stop(&self) -> Result<(), String> {
+        if self.leases.load(Ordering::Acquire) > 0 {
+            self.deferred_stop.store(true, Ordering::Release);
+            return Ok(());
+        }
+        let mut state = self.state.lock().await;
+        stop_session(&mut state).await
+    }
+    pub(crate) async fn force_stop(&self) -> Result<(), String> {
+        self.deferred_stop.store(false, Ordering::Release);
         let mut state = self.state.lock().await;
         stop_session(&mut state).await
     }

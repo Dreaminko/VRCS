@@ -186,17 +186,14 @@ impl VisionService {
         let task_draft = draft.clone();
         let error = Arc::new(Mutex::new(None));
         let task_error = error.clone();
-        // A private managed runtime keeps ordinary transcription stop/cancel
-        // from interrupting this question. Its child is released with the task.
-        let question_runtime = Arc::new(crate::asr::QwenRuntime::new(
-            self.state
-                .config
-                .config_path
-                .with_file_name("runtimes")
-                .join("qwen"),
-        ));
+        // Share the Core QwenRuntime instance with a lease so stopping live
+        // capture cannot terminate an active visual question mid-utterance.
+        let question_runtime = Arc::clone(&self.state.capture.qwen_runtime);
+        let qwen_lease = (question_asr.backend == crate::config::QWEN_MANAGED_BACKEND)
+            .then(|| question_runtime.acquire_lease());
 
         let recognition = runtime.spawn(async move {
+            let _qwen_lease = qwen_lease;
             let result = async {
             let work = crate::asr::recognize_live_question(
                 question_asr, reader, silence_seconds,

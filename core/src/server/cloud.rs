@@ -746,24 +746,28 @@ pub(super) async fn profile_delete(
         if let Err(error) =
             credentials::delete_credential_async(&profile.id, &profile.provider).await
         {
-            let mut recovery_errors = Vec::new();
-            // Linux restores every original item itself; rewriting one selected
-            // value here would corrupt distinct duplicate/legacy snapshots.
-            #[cfg(not(target_os = "linux"))]
-            if let Err(recovery) = restore_credential(&profile, previous_credential).await {
-                recovery_errors.push(format!("credential rollback failed: {recovery}"));
+            if credentials::error_reason_code(&error) == Some("credentials.no_service") {
+                tracing::debug!(%error, "Skipping credential cleanup during profile delete because Secret Service is unavailable");
+            } else {
+                let mut recovery_errors = Vec::new();
+                // Linux restores every original item itself; rewriting one selected
+                // value here would corrupt distinct duplicate/legacy snapshots.
+                #[cfg(not(target_os = "linux"))]
+                if let Err(recovery) = restore_credential(&profile, previous_credential).await {
+                    recovery_errors.push(format!("credential rollback failed: {recovery}"));
+                }
+                if let Err(recovery) = commit_profile_config(&state, current).await {
+                    recovery_errors.push(api_detail(&recovery));
+                }
+                if !recovery_errors.is_empty() {
+                    return Err(api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "settings.rollback_failed",
+                        format!("{error}; {}", recovery_errors.join("; ")),
+                    ));
+                }
+                return Err(credential_error(error));
             }
-            if let Err(recovery) = commit_profile_config(&state, current).await {
-                recovery_errors.push(api_detail(&recovery));
-            }
-            if !recovery_errors.is_empty() {
-                return Err(api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "settings.rollback_failed",
-                    format!("{error}; {}", recovery_errors.join("; ")),
-                ));
-            }
-            return Err(credential_error(error));
         }
         Ok(Json(
             json!({ "deleted": true, "side_effects": profile_usages(&current, &profile_id) }),

@@ -12,12 +12,29 @@ pub(crate) fn runtime_command(executable: &Path) -> Command {
     if let Some(parent) = executable.parent() {
         command.current_dir(parent);
     }
-    // The fixed Linux ELF closure carries $ORIGIN RUNPATH. Do not inherit a
-    // user's shell library overrides into a managed inference subprocess.
+    // Clear loader overrides only inside AppImage where bundled libraries would
+    // otherwise shadow or conflict with the managed inference subprocess's $ORIGIN RUNPATH.
     #[cfg(target_os = "linux")]
-    command
-        .env_remove("LD_LIBRARY_PATH")
-        .env_remove("LD_PRELOAD");
+    {
+        if std::env::var_os("APPIMAGE").is_some() {
+            command
+                .env_remove("LD_LIBRARY_PATH")
+                .env_remove("LD_PRELOAD");
+        }
+        let parent_pid = unsafe { libc::getpid() };
+        // Ensure a crashed or force-killed parent never leaves multi-GB inference servers orphaned.
+        unsafe {
+            command.pre_exec(move || {
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if libc::getppid() != parent_pid {
+                    libc::_exit(1);
+                }
+                Ok(())
+            });
+        }
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -101,7 +118,7 @@ pub(crate) async fn probe_ready(
     Ok(models.data.iter().any(|model| model.id == alias))
 }
 
-/// Stop a managed child without turning a synchronous wait into an async race.
+/// Stop a managed child gracefully first on Unix, then escalate to SIGKILL on timeout.
 pub(crate) async fn stop_child(child: &mut Option<Child>, label: &str) -> Result<(), String> {
     if let Some(mut child) = child.take() {
         if child
@@ -109,6 +126,20 @@ pub(crate) async fn stop_child(child: &mut Option<Child>, label: &str) -> Result
             .map_err(|error| error.to_string())?
             .is_none()
         {
+            #[cfg(unix)]
+            {
+                if let Some(pid) = child.id() {
+                    if let Ok(pid) = libc::pid_t::try_from(pid) {
+                        unsafe { libc::kill(pid, libc::SIGTERM) };
+                    }
+                }
+                let exited =
+                    tokio::time::timeout(std::time::Duration::from_millis(1500), child.wait())
+                        .await;
+                if matches!(exited, Ok(Ok(_))) {
+                    return Ok(());
+                }
+            }
             child
                 .kill()
                 .await

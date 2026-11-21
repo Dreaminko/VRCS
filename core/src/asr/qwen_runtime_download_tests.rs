@@ -250,6 +250,21 @@ async fn runtime_asset_with_a_wrong_checksum_cannot_be_activated() {
     server.abort();
 }
 
+#[test]
+fn linux_runtime_accepts_versioned_runtime_shared_objects_without_hardcoded_patch_versions() {
+    for valid in ["libllama.so.0.6.0", "libggml.so.0.99.1"] {
+        assert!(assets::LINUX_X64.runtime_file(valid), "{valid}");
+    }
+    for invalid in [
+        "libevil.so.0.1.0",
+        "libllama.so.",
+        "libllama.so.0..1",
+        "../libllama.so.0.6.0",
+    ] {
+        assert!(!assets::LINUX_X64.runtime_file(invalid), "{invalid}");
+    }
+}
+
 #[tokio::test]
 async fn cancelling_runtime_download_cleans_staging_and_releases_the_download_slot() {
     use std::sync::Arc;

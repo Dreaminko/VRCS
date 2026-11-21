@@ -399,7 +399,7 @@ async fn download_model(
 
     let digest = format!("{:x}", hasher.finalize());
     validate_model_metadata(downloaded, &digest)?;
-    if model_path.exists() {
+    if cfg!(windows) && model_path.exists() {
         tokio::fs::remove_file(model_path)
             .await
             .map_err(|error| format!("Failed to replace invalid Smart Turn model: {error}"))?;
