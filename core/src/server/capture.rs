@@ -352,7 +352,7 @@ pub(crate) async fn validate_capture_config(
 
 pub(crate) fn platform_error(code: &'static str) -> (StatusCode, Json<Value>) {
     let detail = if code == crate::platform_capabilities::NETWORK_HELPER_MISSING {
-        "Install the matching vrcs-network-helper package before starting network capture"
+        "Install the system VRCS package (/usr/bin/vrcs-desktop) with polkit before starting network capture"
     } else {
         "The requested backend is not implemented for this platform"
     };
@@ -364,7 +364,7 @@ pub(crate) fn validate_platform_capture(config: &AppConfig) -> ApiResult<()> {
     if consumers.voice || consumers.chatbox {
         crate::platform_capabilities::require_network_capture().map_err(platform_error)?;
     }
-    if config.audio.output.mode == "vrchat" && !cfg!(windows) {
+    if config.audio.output.mode == "vrchat" && !cfg!(any(windows, target_os = "linux")) {
         return Err(platform_error("platform.application_audio_unavailable"));
     }
     if has_audio_sources(config) {
@@ -1399,5 +1399,18 @@ mod tests {
         candidate.vrchat_context.include_world_name = false;
 
         assert!(CaptureReloadPlan::between(&current, &candidate).is_empty());
+    }
+
+    #[test]
+    fn vrchat_output_mode_is_not_blocked_as_unsupported_on_windows_or_linux() {
+        let mut config = crate::config::AppConfig::default();
+        config.audio.output.mode = "vrchat".into();
+        if let Err((_status, axum::Json(error))) = super::validate_platform_capture(&config) {
+            if cfg!(any(windows, target_os = "linux")) {
+                assert_ne!(error["code"], "platform.application_audio_unavailable");
+            } else {
+                assert_eq!(error["code"], "platform.application_audio_unavailable");
+            }
+        }
     }
 }

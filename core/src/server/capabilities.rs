@@ -32,10 +32,23 @@ pub(crate) async fn snapshot(state: &AppState) -> PlatformCapabilities {
     let plamo = state.content.plamo_runtime.snapshot().await;
     let ocr = state.config.local_ocr.execution_status();
     let managed = platform::managed_inference_supported();
-    let (credentials_available, credentials_reason) =
-        tokio::task::spawn_blocking(crate::credentials::storage_capability)
-            .await
-            .unwrap_or((false, Some("credentials.no_service")));
+    let network_capture_supported = platform::network_capture_supported();
+    let ((credentials_available, credentials_reason), network_capture_available) = tokio::join!(
+        async {
+            tokio::task::spawn_blocking(crate::credentials::storage_capability)
+                .await
+                .unwrap_or((false, Some("credentials.no_service")))
+        },
+        async {
+            if network_capture_supported {
+                tokio::task::spawn_blocking(platform::network_capture_available)
+                    .await
+                    .unwrap_or(false)
+            } else {
+                false
+            }
+        }
+    );
     let qwen_installed = if managed {
         let manager = Arc::clone(&state.capture.model_manager);
         let package = state
@@ -86,14 +99,18 @@ pub(crate) async fn snapshot(state: &AppState) -> PlatformCapabilities {
                 audio_reason,
             ),
             application_output: Capability::runtime(
-                cfg!(windows),
+                cfg!(any(windows, target_os = "linux")),
                 system_output,
-                "platform.application_audio_unavailable",
+                if cfg!(target_os = "linux") && !system_output {
+                    audio_reason
+                } else {
+                    "platform.application_audio_unavailable"
+                },
             ),
             player_audio: Capability::runtime(
-                platform::network_capture_supported(),
-                platform::network_capture_available(),
-                if platform::network_capture_supported() {
+                network_capture_supported,
+                network_capture_available,
+                if network_capture_supported {
                     platform::NETWORK_HELPER_MISSING
                 } else {
                     platform::NETWORK_CAPTURE_UNSUPPORTED
@@ -140,9 +157,9 @@ pub(crate) async fn snapshot(state: &AppState) -> PlatformCapabilities {
         chatbox: ChatboxCapabilities {
             osc_send: Capability::runtime(true, true, "platform.osc_unavailable"),
             network_receive: Capability::runtime(
-                platform::network_capture_supported(),
-                platform::network_capture_available(),
-                if platform::network_capture_supported() {
+                network_capture_supported,
+                network_capture_available,
+                if network_capture_supported {
                     platform::NETWORK_HELPER_MISSING
                 } else {
                     platform::NETWORK_CAPTURE_UNSUPPORTED

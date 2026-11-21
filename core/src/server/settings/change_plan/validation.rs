@@ -94,7 +94,9 @@ async fn validate_audio_devices(
         crate::platform_capabilities::require_network_capture_supported()
             .map_err(super::super::super::capture::platform_error)?;
     }
-    if config.output.mode == "vrchat" && config.output.mode != current.output.mode && !cfg!(windows)
+    if config.output.mode == "vrchat"
+        && config.output.mode != current.output.mode
+        && !cfg!(any(windows, target_os = "linux"))
     {
         return Err(super::super::super::capture::platform_error(
             "platform.application_audio_unavailable",
@@ -107,7 +109,7 @@ async fn validate_audio_devices(
                 config.output.mode != current.output.mode
                     || config.output.device_id != current.output.device_id
                     || config.output.device_key != current.output.device_key,
-                config.output.mode != "disabled",
+                config.output.mode == "system",
                 config.output.device_key.as_deref(),
                 audio::CaptureSource::Speaker,
             ),
@@ -115,7 +117,7 @@ async fn validate_audio_devices(
                 config.microphone.mode != current.microphone.mode
                     || config.microphone.device_id != current.microphone.device_id
                     || config.microphone.device_key != current.microphone.device_key,
-                config.microphone.mode != "disabled",
+                config.microphone.mode == "device",
                 config.microphone.device_key.as_deref(),
                 audio::CaptureSource::Microphone,
             ),
@@ -189,6 +191,24 @@ mod tests {
         candidate.microphone.trigger_threshold_dbfs = -50.0;
 
         validate_audio_devices(current, candidate).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn switching_output_to_vrchat_ignores_stale_system_device_key() {
+        let mut current = AudioConfig::default();
+        current.output.mode = "system".into();
+        current.output.device_key = Some("stale-speaker-key".into());
+        let mut candidate = current.clone();
+        candidate.output.mode = "vrchat".into();
+
+        let result = validate_audio_devices(current, candidate).await;
+        if cfg!(any(windows, target_os = "linux")) {
+            assert!(result.is_ok(), "{result:?}");
+        } else {
+            let (status, axum::Json(error)) = result.unwrap_err();
+            assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(error["code"], "platform.application_audio_unavailable");
+        }
     }
 
     #[tokio::test]

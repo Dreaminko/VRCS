@@ -1,5 +1,7 @@
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
+use std::fs;
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -23,8 +25,14 @@ use crate::vision::MicrophoneTap;
 const QUEUED_CHUNKS: usize = 16;
 const WAKE_INTERVAL: Duration = Duration::from_millis(50);
 const RECOVERY_DELAY: Duration = Duration::from_millis(150);
+const MAX_RECOVERY_DELAY: Duration = Duration::from_secs(5);
+const EXPLICIT_RECONNECT_WINDOW: Duration = Duration::from_millis(1800);
+const EXPLICIT_RETRY_DELAY: Duration = Duration::from_millis(250);
+const HEALTHY_RESET_AGE: Duration = Duration::from_secs(5);
 const START_TIMEOUT: Duration = Duration::from_secs(4);
+const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const MAX_TIMING_GAP: Duration = Duration::from_millis(250);
+const PW_ID_ANY: u32 = u32::MAX;
 
 struct Packet {
     samples: [f32; CHUNK_FRAMES],
@@ -35,6 +43,7 @@ struct Packet {
 
 struct CaptureData {
     rate: u32,
+    channels: u32,
     format_ready: bool,
     streaming: bool,
     failure: Option<AudioError>,
@@ -46,12 +55,14 @@ struct CaptureData {
     dropped: u64,
     discontinuity: bool,
     tap: TapResampler,
+    mono_scratch: Vec<u8>,
 }
 
 impl CaptureData {
-    fn new(rate: u32) -> Self {
+    fn new(rate: u32, channels: u32) -> Self {
         Self {
             rate,
+            channels,
             format_ready: false,
             streaming: false,
             failure: None,
@@ -63,6 +74,7 @@ impl CaptureData {
             dropped: 0,
             discontinuity: false,
             tap: TapResampler::new(rate),
+            mono_scratch: Vec::new(),
         }
     }
 
@@ -80,7 +92,18 @@ impl CaptureData {
     }
 
     fn append(&mut self, bytes: &[u8], now: Instant) {
-        let buffer_frames = bytes.len() / 4;
+        if self.channels == 2 {
+            let mut scratch = std::mem::take(&mut self.mono_scratch);
+            downmix_stereo_to_mono(bytes, &mut scratch);
+            self.append_mono(&scratch, now);
+            self.mono_scratch = scratch;
+        } else {
+            self.append_mono(bytes, now);
+        }
+    }
+
+    fn append_mono(&mut self, sample_bytes: &[u8], now: Instant) {
+        let buffer_frames = sample_bytes.len() / 4;
         let duration = self.duration(buffer_frames as u64);
         if let Some(origin) = self.origin {
             let end = origin
@@ -94,7 +117,7 @@ impl CaptureData {
         let origin = *self
             .origin
             .get_or_insert_with(|| now.checked_sub(duration).unwrap_or(now));
-        for bytes in bytes.as_chunks::<4>().0 {
+        for bytes in sample_bytes.as_chunks::<4>().0 {
             self.pending[self.pending_len] = f32::from_le_bytes(*bytes);
             self.pending_len += 1;
             if self.pending_len == CHUNK_FRAMES {
@@ -119,13 +142,28 @@ impl CaptureData {
     }
 }
 
-fn format_bytes(rate: u32) -> Result<Vec<u8>, AudioError> {
+fn downmix_stereo_to_mono(stereo_bytes: &[u8], out: &mut Vec<u8>) {
+    out.clear();
+    out.reserve(stereo_bytes.len() / 2);
+    for frame in stereo_bytes.as_chunks::<8>().0 {
+        let left = f32::from_le_bytes([frame[0], frame[1], frame[2], frame[3]]);
+        let right = f32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
+        out.extend_from_slice(&((left + right) * 0.5).to_le_bytes());
+    }
+}
+
+fn format_bytes(rate: u32, channels: u32) -> Result<Vec<u8>, AudioError> {
     let mut info = AudioInfoRaw::new();
     info.set_format(AudioFormat::F32LE);
-    info.set_channels(1);
+    info.set_channels(channels);
     info.set_rate(rate);
     let mut position = info.position();
-    position[0] = spa::sys::SPA_AUDIO_CHANNEL_MONO;
+    if channels == 2 {
+        position[0] = spa::sys::SPA_AUDIO_CHANNEL_FL;
+        position[1] = spa::sys::SPA_AUDIO_CHANNEL_FR;
+    } else {
+        position[0] = spa::sys::SPA_AUDIO_CHANNEL_MONO;
+    }
     info.set_position(position);
     let object = spa::pod::Object {
         type_: spa::utils::SpaTypes::ObjectParamFormat.as_raw(),
@@ -149,23 +187,14 @@ type StreamConnection = (
     pw::stream::StreamListener<Rc<RefCell<CaptureData>>>,
 );
 
-fn connect_stream(
+fn build_capture_stream(
     session: &Session,
-    node: &Node,
+    props: pw::properties::PropertiesBox,
     rate: u32,
+    channels: u32,
+    flags: pw::stream::StreamFlags,
     state: Rc<RefCell<CaptureData>>,
 ) -> Result<StreamConnection, AudioError> {
-    let props = properties! {
-        "media.type" => "Audio",
-        "media.category" => "Capture",
-        "media.role" => "Communication",
-        "application.name" => "VRCS",
-        "target.object" => node.name.as_str(),
-        "stream.capture.sink" => if node.direction == DeviceDirection::Render { "true" } else { "false" },
-        "node.dont-reconnect" => "true",
-        "node.dont-move" => "true",
-        "node.latency" => format!("{CHUNK_FRAMES}/{rate}"),
-    };
     let stream = pw::stream::StreamRc::new(session.core.clone(), "VRCS audio capture", props)
         .map_err(error)?;
     let listener = stream
@@ -211,12 +240,12 @@ fn connect_stream(
                 ))
             ) || format.parse(param).is_err()
                 || format.format() != AudioFormat::F32LE
-                || format.channels() != 1
+                || format.channels() != state.channels
                 || format.rate() != state.rate
             {
                 state.failure = Some(AudioError::with_code(
                     "audio.unsupported_format",
-                    "PipeWire did not negotiate the requested mono F32 capture format and rate",
+                    "PipeWire did not negotiate the requested F32 capture format and rate",
                 ));
                 return;
             }
@@ -227,8 +256,10 @@ fn connect_stream(
         .process(|stream, shared| {
             let mut state = shared.borrow_mut();
             if !state.format_ready {
+                while stream.dequeue_buffer().is_some() {}
                 return;
             }
+            let frame_bytes = (state.channels as usize) * 4;
             // This callback is NOT RT_PROCESS. Only bounded PCM copying happens
             // here: no channel sends, logging, tap mutexes, or inference/IO.
             for _ in 0..QUEUED_CHUNKS {
@@ -269,10 +300,12 @@ fn connect_stream(
                 if size == 0 {
                     continue;
                 }
-                if (stride != 0 && stride != 4) || !size.is_multiple_of(4) {
+                if (stride != 0 && stride != frame_bytes as i32)
+                    || !size.is_multiple_of(frame_bytes)
+                {
                     state.failure = Some(AudioError::with_code(
                         "audio.unsupported_format",
-                        "Invalid mono F32 PipeWire audio stride or size",
+                        "Invalid F32 PipeWire audio stride or size",
                     ));
                     break;
                 }
@@ -281,11 +314,11 @@ fn connect_stream(
                     break;
                 };
                 // Chunk offset is modulo maxsize. A wrapped chunk is split on a
-                // sample boundary; never read beyond the mapped buffer.
+                // frame boundary; never read beyond the mapped buffer.
                 if bytes.is_empty()
                     || size > bytes.len()
-                    || !offset.is_multiple_of(4)
-                    || !bytes.len().is_multiple_of(4)
+                    || !offset.is_multiple_of(frame_bytes)
+                    || !bytes.len().is_multiple_of(frame_bytes)
                 {
                     state.failure =
                         Some(error("PipeWire audio chunk is outside its mapped buffer"));
@@ -297,7 +330,8 @@ fn connect_stream(
                 if first == size {
                     state.append(&bytes[offset..offset + size], now);
                 } else {
-                    let remaining_duration = state.duration(((size - first) / 4) as u64);
+                    let remaining_frames = (size - first) / frame_bytes;
+                    let remaining_duration = state.duration(remaining_frames as u64);
                     state.append(
                         &bytes[offset..],
                         now.checked_sub(remaining_duration).unwrap_or(now),
@@ -308,21 +342,253 @@ fn connect_stream(
         })
         .register()
         .map_err(error)?;
-    let bytes = format_bytes(rate)?;
+    let bytes = format_bytes(rate, channels)?;
     let pod = Pod::from_bytes(&bytes).ok_or_else(|| error("Invalid PipeWire audio format pod"))?;
-    // Pin this exact resolved node for each stream. Default-device following is
-    // explicit below; policy must never silently move a persisted selection.
     stream
-        .connect(
-            spa::utils::Direction::Input,
-            Some(node.id),
-            pw::stream::StreamFlags::AUTOCONNECT
-                | pw::stream::StreamFlags::MAP_BUFFERS
-                | pw::stream::StreamFlags::DONT_RECONNECT,
-            &mut [pod],
-        )
+        .connect(spa::utils::Direction::Input, None, flags, &mut [pod])
         .map_err(error)?;
     Ok((stream, listener))
+}
+
+fn connect_device_stream(
+    session: &Session,
+    node: &Node,
+    rate: u32,
+    state: Rc<RefCell<CaptureData>>,
+) -> Result<StreamConnection, AudioError> {
+    let target_object = node.target_object();
+    let latency = format!("{CHUNK_FRAMES}/{rate}");
+    let sink = if node.direction == DeviceDirection::Render {
+        "true"
+    } else {
+        "false"
+    };
+    let props = if node.direction == DeviceDirection::Capture {
+        properties! {
+            "media.type" => "Audio",
+            "media.category" => "Capture",
+            "media.role" => "Communication",
+            "application.name" => "VRCS",
+            "target.object" => target_object.as_str(),
+            "stream.capture.sink" => sink,
+            "node.dont-reconnect" => "true",
+            "node.dont-move" => "true",
+            "node.latency" => latency.as_str(),
+        }
+    } else {
+        properties! {
+            "media.type" => "Audio",
+            "media.category" => "Capture",
+            "application.name" => "VRCS",
+            "target.object" => target_object.as_str(),
+            "stream.capture.sink" => sink,
+            "node.dont-reconnect" => "true",
+            "node.dont-move" => "true",
+            "node.latency" => latency.as_str(),
+        }
+    };
+    build_capture_stream(
+        session,
+        props,
+        rate,
+        1,
+        pw::stream::StreamFlags::AUTOCONNECT
+            | pw::stream::StreamFlags::MAP_BUFFERS
+            | pw::stream::StreamFlags::DONT_RECONNECT,
+        state,
+    )
+}
+
+fn connect_process_stream(
+    session: &Session,
+    rate: u32,
+    state: Rc<RefCell<CaptureData>>,
+) -> Result<StreamConnection, AudioError> {
+    let latency = format!("{CHUNK_FRAMES}/{rate}");
+    let props = properties! {
+        "media.type" => "Audio",
+        "media.category" => "Capture",
+        "application.name" => "VRCS",
+        "node.autoconnect" => "false",
+        "node.dont-reconnect" => "true",
+        "node.dont-move" => "true",
+        "node.passive" => "true",
+        "node.latency" => latency.as_str(),
+    };
+    build_capture_stream(
+        session,
+        props,
+        rate,
+        2,
+        pw::stream::StreamFlags::MAP_BUFFERS | pw::stream::StreamFlags::DONT_RECONNECT,
+        state,
+    )
+}
+
+fn proc_ppid(pid: u32) -> Option<u32> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let rparen = stat.rfind(')')?;
+    let mut fields = stat.get(rparen + 2..)?.split_whitespace();
+    let _state = fields.next()?;
+    fields.next()?.parse().ok()
+}
+
+fn pid_matches_target(
+    candidate: u32,
+    target: u32,
+    parent_cache: &mut HashMap<u32, Option<u32>>,
+) -> bool {
+    let mut current = candidate;
+    for _ in 0..8 {
+        if current == target {
+            return true;
+        }
+        if current <= 1 {
+            return false;
+        }
+        let parent = *parent_cache
+            .entry(current)
+            .or_insert_with(|| proc_ppid(current));
+        let Some(next) = parent else {
+            return false;
+        };
+        if next == current {
+            return false;
+        }
+        current = next;
+    }
+    false
+}
+
+fn reconcile_process_links(
+    session: &Session,
+    target_pid: u32,
+    our_node_id: u32,
+    active_links: &mut HashMap<(u32, u32), pw::link::Link>,
+    parent_cache: &mut HashMap<u32, Option<u32>>,
+) {
+    if our_node_id == PW_ID_ANY {
+        return;
+    }
+    let desired: HashMap<(u32, u32), u32> = {
+        let inventory = session.inventory.borrow();
+        let mut in_ports: Vec<_> = inventory
+            .ports
+            .values()
+            .filter(|port| port.node_id == our_node_id && port.direction == "in")
+            .collect();
+        in_ports.sort_by_key(|port| port.id);
+        let Some(in_fl) = in_ports
+            .iter()
+            .find(|port| port.channel.as_deref() == Some("FL"))
+            .or_else(|| in_ports.first())
+            .map(|port| port.id)
+        else {
+            return;
+        };
+        let in_fr = in_ports
+            .iter()
+            .find(|port| port.channel.as_deref() == Some("FR") && port.id != in_fl)
+            .or_else(|| in_ports.iter().find(|port| port.id != in_fl))
+            .map(|port| port.id);
+
+        let mut map = HashMap::new();
+        for stream_node in inventory.app_streams.values() {
+            let client_pid = stream_node
+                .client_id
+                .and_then(|cid| inventory.clients.get(&cid).copied());
+            if ![stream_node.pid, client_pid]
+                .into_iter()
+                .flatten()
+                .any(|pid| pid_matches_target(pid, target_pid, parent_cache))
+            {
+                continue;
+            }
+            let mut out_ports: Vec<_> = inventory
+                .ports
+                .values()
+                .filter(|port| port.node_id == stream_node.id && port.direction == "out")
+                .collect();
+            out_ports.sort_by_key(|port| port.id);
+            if out_ports.is_empty() {
+                continue;
+            }
+            if out_ports.len() == 1 {
+                let out_id = out_ports[0].id;
+                map.insert((out_id, in_fl), stream_node.id);
+                if let Some(in_fr) = in_fr {
+                    map.insert((out_id, in_fr), stream_node.id);
+                }
+            } else {
+                let left = out_ports
+                    .iter()
+                    .find(|port| port.channel.as_deref() == Some("FL"))
+                    .unwrap_or(&out_ports[0]);
+                map.insert((left.id, in_fl), stream_node.id);
+                if let Some(in_fr) = in_fr {
+                    let right = out_ports
+                        .iter()
+                        .find(|port| port.channel.as_deref() == Some("FR") && port.id != left.id)
+                        .or_else(|| out_ports.iter().find(|port| port.id != left.id));
+                    if let Some(right) = right {
+                        map.insert((right.id, in_fr), stream_node.id);
+                    }
+                }
+            }
+        }
+        map
+    };
+
+    let stale_keys: Vec<_> = active_links
+        .keys()
+        .filter(|pair| !desired.contains_key(pair))
+        .copied()
+        .collect();
+    for pair in stale_keys {
+        if let Some(link) = active_links.remove(&pair) {
+            let _ = session.core.destroy_object(link);
+        }
+    }
+
+    for ((out_port, in_port), out_node) in desired {
+        if active_links.contains_key(&(out_port, in_port)) {
+            continue;
+        }
+        let out_port_s = out_port.to_string();
+        let in_port_s = in_port.to_string();
+        let out_node_s = out_node.to_string();
+        let in_node_s = our_node_id.to_string();
+        match session.core.create_object::<pw::link::Link>(
+            "link-factory",
+            &properties! {
+                "link.output.port" => out_port_s.as_str(),
+                "link.input.port" => in_port_s.as_str(),
+                "link.output.node" => out_node_s.as_str(),
+                "link.input.node" => in_node_s.as_str(),
+                "object.linger" => "false",
+            },
+        ) {
+            Ok(link) => {
+                active_links.insert((out_port, in_port), link);
+            }
+            Err(detail) => {
+                tracing::debug!(out_port, in_port, %detail, "PipeWire process link creation failed");
+            }
+        }
+    }
+}
+
+fn process_audio_device(pid: u32, rate: u32) -> AudioDevice {
+    let key = format!("pipewire:process:{pid}");
+    AudioDevice {
+        id: crate::audio::device_id(&key),
+        device_key: Some(key),
+        name: "VRChat".into(),
+        is_default: false,
+        is_loopback: true,
+        sample_rate: rate,
+        channels: 1,
+    }
 }
 
 fn publish(state: &mut CaptureData, tx: &mpsc::Sender<Vec<f32>>, tap: Option<&MicrophoneTap>) {
@@ -345,23 +611,21 @@ fn publish(state: &mut CaptureData, tx: &mpsc::Sender<Vec<f32>>, tap: Option<&Mi
             if state.rate == TAP_RATE {
                 tap.push(&packet.samples, packet.start, packet.end);
             } else {
-                tap.push(
-                    &state.tap.resample(&packet.samples),
-                    packet.start,
-                    packet.end,
-                );
+                let resampled = state.tap.resample(&packet.samples);
+                if !resampled.is_empty() {
+                    tap.push(&resampled, packet.start, packet.end);
+                }
             }
         }
-        match tx.try_reserve() {
-            Ok(permit) => permit.send(packet.samples.to_vec()),
-            Err(mpsc::error::TrySendError::Full(_)) => channel_dropped += 1,
-            Err(mpsc::error::TrySendError::Closed(_)) => {}
-        }
-    }
-    if std::mem::take(&mut state.discontinuity) {
-        state.tap.reset();
-        if let Some(tap) = tap {
-            tap.discontinuity("PipeWire audio was interrupted or dropped");
+        match tx.try_send(packet.samples.to_vec()) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                channel_dropped += 1;
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                state.queue.clear();
+                break;
+            }
         }
     }
     if channel_dropped != 0 {
@@ -370,6 +634,112 @@ fn publish(state: &mut CaptureData, tx: &mpsc::Sender<Vec<f32>>, tap: Option<&Mi
             "PipeWire PCM consumer queue overflowed"
         );
     }
+}
+
+fn run_process(
+    target_pid: u32,
+    output_rate: u32,
+    stop: &AtomicBool,
+    tx: &mpsc::Sender<Vec<f32>>,
+    ready: &std::sync::mpsc::Sender<Result<AudioDevice, AudioError>>,
+    first_ready: &mut bool,
+) -> Result<(), AudioError> {
+    if !Path::new(&format!("/proc/{target_pid}")).exists() {
+        return Err(AudioError::with_code(
+            "audio.vrchat_not_running",
+            "VRChat is not running",
+        ));
+    }
+    let session = Session::connect(Some(stop), false)?;
+    let timer = session.main_loop.loop_().add_timer(|_| {});
+    timer
+        .update_timer(Some(WAKE_INTERVAL), Some(WAKE_INTERVAL))
+        .into_sync_result()
+        .map_err(error)?;
+
+    let state = Rc::new(RefCell::new(CaptureData::new(output_rate, 2)));
+    let (stream, _listener) = connect_process_stream(&session, output_rate, state.clone())?;
+    let mut active_links: HashMap<(u32, u32), pw::link::Link> = HashMap::new();
+    let mut parent_cache = HashMap::new();
+    let start_deadline = Instant::now() + START_TIMEOUT;
+    let mut last_proc_check = Instant::now();
+    let mut started = false;
+    let mut reconciled_once = false;
+
+    let result = loop {
+        if stop.load(Ordering::Relaxed) {
+            break Ok(());
+        }
+        session.pump(pw::loop_::Timeout::Finite(WAKE_INTERVAL))?;
+        if last_proc_check.elapsed() >= PROCESS_POLL_INTERVAL {
+            last_proc_check = Instant::now();
+            if !Path::new(&format!("/proc/{target_pid}")).exists() {
+                break Err(AudioError::with_code(
+                    "audio.vrchat_not_running",
+                    "Target VRChat process exited",
+                ));
+            }
+        }
+        let our_node_id = stream.node_id();
+        let our_ports_ready = {
+            let mut inventory = session.inventory.borrow_mut();
+            let dirty = std::mem::take(&mut inventory.graph_dirty);
+            let ports_ready = our_node_id != PW_ID_ANY
+                && inventory
+                    .ports
+                    .values()
+                    .any(|p| p.node_id == our_node_id && p.direction == "in");
+            (dirty, ports_ready)
+        };
+        if our_ports_ready.1 && (our_ports_ready.0 || !reconciled_once) {
+            reconciled_once = true;
+            reconcile_process_links(
+                &session,
+                target_pid,
+                our_node_id,
+                &mut active_links,
+                &mut parent_cache,
+            );
+        }
+
+        let mut data = state.borrow_mut();
+        if let Some(failure) = data.failure.take() {
+            break Err(failure);
+        }
+        if !started && data.format_ready && data.streaming {
+            started = true;
+            if !*first_ready {
+                ready
+                    .send(Ok(process_audio_device(target_pid, output_rate)))
+                    .map_err(|_| error("Capture startup receiver was closed"))?;
+                *first_ready = true;
+            }
+        } else if !*first_ready && our_ports_ready.1 && active_links.is_empty() {
+            // Target app has no open PipeWire output stream yet; publish readiness
+            // so capture stays alive until it opens one.
+            ready
+                .send(Ok(process_audio_device(target_pid, output_rate)))
+                .map_err(|_| error("Capture startup receiver was closed"))?;
+            *first_ready = true;
+        }
+        if !*first_ready && Instant::now() >= start_deadline {
+            break Err(AudioError::retryable_with_code(
+                "audio.start_timeout",
+                "PipeWire process capture stream did not initialize in time",
+            ));
+        }
+        if data.format_ready && data.streaming {
+            publish(&mut data, tx, None);
+        }
+        if tx.is_closed() {
+            break Ok(());
+        }
+    };
+
+    for (_, link) in active_links {
+        let _ = session.core.destroy_object(link);
+    }
+    result
 }
 
 fn run(
@@ -381,24 +751,21 @@ fn run(
     tap: Option<&MicrophoneTap>,
     first_ready: &mut bool,
 ) -> Result<(), AudioError> {
-    let (key, direction) = match target {
-        CaptureTarget::Process(pid) => {
-            return Err(AudioError::with_code(
-                "audio.process_capture_unsupported",
-                format!("Application-only capture ({pid}) is not supported on Linux"),
-            ))
-        }
-        CaptureTarget::Device {
-            backend_id,
-            direction,
-        } => (backend_id, *direction),
-    };
     if output_rate == 0 || output_rate > 384_000 {
         return Err(AudioError::with_code(
             "audio.unsupported_format",
             "Invalid PipeWire capture sample rate",
         ));
     }
+    let (key, direction) = match target {
+        CaptureTarget::Process(pid) => {
+            return run_process(*pid, output_rate, stop, tx, ready, first_ready);
+        }
+        CaptureTarget::Device {
+            backend_id,
+            direction,
+        } => (backend_id, *direction),
+    };
     if key
         .as_deref()
         .is_some_and(|key| !key.starts_with("pipewire:"))
@@ -423,8 +790,9 @@ fn run(
             .inventory
             .borrow()
             .resolve(key.as_deref(), direction)?;
-        let state = Rc::new(RefCell::new(CaptureData::new(output_rate)));
-        let (stream, _listener) = connect_stream(&session, &selected, output_rate, state.clone())?;
+        let state = Rc::new(RefCell::new(CaptureData::new(output_rate, 1)));
+        let (stream, _listener) =
+            connect_device_stream(&session, &selected, output_rate, state.clone())?;
         let deadline = Instant::now() + START_TIMEOUT;
         let mut started = false;
         loop {
@@ -465,7 +833,7 @@ fn run(
                 }
             }
             if !started && Instant::now() >= deadline {
-                return Err(AudioError::with_code(
+                return Err(AudioError::retryable_with_code(
                     "audio.start_timeout",
                     "PipeWire capture did not negotiate a format and enter Streaming state",
                 ));
@@ -504,8 +872,16 @@ pub(crate) fn capture_main(
             ..
         }
     );
+    let process_pid = match target {
+        CaptureTarget::Process(pid) => Some(pid),
+        CaptureTarget::Device { .. } => None,
+    };
     let mut first_ready = false;
+    let mut backoff = RECOVERY_DELAY;
+    let mut explicit_reconnect_started: Option<Instant> = None;
+
     loop {
+        let attempt_started = Instant::now();
         let failure = match run(
             &target,
             output_rate,
@@ -521,25 +897,56 @@ pub(crate) fn capture_main(
         if stop.load(Ordering::Relaxed) {
             return;
         }
-        // Keep the PCM channel open while rebuilding a previously working
-        // default capture. Explicit selections and permanent errors still fail.
-        if follows_default
-            && first_ready
-            && (failure.is_retryable()
-                || matches!(
-                    failure.code(),
-                    "audio.device_unavailable"
-                        | "audio.service_not_running"
-                        | "audio.service_disconnected"
-                        | "audio.service_timeout"
-                        | "audio.start_timeout"
-                ))
-        {
-            tracing::debug!(code = failure.code(), detail = %failure, "rebuilding PipeWire default audio capture");
-            if let Some(tap) = &microphone_tap {
-                tap.stopped("PipeWire default audio capture interrupted");
+        if attempt_started.elapsed() >= HEALTHY_RESET_AGE {
+            backoff = RECOVERY_DELAY;
+            explicit_reconnect_started = None;
+        }
+        let is_transient = failure.is_retryable()
+            || matches!(
+                failure.code(),
+                "audio.device_unavailable"
+                    | "audio.service_not_running"
+                    | "audio.service_disconnected"
+                    | "audio.service_timeout"
+                    | "audio.start_timeout"
+            );
+        let delay = if let Some(pid) = process_pid {
+            if first_ready && is_transient && Path::new(&format!("/proc/{pid}")).exists() {
+                let d = backoff;
+                backoff = (backoff * 2).min(MAX_RECOVERY_DELAY);
+                Some(d)
+            } else {
+                None
             }
-            let retry_at = Instant::now() + RECOVERY_DELAY;
+        } else if follows_default && first_ready && is_transient {
+            let d = backoff;
+            backoff = (backoff * 2).min(MAX_RECOVERY_DELAY);
+            Some(d)
+        } else if !follows_default
+            && first_ready
+            && (failure.code() == "audio.device_unavailable" || failure.is_retryable())
+        {
+            let window_start = *explicit_reconnect_started.get_or_insert_with(Instant::now);
+            if window_start.elapsed() < EXPLICIT_RECONNECT_WINDOW {
+                Some(EXPLICIT_RETRY_DELAY)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(delay) = delay {
+            tracing::debug!(
+                code = failure.code(),
+                detail = %failure,
+                retry_ms = delay.as_millis(),
+                "rebuilding PipeWire audio capture"
+            );
+            if let Some(tap) = &microphone_tap {
+                tap.stopped("PipeWire audio capture interrupted");
+            }
+            let retry_at = Instant::now() + delay;
             while Instant::now() < retry_at {
                 if stop.load(Ordering::Relaxed) {
                     return;
@@ -550,6 +957,7 @@ pub(crate) fn capture_main(
             }
             continue;
         }
+
         tracing::error!(code = failure.code(), detail = %failure, "PipeWire capture stopped");
         if let Some(tap) = &microphone_tap {
             tap.failed(&failure.to_string());
@@ -565,7 +973,7 @@ mod tests {
 
     #[test]
     fn packets_remain_512_frames_at_the_negotiated_rate_and_overflow_is_bounded() {
-        let mut state = CaptureData::new(16_000);
+        let mut state = CaptureData::new(16_000, 1);
         let bytes: Vec<_> = (0..CHUNK_FRAMES)
             .flat_map(|_| 0.25f32.to_le_bytes())
             .collect();
@@ -591,7 +999,7 @@ mod tests {
 
     #[test]
     fn timing_gap_discards_partial_pcm_and_marks_microphone_discontinuity() {
-        let mut state = CaptureData::new(16_000);
+        let mut state = CaptureData::new(16_000, 1);
         let bytes: Vec<_> = (0..256).flat_map(|_| 0.25f32.to_le_bytes()).collect();
         let now = Instant::now();
         state.append(&bytes, now);
@@ -608,7 +1016,7 @@ mod tests {
         let tap = MicrophoneTap::default();
         let mut window = tap.begin_capture(1).unwrap();
         tap.started();
-        let mut state = CaptureData::new(TAP_RATE);
+        let mut state = CaptureData::new(TAP_RATE, 1);
         let bytes: Vec<_> = (0..CHUNK_FRAMES)
             .flat_map(|_| 0.25f32.to_le_bytes())
             .collect();
@@ -627,7 +1035,7 @@ mod tests {
     #[test]
     fn tap_resampling_keeps_fractional_phase_across_44100_and_48000_packets() {
         for rate in [44_100, 48_000] {
-            let mut state = CaptureData::new(rate);
+            let mut state = CaptureData::new(rate, 1);
             let mut count = 0;
             let samples = [0.25; CHUNK_FRAMES];
             for _ in 0..100 {
@@ -639,5 +1047,16 @@ mod tests {
                 + 1) as usize;
             assert_eq!(count, expected);
         }
+    }
+
+    #[test]
+    fn stereo_process_capture_downmixes_to_mono() {
+        let mut state = CaptureData::new(16_000, 2);
+        let bytes: Vec<_> = (0..CHUNK_FRAMES)
+            .flat_map(|_| [0.75f32.to_le_bytes(), 0.25f32.to_le_bytes()].concat())
+            .collect();
+        state.append(&bytes, Instant::now());
+        let packet = state.queue.pop_front().unwrap();
+        assert!(packet.samples.iter().all(|sample| *sample == 0.5));
     }
 }

@@ -13,7 +13,7 @@ pub(crate) use devices::list_devices;
 
 use super::{AudioError, CaptureSource};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum DeviceDirection {
     Render,
     Capture,
@@ -35,9 +35,43 @@ pub(crate) fn resolve_device_id(_id: i64, _source: CaptureSource) -> Result<Stri
     ))
 }
 
-pub(crate) fn find_process_id(_name: &str) -> Result<Option<u32>, AudioError> {
-    Err(AudioError::with_code(
-        "audio.process_capture_unsupported",
-        "Application-only audio capture is not supported on Linux; select a speaker device",
-    ))
+pub(crate) fn find_process_id(name: &str) -> Result<Option<u32>, AudioError> {
+    use std::os::unix::fs::MetadataExt;
+    if name.eq_ignore_ascii_case("VRChat.exe") || name.eq_ignore_ascii_case("VRChat") {
+        return crate::vrchat_process::game()
+            .map(|found| found.map(|(owner, _)| owner.pid))
+            .map_err(|detail| AudioError::with_code("audio.pipewire_failed", detail));
+    }
+    let target = name.to_ascii_lowercase();
+    let uid = unsafe { libc::geteuid() };
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Ok(None);
+    };
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|value| value.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if std::fs::metadata(format!("/proc/{pid}"))
+            .ok()
+            .is_none_or(|meta| meta.uid() != uid)
+        {
+            continue;
+        }
+        let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
+        if comm.trim().eq_ignore_ascii_case(&target) {
+            return Ok(Some(pid));
+        }
+        let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+        let argv0 = cmdline.split(|&byte| byte == 0).next().unwrap_or_default();
+        let base = String::from_utf8_lossy(argv0);
+        let base = base.rsplit(['/', '\\']).next().unwrap_or("");
+        if base.eq_ignore_ascii_case(&target) {
+            return Ok(Some(pid));
+        }
+    }
+    Ok(None)
 }

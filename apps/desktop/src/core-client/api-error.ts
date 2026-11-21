@@ -3,6 +3,7 @@ export type ApiErrorParams = Record<string, unknown>;
 const errorsWithDiagnosticDetail = new Set([
   "audio.com_initialization_failed",
   "audio.device_in_use",
+  "audio.device_task_failed",
   "audio.device_unavailable",
   "audio.permission_denied",
   "audio.process_loopback_unavailable",

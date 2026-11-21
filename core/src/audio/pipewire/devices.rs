@@ -19,6 +19,7 @@ pub(super) fn error(detail: impl std::fmt::Display) -> AudioError {
 #[derive(Clone, Debug)]
 pub(super) struct Node {
     pub id: u32,
+    pub serial: Option<u32>,
     pub name: String,
     pub label: String,
     pub direction: DeviceDirection,
@@ -26,41 +27,75 @@ pub(super) struct Node {
     pub channels: u32,
 }
 
+#[derive(Clone, Debug)]
+pub(super) struct AppStreamNode {
+    pub id: u32,
+    pub client_id: Option<u32>,
+    pub pid: Option<u32>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct PortInfo {
+    pub id: u32,
+    pub node_id: u32,
+    pub direction: &'static str,
+    pub channel: Option<String>,
+}
+
 impl Node {
-    fn from_properties(id: u32, props: &pw::spa::utils::dict::DictRef) -> Option<Self> {
-        let direction = match props.get("media.class") {
-            Some("Audio/Sink") => DeviceDirection::Render,
-            Some("Audio/Source" | "Audio/Source/Virtual") => DeviceDirection::Capture,
-            _ => return None,
+    fn from_properties(id: u32, props: &pw::spa::utils::dict::DictRef) -> Vec<Self> {
+        let directions: &[DeviceDirection] = match props.get("media.class") {
+            Some("Audio/Sink" | "Audio/Sink/Virtual") => &[DeviceDirection::Render],
+            Some("Audio/Source" | "Audio/Source/Virtual") => &[DeviceDirection::Capture],
+            Some("Audio/Duplex") => &[DeviceDirection::Render, DeviceDirection::Capture],
+            _ => return Vec::new(),
         };
-        let name = props.get("node.name").filter(|name| !name.is_empty())?;
-        Some(Self {
-            id,
-            name: name.to_owned(),
-            label: props
-                .get("node.description")
-                .or_else(|| props.get("node.nick"))
-                .unwrap_or(name)
-                .to_owned(),
-            direction,
-            rate: props
-                .get("audio.rate")
-                .and_then(|rate| rate.parse().ok())
-                .unwrap_or(0),
-            channels: props
-                .get("audio.channels")
-                .and_then(|channels| channels.parse().ok())
-                .unwrap_or(0),
-        })
+        let Some(name) = props.get("node.name").filter(|name| !name.is_empty()) else {
+            return Vec::new();
+        };
+        let label = props
+            .get("node.description")
+            .or_else(|| props.get("node.nick"))
+            .unwrap_or(name)
+            .to_owned();
+        let serial = props
+            .get("object.serial")
+            .and_then(|value| value.parse().ok());
+        let rate = props
+            .get("audio.rate")
+            .and_then(|rate| rate.parse().ok())
+            .unwrap_or(0);
+        let channels = props
+            .get("audio.channels")
+            .and_then(|channels| channels.parse().ok())
+            .unwrap_or(0);
+        directions
+            .iter()
+            .map(|&direction| Self {
+                id,
+                serial,
+                name: name.to_owned(),
+                label: label.clone(),
+                direction,
+                rate,
+                channels,
+            })
+            .collect()
     }
 
     pub fn key(&self) -> String {
-        // Physical and virtual sources share the existing capture-key namespace.
+        // Physical, virtual, and duplex endpoints share the capture-key namespace per direction.
         let class = match self.direction {
             DeviceDirection::Render => "Audio/Sink",
             DeviceDirection::Capture => "Audio/Source",
         };
         format!("pipewire:{class}:{}", self.name)
+    }
+
+    pub fn target_object(&self) -> String {
+        self.serial
+            .map(|serial| serial.to_string())
+            .unwrap_or_else(|| self.name.clone())
     }
 
     pub fn device(&self, is_default: bool) -> AudioDevice {
@@ -81,7 +116,11 @@ impl Node {
 
 #[derive(Default)]
 pub(super) struct Inventory {
-    pub nodes: HashMap<u32, Node>,
+    pub nodes: HashMap<(u32, DeviceDirection), Node>,
+    pub clients: HashMap<u32, u32>,
+    pub app_streams: HashMap<u32, AppStreamNode>,
+    pub ports: HashMap<u32, PortInfo>,
+    pub graph_dirty: bool,
     pub default_sink: Option<String>,
     pub default_source: Option<String>,
     pub failure: Option<AudioError>,
@@ -122,7 +161,8 @@ impl Inventory {
         })?;
         if matches.next().is_some() {
             return Err(AudioError::with_code(
-                "audio.device_ambiguous", "Multiple PipeWire devices have the selected identity; select a uniquely named device",
+                "audio.device_ambiguous",
+                "Multiple PipeWire devices have the selected identity; select a uniquely named device",
             ));
         }
         Ok(node.clone())
@@ -217,11 +257,69 @@ impl Session {
                 let Some(props) = object.props.as_ref() else {
                     return;
                 };
-                if object.type_ == ObjectType::Node {
-                    let Some(node) = Node::from_properties(object.id, props) else {
+                if object.type_ == ObjectType::Client {
+                    let pid = props
+                        .get("pipewire.sec.pid")
+                        .or_else(|| props.get("application.process.id"))
+                        .and_then(|value| value.parse::<u32>().ok());
+                    if let Some(pid) = pid {
+                        let mut inventory = reg_inventory.borrow_mut();
+                        inventory.clients.insert(object.id, pid);
+                        inventory.graph_dirty = true;
+                    }
+                    return;
+                }
+                if object.type_ == ObjectType::Port {
+                    let Some(node_id) = props.get("node.id").and_then(|v| v.parse::<u32>().ok())
+                    else {
                         return;
                     };
-                    reg_inventory.borrow_mut().nodes.insert(object.id, node);
+                    let direction = match props.get("port.direction") {
+                        Some("in") => "in",
+                        Some("out") => "out",
+                        _ => return,
+                    };
+                    let mut inventory = reg_inventory.borrow_mut();
+                    inventory.ports.insert(
+                        object.id,
+                        PortInfo {
+                            id: object.id,
+                            node_id,
+                            direction,
+                            channel: props.get("audio.channel").map(str::to_owned),
+                        },
+                    );
+                    inventory.graph_dirty = true;
+                    return;
+                }
+                if object.type_ == ObjectType::Node {
+                    if props.get("media.class") == Some("Stream/Output/Audio") {
+                        let mut inventory = reg_inventory.borrow_mut();
+                        inventory.app_streams.insert(
+                            object.id,
+                            AppStreamNode {
+                                id: object.id,
+                                client_id: props
+                                    .get("client.id")
+                                    .and_then(|v| v.parse::<u32>().ok()),
+                                pid: props
+                                    .get("application.process.id")
+                                    .and_then(|v| v.parse::<u32>().ok()),
+                            },
+                        );
+                        inventory.graph_dirty = true;
+                        return;
+                    }
+                    let discovered = Node::from_properties(object.id, props);
+                    if discovered.is_empty() {
+                        return;
+                    }
+                    {
+                        let mut inventory = reg_inventory.borrow_mut();
+                        for node in discovered {
+                            inventory.nodes.insert((object.id, node.direction), node);
+                        }
+                    }
                     if !bind_nodes {
                         return;
                     }
@@ -246,19 +344,27 @@ impl Session {
                                 return;
                             };
                             let mut inventory = node_inventory.borrow_mut();
-                            let Some(node) = inventory.nodes.get_mut(&node_id) else {
-                                return;
-                            };
-                            if let Some(rate) =
-                                props.get("audio.rate").and_then(|rate| rate.parse().ok())
-                            {
-                                node.rate = rate;
-                            }
-                            if let Some(channels) = props
-                                .get("audio.channels")
-                                .and_then(|channels| channels.parse().ok())
-                            {
-                                node.channels = channels;
+                            for direction in [DeviceDirection::Render, DeviceDirection::Capture] {
+                                let Some(node) = inventory.nodes.get_mut(&(node_id, direction))
+                                else {
+                                    continue;
+                                };
+                                if let Some(serial) =
+                                    props.get("object.serial").and_then(|s| s.parse().ok())
+                                {
+                                    node.serial = Some(serial);
+                                }
+                                if let Some(rate) =
+                                    props.get("audio.rate").and_then(|rate| rate.parse().ok())
+                                {
+                                    node.rate = rate;
+                                }
+                                if let Some(channels) = props
+                                    .get("audio.channels")
+                                    .and_then(|channels| channels.parse().ok())
+                                {
+                                    node.channels = channels;
+                                }
                             }
                         })
                         .register();
@@ -313,7 +419,17 @@ impl Session {
                 }
             })
             .global_remove(move |id| {
-                remove_inventory.borrow_mut().nodes.remove(&id);
+                {
+                    let mut inventory = remove_inventory.borrow_mut();
+                    inventory.nodes.remove(&(id, DeviceDirection::Render));
+                    inventory.nodes.remove(&(id, DeviceDirection::Capture));
+                    if inventory.app_streams.remove(&id).is_some()
+                        || inventory.clients.remove(&id).is_some()
+                        || inventory.ports.remove(&id).is_some()
+                    {
+                        inventory.graph_dirty = true;
+                    }
+                }
                 remove_nodes.borrow_mut().remove(&id);
                 if remove_metadata.borrow_mut().remove(&id).is_some() {
                     let mut inventory = remove_inventory.borrow_mut();
@@ -409,6 +525,7 @@ mod tests {
     fn node(id: u32, name: &str, direction: DeviceDirection) -> Node {
         Node {
             id,
+            serial: None,
             name: name.into(),
             label: name.into(),
             direction,
@@ -422,12 +539,14 @@ mod tests {
         let original = node(12, "usb-microphone", DeviceDirection::Capture);
         let key = original.key();
         let mut inventory = Inventory::default();
-        inventory
-            .nodes
-            .insert(88, node(88, "usb-microphone", DeviceDirection::Capture));
-        inventory
-            .nodes
-            .insert(9, node(9, "other", DeviceDirection::Capture));
+        inventory.nodes.insert(
+            (88, DeviceDirection::Capture),
+            node(88, "usb-microphone", DeviceDirection::Capture),
+        );
+        inventory.nodes.insert(
+            (9, DeviceDirection::Capture),
+            node(9, "other", DeviceDirection::Capture),
+        );
         inventory.default_source = Some("other".into());
         assert_eq!(
             inventory
@@ -436,7 +555,7 @@ mod tests {
                 .id,
             88
         );
-        inventory.nodes.remove(&88);
+        inventory.nodes.remove(&(88, DeviceDirection::Capture));
         assert_eq!(
             inventory
                 .resolve(Some(&key), DeviceDirection::Capture)
@@ -444,12 +563,14 @@ mod tests {
                 .code(),
             "audio.device_unavailable"
         );
-        inventory
-            .nodes
-            .insert(20, node(20, "usb-microphone", DeviceDirection::Capture));
-        inventory
-            .nodes
-            .insert(21, node(21, "usb-microphone", DeviceDirection::Capture));
+        inventory.nodes.insert(
+            (20, DeviceDirection::Capture),
+            node(20, "usb-microphone", DeviceDirection::Capture),
+        );
+        inventory.nodes.insert(
+            (21, DeviceDirection::Capture),
+            node(21, "usb-microphone", DeviceDirection::Capture),
+        );
         assert_eq!(
             inventory
                 .resolve(Some(&key), DeviceDirection::Capture)
@@ -462,15 +583,18 @@ mod tests {
     #[test]
     fn default_selection_uses_current_metadata_and_direction() {
         let mut inventory = Inventory::default();
-        inventory
-            .nodes
-            .insert(1, node(1, "first", DeviceDirection::Render));
-        inventory
-            .nodes
-            .insert(2, node(2, "second", DeviceDirection::Render));
-        inventory
-            .nodes
-            .insert(3, node(3, "second", DeviceDirection::Capture));
+        inventory.nodes.insert(
+            (1, DeviceDirection::Render),
+            node(1, "first", DeviceDirection::Render),
+        );
+        inventory.nodes.insert(
+            (2, DeviceDirection::Render),
+            node(2, "second", DeviceDirection::Render),
+        );
+        inventory.nodes.insert(
+            (3, DeviceDirection::Capture),
+            node(3, "second", DeviceDirection::Capture),
+        );
         inventory.default_sink = Some("first".into());
         assert_eq!(
             inventory.resolve(None, DeviceDirection::Render).unwrap().id,
@@ -487,6 +611,7 @@ mod tests {
     fn registry_classes_preserve_device_keys_and_default_resolution() {
         for (class, direction, key_class) in [
             ("Audio/Sink", DeviceDirection::Render, "Audio/Sink"),
+            ("Audio/Sink/Virtual", DeviceDirection::Render, "Audio/Sink"),
             ("Audio/Source", DeviceDirection::Capture, "Audio/Source"),
             (
                 "Audio/Source/Virtual",
@@ -496,12 +621,16 @@ mod tests {
         ] {
             let props = pw::properties::properties! {
                 "media.class" => class,
+                "object.serial" => "101",
                 "node.name" => "test-device",
                 "node.description" => "Test device",
                 "audio.rate" => "48000",
                 "audio.channels" => "2",
             };
-            let node = Node::from_properties(42, props.dict()).unwrap();
+            let nodes = Node::from_properties(42, props.dict());
+            assert_eq!(nodes.len(), 1);
+            let node = nodes.into_iter().next().unwrap();
+            assert_eq!(node.target_object(), "101");
             let key = format!("pipewire:{key_class}:test-device");
             let device = node.device(true);
             assert_eq!(node.direction, direction);
@@ -512,14 +641,47 @@ mod tests {
                 DeviceDirection::Render => inventory.default_sink = Some(node.name.clone()),
                 DeviceDirection::Capture => inventory.default_source = Some(node.name.clone()),
             }
-            inventory.nodes.insert(node.id, node);
+            inventory.nodes.insert((node.id, node.direction), node);
             assert_eq!(inventory.resolve(Some(&key), direction).unwrap().id, 42);
             assert_eq!(inventory.resolve(None, direction).unwrap().id, 42);
         }
-        let props = pw::properties::properties! {
+
+        let duplex_props = pw::properties::properties! {
+            "media.class" => "Audio/Duplex",
+            "node.name" => "duplex-device",
+            "node.description" => "Duplex device",
+        };
+        let duplex = Node::from_properties(77, duplex_props.dict());
+        assert_eq!(duplex.len(), 2);
+        let mut inventory = Inventory::default();
+        for node in duplex {
+            inventory.nodes.insert((node.id, node.direction), node);
+        }
+        assert_eq!(
+            inventory
+                .resolve(
+                    Some("pipewire:Audio/Sink:duplex-device"),
+                    DeviceDirection::Render
+                )
+                .unwrap()
+                .id,
+            77
+        );
+        assert_eq!(
+            inventory
+                .resolve(
+                    Some("pipewire:Audio/Source:duplex-device"),
+                    DeviceDirection::Capture
+                )
+                .unwrap()
+                .id,
+            77
+        );
+
+        let stream_props = pw::properties::properties! {
             "media.class" => "Stream/Input/Audio",
             "node.name" => "application-stream",
         };
-        assert!(Node::from_properties(43, props.dict()).is_none());
+        assert!(Node::from_properties(43, stream_props.dict()).is_empty());
     }
 }
