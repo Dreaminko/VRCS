@@ -4,11 +4,12 @@ VRCS 的本地后端。数据面、音频采集、VAD、本地/云端 ASR 与字
 
 ## 当前状态
 
-Linux 适配位于 `linux` 分支（当前面向 GNU `x86_64`，ARM64 暂缓发布）。Linux GNU x86_64 已实现需
-polkit 授权的实验性分玩家音轨与 Chatbox 网络接收；抓包和取钥均在独立的
-`vrcs-network-helper` 内完成，Core 只接收已归属的数据包与认证后的密钥。`.deb`
-会在同一包内安装该助手及 polkit 策略；AppImage 不安装 root helper 或策略，
-须手动安装或使用完整 deb，目前没有单独发布的助手包。Arch 开发安装、更新和卸载
+VRCS 已包含 Linux 适配（当前面向 GNU `x86_64`，ARM64 暂缓发布）。Linux GNU x86_64 已实现需
+polkit 授权的实验性分玩家音轨与 Chatbox 网络接收；抓包和取钥均由内嵌的
+`--network-helper` 子模式（`/usr/bin/vrcs-desktop --network-helper`，独立运行亦支持
+`vrcs-core --network-helper`）在独立特权进程内完成，Core 只接收已归属的数据包与认证后的密钥。`.deb`
+会在同一包内安装主程序及 polkit 策略；AppImage 不安装系统可执行文件或策略，
+须手动安装 `/usr/bin/vrcs-desktop` 或使用完整 deb，目前没有单独发布的助手包。Arch 开发安装、更新和卸载
 命令见下方 Linux 开发说明；`npm run dev` 不自动安装。运行时需会话 polkit 认证代理，
 音频需系统 Opus（Ubuntu 为 `libopus0`）。
 
@@ -20,9 +21,9 @@ Linux 助手按目标进程持有的 socket inode、本地/远端端点确认流
 无需各自轮询日志；未启动网络接收时也能记录世界名称，不触发 polkit 授权。
 
 `GET /api/capabilities` 沿用 Bearer 鉴权，返回 OS、arch 与各功能的
-`supported`／`available`／`reason_code`，不包含凭据。已接入 PipeWire 麦克风／系统输出、
+`supported`／`available`／`reason_code`，不包含凭据。已接入 PipeWire 麦克风／系统输出／VRChat 进程音频采集、
 Secret Service 和固定 llama.cpp b11501 的托管 Qwen CPU/Vulkan（当前面向 GNU x86_64，ARM64 暂缓发布）。
-Linux GNU x86_64 支持 PLaMo 本地 CPU 翻译，复用 b11501 运行组件（ARM64 PLaMo 保持禁用）。应用独占音频仍明确拒绝；网络接收仅支持 x86_64 且需安装匹配助手，AppImage 不含系统安装的助手。OSC 发送独立，用户偏好与模型绑定保留。
+Linux GNU x86_64 支持 PLaMo 本地 CPU 翻译，复用 b11501 运行组件（ARM64 PLaMo 保持禁用）。网络接收仅支持 x86_64 且需系统安装匹配的 `/usr/bin/vrcs-desktop` 与策略，AppImage 不含系统安装的程序。OSC 发送独立，用户偏好与模型绑定保留。
 schema 42 增加 `audio.output.device_key`／`audio.microphone.device_key`，保留旧 `device_id`。
 PipeWire key 不存在时要求重选，不回退其他设备；旧 Windows 数值 ID 不在 Linux 猜测映射。
 schema 43 在此基础上迁移为按账号控制语音／Chatbox 来源；升级时保留 schema 41／42

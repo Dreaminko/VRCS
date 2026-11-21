@@ -197,6 +197,7 @@ jobs:
           cargo clippy -p vrcs-desktop --no-deps --all-targets --locked --features vr-preview -- -D warnings
           dbus-run-session -- xvfb-run -a cargo test --workspace --locked
           cargo clippy -p vrcs-core -p vrcs-desktop --no-deps --all-targets --locked --features vulkan -- -D warnings
+          cargo test -p vrcs-core --locked --features vulkan asr::qwen_runtime::tests::
       - name: Build and load native ONNX runtime
         run: node scripts/build-linux-release.mjs --preview
       - uses: actions/upload-artifact@v7

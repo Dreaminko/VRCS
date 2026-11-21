@@ -70,9 +70,10 @@ Please keep commits focused and do not include generated build output.
 
 ### Linux development (initial adaptation)
 
-The `linux` branch contains native desktop adaptation, not a published or fully
-accepted Linux release. `npm run dev` and `npm run dev:vulkan` dispatch through
-Node: Windows retains PowerShell preparation; Linux does not stage Windows DLLs.
+VRCS includes native Linux `x86_64` desktop adaptation (ARM64 is deferred for
+now), though Linux packages are not yet a published or fully accepted release.
+`npm run dev` and `npm run dev:vulkan` dispatch through Node: Windows retains
+PowerShell preparation; Linux does not stage Windows DLLs.
 `npm run dev:vulkan` enables managed Qwen GPU recognition through the pinned native
 Vulkan runtime; default development builds remain CPU-only. Install the system
 Vulkan loader (`libvulkan1` on Ubuntu) and a compatible GPU driver, not a GPU SDK.
@@ -81,28 +82,32 @@ Vulkan loader (`libvulkan1` on Ubuntu) and a compatible GPU driver, not a GPU SD
 For the Ubuntu 24.04 native build baseline, install Node.js 24+ and the pinned
 Rust toolchain, then run `bash scripts/install-linux-deps.sh`, `npm ci`, and
 `npm run dev` in a graphical user session. Linux network capture additionally
-needs the root-owned `vrcs-network-helper` and its polkit policy, installed by the
-full deb or manually as below. `npm run dev` does not install or update either
-file; a build-tree helper is intentionally not executed through pkexec. The
-dependency script includes WebKitGTK 4.1/GTK3, PipeWire/SPA, D-Bus, AppIndicator,
-native build tools, CJK fonts, `libopus0`, `pkexec` and `polkitd`. A running polkit
-authentication agent in the graphical user session is also required (provided by
-many desktops; start your compositor's configured agent on minimal Wayland
-sessions). It is a build prerequisite list, not a portability guarantee.
+needs `/usr/bin/vrcs-desktop` (with built-in `--network-helper`) and its polkit
+policy, installed by the full deb or manually as below. `npm run dev` does not
+install or update either file; a build-tree binary is intentionally not executed
+through pkexec. The dependency script includes WebKitGTK 4.1/GTK3, PipeWire/SPA,
+D-Bus, AppIndicator, native build tools, CJK fonts, `libopus0`, `pkexec` and
+`polkitd`. A running polkit authentication agent in the graphical user session is
+also required (provided by many desktops; start your compositor's configured
+agent on minimal Wayland sessions). It is a build prerequisite list, not a
+portability guarantee.
 
 For Arch Linux x86_64 development, install the network runtime prerequisites and
-the existing helper/policy from the repository root after setting up Rust:
+the desktop binary/policy from the repository root after setting up Rust:
 
 ```sh
 sudo pacman -S --needed polkit opus
-cargo build --locked --manifest-path crates/player-audio-helper/Cargo.toml --target-dir .build
-sudo install -d -o root -g root -m 0755 /usr/lib/vrcs
-sudo install -o root -g root -m 0755 .build/debug/vrcs-network-helper /usr/lib/vrcs/vrcs-network-helper
+npm ci
+npm run build:frontend
+cargo build --locked -p vrcs-desktop --target-dir .build
+sudo install -d -o root -g root -m 0755 /usr/bin /usr/share/polkit-1/actions
+sudo install -o root -g root -m 0755 .build/debug/vrcs-desktop /usr/bin/vrcs-desktop
 sudo install -o root -g root -m 0644 packaging/linux/app.vrcs.network-capture.policy /usr/share/polkit-1/actions/app.vrcs.network-capture.policy
 ```
 
-Use the canonical `/usr/lib/vrcs/vrcs-network-helper` path: the policy authorizes
-that exact executable. Keep it and its parent directories root-owned and not
+Use the canonical `/usr/bin/vrcs-desktop` path: the policy authorizes that exact
+executable, and `vrcs-desktop` refuses to run under `pkexec` without
+`--network-helper`. Keep it and its parent directories root-owned and not
 writable by group/others; do not symlink it to a user-writable checkout or install
 it setuid. Run VRCS as your normal user and authorize the first capture through
 the session's polkit agent. To update, stop capture and repeat the build and
@@ -110,7 +115,7 @@ installation commands from the matching application revision. To uninstall a
 manual installation, stop capture and run:
 
 ```sh
-sudo rm -f /usr/lib/vrcs/vrcs-network-helper /usr/share/polkit-1/actions/app.vrcs.network-capture.policy
+sudo rm -f /usr/bin/vrcs-desktop /usr/share/polkit-1/actions/app.vrcs.network-capture.policy
 ```
 
 For a deb-managed installation, upgrade/remove the full deb with your package
@@ -162,17 +167,18 @@ Implemented boundaries:
   CPU-only on Linux GNU x86_64, sharing the selected runtime through a separate
   authenticated loopback process; its model and license consent remain independent.
   ARM64 PLaMo remains disabled (ARM64 releases are deferred).
-  Application-only audio remains excluded; Linux x86_64 VR subtitles, wrist
-  overlays, dashboard, and controller input (OpenXR/OpenVR) are enabled by
-  default, while VR scene capture (`vr.scene_capture`, for VR OCR and VR
-  visual question answering) remains disabled on Linux pending upstream
-  OpenXR/Monado scene-capture APIs. Desktop OCR and desktop visual question
-  answering via XDG ScreenCast Portal remain available, and OSC sending is
-  independent. Linux GNU x86_64 now has helper-backed experimental player audio
-  and Chatbox network reception. The deb installs the root-owned
-  `vrcs-network-helper` and its polkit policy in the same package; AppImage needs
-  manual helper/policy installation or the full deb. No standalone helper package
-  is currently published. Capture needs a session polkit agent and system Opus.
+  PipeWire captures microphone, system output, and VRChat process audio. Linux
+  x86_64 VR subtitles, wrist overlays, dashboard, and controller input
+  (OpenXR/OpenVR) are enabled by default, while VR scene capture
+  (`vr.scene_capture`, for VR OCR and VR visual question answering) remains
+  disabled on Linux pending upstream OpenXR/Monado scene-capture APIs. Desktop
+  OCR and desktop visual question answering via `org.freedesktop.portal.Screenshot`
+  remain available, and OSC sending is independent. Linux GNU x86_64 now has
+  helper-backed experimental player audio and Chatbox network reception. The deb
+  installs `/usr/bin/vrcs-desktop` with built-in `--network-helper` support and
+  its polkit policy in the same package; AppImage needs manual system
+  installation or the full deb. No standalone helper package is currently
+  published. Capture needs a session polkit agent and system Opus.
   Real VRChat/Proton traffic, authorization, packaging, anti-cheat behavior and
   long-running capture are not yet accepted; ARM64 is deferred for now.
   Candidate packets require a fresh inode/endpoint/target-fd confirmation; stale
@@ -182,13 +188,12 @@ Implemented boundaries:
   conservatively, including IPv6-only sockets whose mode cannot be established.
   A confirmed game exit ends its session and returns capture to waiting for the
   next game; authorization and startup failures also hand off child reaping.
-- ScreenCast Portal capture requests one user-selected source, receives one frame
-  through its authorized PipeWire remote, closes capture, then opens an in-app
-  frozen-frame picker. Only the crop reaches OCR/vision. Shared memory and packed
-  single-plane linear DMA-BUF are supported; unsupported modifiers fail explicitly.
-  GlobalShortcuts Portal registration is opt-in and independent from the button.
-  The capability snapshot reports active bindings; changing their configuration
-  or closing the Portal session invalidates authorization and requires rebinding.
+- Desktop capture uses `org.freedesktop.portal.Screenshot` for interactive region
+  selection and forwards the captured PNG to OCR/vision. On X11, global shortcuts
+  use native XCB key grabs; on Wayland, GlobalShortcuts Portal registration is
+  opt-in and independent from the button. The capability snapshot reports active
+  bindings; changing their configuration or closing the Portal session invalidates
+  authorization and requires rebinding.
 - Data remains in Tauri's local data directory under `.vrcs`; logs use
   `$XDG_STATE_HOME/vrcs/logs` or `$HOME/.local/state/vrcs/logs`. The desktop data root
   is private; configuration, migration backups and database files are owner-only,
@@ -200,10 +205,11 @@ Implemented boundaries:
   Runtime dependencies include the managed llama.cpp libraries' system requirements
   (`libgomp1`, `libssl3t64`, `libstdc++6`, `libgcc-s1` and the Vulkan loader), which
   are not all visible in the desktop executable's ELF dependency list.
-  deb/development installs never use the AppImage updater. Publishable AppImages
-  require the existing signing key and public key. Complete release aggregation
-  verifies every platform's package, architecture, hash and signature before
-  writing `latest.json`; Windows standard and legacy CUDA targets are retained.
+  deb/development installs cannot install updates in-app (`deb` can check for
+  updates and guide manual/package-manager updates); writable AppImages support
+  signed in-app updates when configured with the updater signing keys. Complete
+  release aggregation verifies every platform's package, architecture, hash and
+  signature before writing `latest.json`.
 - CI/Preview/Release run on `ubuntu-24.04` (`x86_64`); ARM64 (`aarch64` /
   `ubuntu-24.04-arm`) is temporarily removed until future enablement. Same-commit
   CI reuse checks `linux (x86_64)` alongside Windows/frontend jobs. Workflow
@@ -229,20 +235,12 @@ otherwise stated):
 | ScreenCast Portal / niri 26.04 | Actual source authorization, linear DMA-BUF freeze, in-app region selection and local OCR completed; scan 2.560 s (including 2.005 s model load); capture closed before selection; authorization cancel/reopen and frozen-picker cancel removed the window and re-enabled capture | Cloud visual-question response, GNOME/KDE sessions, mixed displays/rotation, ARM64 and remaining cancellation matrix |
 | GlobalShortcuts Portal / niri | Interface v2 was present, but actual authorization returned unavailable; the UI reported the limitation and screenshot buttons remained usable | Real binding/activation/replacement on a supported desktop backend |
 
-The WebKit experiment is available through:
-
-```sh
-cargo run --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --features vr-preview --bin vrcs-linux-vr-prototype -- --mode web --assets apps/desktop/dist --seconds 16
-```
-
-`--mode static` independently exercises OpenVR raw submission; `--vr` adds it to
-the dynamic experiment. A successful offscreen PNG is not a headset test. On
-Linux `x86_64`, VR subtitles, wrist overlays, dashboard, and controller input
+On Linux `x86_64`, VR subtitles, wrist overlays, dashboard, and controller input
 (OpenXR/OpenVR) are enabled by default in desktop builds; ARM64 reports
 `vr.runtime_arch_unverified` and is deferred. VR scene capture (`vr.scene_capture`,
 for VR OCR and VR visual question answering) remains disabled on Linux
 (`vr.scene_capture_unavailable`) pending upstream OpenXR/Monado scene-capture APIs;
-desktop OCR and desktop visual question answering via ScreenCast Portal are not
+desktop OCR and desktop visual question answering via Screenshot Portal are not
 blocked and remain available. M0/M3 headset acceptance still requires real hardware
 verification.
 

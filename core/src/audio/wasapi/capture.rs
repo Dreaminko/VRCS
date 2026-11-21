@@ -524,7 +524,7 @@ fn publish_chunk(
     let chunk = resample_linear(frame, output_rate, native_rate);
     if let Some(tap) = microphone_tap {
         let resampled;
-        let samples: &[f32] = if output_rate == TAP_RATE {
+        let samples: &[f32] = if native_rate == TAP_RATE {
             frame
         } else {
             resampled = tap_resampler.resample(frame);
@@ -716,6 +716,7 @@ mod tests {
                     &mut tap_resampler,
                 );
                 let samples = window.finish().await.unwrap();
+                assert!(samples.len() <= 64);
                 assert!(samples.contains(&0.1));
                 assert!(samples.contains(&0.2));
                 assert!(samples
