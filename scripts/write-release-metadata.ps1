@@ -11,9 +11,21 @@ $ErrorActionPreference = "Stop"
 if ($Channel -ne 'nightly') {
     # A build job only describes its own package. The publish job is the sole
     # writer of latest.json after every native architecture has been validated.
-    $result = & node (Join-Path $PSScriptRoot "release-metadata.mjs") target $ArtifactRoot $Version windows x86_64 nsis
-    if ($LASTEXITCODE -ne 0) { throw "Windows target manifest generation failed" }
-    return $result
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = & node (Join-Path $PSScriptRoot "release-metadata.mjs") target $ArtifactRoot $Version windows x86_64 nsis 2>&1
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorAction
+        $global:LASTEXITCODE = 0
+    }
+    if ($exitCode -ne 0) {
+        $detail = (($output | ForEach-Object { "$_" }) -join "`n").Trim()
+        throw "Windows target manifest generation failed: $detail"
+    }
+    return (($output | ForEach-Object { "$_" } | Select-Object -Last 1)).Trim()
 }
 
 $dateSuffix = $BuildDate.Replace('-', '')
