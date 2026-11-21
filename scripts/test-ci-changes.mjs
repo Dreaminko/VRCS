@@ -8,7 +8,6 @@ for (const [file, rust, frontend] of [
   ["Cargo.lock", true, false],
   ["core/src/lib.rs", true, false],
   ["crates/player-audio-scan/src/lib.rs", true, false],
-  ["crates/player-audio-helper/src/lib.rs", true, false],
   ["scripts/run-tauri.ps1", true, false],
   ["scripts/run-tauri.mjs", true, false],
   ["packaging/linux/app.vrcs.network-capture.policy", true, false],
@@ -17,7 +16,7 @@ for (const [file, rust, frontend] of [
   ["scripts/dev-vr.test.mjs", false, true],
   ["apps/desktop/src/App.tsx", false, true],
   ["apps/desktop/src-tauri/src/lib.rs", true, true],
-  ...["ci", "preview", "release"].map((name) => [`.github/workflows/${name}.yml`, true, true]),
+  ...["ci", "preview", "release", "nightly"].map((name) => [`.github/workflows/${name}.yml`, true, true]),
   ...["ci-changes.mjs", "test-ci-changes.mjs", "find-release-ci.mjs", "test-release-ci.mjs", "release-metadata.mjs", "test-release-metadata.mjs", "build-linux-release.mjs", "install-linux-deps.sh", "build-release.ps1", "write-release-metadata.ps1"].map((name) => [`scripts/${name}`, true, true]),
 ]) {
   test(`selects required checks for ${file}`, () => {

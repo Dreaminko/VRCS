@@ -28,7 +28,7 @@ impl SessionKey {
 }
 
 pub(super) fn encrypted(packet: &[u8]) -> bool {
-    player_audio_helper::packet::encrypted(packet)
+    super::helper::packet::encrypted(packet)
 }
 
 /// Verify all recent packets from one connection, never historic captures.

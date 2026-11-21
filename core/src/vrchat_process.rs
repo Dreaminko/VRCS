@@ -1,6 +1,6 @@
 //! Read-only discovery of the running VRChat process.
 #[cfg(target_os = "linux")]
-use player_audio_helper::procfs;
+use crate::player_audio::helper::procfs;
 #[cfg(target_os = "linux")]
 use std::fs;
 use std::path::PathBuf;
@@ -117,8 +117,34 @@ fn matches_exe_name(units: &[u16], expected: &[u8]) -> bool {
 
 #[cfg(target_os = "linux")]
 pub(crate) fn game() -> Result<Option<(ProcessIdentity, PathBuf)>, String> {
+    use std::io::{BufRead, BufReader};
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static EACCES_LOGGED: AtomicBool = AtomicBool::new(false);
+
+    fn is_wrapper_name(name: &str) -> bool {
+        let base = name
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or(name)
+            .trim()
+            .to_ascii_lowercase();
+        matches!(
+            base.as_str(),
+            "reaper" | "wineserver" | "srt-bwrap" | "steam-launch-wrapper"
+        ) || base.starts_with("pressure-vessel")
+            || base.starts_with("steam-launch-wr")
+    }
+
+    fn contains_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack
+            .windows(needle.len())
+            .any(|window| window.eq_ignore_ascii_case(needle))
+    }
+
     let mut found = None;
     let entries = fs::read_dir("/proc").map_err(|error| error.to_string())?;
+    let mut line = Vec::with_capacity(256);
     for entry in entries.flatten() {
         let Some(pid) = entry
             .file_name()
@@ -127,14 +153,18 @@ pub(crate) fn game() -> Result<Option<(ProcessIdentity, PathBuf)>, String> {
         else {
             continue;
         };
-        if pid == std::process::id() {
-            continue;
-        }
-        if !same_uid(pid) {
+        if pid == std::process::id() || !same_uid(pid) {
             continue;
         }
         let comm = fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
+        if is_wrapper_name(&comm) {
+            continue;
+        }
         let cmdline = fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+        let argv0 = cmdline.split(|&byte| byte == 0).next().unwrap_or_default();
+        if is_wrapper_name(&String::from_utf8_lossy(argv0)) {
+            continue;
+        }
         if !comm.to_ascii_lowercase().contains("vrchat.exe")
             && !String::from_utf8_lossy(&cmdline)
                 .to_ascii_lowercase()
@@ -145,11 +175,15 @@ pub(crate) fn game() -> Result<Option<(ProcessIdentity, PathBuf)>, String> {
         let created = match procfs::starttime(pid) {
             Ok(created) => created,
             Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
-                ) || error.raw_os_error() == Some(libc::ESRCH) =>
+                if error.kind() == std::io::ErrorKind::NotFound
+                    || error.raw_os_error() == Some(libc::ESRCH) =>
             {
+                continue;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                if !EACCES_LOGGED.swap(true, Ordering::AcqRel) {
+                    tracing::warn!(pid, %error, "Permission denied inspecting candidate VRChat process");
+                }
                 continue;
             }
             Err(error) => return Err(format!("Cannot read VRChat process: {error}")),
@@ -157,8 +191,31 @@ pub(crate) fn game() -> Result<Option<(ProcessIdentity, PathBuf)>, String> {
         let owner = ProcessIdentity { pid, created };
         // The EAC launcher also has VRChat in its command line; only the
         // IL2CPP host maps GameAssembly.dll.
-        let maps = fs::read_to_string(format!("/proc/{pid}/maps")).unwrap_or_default();
-        if !maps.to_ascii_lowercase().contains("gameassembly.dll") {
+        let maps_file = match fs::File::open(format!("/proc/{pid}/maps")) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                if !EACCES_LOGGED.swap(true, Ordering::AcqRel) {
+                    tracing::warn!(pid, %error, "Permission denied reading /proc maps for VRChat process");
+                }
+                continue;
+            }
+            Err(_) => continue,
+        };
+        let mut reader = BufReader::new(maps_file);
+        let mut mapped_game_assembly = false;
+        loop {
+            line.clear();
+            match reader.read_until(b'\n', &mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    if contains_ascii_case_insensitive(&line, b"gameassembly.dll") {
+                        mapped_game_assembly = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if !mapped_game_assembly {
             continue;
         }
         if found.replace(owner).is_some() {

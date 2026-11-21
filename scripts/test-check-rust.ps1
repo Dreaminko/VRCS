@@ -45,7 +45,7 @@ try {
     )
     $cpuTestCalls = @("test --workspace --locked")
     $vulkanClippyCoreDesktop = "clippy -p vrcs-core -p vrcs-desktop --all-targets --locked --features vulkan -- -D warnings"
-    $vulkanClippyScan = "clippy -p player-audio-scan -p player-audio-helper --all-targets --locked -- -D warnings"
+    $vulkanClippyScan = "clippy -p player-audio-scan --all-targets --locked -- -D warnings"
     $ciVulkanTestCalls = @("test -p vrcs-core --locked --features vulkan asr::qwen_runtime::tests::")
 
     Assert-Calls -Arguments @{ Check = "format"; Vulkan = $true } -ExpectedCalls @($fmtCall)
@@ -54,7 +54,7 @@ try {
     Assert-Calls -Arguments @{ Check = "clippy"; Vulkan = $true } -ExpectedCalls @($vulkanClippyCoreDesktop, $vulkanClippyScan) -ExpectedRuntimeCalls 1
     Assert-Calls -Arguments @{ Check = "test"; Vulkan = $true } -ExpectedCalls @(
         "test -p vrcs-core -p vrcs-desktop --locked --features vulkan",
-        "test -p player-audio-scan -p player-audio-helper --locked"
+        "test -p player-audio-scan --locked"
     ) -ExpectedRuntimeCalls 1
 
     Assert-Calls -Arguments @{ Check = "format"; Vulkan = $true; CiVulkanOnly = $true } -ExpectedCalls @($fmtCall)

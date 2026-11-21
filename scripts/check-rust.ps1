@@ -38,7 +38,7 @@ try {
         if ($Vulkan) {
             Invoke-CargoCheck -CargoArguments @("clippy", "-p", "vrcs-core", "-p", "vrcs-desktop", "--all-targets", "--locked", "--features", "vulkan", "--", "-D", "warnings")
             if (-not $CiVulkanOnly) {
-                Invoke-CargoCheck -CargoArguments @("clippy", "-p", "player-audio-scan", "-p", "player-audio-helper", "--all-targets", "--locked", "--", "-D", "warnings")
+                Invoke-CargoCheck -CargoArguments @("clippy", "-p", "player-audio-scan", "--all-targets", "--locked", "--", "-D", "warnings")
             }
         }
         else {
@@ -53,7 +53,7 @@ try {
         }
         elseif ($Vulkan) {
             Invoke-CargoCheck -CargoArguments @("test", "-p", "vrcs-core", "-p", "vrcs-desktop", "--locked", "--features", "vulkan")
-            Invoke-CargoCheck -CargoArguments @("test", "-p", "player-audio-scan", "-p", "player-audio-helper", "--locked")
+            Invoke-CargoCheck -CargoArguments @("test", "-p", "player-audio-scan", "--locked")
         }
         else {
             Invoke-CargoCheck -CargoArguments @("test", "--workspace", "--locked")

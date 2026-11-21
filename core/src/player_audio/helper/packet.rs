@@ -1,18 +1,18 @@
 //! Platform-neutral IPv4/UDP framing for VRChat Photon voice traffic.
 use std::net::{Ipv4Addr, SocketAddrV4};
 
-pub const PHOTON_PORT: u16 = 27002;
+pub(crate) const PHOTON_PORT: u16 = 27002;
 const MIN_PACKET: usize = 40;
 const MAX_PACKET: usize = 65_507;
 
-pub struct Datagram<'a> {
+pub(crate) struct Datagram<'a> {
     pub source: SocketAddrV4,
     pub destination: SocketAddrV4,
     pub payload: &'a [u8],
 }
 
 /// Parse one unfragmented IPv4/UDP datagram, preserving its payload slice.
-pub fn ipv4_udp(bytes: &[u8]) -> Option<Datagram<'_>> {
+pub(crate) fn ipv4_udp(bytes: &[u8]) -> Option<Datagram<'_>> {
     if bytes.len() < 28 || bytes[0] >> 4 != 4 || bytes[9] != 17 {
         return None;
     }
@@ -44,7 +44,7 @@ pub fn ipv4_udp(bytes: &[u8]) -> Option<Datagram<'_>> {
 }
 
 /// Encrypted Photon v5 voice payload.
-pub fn encrypted(packet: &[u8]) -> bool {
+pub(crate) fn encrypted(packet: &[u8]) -> bool {
     (MIN_PACKET..=MAX_PACKET).contains(&packet.len()) && packet[2] == 1
 }
 

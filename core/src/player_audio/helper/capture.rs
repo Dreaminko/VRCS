@@ -3,11 +3,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use player_audio_helper::packet::{self, PHOTON_PORT};
-use player_audio_helper::procfs;
-use player_audio_helper::{write_event, Event, Packet};
+use super::packet::{self, PHOTON_PORT};
+use super::procfs;
+use super::{write_event, Event, Packet};
 
-pub struct Capture {
+pub(super) struct Capture {
     fd: libc::c_int,
     pid: u32,
     starttime: u64,
@@ -124,21 +124,16 @@ impl Capture {
 
     pub fn run(&self, writer: &Mutex<std::os::unix::net::UnixStream>) -> Result<(), String> {
         let mut buffer = vec![0u8; 65_536];
-        let mut endpoints = Vec::new();
-        let mut refreshed = Instant::now() - Duration::from_secs(2);
-        let mut alive_checked = refreshed;
+        let mut flow_cache = procfs::FlowCache::default();
+        let mut alive_checked = Instant::now() - Duration::from_secs(2);
         let mut draining = true;
         while !self.stop.load(Ordering::Relaxed) {
-            if refreshed.elapsed() >= Duration::from_secs(1) {
-                if let Ok(updated) = procfs::read_udp_endpoints(self.pid) {
-                    if owned_changed(&endpoints, &updated) {
-                        // Only a changed owned inventory can admit newly attributed flows.
-                        // Drain old frames before accepting the new ownership snapshot.
-                        draining = true;
-                    }
-                    endpoints = updated;
+            if let Ok(changed) = flow_cache.refresh_if_due(self.pid) {
+                if changed {
+                    // Only a changed owned inventory can admit newly attributed flows.
+                    // Drain old frames before accepting the new ownership snapshot.
+                    draining = true;
                 }
-                refreshed = Instant::now();
             }
             if alive_checked.elapsed() >= Duration::from_secs(1) {
                 if let Err(error) = procfs::check_identity(self.pid, self.starttime) {
@@ -157,13 +152,11 @@ impl Capture {
                         if draining {
                             continue;
                         }
-                        let Some(candidate) = parse(bytes, outgoing, &endpoints) else {
+                        let Some(candidate) = parse(bytes, outgoing, &mut flow_cache, self.pid)
+                        else {
                             continue;
                         };
                         let flow = &candidate.flow;
-                        if !procfs::confirms_flow(self.pid, self.starttime, flow) {
-                            continue;
-                        }
                         let packet = Packet {
                             monotonic_us: procfs::monotonic_us(),
                             incoming: candidate.incoming,
@@ -205,23 +198,6 @@ impl Drop for Capture {
     }
 }
 
-fn owned_changed(previous: &[procfs::Endpoint], next: &[procfs::Endpoint]) -> bool {
-    let key = |endpoint: &procfs::Endpoint| {
-        (
-            endpoint.local_ip,
-            endpoint.local_port,
-            endpoint.remote_ip,
-            endpoint.remote_port,
-            endpoint.inode,
-        )
-    };
-    let mut prev: Vec<_> = previous.iter().filter(|e| e.owned).map(key).collect();
-    let mut curr: Vec<_> = next.iter().filter(|e| e.owned).map(key).collect();
-    prev.sort_unstable();
-    curr.sort_unstable();
-    prev != curr
-}
-
 fn filter(code: u32, jt: u8, jf: u8, k: u32) -> libc::sock_filter {
     libc::sock_filter {
         code: code as u16,
@@ -231,19 +207,26 @@ fn filter(code: u32, jt: u8, jf: u8, k: u32) -> libc::sock_filter {
     }
 }
 
-fn instructions() -> [libc::sock_filter; 14] {
+fn instructions() -> [libc::sock_filter; 16] {
     use libc::{
         BPF_ABS, BPF_ALU, BPF_AND, BPF_B, BPF_H, BPF_IND, BPF_JEQ, BPF_JMP, BPF_JSET, BPF_K,
         BPF_LD, BPF_LDX, BPF_MSH, BPF_RET,
     };
     [
+        filter(
+            BPF_LD | BPF_H | BPF_ABS,
+            0,
+            0,
+            (libc::SKF_AD_OFF + libc::SKF_AD_PROTOCOL) as u32,
+        ),
+        filter(BPF_JMP | BPF_JEQ | BPF_K, 0, 12, libc::ETH_P_IP as u32),
         filter(BPF_LD | BPF_B | BPF_ABS, 0, 0, 0),
         filter(BPF_ALU | BPF_AND | BPF_K, 0, 0, 0xf0),
         filter(BPF_JMP | BPF_JEQ | BPF_K, 0, 9, 0x40), // IPv4
         filter(BPF_LD | BPF_B | BPF_ABS, 0, 0, 9),
         filter(BPF_JMP | BPF_JEQ | BPF_K, 0, 7, 17), // UDP
         filter(BPF_LD | BPF_H | BPF_ABS, 0, 0, 6),
-        filter(BPF_JMP | BPF_JSET | BPF_K, 5, 0, 0x1fff), // reject IPv4 fragments
+        filter(BPF_JMP | BPF_JSET | BPF_K, 5, 0, 0x3fff), // reject IPv4 fragments (MF or offset)
         filter(BPF_LDX | BPF_B | BPF_MSH, 0, 0, 0),       // x = 4 * IHL
         filter(BPF_LD | BPF_H | BPF_IND, 0, 0, 2),        // destination port
         filter(BPF_JMP | BPF_JEQ | BPF_K, 3, 0, u32::from(PHOTON_PORT)),
@@ -320,11 +303,10 @@ struct Candidate<'a> {
 fn parse<'a>(
     frame: &'a [u8],
     outgoing: bool,
-    endpoints: &[procfs::Endpoint],
+    flow_cache: &mut procfs::FlowCache,
+    pid: u32,
 ) -> Option<Candidate<'a>> {
-    let (bytes, offset) = frame_layout(frame)?;
-    let bytes = bytes.get(offset..)?;
-    let datagram = packet::ipv4_udp(bytes)?;
+    let datagram = packet::ipv4_udp(frame)?;
     let source_ip = datagram.source.ip().octets();
     let source_port = datagram.source.port();
     let target_ip = datagram.destination.ip().octets();
@@ -340,44 +322,18 @@ fn parse<'a>(
         }
         (target_ip, target_port, source_ip, source_port, true)
     };
-    let inode = procfs::flow_inode(endpoints, local_ip, local_port, remote_ip, remote_port)?;
     let payload = datagram.payload;
     if !packet::encrypted(payload) {
         return None;
     }
-    let endpoint = endpoints
-        .iter()
-        .find(|endpoint| endpoint.owned && endpoint.inode == inode);
+    let flow = flow_cache.verify_flow(pid, local_ip, local_port, remote_ip, remote_port)?;
     Some(Candidate {
-        flow: procfs::Endpoint {
-            local_ip,
-            local_port,
-            remote_ip,
-            remote_port,
-            inode,
-            fd: endpoint.and_then(|endpoint| endpoint.fd),
-            owned: true,
-        },
+        flow,
         incoming,
         payload,
     })
 }
 
-fn frame_layout(frame: &[u8]) -> Option<(&[u8], usize)> {
-    if frame.first().is_some_and(|byte| byte >> 4 == 4) {
-        return Some((frame, 0));
-    }
-    if frame.len() < 14 {
-        return None;
-    }
-    let mut ethertype = u16::from_be_bytes([frame[12], frame[13]]);
-    let mut offset = 14;
-    if ethertype == 0x8100 && frame.len() >= 18 {
-        ethertype = u16::from_be_bytes([frame[16], frame[17]]);
-        offset = 18;
-    }
-    (ethertype == 0x0800).then_some((frame, offset))
-}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,7 +344,24 @@ mod tests {
 
         let (sender, receiver) = UnixDatagram::pair().unwrap();
         receiver.set_nonblocking(true).unwrap();
-        let mut filter = instructions();
+        let full = instructions();
+        let full_program = libc::sock_fprog {
+            len: full.len() as u16,
+            filter: full.as_ptr().cast_mut(),
+        };
+        let attach_full = unsafe {
+            libc::setsockopt(
+                receiver.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_ATTACH_FILTER,
+                (&full_program as *const libc::sock_fprog).cast(),
+                std::mem::size_of_val(&full_program) as libc::socklen_t,
+            )
+        };
+        assert_eq!(attach_full, 0, "{}", io::Error::last_os_error());
+
+        // UnixDatagram has skb->protocol == 0, so run the IPv4+UDP+frag slice [2..].
+        let mut filter = full[2..].to_vec();
         let program = libc::sock_fprog {
             len: filter.len() as u16,
             filter: filter.as_mut_ptr(),
@@ -454,25 +427,36 @@ mod tests {
         fragment[6] = 0x00;
         fragment[7] = 0x01;
         assert!(!accepts(&fragment));
+        // More-Fragments (MF) bit at offset 0 must also be rejected.
+        let mut mf_first = ipv4_udp(5, 27002, 53000);
+        mf_first[6] = 0x20;
+        mf_first[7] = 0x00;
+        assert!(!accepts(&mf_first));
+        // Don't-Fragment (DF) bit is normal for UDP and must pass.
+        let mut df = ipv4_udp(5, 27002, 53000);
+        df[6] = 0x40;
+        df[7] = 0x00;
+        assert!(accepts(&df));
     }
 }
+
 #[cfg(test)]
 mod parse_tests {
     use super::*;
 
-    fn packet(incoming: bool) -> Vec<u8> {
+    fn packet(incoming: bool, local_port: u16) -> Vec<u8> {
         let mut payload = vec![0; 40];
         payload[2] = 1;
         payload[3..7].copy_from_slice(&[7, 8, 9, 10]);
         let mut frame = vec![0; 20];
         frame[0] = 0x45;
         frame[9] = 17;
-        frame[12..16].copy_from_slice(&[192, 0, 2, 2]);
-        frame[16..20].copy_from_slice(&[203, 0, 113, 1]);
+        frame[12..16].copy_from_slice(&[127, 0, 0, 1]);
+        frame[16..20].copy_from_slice(&[127, 0, 0, 1]);
         let (source, target): (u16, u16) = if incoming {
-            (27002, 53000)
+            (27002, local_port)
         } else {
-            (53000, 27002)
+            (local_port, 27002)
         };
         frame.extend(source.to_be_bytes());
         frame.extend(target.to_be_bytes());
@@ -486,22 +470,21 @@ mod parse_tests {
 
     #[test]
     fn direction_requires_the_game_endpoint_and_keeps_the_challenge() {
-        let endpoints = vec![procfs::Endpoint {
-            local_ip: [0; 4],
-            local_port: 53000,
-            remote_ip: [0; 4],
-            remote_port: 0,
-            inode: 1,
-            fd: None,
-            owned: true,
-        }];
-        let bytes = packet(true);
-        let incoming = parse(&bytes, false, &endpoints).unwrap();
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let mut cache = procfs::FlowCache::default();
+        let pid = std::process::id();
+        let incoming_packet = packet(true, port);
+        let incoming = parse(&incoming_packet, false, &mut cache, pid).unwrap();
         assert!(incoming.incoming);
-        assert_eq!(incoming.flow.local_port, 53000);
+        assert_eq!(incoming.flow.local_port, port);
         assert_eq!(&incoming.payload[3..7], &[7, 8, 9, 10]);
-        assert!(parse(&packet(true), true, &endpoints).is_none());
-        assert!(parse(&packet(false), false, &[]).is_none());
-        assert!(!parse(&packet(false), true, &endpoints).unwrap().incoming);
+        assert!(parse(&packet(true, port), true, &mut cache, pid).is_none());
+        assert!(parse(&packet(false, port.wrapping_add(1)), false, &mut cache, pid).is_none());
+        assert!(
+            !parse(&packet(false, port), true, &mut cache, pid)
+                .unwrap()
+                .incoming
+        );
     }
 }

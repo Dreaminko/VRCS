@@ -1,7 +1,27 @@
 //! VRCS Core 独立运行入口。
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    #[cfg(target_os = "linux")]
+    if std::env::args().nth(1).as_deref() == Some("--network-helper") {
+        if let Err(error) = vrcs_core::run_network_helper(std::env::args().skip(2)) {
+            eprintln!("vrcs-network-helper: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("PKEXEC_UID").is_some() {
+        eprintln!("Refusing to run VRCS Core under pkexec; only --network-helper is permitted.");
+        std::process::exit(1);
+    }
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime")
+        .block_on(async_main());
+}
+
+async fn async_main() {
     let options = vrcs_core::CoreOptions::from_env();
     let token_was_supplied = options
         .session_token

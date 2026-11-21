@@ -9,29 +9,83 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use player_audio_helper::{
-    procfs, read_event, write_command, Command as HelperCommand, Event, ScanResult,
+use super::helper::{
+    procfs, read_event, write_command, Command as HelperCommand, Event, ScanResult, VERSION,
 };
 
 use super::connection::{Connection, Datagram};
 use super::SharedStatus;
 use crate::vrchat_process::ProcessIdentity;
 
-const HELPER_PATHS: [&str; 2] = [
-    "/usr/lib/vrcs/vrcs-network-helper",
-    "/usr/local/lib/vrcs/vrcs-network-helper",
-];
+const HELPER_PATHS: [&str; 2] = ["/usr/bin/vrcs-desktop", "/usr/local/bin/vrcs-desktop"];
+const AVAILABILITY_CACHE_TTL: Duration = Duration::from_secs(5);
 
 static PKEXEC_ACTIVE: AtomicBool = AtomicBool::new(false);
+static AVAILABILITY_CACHE: Mutex<Option<(Instant, PathBuf, bool)>> = Mutex::new(None);
+
+fn clean_helper_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut command = Command::new(program);
+    command
+        .env_remove("LD_LIBRARY_PATH")
+        .env_remove("LD_PRELOAD")
+        .env_remove("APPIMAGE");
+    command
+}
+
+fn parse_helper_version(stdout: &str) -> Result<(), String> {
+    let expected_protocol = format!("(protocol {VERSION})");
+    if stdout.contains(&expected_protocol) {
+        Ok(())
+    } else {
+        Err("The installed network helper is incompatible with this VRCS build".into())
+    }
+}
+
+fn current_executable() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| fs::canonicalize(exe).ok())
+}
+
+fn probe_helper(path: &Path) -> Result<(), String> {
+    if current_executable().is_some_and(|exe| exe == path) {
+        return Ok(());
+    }
+    let version = clean_helper_command(path)
+        .args(["--network-helper", "--version"])
+        .output()
+        .map_err(|error| format!("Cannot run the network helper: {error}"))?;
+    if !version.status.success() {
+        return Err("The installed network helper is incompatible with this VRCS build".into());
+    }
+    parse_helper_version(&String::from_utf8_lossy(&version.stdout))
+}
 
 pub(crate) fn network_available() -> bool {
-    Path::new("/usr/bin/pkexec").is_file() && helper_path().is_some()
+    if !Path::new("/usr/bin/pkexec").is_file() {
+        return false;
+    }
+    let Some(helper) = helper_path() else {
+        return false;
+    };
+    if let Ok(guard) = AVAILABILITY_CACHE.lock() {
+        if let Some((checked_at, cached_path, available)) = &*guard {
+            if checked_at.elapsed() < AVAILABILITY_CACHE_TTL && cached_path == &helper {
+                return *available;
+            }
+        }
+    }
+    let available = probe_helper(&helper).is_ok();
+    if let Ok(mut guard) = AVAILABILITY_CACHE.lock() {
+        *guard = Some((Instant::now(), helper, available));
+    }
+    available
 }
 
 fn helper_path() -> Option<PathBuf> {
-    HELPER_PATHS
-        .iter()
-        .map(PathBuf::from)
+    current_executable()
+        .into_iter()
+        .chain(HELPER_PATHS.iter().map(PathBuf::from))
         .find(|path| trusted_helper(path))
 }
 
@@ -184,17 +238,13 @@ impl Network {
         stop: &AtomicBool,
     ) -> Result<Self, String> {
         let helper = helper_path().ok_or(
-            "The VRCS network helper is not installed. Install the matching vrcs-network-helper package",
+            "Linux network capture requires a root-installed VRCS system package (/usr/bin/vrcs-desktop) with /usr/bin/pkexec",
         )?;
-        let version = Command::new(&helper)
-            .arg("--version")
-            .output()
-            .map_err(|error| format!("Cannot run the network helper: {error}"))?;
-        let expected_protocol = format!("(protocol {})", player_audio_helper::VERSION);
-        if !version.status.success()
-            || !String::from_utf8_lossy(&version.stdout).contains(&expected_protocol)
-        {
-            return Err("The installed network helper is incompatible with this VRCS build".into());
+        probe_helper(&helper)?;
+        if !Path::new("/usr/bin/pkexec").is_file() {
+            return Err(
+                "Cannot authorize network capture: /usr/bin/pkexec is not installed".into(),
+            );
         }
         if PKEXEC_ACTIVE
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -223,23 +273,23 @@ impl Network {
             uuid::Uuid::new_v4().simple(),
             uuid::Uuid::new_v4().simple()
         );
-        let mut child = HelperChild::spawn_with_flag(
-            Command::new("/usr/bin/pkexec")
-                .arg("--disable-internal-agent")
-                .arg(&helper)
-                .arg("--socket")
-                .arg(&socket_path)
-                .arg("--pid")
-                .arg(owner.pid.to_string())
-                .arg("--starttime")
-                .arg(owner.created.to_string())
-                .stdin(Stdio::piped())
-                .stdout(Stdio::null())
-                // Keep helper and pkexec diagnostics visible in the terminal that
-                // launched `npm run dev`; successful capture writes nothing here.
-                .stderr(Stdio::inherit()),
-            Some(&PKEXEC_ACTIVE),
-        )?;
+        let mut command = clean_helper_command("/usr/bin/pkexec");
+        command
+            .arg("--disable-internal-agent")
+            .arg(&helper)
+            .arg("--network-helper")
+            .arg("--socket")
+            .arg(&socket_path)
+            .arg("--pid")
+            .arg(owner.pid.to_string())
+            .arg("--starttime")
+            .arg(owner.created.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            // Keep helper and pkexec diagnostics visible in the terminal that
+            // launched `npm run dev`; successful capture writes nothing here.
+            .stderr(Stdio::inherit());
+        let mut child = HelperChild::spawn_with_flag(&mut command, Some(&PKEXEC_ACTIVE))?;
         if let Some(mut stdin) = child.process().stdin.take() {
             use std::io::Write;
             if let Err(error) = stdin.write_all(token.as_bytes()) {
@@ -249,7 +299,7 @@ impl Network {
                         .try_wait()
                         .map_err(|wait_err| wait_err.to_string())?
                     {
-                        return Err(pkexec_failure(state.code()));
+                        return Err(helper_failure(state.code()));
                     }
                 }
                 return Err(format!("Cannot authorize the network helper: {error}"));
@@ -271,7 +321,7 @@ impl Network {
                         .try_wait()
                         .map_err(|error| error.to_string())?
                     {
-                        return Err(pkexec_failure(state.code()));
+                        return Err(helper_failure(state.code()));
                     }
                     if Instant::now() >= deadline {
                         return Err("Timed out waiting for network capture authorization".into());
@@ -285,7 +335,7 @@ impl Network {
             return Err("Player audio stopped".into());
         }
         drop(listener);
-        verify_root_peer(&stream)?;
+        verify_helper_peer(&stream)?;
         stream
             .set_read_timeout(Some(Duration::from_millis(100)))
             .map_err(|error| error.to_string())?;
@@ -306,7 +356,7 @@ impl Network {
         else {
             return Err("The network helper did not identify itself".into());
         };
-        if version != player_audio_helper::VERSION {
+        if version != VERSION {
             return Err("The installed network helper is incompatible with this VRCS build".into());
         }
         if received != token || pid != owner.pid || starttime != owner.created {
@@ -372,6 +422,14 @@ impl Network {
                             });
                         }
                         Ok(Some(Event::ScanResult(result))) => {
+                            tracing::debug!(
+                                request = result.request,
+                                scanned = result.scanned,
+                                candidates = result.candidates,
+                                elapsed_ms = result.elapsed_ms,
+                                matched = result.key.is_some(),
+                                "Linux network helper key scan completed"
+                            );
                             let mut pending = thread_waiter.lock().expect("scan waiter");
                             if pending
                                 .as_ref()
@@ -422,7 +480,7 @@ impl Network {
             .try_wait()
             .map_err(|error| error.to_string())?
         {
-            return Err(pkexec_failure(status.code()));
+            return Err(helper_failure(status.code()));
         }
         Ok(())
     }
@@ -526,13 +584,19 @@ pub(super) struct PendingScan {
 
 impl Drop for Network {
     fn drop(&mut self) {
-        // Best effort only: stopping capture must not wait behind a helper
-        // that no longer reads commands or is stuck in a kernel memory read.
-        let _ = self.writer.set_nonblocking(true);
+        // Send Shutdown reliably within a short timeout so the helper can zeroize
+        // key material before HelperChild::drop kills any remaining process.
+        let _ = self
+            .writer
+            .set_write_timeout(Some(Duration::from_millis(100)));
         let _ = write_command(&mut self.writer, &HelperCommand::Shutdown);
         let _ = self.writer.shutdown(std::net::Shutdown::Both);
-        // The socket shutdown wakes the reader. Dropping its handle detaches it
-        // rather than making user stop depend on its scheduling or status lock.
+        for _ in 0..5 {
+            if matches!(self.child.process().try_wait(), Ok(Some(_))) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
         self.reader.take();
     }
 }
@@ -555,7 +619,7 @@ fn runtime_path() -> Result<(RuntimeDir, PathBuf), String> {
     Ok((RuntimeDir(directory), socket))
 }
 
-fn verify_root_peer(stream: &UnixStream) -> Result<(), String> {
+fn verify_helper_peer(stream: &UnixStream) -> Result<(), String> {
     let Ok((_, uid, _)) = procfs::peer_credentials(stream) else {
         return Err("The network helper credentials could not be verified".into());
     };
@@ -565,10 +629,12 @@ fn verify_root_peer(stream: &UnixStream) -> Result<(), String> {
     Ok(())
 }
 
-fn pkexec_failure(code: Option<i32>) -> String {
+fn helper_failure(code: Option<i32>) -> String {
     match code {
         Some(126) => "Network capture authorization was cancelled".into(),
-        Some(127) => "Network capture authorization failed; check polkit and the graphical authentication agent".into(),
+        Some(127) => {
+            "Network capture authorization failed; check polkit and the graphical authentication agent".into()
+        }
         Some(code) => format!("The network helper exited ({code})"),
         None => "The network helper exited".into(),
     }
@@ -615,5 +681,14 @@ mod tests {
         let pending = network.start_key_scan(&[]).unwrap();
         let result = network.poll_key_scan(&pending);
         assert_eq!(result.unwrap().unwrap_err(), "fixture helper disconnected");
+    }
+
+    #[test]
+    fn parses_helper_version_for_matching_and_mismatched_protocols() {
+        assert_eq!(
+            parse_helper_version(&format!("vrcs-network-helper 0.1.0 (protocol {VERSION})\n")),
+            Ok(())
+        );
+        assert!(parse_helper_version("vrcs-network-helper 0.1.0 (protocol 9999)\n").is_err());
     }
 }

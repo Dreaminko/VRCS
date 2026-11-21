@@ -3488,15 +3488,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
-name = "player-audio-helper"
-version = "0.1.0"
-dependencies = [
- "libc",
- "player-audio-scan",
- "zeroize",
-]
-
-[[package]]
 name = "player-audio-scan"
 version = "0.1.0"
 dependencies = [
@@ -5925,7 +5916,6 @@ dependencies = [
  "ndarray",
  "ort",
  "pipewire",
- "player-audio-helper",
  "player-audio-scan",
  "regex",
  "reqwest 0.12.28",
@@ -5969,7 +5959,6 @@ dependencies = [
  "openvr",
  "openvr_sys",
  "openxr",
- "pipewire",
  "png 0.17.16",
  "semver",
  "serde",

@@ -12,6 +12,8 @@ pub(crate) use cache::SessionCache;
 mod connection;
 #[cfg(any(windows, target_os = "linux", test))]
 mod crypto;
+#[cfg(any(windows, target_os = "linux", test))]
+pub(crate) mod helper;
 #[cfg(any(windows, test))]
 mod key;
 #[cfg(target_os = "linux")]
@@ -36,6 +38,8 @@ mod replay_tests;
 pub(crate) use priority::replace as publish_view_priority;
 pub(crate) use priority::{clear as clear_view_priority, is_visible as is_view_priority};
 pub(crate) mod session;
+#[cfg(target_os = "linux")]
+pub(crate) use helper::run as run_network_helper;
 #[cfg(target_os = "linux")]
 pub(crate) use linux::network_available;
 #[cfg(windows)]

@@ -35,7 +35,6 @@ ring = "0.17"
 zeroize = "1"
 libloading = "0.8"
 player-audio-scan = { path = "../crates/player-audio-scan" }
-player-audio-helper = { path = "../crates/player-audio-helper" }
 serde_ignored = "0.1"
 uuid = { version = "1", features = ["v4"] }
 thiserror = "2"

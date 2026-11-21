@@ -101,7 +101,6 @@ jobs:
     timeout-minutes: 45
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
-      VRCS_PACKAGE_CHANNEL: development
     steps:
       - uses: actions/checkout@v7
         with:

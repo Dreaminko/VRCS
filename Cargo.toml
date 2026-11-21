@@ -4,7 +4,6 @@ members = [
     "core",
     "apps/desktop/src-tauri",
     "crates/player-audio-scan",
-    "crates/player-audio-helper",
 ]
 
 # Match ONNX Runtime's C++ runtime while retaining application debug builds.

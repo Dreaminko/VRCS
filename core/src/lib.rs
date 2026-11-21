@@ -62,6 +62,11 @@ pub use crate::models::{
 pub use crate::subtitle_output::PresentationEvent;
 pub use crate::translation::same_translation_language;
 
+#[cfg(target_os = "linux")]
+pub fn run_network_helper(args: impl IntoIterator<Item = String>) -> Result<(), String> {
+    player_audio::run_network_helper(args)
+}
+
 pub struct CoreOptions {
     pub config_path: PathBuf,
     pub host: Option<String>,
@@ -226,7 +231,7 @@ impl CoreHandle {
             .await;
         self.state.content.local_translation_models.cancel().await;
         let plamo_stop = self.state.content.plamo_runtime.stop().await;
-        let qwen_stop = self.state.capture.qwen_runtime.stop().await;
+        let qwen_stop = self.state.capture.qwen_runtime.force_stop().await;
         self.model_manager.cancel_all_and_wait().await;
         plamo_stop?;
         qwen_stop?;

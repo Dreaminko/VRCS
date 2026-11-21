@@ -80,11 +80,6 @@ impl EventSender {
     fn is_closed(&self) -> bool {
         self.0.lock().expect("network outputs").network_closed()
     }
-
-    #[cfg(target_os = "linux")]
-    fn voice_enabled(&self) -> bool {
-        self.0.lock().expect("network outputs").voice_enabled()
-    }
 }
 
 #[cfg(test)]
@@ -150,10 +145,6 @@ fn supervise(
         // starting transcription itself never requires being in VRChat.
         let default_opus_path = platform::opus_path(&path);
         #[cfg(target_os = "linux")]
-        if tx.voice_enabled() {
-            Opus::load(&default_opus_path)?;
-        }
-        #[cfg(target_os = "linux")]
         {
             status.lock().expect("player status").phase = "authorizing";
         }
@@ -189,7 +180,7 @@ fn finish_linux_session(
     result: Result<(), String>,
     cache: &SessionCache,
 ) -> Result<(), String> {
-    if result.is_err() && player_audio_helper::procfs::exited(owner.pid, owner.created) {
+    if result.is_err() && super::helper::procfs::exited(owner.pid, owner.created) {
         cache.invalidate();
         Ok(())
     } else {
@@ -312,7 +303,7 @@ fn run(
             {
                 if crate::vrchat_process::identity(pid).ok() != Some(owner) {
                     #[cfg(target_os = "linux")]
-                    if !player_audio_helper::procfs::exited(owner.pid, owner.created) {
+                    if !super::helper::procfs::exited(owner.pid, owner.created) {
                         // Read/permission failures are not evidence of exit.
                         crate::vrchat_process::identity(pid)?;
                     }
@@ -1679,7 +1670,7 @@ mod tests {
     #[test]
     fn helper_failure_waits_for_replacement_game_but_live_game_errors_fail() {
         let pid = std::process::id();
-        let created = player_audio_helper::procfs::starttime(pid).unwrap();
+        let created = crate::player_audio::helper::procfs::starttime(pid).unwrap();
         let cache = SessionCache::default();
         let owner = ProcessIdentity { pid, created };
         for error in [

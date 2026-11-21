@@ -171,7 +171,6 @@ jobs:
     timeout-minutes: 45
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
-      VRCS_PACKAGE_CHANNEL: development
     steps:
       - uses: actions/checkout@v7
         with:
@@ -197,7 +196,7 @@ jobs:
           cargo clippy --workspace --all-targets --locked -- -D warnings
           cargo clippy -p vrcs-desktop --no-deps --all-targets --locked --features vr-preview -- -D warnings
           dbus-run-session -- xvfb-run -a cargo test --workspace --locked
-          cargo check -p vrcs-core -p vrcs-desktop --all-targets --locked --features vulkan
+          cargo clippy -p vrcs-core -p vrcs-desktop --no-deps --all-targets --locked --features vulkan -- -D warnings
       - name: Build and load native ONNX runtime
         run: node scripts/build-linux-release.mjs --preview
       - uses: actions/upload-artifact@v7
