@@ -25,7 +25,6 @@ export interface DesktopCapabilities {
   global_shortcuts: Capability;
   shortcut_bindings: string[] | null;
   vr: { subtitles: Capability; controller_input: Capability; scene_capture: Capability };
-  update_method: "in_app" | "manual";
 }
 
 export interface PlatformState {
@@ -38,17 +37,23 @@ export const usePlatformCapabilities = () => useContext(PlatformCapabilitiesCont
 
 export function CapabilityNotice({ capability }: { capability: Capability | null | undefined }) {
   const { t } = useTranslation();
-  if (capability?.available) return null;
+  if (!capability || capability.available || !capability.reason_code) return null;
   return <p className="settings-validation-error" role="status">
-    {t(capability?.reason_code ? capability.reason_code.startsWith("platform.") ? capability.reason_code
-      : capability.reason_code.startsWith("vr.") ? `platform.${capability.reason_code}` : `errors.${capability.reason_code}` : "common.checking")}
+    {t(capability.reason_code.startsWith("platform.") ? capability.reason_code
+      : capability.reason_code.startsWith("vr.") ? `platform.${capability.reason_code}` : `errors.${capability.reason_code}`)}
   </p>;
 }
 
 export function CapabilitySection({ capability, children }: { capability: Capability | null | undefined; children: ReactNode }) {
-  if (capability?.supported) return <>{children}</>;
+  if (!capability) return <>{children}</>;
+  if (capability.supported) {
+    return <>
+      {!capability.available && <CapabilityNotice capability={capability} />}
+      {children}
+    </>;
+  }
   return <>
     <CapabilityNotice capability={capability} />
-    <fieldset disabled={!capability?.supported} className="platform-capability-section">{children}</fieldset>
+    <fieldset disabled className="platform-capability-section">{children}</fieldset>
   </>;
 }

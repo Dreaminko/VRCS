@@ -1,6 +1,7 @@
 import { Download, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { openReleasePage } from "./app-updater";
 import type { AppUpdaterState } from "./useAppUpdater";
 
 function formatProgress(downloaded: number, total: number | null): number | null {
@@ -21,6 +22,7 @@ export function UpdateNotice({
 
   const checking = updater.phase === "checking";
   const busy = updater.phase === "downloading" || updater.phase === "installing";
+  const canInstall = updater.buildInfo?.canInstall ?? updater.buildInfo?.updaterAvailable ?? false;
 
   return (
     <aside className="update-notice" aria-labelledby="update-notice-title">
@@ -38,7 +40,7 @@ export function UpdateNotice({
             <div><i style={{ width: progress === null ? "35%" : `${progress}%` }} /></div>
           </div>
         )}
-        {transcriptionRunning && !busy && (
+        {canInstall && transcriptionRunning && !busy && (
           <small>{t("updates.stopTranscriptionFirst")}</small>
         )}
         {updater.phase === "error" && (
@@ -48,10 +50,14 @@ export function UpdateNotice({
           <button
             className="primary-button"
             type="button"
-            disabled={checking || busy || updater.preferenceSaving || transcriptionRunning}
-            onClick={() => void (updater.phase === "error" ? updater.check(true) : updater.install())}
+            disabled={checking || busy || updater.preferenceSaving || (canInstall && transcriptionRunning)}
+            onClick={() => void (updater.phase === "error"
+              ? updater.check(true)
+              : canInstall
+                ? updater.install()
+                : openReleasePage(updater.update?.releaseUrl))}
           >
-            {t(updater.phase === "error" ? "common.retry" : "updates.downloadAndInstall")}
+            {t(updater.phase === "error" ? "common.retry" : canInstall ? "updates.downloadAndInstall" : "updates.openReleasePage")}
           </button>
           {!busy && (
             <button className="secondary-button" type="button" onClick={updater.dismissNotice}>

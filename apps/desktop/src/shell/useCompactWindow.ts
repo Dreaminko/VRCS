@@ -13,9 +13,11 @@ import {
 } from "./compact-mode";
 
 export function useCompactWindow({
+  alwaysOnTopAvailable,
   clearErrorFrom,
   reportError,
 }: {
+  alwaysOnTopAvailable?: boolean;
   clearErrorFrom: (source: string) => void;
   reportError: (reason: unknown, fallbackKey: string, source?: string) => void;
 }) {
@@ -27,6 +29,8 @@ export function useCompactWindow({
     setTransparentBackground((previous) => !previous);
   }, []);
   const [height, setHeight] = useState<number>(COMPACT_WINDOW_SIZE.height);
+  const alwaysOnTopRef = useRef(alwaysOnTopAvailable);
+  alwaysOnTopRef.current = alwaysOnTopAvailable;
   const compactModeRef = useRef(false);
   // null means a native adjustment was interrupted or only partially applied.
   const panelStateRef = useRef<CompactPanelState | null>(false);
@@ -186,9 +190,11 @@ export function useCompactWindow({
         "@tauri-apps/api/window"
       );
       const appWindow = getCurrentWindow();
+      const canTopmost = alwaysOnTopRef.current
+        ?? (await runtimeApi.platformCapabilities())?.always_on_top.available
+        ?? false;
       if (next) {
-        const capabilities = await runtimeApi.platformCapabilities();
-        if (capabilities?.always_on_top.available) await invoke("set_compact_window_topmost", { enabled: true });
+        if (canTopmost) await invoke("set_compact_window_topmost", { enabled: true });
         panelStateRef.current = false;
         requestedPanelStateRef.current = false;
         const compactSize = compactWindowSize(
@@ -202,8 +208,7 @@ export function useCompactWindow({
         await appWindow.setResizable(true);
         setHeight(compactSize.height);
       } else {
-        const capabilities = await runtimeApi.platformCapabilities();
-        if (capabilities?.always_on_top.available) await invoke("set_compact_window_topmost", { enabled: false });
+        if (canTopmost) await invoke("set_compact_window_topmost", { enabled: false });
         await appWindow.setResizable(true);
         await appWindow.setSizeConstraints({ minWidth: 860, minHeight: 620 });
         await appWindow.setSize(new LogicalSize(1180, 760));

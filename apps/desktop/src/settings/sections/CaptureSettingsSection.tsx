@@ -341,7 +341,6 @@ export function CaptureSettingsSection({
             }}
           />
           <CapabilityNotice capability={core?.chatbox.network_receive} />
-          <fieldset className="platform-capability-section">
           <VrchatChatboxSettings draft={draft} translation={translation} profiles={profiles} status={chatboxStatus}
             supported={networkSupported} saveState={saveState} saveMessage={saveMessage}
             applySettings={applySettings} onOpenTranslation={onOpenTranslation} />
@@ -355,7 +354,6 @@ export function CaptureSettingsSection({
                 player_audio: { ...(current.audio.output.player_audio ?? DEFAULT_PLAYER_AUDIO), ...patch },
               } },
             }))} />
-          </fieldset>
           {networkRequiredOpen && <ConfirmDialog
             title={t("settings.capture.networkTitle")}
             message={t(networkSupported ? "settings.capture.networkRequired" : "settings.capture.unsupported")}

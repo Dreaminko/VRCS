@@ -11,12 +11,12 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 
 const STABLE_ENDPOINT: &str =
     "https://github.com/Dreaminko/VRCS/releases/latest/download/latest.json";
+const RELEASE_PAGE_URL: &str = "https://github.com/Dreaminko/VRCS/releases/latest";
 const NIGHTLY_ENDPOINT: &str =
     "https://raw.githubusercontent.com/Dreaminko/VRCS/nightly-updates/nightly.json";
 const NIGHTLY_PREFERENCE: &str = "receiveNightlyUpdates";
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(30);
 const UPDATER_PUBLIC_KEY: Option<&str> = option_env!("TAURI_UPDATER_PUBLIC_KEY");
-const PACKAGE_CHANNEL: Option<&str> = option_env!("VRCS_PACKAGE_CHANNEL");
 
 pub(crate) struct UpdateState {
     pending: Mutex<Option<Update>>,
@@ -49,6 +49,7 @@ pub(crate) struct BuildInfo {
     arch: &'static str,
     package_channel: &'static str,
     updater_available: bool,
+    can_install: bool,
 }
 
 #[derive(Serialize)]
@@ -58,6 +59,7 @@ pub(crate) struct UpdateMetadata {
     current_version: String,
     notes: Option<String>,
     channel: UpdateChannel,
+    release_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -145,12 +147,42 @@ fn target() -> String {
     )
 }
 
+#[cfg(target_os = "linux")]
+fn appimage_writable() -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Some(appimage) = std::env::var_os("APPIMAGE").filter(|path| !path.is_empty()) else {
+        return false;
+    };
+    let writable = |path: &std::path::Path| {
+        std::ffi::CString::new(path.as_os_str().as_bytes())
+            .is_ok_and(|cstr| unsafe { libc::access(cstr.as_ptr(), libc::W_OK) == 0 })
+    };
+    let path = std::path::Path::new(&appimage);
+    path.parent().is_some_and(writable) && writable(path)
+}
+
+fn has_public_key() -> bool {
+    UPDATER_PUBLIC_KEY.is_some_and(|key| !key.trim().is_empty())
+}
+
+pub(crate) fn can_install_updates() -> bool {
+    #[cfg(windows)]
+    let supported = true;
+    #[cfg(target_os = "linux")]
+    let supported = package_channel() == "appimage" && appimage_writable();
+    #[cfg(not(any(windows, target_os = "linux")))]
+    let supported = false;
+    supported && has_public_key()
+}
+
 pub(crate) fn updater_available() -> bool {
-    let supported = cfg!(windows)
-        || (cfg!(target_os = "linux")
-            && package_channel() == "appimage"
-            && std::env::var_os("APPIMAGE").is_some());
-    supported && UPDATER_PUBLIC_KEY.is_some_and(|key| !key.trim().is_empty())
+    #[cfg(windows)]
+    let supported = true;
+    #[cfg(target_os = "linux")]
+    let supported = package_channel() != "development";
+    #[cfg(not(any(windows, target_os = "linux")))]
+    let supported = false;
+    supported && has_public_key()
 }
 
 fn nightly_supported() -> bool {
@@ -158,12 +190,30 @@ fn nightly_supported() -> bool {
 }
 
 fn package_channel() -> &'static str {
-    match PACKAGE_CHANNEL {
-        Some("deb") => "deb",
-        Some("appimage") => "appimage",
-        _ if cfg!(debug_assertions) => "development",
-        _ if cfg!(windows) => "installer",
-        _ => "manual",
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("APPIMAGE").is_some() {
+            "appimage"
+        } else if std::env::current_exe()
+            .ok()
+            .is_some_and(|path| path == std::path::Path::new("/usr/bin/vrcs-desktop"))
+        {
+            "deb"
+        } else if cfg!(debug_assertions) {
+            "development"
+        } else {
+            "manual"
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        if cfg!(debug_assertions) {
+            "development"
+        } else if cfg!(windows) {
+            "installer"
+        } else {
+            "manual"
+        }
     }
 }
 
@@ -200,6 +250,7 @@ pub(crate) fn app_build_info(app: AppHandle) -> BuildInfo {
         arch: std::env::consts::ARCH,
         package_channel: package_channel(),
         updater_available: updater_available(),
+        can_install: can_install_updates(),
     }
 }
 
@@ -283,8 +334,10 @@ pub(crate) async fn check_for_update(
         current_version: update.current_version.clone(),
         notes: update.body.clone(),
         channel,
+        release_url: Some(RELEASE_PAGE_URL.to_owned()),
     };
-    *state.pending.lock().map_err(|_| UpdateError::Failed)? = Some(update);
+    *state.pending.lock().map_err(|_| UpdateError::Failed)? =
+        can_install_updates().then_some(update);
     Ok(Some(metadata))
 }
 
@@ -322,7 +375,7 @@ pub(crate) async fn download_and_install_update(
     version: String,
     on_event: Channel<DownloadEvent>,
 ) -> Result<(), UpdateError> {
-    if !updater_available() {
+    if !can_install_updates() {
         return Err(UpdateError::Unavailable);
     }
     let _busy = acquire_busy(&state)?;

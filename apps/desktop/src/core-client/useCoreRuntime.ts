@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isTauri } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { publishHealth } from "./health-store";
 import { runtimeApi } from "./runtime-api";
@@ -77,7 +79,6 @@ export function useCoreRuntime({
   const [health, setHealth] = useState<Health | null>(null);
   const [capabilities, setCapabilities] = useState<PlatformState>({ core: null, desktop: null });
   const healthRef = useRef<Health | null>(null);
-  const capabilitiesUpdatedAtRef = useRef(0);
   const capabilitiesJsonRef = useRef<string | null>(null);
   const healthJsonRef = useRef<string | null>(null);
   const shellHealthJsonRef = useRef<string | null>(null);
@@ -87,6 +88,24 @@ export function useCoreRuntime({
     if (serialized === capabilitiesJsonRef.current) return;
     capabilitiesJsonRef.current = serialized;
     setCapabilities(next);
+  }, []);
+
+  const refreshCapabilities = useCallback(async (isCancelled?: () => boolean) => {
+    const [coreResult, desktopResult] = await Promise.allSettled([
+      runtimeApi.capabilities(),
+      runtimeApi.platformCapabilities(),
+    ]);
+    if (isCancelled?.()) return;
+    setCapabilities((current) => {
+      const next: PlatformState = {
+        core: coreResult.status === "fulfilled" ? coreResult.value : current.core,
+        desktop: desktopResult.status === "fulfilled" ? desktopResult.value : current.desktop,
+      };
+      const serialized = JSON.stringify(next);
+      if (serialized === capabilitiesJsonRef.current) return current;
+      capabilitiesJsonRef.current = serialized;
+      return next;
+    });
   }, []);
 
   const commitHealth = useCallback((next: Health | null) => {
@@ -158,29 +177,45 @@ export function useCoreRuntime({
   useEffect(() => {
     if (!coreConfigured) return;
     let cancelled = false;
+    let unlisten: UnlistenFn | null = null;
+    void refreshCapabilities(() => cancelled);
+    if (isTauri()) {
+      void listen("desktop-shortcuts-changed", async () => {
+        try {
+          const desktop = await runtimeApi.platformCapabilities();
+          if (cancelled) return;
+          setCapabilities((current) => {
+            const next: PlatformState = { core: current.core, desktop };
+            const serialized = JSON.stringify(next);
+            if (serialized === capabilitiesJsonRef.current) return current;
+            capabilitiesJsonRef.current = serialized;
+            return next;
+          });
+        } catch {
+          // Leave existing desktop capabilities untouched on transient query failure.
+        }
+      }).then((dispose) => {
+        if (cancelled) dispose();
+        else unlisten = dispose;
+      });
+    }
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [coreConfigured, refreshCapabilities]);
+
+  useEffect(() => {
+    if (!coreConfigured) return;
+    let cancelled = false;
     let timer: number | null = null;
     const poll = async () => {
       let interval = 2500;
       try {
-        const refreshCapabilities =
-          healthRef.current === null || Date.now() - capabilitiesUpdatedAtRef.current >= 15_000;
-        if (refreshCapabilities) {
-          const [next, core, desktop] = await Promise.all([
-            runtimeApi.health(),
-            runtimeApi.capabilities(),
-            runtimeApi.platformCapabilities(),
-          ]);
-          if (cancelled) return;
-          capabilitiesUpdatedAtRef.current = Date.now();
-          if (next.capture_requested && ["waiting_key", "acquiring_key", "retrying_key"].includes(next.player_audio?.phase ?? "")) interval = 250;
-          commitHealth(next);
-          commitCapabilities({ core, desktop });
-        } else {
-          const next = await runtimeApi.health();
-          if (cancelled) return;
-          if (next.capture_requested && ["waiting_key", "acquiring_key", "retrying_key"].includes(next.player_audio?.phase ?? "")) interval = 250;
-          commitHealth(next);
-        }
+        const next = await runtimeApi.health();
+        if (cancelled) return;
+        if (next.capture_requested && ["waiting_key", "acquiring_key", "retrying_key"].includes(next.player_audio?.phase ?? "")) interval = 250;
+        commitHealth(next);
         clearErrorFrom("core");
       } catch (reason) {
         if (cancelled) return;
@@ -194,14 +229,13 @@ export function useCoreRuntime({
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [clearErrorFrom, commitCapabilities, commitHealth, coreConfigured, reportError]);
+  }, [clearErrorFrom, commitHealth, coreConfigured, reportError]);
 
   const retry = useCallback(async () => {
     clearError();
     setCoreConfigured(false);
     setStartupState("starting");
     commitHealth(null);
-    capabilitiesUpdatedAtRef.current = 0;
     commitCapabilities({ core: null, desktop: null });
     try {
       await retryCoreStartup();

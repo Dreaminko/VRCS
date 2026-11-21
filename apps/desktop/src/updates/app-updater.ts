@@ -1,5 +1,7 @@
 import { Channel, invoke, isTauri } from "@tauri-apps/api/core";
 
+const RELEASE_PAGE_URL = "https://github.com/Dreaminko/VRCS/releases/latest";
+
 export interface AppBuildInfo {
   version: string;
   variant: "standard";
@@ -7,6 +9,7 @@ export interface AppBuildInfo {
   arch?: string;
   packageChannel?: "development" | "installer" | "manual" | "deb" | "appimage";
   updaterAvailable: boolean;
+  canInstall?: boolean;
 }
 
 export interface AppUpdateMetadata {
@@ -14,6 +17,7 @@ export interface AppUpdateMetadata {
   currentVersion: string;
   notes: string | null;
   channel: "stable" | "nightly";
+  releaseUrl?: string | null;
 }
 
 export type UpdateDownloadEvent =
@@ -23,9 +27,18 @@ export type UpdateDownloadEvent =
 
 export async function loadAppBuildInfo(): Promise<AppBuildInfo> {
   if (!isTauri()) {
-    return { version: "development", variant: "standard", updaterAvailable: false };
+    return { version: "development", variant: "standard", updaterAvailable: false, canInstall: false };
   }
   return invoke<AppBuildInfo>("app_build_info");
+}
+
+export async function openReleasePage(url?: string | null): Promise<void> {
+  const target = url || RELEASE_PAGE_URL;
+  if (isTauri()) {
+    await invoke("open_project_link", { target });
+    return;
+  }
+  window.open(target, "_blank", "noopener,noreferrer");
 }
 
 export async function checkForAppUpdate(): Promise<AppUpdateMetadata | null> {

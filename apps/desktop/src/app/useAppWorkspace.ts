@@ -47,6 +47,7 @@ export function useAppWorkspace({
     if (settings.value && !learningAvailable && page === "learning") setPage("live");
   }, [learningAvailable, page, setPage, settings.value]);
   const compactWindow = useCompactWindow({
+    alwaysOnTopAvailable: runtime.capabilities.desktop?.always_on_top.available,
     clearErrorFrom: runtime.clearErrorFrom,
     reportError: runtime.reportError,
   });

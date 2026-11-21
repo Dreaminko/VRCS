@@ -15,7 +15,7 @@ export interface MemoryCompressionStatus {
 }
 type MemoryDialog = "manage" | "disable" | "enable" | null;
 
-export function usePlayerAudioStart(options?: { beforeMemoryChange: () => Promise<boolean> }) {
+export function usePlayerAudioStart(options?: { os?: string; beforeMemoryChange: () => Promise<boolean> }) {
   const { t } = useTranslation();
   const optionsRef = useRef(options);
   optionsRef.current = options;
@@ -127,8 +127,8 @@ export function usePlayerAudioStart(options?: { beforeMemoryChange: () => Promis
     if (!isTauri()) return true;
     // Linux has no Windows pagefile/MMAgent prerequisite; Core requests the
     // network helper through polkit only after a VRChat process is found.
-    const capabilities = await runtimeApi.platformCapabilities().catch(() => null);
-    if (capabilities?.os === "linux") return true;
+    const os = optionsRef.current?.os ?? (await runtimeApi.platformCapabilities().catch(() => null))?.os;
+    if (os === "linux") return true;
     setPreparation({ stage: "memory", detail: null });
     try {
       const status = await refreshMemory();

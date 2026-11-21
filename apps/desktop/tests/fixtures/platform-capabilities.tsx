@@ -22,7 +22,6 @@ export function WindowsCapabilities({ children, networkSupported = true, network
       screenshot: available, always_on_top: available, global_shortcuts: available,
       shortcut_bindings: null,
       vr: { subtitles: available, controller_input: available, scene_capture: available },
-      update_method: "in_app",
     },
   };
   return <PlatformCapabilitiesContext.Provider value={value}>{children}</PlatformCapabilitiesContext.Provider>;

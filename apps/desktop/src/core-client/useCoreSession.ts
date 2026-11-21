@@ -21,6 +21,7 @@ export function useCoreSession(resourcesActive: boolean) {
     reportError: errors.reportError,
   });
   const playerAudioStart = usePlayerAudioStart({
+    os: runtime.capabilities.desktop?.os ?? runtime.capabilities.core?.os,
     beforeMemoryChange: async () => !runtime.health.getCurrent()?.capture_requested || await capture.setRunning(false),
   });
   const settings = useSettingsRuntime({
