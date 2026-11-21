@@ -272,7 +272,7 @@ test(`system browser validates VQA layout and interactions at ${viewport.width}�
           await settle();
           checkLayout();
           const content = document.querySelector('.vision-window-content');
-          check(!content.textContent.includes(i18next.t('visionWindow.states.complete')), 'Answer-ready status is not shown above the content');
+          check(['Answer ready.', '回答已就绪。', '回答の準備ができました。'].every(label => !content.textContent.includes(label)), 'Answer-ready status is not shown above the content');
           check(!content.textContent.includes(status.profile_name) && !content.textContent.includes(status.model), 'Service and model information is not shown');
           check(content.scrollHeight > content.clientHeight, 'Long answers scroll within the content region');
           content.scrollTop = content.scrollHeight;

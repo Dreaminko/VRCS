@@ -15,6 +15,8 @@ import { MANAGED_QWEN_RECOGNITION_SOURCE } from "../../providers/recognition-ser
 import type { RecognitionActions, RecognitionModels } from "../settings-types";
 import { Select } from "../SettingsControls";
 
+const KNOWN_RUNTIME_STATUSES = new Set(["not_loaded", "loading", "ready", "error", "unknown"]);
+
 export function RecognitionSettingsSection({
   draft,
   apiProfiles,
@@ -34,6 +36,9 @@ export function RecognitionSettingsSection({
 }) {
   const { t } = useTranslation();
   const usesManagedQwen = draft.asr.backend === "qwen_local_managed";
+  const localizedModelStatus = KNOWN_RUNTIME_STATUSES.has(modelStatus)
+    ? t(`settings.recognition.runtimeStatus.${modelStatus}`)
+    : modelStatus;
   const recognitionSource = recognitionSourceValue(draft.asr);
   const sourceOptions = [
     { value: MANAGED_QWEN_RECOGNITION_SOURCE, label: t("settings.recognition.managedQwenSource") },
@@ -55,7 +60,7 @@ export function RecognitionSettingsSection({
   return (
     <div className="settings-section settings-section-active recognition-section" id="settings-panel-recognition" role="tabpanel" aria-labelledby="settings-tab-recognition">
       <div className="section-heading">
-        <div><AudioLines size={18} /><h2>{t("settings.recognition.title")}</h2>{usesManagedQwen && <span className="status-chip">{t("settings.recognition.status", { status: modelStatus })}</span>}</div>
+        <div><AudioLines size={18} /><h2>{t("settings.recognition.title")}</h2>{usesManagedQwen && <span className="status-chip">{t("settings.recognition.status", { status: localizedModelStatus })}</span>}</div>
         {usesManagedQwen && onManageLocalModels && <button className="secondary-button" type="button"
           onClick={onManageLocalModels}>
           <HardDrive size={15} />{t("settings.modelAssignments.manageLocalModels")}
