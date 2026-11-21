@@ -22,14 +22,6 @@ async function render() {
   const vrPreview = import.meta.env.DEV && (route === "vr-preview" || windowLabel === "vr-preview");
   const ocrWindow = route === "ocr" || windowLabel === "ocr";
   const visionWindow = route === "vision" || windowLabel === "vision";
-  if (route === "capture-image" || windowLabel === "capture-image") {
-    const [, { CaptureImageWindow }] = await Promise.all([
-      initializeI18n({ nativePreferences: true }),
-      import("./capture-image/CaptureImageWindow"),
-    ]);
-    createRoot(rootElement).render(<StrictMode><AppErrorBoundary><CaptureImageWindow /></AppErrorBoundary></StrictMode>);
-    return;
-  }
   if (vrPreview) {
     const [, { VrPreview }] = await Promise.all([
       initializeI18n({ nativePreferences: false }),

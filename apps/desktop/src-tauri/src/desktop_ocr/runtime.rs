@@ -24,12 +24,16 @@ struct State {
 
     #[cfg(any(windows, target_os = "linux"))]
     selection_cancelled: Arc<AtomicBool>,
+    #[cfg(target_os = "linux")]
+    selection_cancel_notify: Arc<tokio::sync::Notify>,
 }
 
 impl State {
     fn cancel(&mut self) {
         #[cfg(any(windows, target_os = "linux"))]
         self.selection_cancelled.store(true, Ordering::Release);
+        #[cfg(target_os = "linux")]
+        self.selection_cancel_notify.notify_waiters();
         if let Some(task) = self.task.take() {
             task.abort();
         }
@@ -149,6 +153,8 @@ impl Manager {
                 self.shortcut_error(Some("desktop_ocr.unavailable".into()));
             }
         }
+        #[cfg(target_os = "linux")]
+        crate::desktop_capture::portal_shortcuts::sync(self.app.clone());
     }
 
     #[cfg(windows)]
@@ -328,6 +334,12 @@ impl Manager {
         state.active_config = Some(config.ocr().clone());
         let selection_cancelled = Arc::new(AtomicBool::new(false));
         state.selection_cancelled = selection_cancelled.clone();
+        #[cfg(target_os = "linux")]
+        let selection_cancel_notify = Arc::new(tokio::sync::Notify::new());
+        #[cfg(target_os = "linux")]
+        {
+            state.selection_cancel_notify = selection_cancel_notify.clone();
+        }
         state.status.state = "capturing";
         state.status.blocks.clear();
         state.status.error = None;
@@ -339,9 +351,9 @@ impl Manager {
             let result = async {
                 #[cfg(target_os = "linux")]
                 let capture = {
-                    let selected = crate::desktop_capture::picker::capture_region(
-                        app.clone(),
+                    let selected = crate::desktop_capture::portal::capture_region(
                         selection_cancelled.clone(),
+                        selection_cancel_notify,
                         || {
                             app.state::<Self>()
                                 .update(scan_id, |status| status.state = "selecting");

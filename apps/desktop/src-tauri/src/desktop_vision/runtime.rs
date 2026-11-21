@@ -21,6 +21,8 @@ struct State {
     recording: Option<VisionSession>,
     task: Option<tauri::async_runtime::JoinHandle<()>>,
     selection_cancelled: Arc<AtomicBool>,
+    #[cfg(target_os = "linux")]
+    selection_cancel_notify: Arc<tokio::sync::Notify>,
 
     binding: Option<(Option<String>, bool)>,
 }
@@ -28,6 +30,8 @@ struct State {
 impl State {
     fn cancel(&mut self) {
         self.selection_cancelled.store(true, Ordering::Release);
+        #[cfg(target_os = "linux")]
+        self.selection_cancel_notify.notify_waiters();
         if let Some(task) = self.task.take() {
             task.abort();
         }
@@ -228,7 +232,13 @@ impl Manager {
             }
         }
         #[cfg(not(windows))]
-        let _ = changed_binding;
+        {
+            let _ = changed_binding;
+            #[cfg(target_os = "linux")]
+            if changed_binding || (available && !conflict) {
+                crate::desktop_capture::portal_shortcuts::sync(self.app.clone());
+            }
+        }
     }
 
     #[cfg(windows)]
@@ -471,6 +481,12 @@ impl Manager {
 
         let cancelled = Arc::new(AtomicBool::new(false));
         state.selection_cancelled = cancelled.clone();
+        #[cfg(target_os = "linux")]
+        let cancel_notify = Arc::new(tokio::sync::Notify::new());
+        #[cfg(target_os = "linux")]
+        {
+            state.selection_cancel_notify = cancel_notify.clone();
+        }
         state.status.state = "capturing";
         self.publish(&state.status);
         let app = self.app.clone();
@@ -478,9 +494,9 @@ impl Manager {
             let result = async {
                 #[cfg(target_os = "linux")]
                 {
-                    let selected = crate::desktop_capture::picker::capture_region(
-                        app.clone(),
+                    let selected = crate::desktop_capture::portal::capture_region(
                         cancelled.clone(),
+                        cancel_notify,
                         || {
                             app.state::<Self>()
                                 .update(id, |state| state.status.state = "selecting");
@@ -603,13 +619,22 @@ impl Manager {
     }
 
     pub fn start_recording(&self) -> Result<(), String> {
-        let mut state = self.state.lock().unwrap();
-        let service = state.ready()?;
-        if state.image.is_none() {
-            return Err("desktop_vision.no_image".into());
-        }
+        let (service, lifecycle, id) = {
+            let state = self.state.lock().unwrap();
+            let service = state.ready()?;
+            if state.image.is_none() {
+                return Err("desktop_vision.no_image".into());
+            }
+            (service, state.lifecycle, state.status.session_id)
+        };
+        // Avoid holding the state mutex across synchronous keyring/audio setup.
         // Failure to acquire a microphone leaves the image and editable draft intact.
-        let session = match service.begin_for(VisionMode::Desktop) {
+        let begin_result = service.begin_for(VisionMode::Desktop);
+        let mut state = self.state.lock().unwrap();
+        if state.lifecycle != lifecycle || state.status.session_id != id || state.image.is_none() {
+            return Ok(());
+        }
+        let session = match begin_result {
             Ok(session) => session,
             Err(detail) => {
                 state.status.fail("recognition_failed", Some(detail));

@@ -90,6 +90,18 @@ impl Shortcut {
         }
         trigger
     }
+
+    /// X11 modifier mask (Shift=1, Control=4, Mod1=8) and X11 KeySym.
+    #[cfg(any(target_os = "linux", test))]
+    pub fn x11_binding(self) -> (u16, u32) {
+        let modifiers =
+            u16::from(self.shift) | (u16::from(self.ctrl) << 2) | (u16::from(self.alt) << 3);
+        let keysym = match self.key {
+            Key::Char(key) => u32::from(key.to_ascii_lowercase()),
+            Key::Function(number) => 0xffbe + u32::from(number - 1),
+        };
+        (modifiers, keysym)
+    }
 }
 
 #[cfg(test)]
@@ -102,6 +114,7 @@ mod tests {
         assert_eq!(shortcut.key, Key::Char('O'));
         assert_eq!(shortcut.windows_registration(), (3, 79));
         assert_eq!(shortcut.portal_trigger(), "CTRL+ALT+o");
+        assert_eq!(shortcut.x11_binding(), (0x0c, b'o' as u32));
         assert_eq!(
             Shortcut::parse(" shift + ctrl + f8 ")
                 .unwrap()
@@ -115,6 +128,10 @@ mod tests {
         assert_eq!(
             Shortcut::parse("Shift+F11").unwrap().portal_trigger(),
             "SHIFT+F11"
+        );
+        assert_eq!(
+            Shortcut::parse("Shift+F11").unwrap().x11_binding(),
+            (0x01, 0xffc8)
         );
     }
 
