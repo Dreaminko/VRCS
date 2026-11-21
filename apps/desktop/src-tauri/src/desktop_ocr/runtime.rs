@@ -380,7 +380,6 @@ impl Manager {
                                 }
                             });
                         },
-                        |_| async { Ok(()) },
                         |update| {
                             app.state::<Self>()
                                 .update(scan_id, |status| upsert_block(&mut status.blocks, update));

@@ -31,25 +31,22 @@ mod ocr_wrist;
 mod placement;
 mod player_audio_ui;
 mod player_display;
+mod presentation;
 #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
 pub(crate) mod preview;
+mod process;
+pub(crate) mod renderer;
+mod runtime;
 #[cfg(windows)]
 pub(crate) mod surface;
+mod transform;
 #[cfg(windows)]
 mod ui_runtime;
 mod visibility;
 #[cfg(windows)]
 mod vision_runtime;
-mod wrist_menu;
-// Keep the image verifier covered without enabling scan cancellation.
-#[cfg(all(windows, test))]
-mod ocr_tracking;
-mod presentation;
-mod process;
-pub(crate) mod renderer;
-mod runtime;
-mod transform;
 mod wrist_labels;
+mod wrist_menu;
 
 use tauri::State;
 

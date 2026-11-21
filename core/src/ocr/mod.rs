@@ -21,6 +21,7 @@ pub use tasks::{
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
+#[cfg(test)]
 use std::time::Duration;
 
 pub(crate) fn model_directory(root: &Path) -> PathBuf {
@@ -71,8 +72,6 @@ pub enum OcrImageData {
     Rgba(Vec<u8>),
 }
 
-pub type TextRegions = [Vec<[[f32; 2]; 4]>; 2];
-
 #[derive(Clone)]
 pub struct VrOcrService {
     config: Arc<RwLock<crate::config::AppConfig>>,
@@ -95,34 +94,13 @@ impl VrOcrService {
         }
     }
 
-    /// The SteamVR owner must drop this future when a capture becomes invalid or is replaced.
-    pub async fn process<F: std::future::Future<Output = Result<(), String>>>(
-        &self,
-        images: [OcrImage; 2],
-        progress: impl FnMut(Phase),
-        verify: impl FnOnce(TextRegions) -> F,
-    ) -> Result<[Vec<TranslatedBlock>; 2], String> {
-        let config = self.configuration()?;
-        let deadline =
-            tokio::time::Instant::now() + Duration::from_secs(config.ocr().timeout_seconds as u64);
-        self.process_scan(images, &config, 0, deadline, progress, verify, |_| {})
-            .await
-            .map(|result| result.blocks)
-    }
-
-    // Keep the scan callbacks separate so callers can stream progress and completed blocks.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn process_scan<
-        const N: usize,
-        F: std::future::Future<Output = Result<(), String>>,
-    >(
+    pub async fn process_scan<const N: usize>(
         &self,
         images: [OcrImage; N],
         config: &ScanConfiguration,
         scan_id: u64,
         deadline: tokio::time::Instant,
         mut progress: impl FnMut(Phase),
-        verify: impl FnOnce(TextRegions) -> F,
         completed: impl FnMut(BlockUpdate),
     ) -> Result<ScanResult, String> {
         use tracing::Instrument;
@@ -151,10 +129,8 @@ impl VrOcrService {
             })
             .await
             .map_err(|_| "OCR task timed out".to_string())??;
-            self.translate_scan(
-                config, blocks, scan_id, deadline, verify, progress, completed,
-            )
-            .await
+            self.translate_scan(config, blocks, scan_id, deadline, progress, completed)
+                .await
         }
         .instrument(span.clone())
         .await;
@@ -164,28 +140,6 @@ impl VrOcrService {
             tracing::warn!(parent: &span, elapsed_ms, %error, "OCR scan failed");
         }
         result
-    }
-
-    /// Dropping this future cancels recognition and all scan-owned translation requests.
-    pub async fn process_vr_scan(
-        &self,
-        images: Vec<OcrImage>,
-        config: &ScanConfiguration,
-        scan_id: u64,
-        deadline: tokio::time::Instant,
-        progress: impl FnMut(Phase),
-        completed: impl FnMut(BlockUpdate),
-    ) -> Result<ScanResult, String> {
-        self.process_vr_scan_with_progress(
-            images,
-            config,
-            scan_id,
-            deadline,
-            progress,
-            completed,
-            |_| {},
-        )
-        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -293,16 +247,15 @@ impl VrOcrService {
     }
 
     #[cfg(test)]
-    async fn translate_blocks<F: std::future::Future<Output = Result<(), String>>>(
+    async fn translate_blocks(
         &self,
         config: &crate::config::AppConfig,
         images: Vec<Vec<TextBlock>>,
-        verify: impl FnOnce(TextRegions) -> F,
         progress: impl FnMut(Phase),
     ) -> Result<Vec<Vec<TranslatedBlock>>, String> {
         let deadline =
             tokio::time::Instant::now() + Duration::from_secs(config.ocr.timeout_seconds as u64);
-        self.translate_scan(config, images, 0, deadline, verify, progress, |_| {})
+        self.translate_scan(config, images, 0, deadline, progress, |_| {})
             .await
             .map(|result| result.blocks.into_iter().collect())
     }
@@ -391,7 +344,7 @@ mod tests {
             .collect();
         let work = tokio::spawn(async move {
             service
-                .translate_blocks(&config, vec![blocks, vec![]], |_| async { Ok(()) }, |_| {})
+                .translate_blocks(&config, vec![blocks, vec![]], |_| {})
                 .await
         });
         let fifth_started = tokio::time::timeout(Duration::from_millis(800), fifth.notified())
@@ -457,32 +410,10 @@ mod tests {
             polygon: [[10., 10.], [70., 10.], [70., 30.], [10., 30.]],
             ..left.clone()
         };
-        let rejected = service
-            .translate_blocks(
-                &config,
-                vec![vec![left.clone()], vec![right.clone()]],
-                |regions| async move {
-                    assert_eq!(
-                        regions[0],
-                        vec![[[20., 10.], [80., 10.], [80., 30.], [20., 30.]]]
-                    );
-                    assert_eq!(
-                        regions[1],
-                        vec![[[10., 10.], [70., 10.], [70., 30.], [10., 30.]]]
-                    );
-                    Err("capture expired".into())
-                },
-                |_| panic!("Rejected captures must not start translation"),
-            )
-            .await
-            .unwrap_err();
-        assert_eq!(rejected, "capture expired");
-        assert_eq!(requests.load(Ordering::SeqCst), 0);
         let translated = service
             .translate_blocks(
                 &config,
                 vec![vec![left.clone()], vec![right.clone()]],
-                |_| async { Ok(()) },
                 |_| {},
             )
             .await

@@ -207,15 +207,12 @@ impl VrOcrService {
         })
     }
 
-    // Match the public scan boundary without adding a wrapper for its three callbacks.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) async fn translate_scan<F: std::future::Future<Output = Result<(), String>>>(
+    pub(super) async fn translate_scan(
         &self,
         config: &crate::config::AppConfig,
         mut images: Vec<Vec<TextBlock>>,
         scan_id: u64,
         deadline: tokio::time::Instant,
-        verify: impl FnOnce(super::TextRegions) -> F,
         progress: impl FnMut(super::Phase),
         completed: impl FnMut(BlockUpdate),
     ) -> Result<ScanResult, String> {
@@ -223,16 +220,6 @@ impl VrOcrService {
             return Err("OCR requires one or two images".into());
         }
         images.resize_with(2, Vec::new);
-        let regions = std::array::from_fn(|eye| {
-            images[eye]
-                .iter()
-                .filter(|block| block.confidence >= config.ocr.minimum_confidence)
-                .map(|block| block.polygon)
-                .collect()
-        });
-        tokio::time::timeout_at(deadline, verify(regions))
-            .await
-            .map_err(|_| "OCR task timed out")??;
         self.translate_stream(
             config,
             stream::iter(images.into_iter().enumerate().map(Ok)),
@@ -595,7 +582,6 @@ mod tests {
                 images,
                 1,
                 tokio::time::Instant::now() + Duration::from_secs(2),
-                |_| async { Ok(()) },
                 |_| {},
                 |_| {},
             )
@@ -741,11 +727,6 @@ mod tests {
                 vec![vec![block(0, "hello")]],
                 7,
                 tokio::time::Instant::now() + Duration::from_secs(2),
-                |regions| async move {
-                    assert_eq!(regions[0].len(), 1);
-                    assert!(regions[1].is_empty());
-                    Ok(())
-                },
                 |_| {},
                 |update| updates.push(update),
             )
@@ -1053,7 +1034,6 @@ mod tests {
                     ],
                     1,
                     tokio::time::Instant::now() + Duration::from_secs(2),
-                    |_| async { Ok(()) },
                     |_| {},
                     |_| {},
                 )
@@ -1078,7 +1058,6 @@ mod tests {
                 vec![vec![block(0, "hello"), block(1, "different")], vec![]],
                 2,
                 tokio::time::Instant::now() + Duration::from_secs(2),
-                |_| async { Ok(()) },
                 |_| {},
                 |_| {},
             )
@@ -1097,7 +1076,6 @@ mod tests {
                 vec![vec![block(0, "hello"), block(1, "different")], vec![]],
                 3,
                 tokio::time::Instant::now() + Duration::from_secs(2),
-                |_| async { Ok(()) },
                 |_| {},
                 |_| {},
             )
@@ -1117,7 +1095,6 @@ mod tests {
                 vec![vec![block(0, "hello"), block(1, "different")], vec![]],
                 4,
                 tokio::time::Instant::now() + Duration::from_secs(2),
-                |_| async { Ok(()) },
                 |_| {},
                 |_| {},
             )
@@ -1164,7 +1141,6 @@ mod tests {
                 vec![inputs],
                 9,
                 tokio::time::Instant::now() + Duration::from_secs(2),
-                |_| async { Ok(()) },
                 |_| {},
                 |_| {},
             )
@@ -1232,7 +1208,6 @@ mod tests {
                     vec![eye.clone(), eye],
                     11,
                     tokio::time::Instant::now() + Duration::from_secs(2),
-                    |_| async { Ok(()) },
                     |_| {},
                     |update| updates.push(update),
                 )
@@ -1300,7 +1275,6 @@ mod tests {
                     vec![vec![block(0, "text")], vec![]],
                     1,
                     tokio::time::Instant::now() + Duration::from_secs(2),
-                    |_| async { Ok(()) },
                     |_| {},
                     |_| {},
                 )
@@ -1381,7 +1355,6 @@ mod tests {
                     vec![vec![block(0, "text")], vec![]],
                     index as u64,
                     tokio::time::Instant::now() + Duration::from_secs(2),
-                    |_| async { Ok(()) },
                     |_| {},
                     |_| {},
                 )
@@ -1402,7 +1375,6 @@ mod tests {
                 vec![vec![block(7, "source")], vec![]],
                 17,
                 deadline,
-                |_| async { Ok(()) },
                 |_| panic!("Source viewing must not start translation"),
                 |update| {
                     assert_eq!(
@@ -1416,15 +1388,7 @@ mod tests {
             .unwrap();
         assert_eq!(source.summary.outcome, ScanOutcome::SourceOnly);
         let empty = service
-            .translate_scan(
-                &config,
-                vec![vec![], vec![]],
-                18,
-                deadline,
-                |_| async { Ok(()) },
-                |_| {},
-                |_| {},
-            )
+            .translate_scan(&config, vec![vec![], vec![]], 18, deadline, |_| {}, |_| {})
             .await
             .unwrap();
         assert_eq!(empty.summary.outcome, ScanOutcome::NoText);
@@ -1436,7 +1400,6 @@ mod tests {
                 vec![vec![low], vec![]],
                 19,
                 deadline,
-                |_| async { Ok(()) },
                 |_| {},
                 |_| {},
             )
@@ -1485,7 +1448,6 @@ mod tests {
                 ],
                 42,
                 tokio::time::Instant::now() + Duration::from_millis(300),
-                |_| async { Ok(()) },
                 |_| {},
                 |update| updates.push(update),
             )
@@ -1549,7 +1511,6 @@ mod tests {
                 vec![vec![block(0, "text")], vec![]],
                 2,
                 tokio::time::Instant::now() + Duration::from_secs(2),
-                |_| async { Ok(()) },
                 |_| {},
                 |_| {},
             )
@@ -1600,7 +1561,6 @@ mod tests {
                     vec![vec![block(0, "text")], vec![]],
                     3,
                     tokio::time::Instant::now() + Duration::from_secs(2),
-                    |_| async { Ok(()) },
                     |_| {},
                     |update| {
                         assert!(
