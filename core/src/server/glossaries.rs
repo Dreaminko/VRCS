@@ -30,39 +30,6 @@ pub(super) async fn refresh(
     Ok(Json(json!(state.content.glossary.statuses(&config))))
 }
 
-pub(super) async fn legacy_subscription_status(State(state): State<CaptureContext>) -> Json<Value> {
-    let config = current_config(&state);
-    Json(json!(state.content.glossary.legacy_status(&config)))
-}
-
-pub(super) async fn legacy_subscription_refresh(
-    State(state): State<CaptureContext>,
-) -> ApiResult<Json<Value>> {
-    let id = state
-        .content
-        .glossary
-        .configured_ids()
-        .into_iter()
-        .next()
-        .ok_or_else(|| {
-            refresh_error(GlossaryRefreshError {
-                code: "glossary_subscription.not_found",
-                detail: "No glossary subscription is configured".into(),
-            })
-        })?;
-    if state
-        .content
-        .glossary
-        .refresh(&id)
-        .await
-        .map_err(refresh_error)?
-    {
-        reload_asr_context(&state).await;
-    }
-    let config = current_config(&state);
-    Ok(Json(json!(state.content.glossary.legacy_status(&config))))
-}
-
 async fn reload_asr_context(state: &CaptureContext) {
     if let Err((_, body)) = super::capture::reload_glossary_asr_context(state).await {
         tracing::warn!(detail = ?body, "ASR glossary context could not be reloaded");

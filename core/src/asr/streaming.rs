@@ -275,14 +275,6 @@ pub fn validate_cloud_connection(config: &AsrConfig) -> Result<(), String> {
     provider.build_request(config, profile, &key).map(|_| ())
 }
 
-#[allow(dead_code)]
-pub async fn spawn_streaming_session(
-    config: AsrConfig,
-    silence_seconds: f64,
-) -> Result<StreamingSession, String> {
-    spawn_streaming_session_with_context(config, silence_seconds, None).await
-}
-
 pub(crate) async fn spawn_streaming_session_with_context(
     base_config: AsrConfig,
     silence_seconds: f64,

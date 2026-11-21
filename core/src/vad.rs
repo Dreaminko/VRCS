@@ -178,7 +178,6 @@ impl VoiceDetector {
         }
     }
 
-    #[allow(dead_code)]
     pub fn is_speech(&mut self, samples: &[f32]) -> bool {
         let probability = match &mut self.backend {
             DetectorBackend::Silero(model) => match model.predict(samples) {
@@ -198,14 +197,6 @@ impl VoiceDetector {
             probability >= self.threshold
         };
         self.speech_active
-    }
-
-    #[allow(dead_code)]
-    pub fn reset(&mut self) {
-        self.speech_active = false;
-        if let DetectorBackend::Silero(model) = &mut self.backend {
-            model.reset();
-        }
     }
 }
 
@@ -452,11 +443,6 @@ impl SileroVad {
             .copied()
             .ok_or_else(|| "Silero VAD returned an empty output".into())
     }
-
-    fn reset(&mut self) {
-        self.state.fill(0.0);
-        self.context.fill(0.0);
-    }
 }
 
 fn energy_probability(samples: &[f32]) -> f32 {
@@ -469,7 +455,6 @@ fn energy_probability(samples: &[f32]) -> f32 {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct SpeechSegmenter {
     silence_samples: usize,
     hard_silence_samples: usize,
@@ -489,7 +474,6 @@ pub struct SpeechSegmenter {
     generation: u64,
 }
 
-#[allow(dead_code)]
 impl SpeechSegmenter {
     pub fn new(sample_rate: u32, silence_seconds: f64, max_speech_seconds: f64) -> Self {
         Self::with_min_speech_seconds(

@@ -7,7 +7,6 @@ use crate::error::AppResult;
 const MESSAGE_HISTORY_LIMIT: i64 = 200;
 
 impl Database {
-    #[allow(dead_code)]
     pub fn add_chatbox_message(&self, message: &NewChatboxMessage) -> AppResult<ChatboxMessage> {
         self.add_chatbox_message_in_scope(message, None, None)
     }

@@ -194,30 +194,6 @@ impl TranslationService {
         .await
     }
 
-    #[allow(dead_code, clippy::too_many_arguments)]
-    pub async fn translate_with_progress(
-        &self,
-        target_config: &TranslationTargetConfig,
-        prompt: &TranslationPromptConfig,
-        profiles: &[ApiProfile],
-        text: &str,
-        source_language: Option<&str>,
-        context: &[TranslationContextEntry],
-        on_progress: Option<&LlmProgress>,
-    ) -> Result<TranslationResult, TranslationError> {
-        self.translate_with_progress_and_room_context(
-            target_config,
-            prompt,
-            profiles,
-            text,
-            source_language,
-            context,
-            None,
-            on_progress,
-        )
-        .await
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn translate_with_progress_and_room_context(
         &self,

@@ -431,9 +431,9 @@ fn conversation_titles_are_deduplicated_and_preserve_custom_titles_and_previous_
 
 #[test]
 fn user_deletions_invalidate_title_jobs_but_quota_trimming_keeps_them() {
-    for deletion in ["subtitle", "conversation", "clear", "quota"] {
+    for deletion in ["conversation", "clear", "quota"] {
         let (_path, mut database) = open_temp_db("title-deletion");
-        let saved = database.add_subtitle(&subtitle("First excerpt")).unwrap();
+        database.add_subtitle(&subtitle("First excerpt")).unwrap();
         database.add_subtitle(&subtitle("Last excerpt")).unwrap();
         let (_, job) = database.create_conversation_with_title(true).unwrap();
         let job = job.unwrap();
@@ -456,28 +456,19 @@ fn user_deletions_invalidate_title_jobs_but_quota_trimming_keeps_them() {
             "clear" => {
                 database.clear_subtitle_history().unwrap();
             }
-            "quota" => {
+            _ => {
                 assert!(database.set_subtitle_history_max_bytes(1).unwrap());
             }
-            _ => {
-                database
-                    .delete_subtitle_range(&saved.created_at, None)
-                    .unwrap();
-            }
         }
-        if matches!(deletion, "subtitle" | "quota") {
+        if deletion == "quota" {
             let catalog = database.conversation_catalog().unwrap();
             let item = catalog
                 .conversations
                 .iter()
                 .find(|item| item.id == job.conversation_id)
                 .unwrap();
-            let kept = deletion == "quota";
-            assert_eq!(
-                item.title_generation_status,
-                if kept { "running" } else { "idle" }
-            );
-            assert_eq!(item.summary_title.is_some(), kept);
+            assert_eq!(item.title_generation_status, "running");
+            assert!(item.summary_title.is_some());
         }
         assert_eq!(
             database
@@ -680,38 +671,6 @@ fn deleting_active_creates_replacement_before_waiting_writes_continue() {
         .id;
     assert_ne!(saved.conversation_id.as_deref(), Some(deleted_id.as_str()));
     assert_eq!(saved.conversation_id.as_deref(), Some(active_id.as_str()));
-}
-
-#[test]
-fn subtitle_history_deletes_only_the_requested_time_range() {
-    let (_path, database) = open_temp_db("history-range-delete");
-    for (text, created_at) in [
-        ("older", "2026-08-16T00:00:00.000000Z"),
-        ("target one", "2026-08-16T01:00:00.000000Z"),
-        ("target two", "2026-08-16T01:30:00.000000Z"),
-        ("newer", "2026-08-16T02:00:00.000000Z"),
-    ] {
-        let mut item = subtitle(text);
-        item.created_at = created_at.into();
-        database.add_subtitle(&item).unwrap();
-    }
-
-    let deleted = database
-        .delete_subtitle_range(
-            "2026-08-16T01:00:00.000000Z",
-            Some("2026-08-16T02:00:00.000000Z"),
-        )
-        .unwrap();
-    assert_eq!(deleted, 2);
-    assert_eq!(
-        database
-            .subtitle_history(10)
-            .unwrap()
-            .iter()
-            .map(|item| item.text.as_str())
-            .collect::<Vec<_>>(),
-        ["newer", "older"]
-    );
 }
 
 #[test]

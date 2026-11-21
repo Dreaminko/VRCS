@@ -41,21 +41,6 @@ pub struct GlossaryStatus {
     pub detail: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct LegacyGlossarySubscriptionStatus {
-    pub configured: bool,
-    pub url: Option<String>,
-    pub state: String,
-    pub source_name: Option<String>,
-    pub entry_count: usize,
-    pub effective_entry_count: usize,
-    pub omitted_entry_count: usize,
-    pub last_attempt_at: Option<String>,
-    pub last_success_at: Option<String>,
-    pub error_code: Option<String>,
-    pub detail: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CacheFile {
     subscriptions: Vec<CacheEntry>,
@@ -270,15 +255,6 @@ impl GlossaryStore {
         refresh_ids
     }
 
-    pub fn configured_ids(&self) -> Vec<String> {
-        self.subscriptions
-            .read()
-            .expect("glossary subscription lock")
-            .iter()
-            .map(|state| state.id.clone())
-            .collect()
-    }
-
     pub(crate) fn llm_snapshot(&self) -> LlmGlossarySnapshot {
         self.llm_snapshot.read().expect("LLM glossary lock").clone()
     }
@@ -429,41 +405,6 @@ impl GlossaryStore {
                 }
             })
             .collect()
-    }
-
-    pub fn legacy_status(&self, config: &GlossaryConfig) -> LegacyGlossarySubscriptionStatus {
-        let status = self
-            .statuses(config)
-            .into_iter()
-            .find(|status| status.source_type == "subscription");
-        match status {
-            Some(status) => LegacyGlossarySubscriptionStatus {
-                configured: true,
-                url: status.url,
-                state: status.state,
-                source_name: Some(status.name),
-                entry_count: status.entry_count,
-                effective_entry_count: status.effective_entry_count,
-                omitted_entry_count: status.omitted_entry_count,
-                last_attempt_at: status.last_attempt_at,
-                last_success_at: status.last_success_at,
-                error_code: status.error_code,
-                detail: status.detail,
-            },
-            None => LegacyGlossarySubscriptionStatus {
-                configured: false,
-                url: None,
-                state: "unconfigured".into(),
-                source_name: None,
-                entry_count: 0,
-                effective_entry_count: 0,
-                omitted_entry_count: 0,
-                last_attempt_at: None,
-                last_success_at: None,
-                error_code: None,
-                detail: None,
-            },
-        }
     }
 
     pub async fn refresh(&self, id: &str) -> Result<bool, GlossaryRefreshError> {
@@ -1421,7 +1362,23 @@ mod tests {
         });
 
         assert_eq!(refresh, ["same", "new"]);
-        assert_eq!(store.configured_ids(), ["same", "disabled", "new"]);
+        let ids: Vec<_> = store
+            .statuses(&GlossaryConfig {
+                sources: vec![
+                    subscription("same", "https://example.com/two.json".into(), true),
+                    subscription(
+                        "disabled",
+                        "https://example.com/disabled.json".into(),
+                        false,
+                    ),
+                    subscription("new", "https://example.com/new.json".into(), true),
+                ],
+                ..Default::default()
+            })
+            .into_iter()
+            .map(|status| status.id)
+            .collect();
+        assert_eq!(ids, ["same", "disabled", "new"]);
     }
 
     #[tokio::test]
