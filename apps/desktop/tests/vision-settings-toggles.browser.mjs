@@ -118,6 +118,7 @@ for (const width of [1200, 500]) {
           const runtimeCard = overlayPanel.querySelector('.vr-overlay-runtime-card');
           const overlayMaster = runtimeCard.querySelector('[role=switch]');
           const wristMenu = overlayPanel.querySelector('[aria-labelledby=vr-overlay-wrist-menu-title]');
+          checkMasterHeading(runtimeCard, overlayMaster, 'VR Overlay');
           collapsed(wristMenu, 'Wrist menu');
           checkMasterHeading(wristMenu, wristMenu.querySelector('[role=switch]'), 'Wrist menu');
           if (${width === 1200}) {
@@ -126,10 +127,10 @@ for (const width of [1200, 500]) {
             collapsed(runtimeCard, 'VR Overlay');
             collapsed(wristMenu, 'Wrist menu');
             check(runtimeCard.querySelectorAll('button').length === 1, 'VR Overlay: retry action is hidden');
-            check(!overlayPanel.querySelector('.vr-overlay-runtime-main, .vr-overlay-runtime-facts, .vr-overlay-card-list'), 'VR Overlay: runtime details and mode cards are hidden');
+            check(!overlayPanel.querySelector('.vr-overlay-runtime-bar, .vr-overlay-runtime-facts, .vr-overlay-card-list'), 'VR Overlay: runtime details and mode cards are hidden');
             overlayMaster.click();
             await wait(() => overlayPanel.querySelector('.vr-overlay-card-list'));
-            check(overlayPanel.querySelector('.vr-overlay-runtime-main'), 'VR Overlay: runtime details are restored');
+            check(overlayPanel.querySelector('.vr-overlay-runtime-bar'), 'VR Overlay: runtime details are restored');
             check(overlayPanel.querySelector('.dropdown-trigger'), 'VR Overlay: translation setting is restored');
             check(overlayPanel.querySelectorAll('.vr-overlay-card-list .vr-overlay-card').length === 2, 'VR Overlay: both mode cards are restored');
             check(overlay.vr_overlay.headset.enabled && !overlay.vr_overlay.wrist.enabled, 'VR Overlay: mode preferences are unchanged');
