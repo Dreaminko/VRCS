@@ -102,11 +102,16 @@ pub(crate) const fn network_capture_supported() -> bool {
 }
 
 pub(crate) fn network_capture_available() -> bool {
-    if cfg!(windows) {
+    #[cfg(windows)]
+    {
         true
-    } else if cfg!(target_os = "linux") {
+    }
+    #[cfg(target_os = "linux")]
+    {
         crate::player_audio::network_available()
-    } else {
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
         false
     }
 }

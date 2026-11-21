@@ -561,10 +561,11 @@ fn run(
                                 #[cfg(windows)]
                                 {
                                     let scan_status = Arc::clone(status);
+                                    let pagefile_drive = config.pagefile_drive.clone();
                                     scanner = Some(std::thread::spawn(move || {
                                         let _ = key_tx.send(super::key::acquire(
                                             pid,
-                                            &config.pagefile_drive,
+                                            &pagefile_drive,
                                             &samples,
                                             &stop,
                                             &scan_status,

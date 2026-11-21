@@ -408,5 +408,5 @@ mod wire {
 
 #[cfg(target_os = "linux")]
 use wire::{read_command, write_event, Packet, ScanProgress};
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 pub(crate) use wire::{read_event, write_command, Command, Event, ScanResult, VERSION};

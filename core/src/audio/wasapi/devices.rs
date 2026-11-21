@@ -212,7 +212,7 @@ pub(crate) fn resolve_device_id(
                 continue;
             }
         };
-        if device_key(&wasapi_id) == device.id {
+        if crate::audio::device_id(&wasapi_id) == device.id {
             return Ok(wasapi_id);
         }
     }
@@ -326,8 +326,7 @@ pub(super) fn is_endpoint_invalidation(error: &::wasapi::WasapiError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        device_key, device_unavailable, err, init_com, is_endpoint_invalidation,
-        push_enumerated_device,
+        device_unavailable, err, init_com, is_endpoint_invalidation, push_enumerated_device,
     };
     use crate::audio::AudioError;
     use crate::models::AudioDevice;

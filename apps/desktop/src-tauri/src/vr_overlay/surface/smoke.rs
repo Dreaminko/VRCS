@@ -185,7 +185,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                     .capture
                     .clone();
                 let mut capture = windows_wgc::Capture::with_counters(
-                    &endpoint.item,
+                    &endpoint.source,
                     0,
                     width,
                     height,
@@ -222,7 +222,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 }
                 std::fs::write(directory.join(format!("{case}.bgra")), &first)
                     .map_err(|e| e.to_string())?;
-                capture.submitted(first_frame)?;
+                capture.submitted(&first_frame)?;
                 hub.0.lock().map_err(|e| e.to_string())?[surface.index()]
                     .commit_paint(key, first_frame.receipt.paint_serial);
                 // Ignore late font receipts before measuring the settled static interval.
@@ -403,17 +403,17 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 key = warm_key;
                 capture.resume()?;
                 let warm_frame = wait_for_frame(&app, &mut capture, surface, key)?;
-                capture.submitted(warm_frame)?;
+                capture.submitted(&warm_frame)?;
                 hub.0.lock().map_err(|e| e.to_string())?[surface.index()]
                     .commit_paint(key, warm_frame.receipt.paint_serial);
                 let held = capture.snapshot(warm_frame)?;
-                capture.restart_source(&endpoint.item)?;
+                capture.restart_source(&endpoint.source)?;
                 hub.send(&app, surface, SurfaceEvent::Repaint)?;
                 let recovered = wait_for_frame(&app, &mut capture, surface, key)?;
                 if capture.snapshot(warm_frame)? != held {
                     return Err("Source restart overwrote the submitted texture".into());
                 }
-                capture.submitted(recovered)?;
+                capture.submitted(&recovered)?;
                 hub.0.lock().map_err(|e| e.to_string())?[surface.index()]
                     .commit_paint(key, recovered.receipt.paint_serial);
                 for recreate in [false, true] {
@@ -440,7 +440,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                     }
                     let (endpoint, recovered) = wait_for_layout(&app, surface, &view, Some(key))?;
                     capture = windows_wgc::Capture::with_counters(
-                        &endpoint.item,
+                        &endpoint.source,
                         0,
                         width,
                         height,
@@ -460,7 +460,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                     {
                         return Err(format!("{} recovery lost its content", surface.name()));
                     }
-                    capture.submitted(frame)?;
+                    capture.submitted(&frame)?;
                     let mut entries = hub.0.lock().map_err(|e| e.to_string())?;
                     if entries.iter().enumerate().any(|(index, entry)| {
                         index != surface.index() && entry.generation != generations[index]
@@ -487,7 +487,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                         hub.publish(&app, surface, holding, Some(0), Some(0))?;
                         let copies = counters.copies.load(std::sync::atomic::Ordering::Relaxed);
                         let mut submitted = false;
-                        renderer.capture_frame(&hub, |_| {
+                        renderer.capture_frame(&hub, false, |_| {
                             submitted = true;
                             Ok(())
                         })?;
@@ -587,7 +587,7 @@ fn ocr_idle(
                         .clone();
                     renderer.capture =
                         Some(Rc::new(RefCell::new(windows_wgc::Capture::with_counters(
-                            &endpoint.item,
+                            &endpoint.source,
                             0,
                             width,
                             height,
@@ -609,8 +609,8 @@ fn ocr_idle(
                         }
                     }
                 }
-                renderer.capture_frame(&hub, |frame| {
-                    submitted = Some(frame);
+                renderer.capture_frame(&hub, false, |frame| {
+                    submitted = Some(*frame);
                     Ok(())
                 })?;
                 let capture = renderer.capture.as_ref().unwrap().borrow();
@@ -702,7 +702,7 @@ fn ocr_idle(
         let before = totals();
         let until = Instant::now() + Duration::from_millis(400);
         while Instant::now() < until {
-            renderer.capture_frame(&hub, |_| Err("Idle source submitted again".into()))?;
+            renderer.capture_frame(&hub, false, |_| Err("Idle source submitted again".into()))?;
             if renderer.capture.as_ref().unwrap().borrow().active() {
                 return Err("Idle tick resumed its source".into());
             }
@@ -816,7 +816,7 @@ fn lifecycle(app: &AppHandle, view: SurfaceView) -> Result<serde_json::Value, St
                         .clone();
                     renderer.capture =
                         Some(Rc::new(RefCell::new(windows_wgc::Capture::with_counters(
-                            &endpoint.item,
+                            &endpoint.source,
                             0,
                             width,
                             height,
@@ -824,7 +824,7 @@ fn lifecycle(app: &AppHandle, view: SurfaceView) -> Result<serde_json::Value, St
                         )?)));
                     renderer.identity = Some((endpoint.host.host_epoch, 0, generation));
                 }
-                renderer.capture_frame(&hub, |_| Ok(()))?;
+                renderer.capture_frame(&hub, false, |_| Ok(()))?;
                 let entries = hub.0.lock().map_err(|e| e.to_string())?;
                 let entry = &entries[surface.index()];
                 if entry.active_layout().is_some() && renderer.frame_visible(entry, Instant::now())
@@ -956,7 +956,7 @@ fn native_reader(app: &AppHandle, mut view: SurfaceView) -> Result<serde_json::V
             .clone();
         let (width, height) = surface.size();
         let mut capture =
-            windows_wgc::Capture::with_counters(&endpoint.item, 0, width, height, counters)?;
+            windows_wgc::Capture::with_counters(&endpoint.source, 0, width, height, counters)?;
         let mut frame = || -> Result<Vec<u8>, String> {
             let started = Instant::now();
             loop {
@@ -977,7 +977,7 @@ fn native_reader(app: &AppHandle, mut view: SurfaceView) -> Result<serde_json::V
                         frame.receipt.requested_serial,
                     ) {
                         let pixels = capture.snapshot(frame)?;
-                        capture.submitted(frame)?;
+                        capture.submitted(&frame)?;
                         hub.0.lock().map_err(|e| e.to_string())?[surface.index()]
                             .commit_paint(key, frame.receipt.paint_serial);
                         return Ok(pixels);
