@@ -87,7 +87,7 @@ export function FeatureSettingsCard({
               title={t(`settings.features.${key}`)}
               checked={features[key]}
               disabled={disabled || (key === "vr_overlay" && !desktop?.vr.subtitles.supported)}
-              description={key === "vr_overlay" && desktop?.vr.subtitles.reason_code
+              description={key === "vr_overlay" && !desktop?.vr.subtitles.supported && desktop?.vr.subtitles.reason_code
                 ? t(`platform.${desktop.vr.subtitles.reason_code.replace(/^platform\./, "")}`)
                 : undefined}
               onChange={(enabled) => toggleFeature(key, enabled)}

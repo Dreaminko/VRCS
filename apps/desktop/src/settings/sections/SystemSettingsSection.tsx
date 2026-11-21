@@ -97,7 +97,7 @@ export function SystemSettingsSection({
   };
 
   const authorizeShortcuts = async () => {
-    if (shortcutsBusy || desktop?.os !== "linux" || !desktop.global_shortcuts.available) return;
+    if (shortcutsBusy || desktop?.os !== "linux" || desktop.session_type !== "wayland" || !desktop.global_shortcuts.available) return;
     setShortcutsBusy(true);
     setShortcutResult(null);
     try {
@@ -107,8 +107,7 @@ export function SystemSettingsSection({
       setShortcutResult({
         key: code === "capture.shortcuts_unavailable" ? "unavailable"
           : code === "capture.shortcuts_disabled" ? "disabled"
-            : code === "desktop_vision.shortcut_conflict" ? "conflict"
-              : code === "capture.shortcuts_changed" ? "needsAuthorization" : "notCompleted",
+            : code === "desktop_vision.shortcut_conflict" ? "conflict" : "notCompleted",
         error: true,
       });
     } finally {
@@ -116,9 +115,9 @@ export function SystemSettingsSection({
     }
   };
 
-  const shortcutMessage = shortcutResult ?? (desktop?.global_shortcuts.available ? {
-    key: desktop.shortcut_bindings ? "granted" : "needsAuthorization",
-    shortcuts: desktop.shortcut_bindings?.join(" · "),
+  const shortcutMessage = shortcutResult ?? (desktop?.global_shortcuts.available && desktop.shortcut_bindings?.length ? {
+    key: "granted",
+    shortcuts: desktop.shortcut_bindings.join(" · "),
     error: false,
   } : null);
 
@@ -265,7 +264,7 @@ export function SystemSettingsSection({
               onChange={(enabled) => void onUpdateDesktop("minimizeToTray", enabled)}
             />
           </div>
-          {desktop?.os === "linux" && desktop.global_shortcuts.supported && (
+          {desktop?.os === "linux" && desktop.session_type === "wayland" && desktop.global_shortcuts.supported && (
             <div className="system-onboarding-setting">
               <div>
                 <strong>{t("settings.system.shortcutAuthorization.title")}</strong>

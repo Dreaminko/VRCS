@@ -34,6 +34,7 @@ export function OnboardingWizard({
   health,
   devices,
   devicesReady,
+  devicesError = false,
   onRefreshDevices,
   onRefreshSettings,
   onModelsChanged,
@@ -50,6 +51,7 @@ export function OnboardingWizard({
   health: Health | null;
   devices: AudioDevice[];
   devicesReady: boolean;
+  devicesError?: boolean;
   onRefreshDevices: () => Promise<void>;
   onRefreshSettings: () => Promise<void>;
   onModelsChanged: () => Promise<void>;
@@ -306,6 +308,7 @@ export function OnboardingWizard({
                 outputDevices={audio.outputDevices}
                 microphoneDevices={audio.microphoneDevices}
                 devicesReady={devicesReady}
+                devicesError={devicesError}
                 deviceErrors={audio.deviceErrors}
                 hasAudioSource={audio.hasAudioSource}
                 audioBusy={audio.busy}

@@ -90,10 +90,8 @@ pub(crate) async fn platform_capabilities(
     let session_type = session_type();
     let vr_status = vr.status()?;
     let vr_supported = windows || cfg!(linux_vr);
-    let vr_reason = if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+    let vr_unsupported_reason = if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
         "vr.runtime_arch_unverified"
-    } else if vr_supported {
-        "platform.vr_runtime_unavailable"
     } else {
         "platform.vr_unavailable"
     };
@@ -139,17 +137,21 @@ pub(crate) async fn platform_capabilities(
             }
         },
         vr: VrCapabilities {
-            subtitles: Capability::runtime(vr_supported, vr_available, vr_reason),
-            controller_input: Capability::runtime(vr_supported, vr_available, vr_reason),
-            scene_capture: Capability::runtime(
-                windows,
-                vr_available,
-                if windows {
-                    vr_reason
-                } else {
-                    "vr.scene_capture_unavailable"
-                },
-            ),
+            subtitles: Capability {
+                supported: vr_supported,
+                available: vr_available,
+                reason_code: (!vr_supported).then_some(vr_unsupported_reason),
+            },
+            controller_input: Capability {
+                supported: vr_supported,
+                available: vr_available,
+                reason_code: (!vr_supported).then_some(vr_unsupported_reason),
+            },
+            scene_capture: Capability {
+                supported: windows,
+                available: windows && vr_available,
+                reason_code: (!windows).then_some("vr.scene_capture_unavailable"),
+            },
         },
     })
 }

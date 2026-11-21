@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
+import { Info, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 export interface Capability {
@@ -35,13 +36,28 @@ export interface PlatformState {
 export const PlatformCapabilitiesContext = createContext<PlatformState>({ core: null, desktop: null });
 export const usePlatformCapabilities = () => useContext(PlatformCapabilitiesContext);
 
-export function CapabilityNotice({ capability }: { capability: Capability | null | undefined }) {
+export function CapabilityNotice({
+  capability,
+  tone,
+}: {
+  capability: Capability | null | undefined;
+  tone?: "info" | "warning" | "error";
+}) {
   const { t } = useTranslation();
   if (!capability || capability.available || !capability.reason_code) return null;
-  return <p className="settings-validation-error" role="status">
-    {t(capability.reason_code.startsWith("platform.") ? capability.reason_code
-      : capability.reason_code.startsWith("vr.") ? `platform.${capability.reason_code}` : `errors.${capability.reason_code}`)}
-  </p>;
+  const resolvedTone = tone ?? (capability.supported ? "warning" : "info");
+  const Icon = resolvedTone === "info" ? Info : TriangleAlert;
+  const key = capability.reason_code.startsWith("platform.")
+    ? capability.reason_code
+    : capability.reason_code.startsWith("vr.")
+      ? `platform.${capability.reason_code}`
+      : `errors.${capability.reason_code}`;
+  return (
+    <p className={`capability-notice is-${resolvedTone}`} role="status">
+      <Icon size={15} aria-hidden="true" />
+      <span>{t(key)}</span>
+    </p>
+  );
 }
 
 export function CapabilitySection({ capability, children }: { capability: Capability | null | undefined; children: ReactNode }) {

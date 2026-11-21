@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { ScanText, Monitor, Glasses, RectangleGoggles } from "lucide-react";
+import { ScanText, Monitor, Glasses, RectangleGoggles, ScanEye } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { request } from "../../core-client/transport";
+import { scanDesktopOcr } from "../../ocr/api";
+import { localizedError } from "../../app/app-utils";
 import type { ApiProfileView } from "../../providers/types";
 import type { OcrExecutionStatus, VrOcrSettings, VrOcrStatus, VrOcrWristSettings } from "../../integrations/types";
 import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
@@ -26,10 +28,11 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
   onChange: (patch: Partial<VrOcrSettings>) => void;
 }) {
   const { t } = useTranslation();
-  const { core } = usePlatformCapabilities();
+  const { core, desktop } = usePlatformCapabilities();
   const disabled = saving || !config.master_enabled;
   const { models } = useOcrModels();
   const [execution, setExecution] = useState<OcrExecutionStatus | null>(null);
+  const [captureError, setCaptureError] = useState("");
 
   useEffect(() => {
     let disposed = false;
@@ -103,6 +106,14 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
             {desktopStatus?.shortcut_error && <p className="vr-overlay-native-error" role="alert">
               {t(`ocrWindow.errors.${desktopStatus.shortcut_error.replace("desktop_ocr.", "")}`, { defaultValue: t("ocrWindow.errors.failed") })}
             </p>}
+            {captureError && <p className="vr-overlay-native-error" role="alert">{captureError}</p>}
+            <div className="vr-overlay-card-actions">
+              <button className="secondary-button" type="button"
+                disabled={disabled || !config.desktop_enabled || !desktop?.screenshot.available || ["capturing", "selecting", "recognizing", "translating"].includes(desktopStatus?.state ?? "")}
+                onClick={() => { setCaptureError(""); void scanDesktopOcr().catch((reason) => setCaptureError(localizedError(reason, t, "ocrWindow.errors.failed"))); }}>
+                <ScanEye size={15} />{t("visionWindow.capture")}
+              </button>
+            </div>
           </SettingsDisclosure>
         </section>
         {vrAvailable && <section className="ocr-settings-group" aria-labelledby="ocr-vr-heading">

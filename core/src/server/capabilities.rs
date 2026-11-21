@@ -123,31 +123,37 @@ pub(crate) async fn snapshot(state: &AppState) -> PlatformCapabilities {
             credentials_reason.unwrap_or(platform::CREDENTIALS_UNAVAILABLE),
         ),
         inference: InferenceCapabilities {
-            vad_cpu: Capability::runtime(
-                true,
-                state.capture.vad_runtime.backend() == "silero-onnx",
-                "platform.vad_unavailable",
-            ),
-            qwen_cpu: Capability::runtime(
-                managed,
-                qwen_installed && qwen.status != "error",
-                platform::QWEN_UNAVAILABLE,
-            ),
-            qwen_vulkan: Capability::runtime(
-                platform::qwen_vulkan_supported(),
-                qwen.status == "ready" && qwen.device == Some("gpu"),
-                platform::QWEN_UNAVAILABLE,
-            ),
-            local_translation: Capability::runtime(
-                platform::local_translation_supported(),
-                local_installed && plamo.status != "error",
-                platform::LOCAL_TRANSLATION_UNAVAILABLE,
-            ),
-            ocr_cpu: Capability::runtime(
-                true,
-                ocr.active_device == Some(crate::config::OcrDevice::Cpu),
-                "platform.ocr_unavailable",
-            ),
+            vad_cpu: Capability {
+                supported: true,
+                available: state.capture.vad_runtime.backend() == "silero-onnx",
+                reason_code: None,
+            },
+            qwen_cpu: Capability {
+                supported: managed,
+                available: managed && qwen_installed && qwen.status != "error",
+                reason_code: (!managed).then_some(platform::QWEN_UNAVAILABLE),
+            },
+            qwen_vulkan: Capability {
+                supported: platform::qwen_vulkan_supported(),
+                available: platform::qwen_vulkan_supported()
+                    && qwen.status == "ready"
+                    && qwen.device == Some("gpu"),
+                reason_code: (!platform::qwen_vulkan_supported())
+                    .then_some(platform::QWEN_UNAVAILABLE),
+            },
+            local_translation: Capability {
+                supported: platform::local_translation_supported(),
+                available: platform::local_translation_supported()
+                    && local_installed
+                    && plamo.status != "error",
+                reason_code: (!platform::local_translation_supported())
+                    .then_some(platform::LOCAL_TRANSLATION_UNAVAILABLE),
+            },
+            ocr_cpu: Capability {
+                supported: true,
+                available: ocr.active_device == Some(crate::config::OcrDevice::Cpu),
+                reason_code: None,
+            },
             ocr_directml: Capability::runtime(
                 cfg!(windows),
                 ocr.active_device == Some(crate::config::OcrDevice::Directml),
@@ -155,7 +161,11 @@ pub(crate) async fn snapshot(state: &AppState) -> PlatformCapabilities {
             ),
         },
         chatbox: ChatboxCapabilities {
-            osc_send: Capability::runtime(true, true, "platform.osc_unavailable"),
+            osc_send: Capability {
+                supported: true,
+                available: true,
+                reason_code: None,
+            },
             network_receive: Capability::runtime(
                 network_capture_supported,
                 network_capture_available,

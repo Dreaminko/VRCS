@@ -30,6 +30,7 @@ export function useCoreSession(resourcesActive: boolean) {
     audioSupported: runtime.capabilities.core
       ? runtime.capabilities.core.audio.microphone.supported || runtime.capabilities.core.audio.system_output.supported
       : undefined,
+    refreshCapabilities: runtime.refreshCapabilities,
     health: runtime.health,
     stopMicrophoneTest: capture.stopMicrophoneTest,
     setCaptureRunning: capture.setRunning,

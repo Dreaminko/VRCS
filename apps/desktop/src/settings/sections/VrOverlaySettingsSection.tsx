@@ -36,6 +36,7 @@ import {
 import type { ApplySettings, SaveState } from "../settings-types";
 import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
 import { SettingsDisclosure } from "../components/SettingsDisclosure";
+import { CapabilitySection, usePlatformCapabilities } from "../../core-client/capabilities";
 import {
   patchVrOverlay,
   patchVrOverlayHeadset,
@@ -201,6 +202,7 @@ export function VrOverlaySettingsSection({
   applySettings: ApplySettings;
 }) {
   const { t } = useTranslation();
+  const { desktop } = usePlatformCapabilities();
   const [status, setStatus] = useState<VrOverlayStatus | null>(null);
   const [statusError, setStatusError] = useState("");
   const [nativeBusy, setNativeBusy] = useState<"retry" | VrOverlayKind | null>(null);
@@ -308,6 +310,7 @@ export function VrOverlaySettingsSection({
         <div><Layers3 size={18} /><h2>{t("settings.vrOverlay.title")}</h2></div>
       </div>
 
+      <CapabilitySection capability={desktop?.vr.subtitles}>
       <section className="vr-overlay-runtime-card" aria-labelledby="vr-overlay-runtime-title">
         <header className="vr-overlay-card-heading vr-overlay-feature-heading">
           <div>
@@ -665,6 +668,7 @@ export function VrOverlaySettingsSection({
           </SettingsDisclosure>
         </section>
       </SettingsDisclosure>
+      </CapabilitySection>
     </div>
   );
 }

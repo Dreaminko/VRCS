@@ -11,6 +11,7 @@ export function AudioStep({
   outputDevices,
   microphoneDevices,
   devicesReady,
+  devicesError = false,
   deviceErrors,
   hasAudioSource,
   audioBusy,
@@ -22,6 +23,7 @@ export function AudioStep({
   outputDevices: AudioDevice[];
   microphoneDevices: AudioDevice[];
   devicesReady: boolean;
+  devicesError?: boolean;
   deviceErrors: string[];
   hasAudioSource: boolean;
   audioBusy: boolean;
@@ -49,6 +51,7 @@ export function AudioStep({
         note={t("settings.audio.otherVoiceDescription")}
         devices={outputDevices}
         devicesReady={devicesReady}
+        devicesError={devicesError}
         selectedDeviceId={!settings.audio.output.device_key && settings.audio.output.mode === "system" ? settings.audio.output.device_id : null}
         selectedDeviceKey={settings.audio.output.mode === "system" ? settings.audio.output.device_key : null}
         specialRows={[
@@ -66,6 +69,7 @@ export function AudioStep({
         note={t("settings.audio.ownVoiceDescription")}
         devices={microphoneDevices}
         devicesReady={devicesReady}
+        devicesError={devicesError}
         selectedDeviceId={!settings.audio.microphone.device_key && settings.audio.microphone.mode !== "disabled" ? settings.audio.microphone.device_id : null}
         selectedDeviceKey={settings.audio.microphone.mode !== "disabled" ? settings.audio.microphone.device_key : null}
         specialRows={[

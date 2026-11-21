@@ -69,6 +69,7 @@ export function RecognitionSettingsSection({
           <HardDrive size={15} />{t("settings.modelAssignments.manageLocalModels")}
         </button>}
       </div>
+      {usesManagedQwen && <CapabilityNotice capability={core?.inference.qwen_cpu} />}
       <div className="recognition-config">
         <div className="recognition-config-row recognition-source-row">
           <div className="recognition-config-title">
@@ -96,7 +97,6 @@ export function RecognitionSettingsSection({
             onSelectService={actions.updateRecognitionService}
           />
         )}
-        {usesManagedQwen && <CapabilityNotice capability={core?.inference.qwen_cpu} />}
         {usesManagedQwen && <ManagedQwenSettings
           draft={draft}
           models={models.qwen}

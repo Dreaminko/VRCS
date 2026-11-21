@@ -183,7 +183,7 @@ for (const width of [1100, 860, 380]) {
             option.querySelector('.dropdown-option-copy > span')?.textContent===text.audio.defaultMicrophone));
           await wait(()=>saveState==='saved'&&latest.audio.microphone.mode==='default');
           flushSync(()=>switchPlatform(false));
-          check(toggle().disabled&&networkToggle().disabled&&document.body.textContent.includes(text.capture.unsupported),'unsupported platforms cannot enable network capture or reception and show the reason');
+          check(toggle().disabled&&networkToggle().disabled&&document.body.textContent.includes(locale.translation.platform.network_capture_unsupported),'unsupported platforms cannot enable network capture or reception and show the reason');
           check([...document.querySelectorAll('.player-audio-settings input, .player-audio-settings .dropdown-trigger')].every(control=>control.disabled),'Unsupported network settings remain disabled');
           const tabs=[...document.querySelectorAll('[role=tab]')];
           check(tabs.at(-1).id==='settings-tab-about'&&!document.getElementById('settings-tab-debug')

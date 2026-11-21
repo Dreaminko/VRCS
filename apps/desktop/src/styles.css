@@ -14,3 +14,4 @@
 
 .platform-capability-section { border: 0; padding: 0; margin: 0; min-width: 0; }
 .platform-capability-section:disabled { opacity: 0.65; }
+.vr-overlay-section > .platform-capability-section { display: flex; flex-direction: column; gap: var(--settings-page-heading-gap); }

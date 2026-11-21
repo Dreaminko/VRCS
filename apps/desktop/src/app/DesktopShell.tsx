@@ -341,6 +341,7 @@ export function DesktopShell({
                   interfaceScale={settings.interfaceScale}
                   devices={settings.devices.items}
                   devicesReady={settings.devices.ready}
+                  devicesError={settings.devices.error}
                   onStartMicrophoneTest={capture.startMicrophoneTest}
                   onStopMicrophoneTest={capture.stopMicrophoneTest}
                   dictionaries={dictionary.sources}

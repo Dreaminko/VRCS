@@ -142,7 +142,8 @@
 .system-scale-stepper button:active:not(:disabled) { color: var(--primary); background: var(--primary-soft); }
 .system-scale-stepper button:focus-visible { outline: 0; color: var(--primary-ink); background: var(--primary-softer); box-shadow: inset 0 0 0 1px rgba(116, 214, 255, 0.34); }
 .system-scale-stepper button:disabled { opacity: 0.32; cursor: not-allowed; }
-.system-onboarding-setting > div { display: grid; }
+.system-onboarding-setting > div { display: grid; gap: 4px; }
+.system-onboarding-setting > div > .settings-validation-error { margin: 2px 0 0; }
 .system-onboarding-setting strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 .system-onboarding-setting .secondary-button { justify-self: end; }
 .settings-toggle-row {
@@ -255,6 +256,38 @@
   font-size: var(--settings-text-body);
   line-height: var(--settings-leading-copy);
 }
+.settings-inline-message {
+  margin: 0;
+  color: var(--text-quiet);
+  font-size: var(--settings-text-caption);
+  line-height: var(--settings-leading-copy);
+}
+.capability-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+  font-size: var(--settings-text-caption);
+  line-height: var(--settings-leading-copy);
+}
+.capability-notice > svg { flex: 0 0 auto; margin-top: 2px; color: var(--primary-ink); }
+.capability-notice.is-warning {
+  border-color: var(--warning-border);
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+.capability-notice.is-warning > svg { color: var(--warning); }
+.capability-notice.is-error {
+  border-color: var(--error-border);
+  color: var(--error);
+  background: var(--error-soft);
+}
+.capability-notice.is-error > svg { color: var(--error); }
 .settings-disclosure { display: grid; min-width: 0; align-content: start; gap: inherit; }
 /* Flex layout lets a collapsing region also remove its surrounding gap. */
 :is(.vr-overlay-card, .ocr-settings-group, .vision-settings-group,

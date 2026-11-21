@@ -19,6 +19,7 @@ export function useSettingsRuntime({
   active,
   coreConfigured,
   audioSupported,
+  refreshCapabilities,
   health,
   stopMicrophoneTest,
   setCaptureRunning,
@@ -32,6 +33,7 @@ export function useSettingsRuntime({
   stopMicrophoneTest: () => Promise<void>;
   setCaptureRunning: (running: boolean) => Promise<boolean>;
   audioSupported: boolean | undefined;
+  refreshCapabilities?: () => Promise<void>;
   playerAudioStart: PlayerAudioStart;
   clearErrorFrom: (source: string) => void;
   reportError: ReportRuntimeError;
@@ -40,6 +42,7 @@ export function useSettingsRuntime({
   const persistedSettingsRef = useRef<Settings | null>(null);
   const [devices, setDevices] = useState<AudioDevice[]>([]);
   const [devicesReady, setDevicesReady] = useState(false);
+  const [devicesError, setDevicesError] = useState(false);
 
   const loadSettings = useCallback(async () => {
     if (!coreConfigured) return;
@@ -56,18 +59,28 @@ export function useSettingsRuntime({
     if (!audioSupported) {
       setDevices([]);
       setDevicesReady(true);
+      setDevicesError(false);
       clearErrorFrom("devices");
       return;
     }
+    setDevicesError(false);
     try {
       setDevices(await captureApi.devices());
       setDevicesReady(true);
+      setDevicesError(false);
       clearErrorFrom("devices");
     } catch (reason) {
       setDevicesReady(false);
+      setDevicesError(true);
       reportError(reason, "errors.audio.devices", "devices");
     }
   }, [audioSupported, clearErrorFrom, coreConfigured, reportError]);
+
+  const refreshDevices = useCallback(async () => {
+    if (!coreConfigured) return;
+    await refreshCapabilities?.();
+    await loadDevices();
+  }, [coreConfigured, loadDevices, refreshCapabilities]);
 
   const refreshModels = loadSettings;
 
@@ -222,7 +235,7 @@ export function useSettingsRuntime({
     value: settings,
     getCurrent: () => persistedSettingsRef.current,
     getOptimistic: () => settingsAutosaveRef.current?.getDesired() ?? persistedSettingsRef.current ?? null,
-    devices: { items: devices, ready: devicesReady, refresh: loadDevices },
+    devices: { items: devices, ready: devicesReady, error: devicesError, refresh: refreshDevices },
     asr: { refresh: refreshModels },
     refresh: loadSettings,
     reload: async () => { await loadSettings(); return persistedSettingsRef.current ?? undefined; },

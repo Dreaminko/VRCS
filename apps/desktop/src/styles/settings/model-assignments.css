@@ -265,7 +265,8 @@
   border-radius: var(--radius-md);
   background: var(--surface);
 }
-.local-model-category > .model-section { margin: 0; }
+.local-model-category .model-section { margin: 0; }
+.local-model-category > .capability-notice { margin-bottom: 12px; }
 .local-model-category .section-heading { margin-bottom: 14px; }
 .local-model-category .model-directory-setting { margin-bottom: 14px; }
 .global-model-directory .model-directory-setting {

@@ -337,13 +337,14 @@ export function DeckTreeSelect({ label, helper, value, decks, disabled, onChange
   );
 }
 
-export function DeviceGroup({ icon, title, note, beforeList, devices, devicesReady, selectedDeviceId, selectedDeviceKey, specialRows, disabled, onSelectDevice }: {
+export function DeviceGroup({ icon, title, note, beforeList, devices, devicesReady, devicesError = false, selectedDeviceId, selectedDeviceKey, specialRows, disabled, onSelectDevice }: {
   icon: ReactNode;
   title: string;
   note?: string;
   beforeList?: ReactNode;
   devices: AudioDevice[];
   devicesReady: boolean;
+  devicesError?: boolean;
   selectedDeviceId: number | null;
   selectedDeviceKey?: string | null;
   specialRows: Array<{
@@ -395,7 +396,9 @@ export function DeviceGroup({ icon, title, note, beforeList, devices, devicesRea
             options={options}
             disabled={disabled}
             floating
-            placeholder={devicesReady ? t(selectedDeviceKey || selectedDeviceId !== null ? "settings.audio.reselectionRequired" : "common.unavailable") : t("settings.audio.scanning")}
+            placeholder={devicesReady
+              ? t(selectedDeviceKey || selectedDeviceId !== null ? "settings.audio.reselectionRequired" : "common.unavailable")
+              : t(devicesError ? "errors.audio.devices" : "settings.audio.scanning")}
             onChange={(value) => {
               if (value === selectedValue) return;
               const specialRow = specialRows.find((row) => value === `source:${row.key}`);
@@ -413,7 +416,9 @@ export function DeviceGroup({ icon, title, note, beforeList, devices, devicesRea
         <div className="device-group-content">
           {beforeList}
           {!devicesReady
-            ? <p className="device-empty" role="status"><LoaderCircle className="spinning" size={14} aria-hidden="true" /><span>{t("settings.audio.scanning")}</span></p>
+            ? devicesError
+              ? <p className="device-empty" role="alert"><Info size={14} aria-hidden="true" /><span>{t("errors.audio.devices")}</span></p>
+              : <p className="device-empty" role="status"><LoaderCircle className="spinning" size={14} aria-hidden="true" /><span>{t("settings.audio.scanning")}</span></p>
             : !devices.length && <p className="device-empty" role="status"><Info size={14} aria-hidden="true" /><span>{t("settings.audio.noDevices")}</span></p>}
         </div>
       )}

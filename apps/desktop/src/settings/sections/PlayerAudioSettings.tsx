@@ -14,11 +14,12 @@ export const DEFAULT_PLAYER_AUDIO: Options = {
   proximity: { enabled: false, radius_m: 10 }, view_priority: { enabled: false, horizontal_fov_deg: 120 },
 };
 
-export function PlayerAudioSettings({ value, status, memory, disabled, onChange }: {
+export function PlayerAudioSettings({ value, status, memory, disabled, showUnsupportedNotice = true, onChange }: {
   value?: Options;
   status?: PlayerAudioStatus | null;
   memory?: PlayerAudioStart["memory"];
   disabled: boolean;
+  showUnsupportedNotice?: boolean;
   onChange: (patch: Partial<Options>) => void;
 }) {
   const { t } = useTranslation();
@@ -38,7 +39,7 @@ export function PlayerAudioSettings({ value, status, memory, disabled, onChange 
       <PreferenceToggle title={t("settings.capture.networkEnable")} hideLabel
         checked={options.enabled === true} disabled={disabled && !options.enabled} onChange={(enabled) => onChange({ enabled })} />
     </div>
-    {!linux && memory?.status?.supported === false && <p className="settings-field-note" role="status">{t("settings.capture.unsupported")}</p>}
+    {!linux && showUnsupportedNotice && memory?.status?.supported === false && <p className="settings-field-note" role="status">{t("settings.capture.unsupported")}</p>}
     {!linux && memory && memory.status?.supported !== false && <MemoryCompressionControls memory={memory} />}
     <div className="form-grid">
       {!linux && <Select label={t("settings.audio.players.drive")} value={options.pagefile_drive.toUpperCase()}

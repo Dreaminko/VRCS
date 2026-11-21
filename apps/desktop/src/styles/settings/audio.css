@@ -22,8 +22,9 @@
   border-radius: var(--radius-md);
   background: var(--surface);
 }
-.audio-section > :is(.device-group, .capture-chatbox-settings, .platform-capability-section) + :is(.device-group, .capture-chatbox-settings, .platform-capability-section),
+.audio-section > :is(.device-group, .capture-chatbox-settings, .platform-capability-section) + :is(.device-group, .capture-chatbox-settings, .platform-capability-section, .capability-notice),
 .audio-section > .platform-capability-section > :is(.device-group, .capture-chatbox-settings) + :is(.device-group, .capture-chatbox-settings) { margin-top: var(--settings-group-gap); }
+.audio-section > .capability-notice + :is(.device-group, .capture-chatbox-settings, .player-audio-settings, .platform-capability-section, .capability-notice) { margin-top: 12px; }
 .player-audio-settings { margin: 16px 0 24px; }
 .audio-section > .player-audio-settings,
 .audio-section > .platform-capability-section > .player-audio-settings { margin: var(--settings-group-gap) 0 0; }

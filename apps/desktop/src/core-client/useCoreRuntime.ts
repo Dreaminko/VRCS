@@ -59,6 +59,17 @@ function shellHealthKey(health: Health | null): string | null {
   });
 }
 
+function mergeCapabilities(
+  current: PlatformState,
+  patch: Partial<PlatformState>,
+): PlatformState {
+  const next: PlatformState = {
+    core: patch.core !== undefined ? patch.core : current.core,
+    desktop: patch.desktop !== undefined ? patch.desktop : current.desktop,
+  };
+  return JSON.stringify(next) === JSON.stringify(current) ? current : next;
+}
+
 export function useCoreRuntime({
   clearError,
   clearErrorFrom,
@@ -79,34 +90,34 @@ export function useCoreRuntime({
   const [health, setHealth] = useState<Health | null>(null);
   const [capabilities, setCapabilities] = useState<PlatformState>({ core: null, desktop: null });
   const healthRef = useRef<Health | null>(null);
-  const capabilitiesJsonRef = useRef<string | null>(null);
   const healthJsonRef = useRef<string | null>(null);
   const shellHealthJsonRef = useRef<string | null>(null);
 
-  const commitCapabilities = useCallback((next: PlatformState) => {
-    const serialized = JSON.stringify(next);
-    if (serialized === capabilitiesJsonRef.current) return;
-    capabilitiesJsonRef.current = serialized;
-    setCapabilities(next);
+  const refreshCoreCapabilities = useCallback(async (isCancelled?: () => boolean): Promise<boolean> => {
+    try {
+      const core = await runtimeApi.capabilities();
+      if (isCancelled?.()) return true;
+      setCapabilities((current) => mergeCapabilities(current, { core }));
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
 
-  const refreshCapabilities = useCallback(async (isCancelled?: () => boolean) => {
-    const [coreResult, desktopResult] = await Promise.allSettled([
-      runtimeApi.capabilities(),
-      runtimeApi.platformCapabilities(),
-    ]);
-    if (isCancelled?.()) return;
-    setCapabilities((current) => {
-      const next: PlatformState = {
-        core: coreResult.status === "fulfilled" ? coreResult.value : current.core,
-        desktop: desktopResult.status === "fulfilled" ? desktopResult.value : current.desktop,
-      };
-      const serialized = JSON.stringify(next);
-      if (serialized === capabilitiesJsonRef.current) return current;
-      capabilitiesJsonRef.current = serialized;
-      return next;
-    });
+  const refreshDesktopCapabilities = useCallback(async (isCancelled?: () => boolean): Promise<boolean> => {
+    try {
+      const desktop = await runtimeApi.platformCapabilities();
+      if (isCancelled?.()) return true;
+      setCapabilities((current) => mergeCapabilities(current, { desktop }));
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
+
+  const refreshCapabilities = useCallback(async () => {
+    await Promise.allSettled([refreshCoreCapabilities(), refreshDesktopCapabilities()]);
+  }, [refreshCoreCapabilities, refreshDesktopCapabilities]);
 
   const commitHealth = useCallback((next: Health | null) => {
     const serialized = next ? JSON.stringify(next) : null;
@@ -177,23 +188,32 @@ export function useCoreRuntime({
   useEffect(() => {
     if (!coreConfigured) return;
     let cancelled = false;
+    let coreRetryTimer: number | null = null;
+    let desktopRetryTimer: number | null = null;
     let unlisten: UnlistenFn | null = null;
-    void refreshCapabilities(() => cancelled);
+
+    const loadCore = async () => {
+      coreRetryTimer = null;
+      const ok = await refreshCoreCapabilities(() => cancelled);
+      if (!cancelled && !ok) {
+        coreRetryTimer = window.setTimeout(() => void loadCore(), 2500);
+      }
+    };
+
+    const loadDesktop = async () => {
+      desktopRetryTimer = null;
+      const ok = await refreshDesktopCapabilities(() => cancelled);
+      if (!cancelled && !ok) {
+        desktopRetryTimer = window.setTimeout(() => void loadDesktop(), 2500);
+      }
+    };
+
+    void loadCore();
+    void loadDesktop();
+
     if (isTauri()) {
-      void listen("desktop-shortcuts-changed", async () => {
-        try {
-          const desktop = await runtimeApi.platformCapabilities();
-          if (cancelled) return;
-          setCapabilities((current) => {
-            const next: PlatformState = { core: current.core, desktop };
-            const serialized = JSON.stringify(next);
-            if (serialized === capabilitiesJsonRef.current) return current;
-            capabilitiesJsonRef.current = serialized;
-            return next;
-          });
-        } catch {
-          // Leave existing desktop capabilities untouched on transient query failure.
-        }
+      void listen("desktop-shortcuts-changed", () => {
+        void refreshDesktopCapabilities(() => cancelled);
       }).then((dispose) => {
         if (cancelled) dispose();
         else unlisten = dispose;
@@ -201,9 +221,11 @@ export function useCoreRuntime({
     }
     return () => {
       cancelled = true;
+      if (coreRetryTimer !== null) window.clearTimeout(coreRetryTimer);
+      if (desktopRetryTimer !== null) window.clearTimeout(desktopRetryTimer);
       unlisten?.();
     };
-  }, [coreConfigured, refreshCapabilities]);
+  }, [coreConfigured, refreshCoreCapabilities, refreshDesktopCapabilities]);
 
   useEffect(() => {
     if (!coreConfigured) return;
@@ -236,7 +258,7 @@ export function useCoreRuntime({
     setCoreConfigured(false);
     setStartupState("starting");
     commitHealth(null);
-    commitCapabilities({ core: null, desktop: null });
+    setCapabilities((current) => mergeCapabilities(current, { core: null, desktop: null }));
     try {
       await retryCoreStartup();
       setStartupAttempt((attempt) => attempt + 1);
@@ -244,7 +266,7 @@ export function useCoreRuntime({
       setStartupState("failed");
       reportError(reason, "errors.core.initialize", "core");
     }
-  }, [clearError, commitCapabilities, commitHealth, reportError]);
+  }, [clearError, commitHealth, reportError]);
 
   const healthController: CoreHealthController = {
     value: health,
@@ -261,5 +283,6 @@ export function useCoreRuntime({
     retry,
     health: healthController,
     capabilities,
+    refreshCapabilities,
   };
 }

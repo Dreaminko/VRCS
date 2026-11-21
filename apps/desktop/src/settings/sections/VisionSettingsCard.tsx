@@ -17,11 +17,12 @@ import { useDesktopVisionSession } from "../../vision/useDesktopVisionSession";
 import { SettingsDisclosure } from "../components/SettingsDisclosure";
 import { usePlatformCapabilities } from "../../core-client/capabilities";
 
-export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, onChange }: {
+export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, hideVrSceneCaptureNotice = false, onChange }: {
   config: VisionSettings;
   profiles: ApiProfileView[];
   vrAvailable: boolean;
   disabled: boolean;
+  hideVrSceneCaptureNotice?: boolean;
   onChange: (patch: Partial<VisionSettings>) => void;
 }) {
   const { t, i18n } = useTranslation();
@@ -149,7 +150,7 @@ export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, on
         <header className="vr-overlay-card-heading vr-overlay-feature-heading">
           <div><RectangleGoggles size={18} /><span>
             <strong id="vision-wrist-heading">{t("settings.vision.wristTitle")}</strong>
-            {!vrAvailable && (
+            {!vrAvailable && !(hideVrSceneCaptureNotice && desktop && !desktop.vr.scene_capture.supported) && (
               <small>
                 {desktop && !desktop.vr.scene_capture.supported
                   ? t("platform.vr.scene_capture_unavailable")

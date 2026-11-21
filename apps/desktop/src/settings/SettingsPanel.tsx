@@ -32,7 +32,7 @@ import type { PlayerAudioStart } from "../capture/usePlayerAudioStart";
 import { applyModelDefaults } from "./model-selection";
 import type { ApplySettings } from "./settings-types";
 import { useApiProfileCatalog } from "../providers/useApiProfileCatalog";
-import { CapabilitySection, usePlatformCapabilities } from "../core-client/capabilities";
+import { usePlatformCapabilities } from "../core-client/capabilities";
 
 export function SettingsPanel({
   initialCategory = "system",
@@ -42,6 +42,7 @@ export function SettingsPanel({
   interfaceScale,
   devices,
   devicesReady,
+  devicesError = false,
   onStartMicrophoneTest,
   onStopMicrophoneTest,
   dictionaries,
@@ -65,6 +66,7 @@ export function SettingsPanel({
   interfaceScale: number;
   devices: AudioDevice[];
   devicesReady: boolean;
+  devicesError?: boolean;
   onStartMicrophoneTest: () => Promise<void>;
   onStopMicrophoneTest: () => Promise<void>;
   dictionaries: DictionarySource[];
@@ -215,6 +217,7 @@ export function SettingsPanel({
           onOpenTranslation={() => setActiveCategory("translation")}
           devices={devices}
           devicesReady={devicesReady}
+          devicesError={devicesError}
           microphoneRunning={Boolean(health?.capture_running && health.microphone_device)}
           transcriptionRunning={health?.capture_requested ?? false}
           microphoneTestRunning={health?.microphone_test_running ?? false}
@@ -309,24 +312,20 @@ export function SettingsPanel({
       )}
 
       {activeCategory === "vision" && (
-        <CapabilitySection capability={capabilities.desktop?.screenshot}>
         <OcrSettingsSection vrAvailable={settings.features.vr_overlay && Boolean(capabilities.desktop?.vr.scene_capture.supported)} draft={draft}
           profiles={apiProfileCatalog.profiles} applySettings={applySettings}
           onManageLocalModels={openLocalModels} />
-        </CapabilitySection>
       )}
 
       {activeCategory === "about" && <AboutSettingsSection version={updater.buildInfo?.version} />}
 
       {activeCategory === "vr_overlay" && (
-        <CapabilitySection capability={capabilities.desktop?.vr.subtitles}>
         <VrOverlaySettingsSection
           draft={draft}
           os={capabilities.desktop?.os}
           saveState={saveState}
           applySettings={applySettings}
         />
-        </CapabilitySection>
       )}
     </section>
   );

@@ -29,6 +29,7 @@ export function CaptureSettingsSection({
   onOpenTranslation = () => undefined,
   devices,
   devicesReady,
+  devicesError = false,
   deviceErrors,
   outputDevices,
   microphoneDevices,
@@ -51,6 +52,7 @@ export function CaptureSettingsSection({
   onOpenTranslation?: () => void;
   devices: AudioDevice[];
   devicesReady: boolean;
+  devicesError?: boolean;
   deviceErrors: string[];
   outputDevices: AudioDevice[];
   microphoneDevices: AudioDevice[];
@@ -134,7 +136,7 @@ export function CaptureSettingsSection({
   return (
         <div className="settings-section settings-section-active audio-section" id="settings-panel-audio" role="tabpanel" aria-labelledby="settings-tab-audio">
           <div className="section-heading">
-            <div><Volume2 size={18} /><h2>{t("settings.audio.title")}</h2><span>{core && !core.audio.system_output.supported ? t("common.unavailable") : devices.length ? t("settings.audio.devicesFound", { count: devices.length }) : t("settings.audio.waitingScan")}</span></div>
+            <div><Volume2 size={18} /><h2>{t("settings.audio.title")}</h2><span>{core && !core.audio.system_output.supported ? t("common.unavailable") : devices.length ? t("settings.audio.devicesFound", { count: devices.length }) : t(devicesError ? "errors.audio.devices" : "settings.audio.waitingScan")}</span></div>
             <button className="secondary-button" type="button" onClick={() => void onRefresh()}><RefreshCw size={15} />{t("settings.audio.rescan")}</button>
           </div>
 
@@ -158,6 +160,7 @@ export function CaptureSettingsSection({
             )}
             devices={outputDevices}
             devicesReady={devicesReady}
+            devicesError={devicesError}
             selectedDeviceId={!draft.audio.output.device_key && draft.audio.output.mode === "system" ? draft.audio.output.device_id : null}
             selectedDeviceKey={draft.audio.output.mode === "system" ? draft.audio.output.device_key : null}
             specialRows={[
@@ -293,6 +296,7 @@ export function CaptureSettingsSection({
             )}
             devices={microphoneDevices}
             devicesReady={devicesReady}
+            devicesError={devicesError}
             selectedDeviceId={!draft.audio.microphone.device_key && draft.audio.microphone.mode !== "disabled" ? draft.audio.microphone.device_id : null}
             selectedDeviceKey={draft.audio.microphone.mode !== "disabled" ? draft.audio.microphone.device_key : null}
             specialRows={[
@@ -342,12 +346,14 @@ export function CaptureSettingsSection({
           />
           <CapabilityNotice capability={core?.chatbox.network_receive} />
           <VrchatChatboxSettings draft={draft} translation={translation} profiles={profiles} status={chatboxStatus}
-            supported={networkSupported} saveState={saveState} saveMessage={saveMessage}
+            supported={networkSupported} showUnsupportedNotice={!core?.chatbox.network_receive?.reason_code}
+            saveState={saveState} saveMessage={saveMessage}
             applySettings={applySettings} onOpenTranslation={onOpenTranslation} />
           <VrchatRoomContextSettings draft={draft} applySettings={applySettings} />
           <PlayerAudioSettings value={draft.audio.output.player_audio} status={playerAudioStatus}
             memory={playerAudioStart?.memory}
             disabled={!networkSupported}
+            showUnsupportedNotice={!core?.chatbox.network_receive?.reason_code}
             onChange={(patch) => applySettings((current) => ({
               ...current,
               audio: { ...current.audio, output: { ...current.audio.output,

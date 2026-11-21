@@ -10,7 +10,7 @@ pub const LOCAL_TRANSLATION_UNAVAILABLE: &str = "platform.local_translation_unav
 pub const NETWORK_CAPTURE_UNSUPPORTED: &str = "platform.network_capture_unsupported";
 pub const NETWORK_HELPER_MISSING: &str = "platform.network_helper_missing";
 pub const DIRECTML_UNSUPPORTED: &str = "platform.directml_unsupported";
-pub const DEVICE_KEY_UNSUPPORTED: &str = "platform.audio_device_reselection_required";
+pub const DEVICE_KEY_UNSUPPORTED: &str = "audio.device_reselection_required";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct Capability {

@@ -90,13 +90,15 @@ pub async fn available() -> bool {
             .await
             .unwrap_or(false);
     }
-    let Ok(proxy) = GlobalShortcuts::new().await else {
-        return false;
+    let check = async {
+        let proxy = GlobalShortcuts::new().await.ok()?;
+        proxy.get_property::<u32>("version").await.ok()
     };
-    proxy
-        .get_property::<u32>("version")
+    tokio::time::timeout(std::time::Duration::from_secs(2), check)
         .await
-        .is_ok_and(|version| version >= 1)
+        .ok()
+        .flatten()
+        .is_some_and(|version| version >= 1)
 }
 
 pub fn set_paused(app: &AppHandle, paused: bool) {

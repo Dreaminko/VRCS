@@ -8,12 +8,13 @@ import type { Settings, TranslationSettings } from "../types";
 import { PreferenceToggle } from "../SettingsControls";
 import { chatboxTranslationReady, DEFAULT_VRCHAT_CHATBOX_CONFIG } from "../vrchat-chatbox-settings";
 
-export function VrchatChatboxSettings({ draft, translation, profiles, status, supported, saveState, saveMessage, applySettings, onOpenTranslation }: {
+export function VrchatChatboxSettings({ draft, translation, profiles, status, supported, showUnsupportedNotice = true, saveState, saveMessage, applySettings, onOpenTranslation }: {
   draft: Settings;
   translation: TranslationSettings;
   profiles: ApiProfileView[];
   status?: ChatboxStatus | null;
   supported?: boolean;
+  showUnsupportedNotice?: boolean;
   saveState: SaveState;
   saveMessage?: string;
   applySettings: ApplySettings;
@@ -24,7 +25,7 @@ export function VrchatChatboxSettings({ draft, translation, profiles, status, su
   const enabled = (draft.vrchat_chatbox ?? DEFAULT_VRCHAT_CHATBOX_CONFIG).enabled;
   const phase = status?.phase ?? "stopped";
   const showTranslationHint = !chatboxTranslationReady(translation, profiles);
-  const showIssue = supported === false || phase === "failed";
+  const showIssue = (showUnsupportedNotice && supported === false) || phase === "failed";
   const saveError = saveState === "error" ? saveMessage : undefined;
   return <section className="capture-chatbox-settings" aria-labelledby="vrchat-chatbox-title">
     <div className="device-group-heading">

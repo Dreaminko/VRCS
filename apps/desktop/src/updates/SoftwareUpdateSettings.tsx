@@ -35,8 +35,8 @@ export function SoftwareUpdateSettings({ updater }: { updater: AppUpdaterState }
             version: updater.update?.version,
             channel: updater.update ? t(`updates.channel.${updater.update.channel}`) : undefined,
           })}</p>
+          {updater.buildInfo?.os === "linux" && updater.buildInfo.canInstall === false && <p role="status">{t("platform.manual_updates")}</p>}
         </div>
-        {updater.buildInfo?.os === "linux" && updater.buildInfo.canInstall === false && <p role="status">{t("platform.manual_updates")}</p>}
         <button
           className="secondary-button"
           type="button"
