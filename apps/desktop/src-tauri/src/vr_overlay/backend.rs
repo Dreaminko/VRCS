@@ -2612,6 +2612,13 @@ pub enum BackendKind {
     OpenXr,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenXrProbe {
+    pub runtime_installed: bool,
+    pub hmd_present: bool,
+    pub detail: Option<String>,
+}
+
 impl Backend {
     pub fn kind(&self) -> BackendKind {
         match self.inner {
@@ -2681,17 +2688,29 @@ impl Backend {
         VrBackend::runtime_path()
     }
 
-    pub fn openxr_probe() -> (bool, bool) {
+    pub fn openxr_probe() -> OpenXrProbe {
         #[cfg(all(linux_vr, target_arch = "x86_64"))]
         {
             match crate::vr_overlay::xr::probe_status() {
-                Ok(status) => (status.runtime_installed, status.hmd_present),
-                Err(_) => (false, false),
+                Ok(status) => OpenXrProbe {
+                    runtime_installed: status.runtime_installed,
+                    hmd_present: status.hmd_present,
+                    detail: None,
+                },
+                Err(error) => OpenXrProbe {
+                    runtime_installed: false,
+                    hmd_present: false,
+                    detail: Some(error),
+                },
             }
         }
         #[cfg(not(all(linux_vr, target_arch = "x86_64")))]
         {
-            (false, false)
+            OpenXrProbe {
+                runtime_installed: false,
+                hmd_present: false,
+                detail: Some("vr.openxr_backend_unavailable".into()),
+            }
         }
     }
 

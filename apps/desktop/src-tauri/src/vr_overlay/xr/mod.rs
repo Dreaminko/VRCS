@@ -262,8 +262,9 @@ fn resolve_manifest_library_path(
     Some((resolved, negotiate))
 }
 
-fn fallback_manifest_candidates() -> Vec<PathBuf> {
-    let daemons = crate::vr_overlay::process::linux_xr_daemons();
+fn fallback_manifest_candidates_with(
+    daemons: crate::vr_overlay::process::LinuxXrDaemons,
+) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if daemons.wivrn {
         if let Some(home) = std::env::var_os("HOME").filter(|value| !value.is_empty()) {
@@ -285,6 +286,30 @@ fn fallback_manifest_candidates() -> Vec<PathBuf> {
         .into_iter()
         .filter(|path| path.is_file())
         .collect()
+}
+
+fn manifest_requires_daemon(
+    manifest_path: &Path,
+    raw_json: &str,
+    daemons: crate::vr_overlay::process::LinuxXrDaemons,
+) -> bool {
+    let Some((library_path, _)) = resolve_manifest_library_path(manifest_path, raw_json) else {
+        return true;
+    };
+    let name = library_path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if name.contains("wivrn") {
+        daemons.wivrn
+    } else if name.contains("monado") {
+        daemons.monado
+    } else if name.contains("steamxr") {
+        daemons.steamvr
+    } else {
+        true
+    }
 }
 
 fn load_direct_runtime_entry(manifest_path: &Path) -> Result<xr::Entry, String> {
@@ -438,46 +463,69 @@ fn open_overlay_instance(
     enable_optional: bool,
 ) -> Result<(xr::ExtensionSet, xr::Instance), String> {
     let overridden = xr_runtime_json_overridden();
-    let mut tried = Vec::new();
-    let mut primary_error = match load_loader_entry() {
-        Ok(entry) => match try_open_entry(&entry, enable_optional) {
-            Ok(opened) => return Ok(opened),
-            Err(error) => Some(error),
-        },
-        Err(loader_error) => {
-            let mut active_error = None;
-            for manifest in active_manifest_candidates() {
-                let canon = std::fs::canonicalize(&manifest).unwrap_or_else(|_| manifest.clone());
-                if !tried.contains(&canon) {
-                    tried.push(canon);
-                }
-                match load_direct_runtime_entry(&manifest)
-                    .and_then(|entry| try_open_entry(&entry, enable_optional))
-                {
-                    Ok(opened) => return Ok(opened),
-                    Err(error) if active_error.is_none() => active_error = Some(error),
-                    Err(_) => {}
-                }
-                if overridden {
-                    break;
-                }
-            }
-            Some(active_error.unwrap_or(loader_error))
+    let active_manifests = active_manifest_candidates();
+    let (active_runnable, fallback_manifests) = if overridden {
+        if active_manifests.is_empty() {
+            return Err("vr.openxr_loader_unavailable".into());
         }
+        (true, Vec::new())
+    } else {
+        let daemons = crate::vr_overlay::process::linux_xr_daemons();
+        let fallback_manifests = fallback_manifest_candidates_with(daemons);
+        if active_manifests.is_empty() && fallback_manifests.is_empty() {
+            return Err("vr.openxr_loader_unavailable".into());
+        }
+        let active_runnable = active_manifests.first().is_some_and(|manifest| {
+            std::fs::read_to_string(manifest)
+                .map(|raw| manifest_requires_daemon(manifest, &raw, daemons))
+                .unwrap_or(true)
+        });
+        (active_runnable, fallback_manifests)
     };
 
-    if !overridden {
-        for manifest in fallback_manifest_candidates() {
-            let canon = std::fs::canonicalize(&manifest).unwrap_or_else(|_| manifest.clone());
-            if tried.contains(&canon) {
-                continue;
+    let mut tried = Vec::new();
+    let mut primary_error = if active_runnable {
+        match load_loader_entry() {
+            Ok(entry) => match try_open_entry(&entry, enable_optional) {
+                Ok(opened) => return Ok(opened),
+                Err(error) => Some(error),
+            },
+            Err(loader_error) => {
+                let mut active_error = None;
+                for manifest in active_manifests {
+                    let canon =
+                        std::fs::canonicalize(&manifest).unwrap_or_else(|_| manifest.clone());
+                    if !tried.contains(&canon) {
+                        tried.push(canon);
+                    }
+                    match load_direct_runtime_entry(&manifest)
+                        .and_then(|entry| try_open_entry(&entry, enable_optional))
+                    {
+                        Ok(opened) => return Ok(opened),
+                        Err(error) if active_error.is_none() => active_error = Some(error),
+                        Err(_) => {}
+                    }
+                    if overridden {
+                        break;
+                    }
+                }
+                Some(active_error.unwrap_or(loader_error))
             }
-            tried.push(canon);
-            if let Ok(opened) = load_direct_runtime_entry(&manifest)
-                .and_then(|entry| try_open_entry(&entry, enable_optional))
-            {
-                return Ok(opened);
-            }
+        }
+    } else {
+        Some("OpenXR runtime unavailable".into())
+    };
+
+    for manifest in fallback_manifests {
+        let canon = std::fs::canonicalize(&manifest).unwrap_or_else(|_| manifest.clone());
+        if tried.contains(&canon) {
+            continue;
+        }
+        tried.push(canon);
+        if let Ok(opened) = load_direct_runtime_entry(&manifest)
+            .and_then(|entry| try_open_entry(&entry, enable_optional))
+        {
+            return Ok(opened);
         }
     }
 
@@ -1978,5 +2026,47 @@ mod tests {
                 PathBuf::from("/etc/openxr/1/active_runtime.json"),
             ]
         );
+    }
+
+    #[test]
+    fn manifest_requires_daemon_gates_known_linux_runtimes_and_allows_custom() {
+        let none = crate::vr_overlay::process::LinuxXrDaemons::default();
+        let wivrn_manifest = Path::new("/etc/xdg/openxr/1/active_runtime.json");
+        let wivrn_json = r#"{"runtime":{"library_path":"/usr/lib/wivrn/libopenxr_wivrn.so"}}"#;
+        assert!(!manifest_requires_daemon(wivrn_manifest, wivrn_json, none));
+        assert!(manifest_requires_daemon(
+            wivrn_manifest,
+            wivrn_json,
+            crate::vr_overlay::process::LinuxXrDaemons {
+                wivrn: true,
+                ..none
+            }
+        ));
+
+        let monado_json = r#"{"runtime":{"library_path":"/usr/lib/libopenxr_monado.so"}}"#;
+        assert!(!manifest_requires_daemon(wivrn_manifest, monado_json, none));
+        assert!(manifest_requires_daemon(
+            wivrn_manifest,
+            monado_json,
+            crate::vr_overlay::process::LinuxXrDaemons {
+                monado: true,
+                ..none
+            }
+        ));
+
+        let steam_json = r#"{"runtime":{"library_path":"/home/u/.local/share/Steam/steamapps/common/SteamVR/bin/linux64/steamxr_linux64.so"}}"#;
+        assert!(!manifest_requires_daemon(wivrn_manifest, steam_json, none));
+        assert!(manifest_requires_daemon(
+            wivrn_manifest,
+            steam_json,
+            crate::vr_overlay::process::LinuxXrDaemons {
+                steamvr: true,
+                ..none
+            }
+        ));
+
+        let custom_json = r#"{"runtime":{"library_path":"/opt/xr/libcustom_xr.so"}}"#;
+        assert!(manifest_requires_daemon(wivrn_manifest, custom_json, none));
+        assert!(manifest_requires_daemon(wivrn_manifest, "{bad json", none));
     }
 }

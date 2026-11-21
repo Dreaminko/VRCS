@@ -8,16 +8,12 @@ pub struct OpenVrSession {
 }
 
 impl OpenVrSession {
-    pub fn can_connect(&self, pid: Option<u32>, require_pid: bool) -> bool {
-        if require_pid {
-            pid.is_some() && pid != self.quitting_pid
-        } else {
-            pid.is_none_or(|p| Some(p) != self.quitting_pid)
-        }
+    pub fn can_connect(&self, pid: Option<u32>) -> bool {
+        pid.is_some() && pid != self.quitting_pid
     }
 
-    pub fn connected(&mut self, pid: Option<u32>) {
-        self.connected_pid = pid;
+    pub fn connected(&mut self, pid: u32) {
+        self.connected_pid = Some(pid);
         self.quitting_pid = None;
     }
 
@@ -31,6 +27,7 @@ impl OpenVrSession {
 pub struct LinuxXrDaemons {
     pub wivrn: bool,
     pub monado: bool,
+    pub steamvr: bool,
 }
 
 #[cfg(windows)]
@@ -39,8 +36,11 @@ fn steamvr_pid() -> Option<u32> {
 }
 
 #[cfg(windows)]
-pub fn openvr_server_gate(_runtime_path: Option<&std::path::Path>) -> (Option<u32>, bool) {
-    (steamvr_pid(), true)
+pub fn openvr_server_pid(
+    _runtime_path: Option<&std::path::Path>,
+    _explicit_openvr: bool,
+) -> Option<u32> {
+    steamvr_pid()
 }
 
 #[cfg(windows)]
@@ -171,8 +171,10 @@ pub fn linux_xr_daemons() -> LinuxXrDaemons {
             daemons.wivrn = true;
         } else if !daemons.monado && proc_matches_any(pid, &["monado-service"]) && proc_alive(pid) {
             daemons.monado = true;
+        } else if !daemons.steamvr && proc_matches_any(pid, &["vrserver"]) && proc_alive(pid) {
+            daemons.steamvr = true;
         }
-        !(daemons.wivrn && daemons.monado)
+        !(daemons.wivrn && daemons.monado && daemons.steamvr)
     });
     daemons
 }
@@ -185,20 +187,23 @@ pub fn openvr_runtime_is_steamvr(runtime_path: Option<&std::path::Path>) -> bool
 }
 
 #[cfg(linux_vr)]
-pub fn openvr_server_gate(runtime_path: Option<&std::path::Path>) -> (Option<u32>, bool) {
-    if openvr_runtime_is_steamvr(runtime_path) {
-        (find_user_process(&["vrserver"]), true)
+pub fn openvr_server_pid(
+    runtime_path: Option<&std::path::Path>,
+    explicit_openvr: bool,
+) -> Option<u32> {
+    if !explicit_openvr || openvr_runtime_is_steamvr(runtime_path) {
+        find_user_process(&["vrserver"])
     } else {
-        (
-            find_user_process(&["wivrn-server", "monado-service", "vrserver"]),
-            false,
-        )
+        find_user_process(&["vrserver", "wivrn-server", "monado-service"])
     }
 }
 
 #[cfg(all(not(windows), not(linux_vr)))]
-pub fn openvr_server_gate(_runtime_path: Option<&std::path::Path>) -> (Option<u32>, bool) {
-    (None, true)
+pub fn openvr_server_pid(
+    _runtime_path: Option<&std::path::Path>,
+    _explicit_openvr: bool,
+) -> Option<u32> {
+    None
 }
 
 #[cfg(test)]
@@ -208,43 +213,38 @@ mod tests {
     #[test]
     fn steamvr_quit_blocks_the_old_server_until_a_new_server_starts() {
         let mut session = OpenVrSession::default();
-        assert!(!session.can_connect(None, true));
-        assert!(session.can_connect(Some(42), true));
-        session.connected(Some(42));
+        assert!(!session.can_connect(None));
+        assert!(session.can_connect(Some(42)));
+        session.connected(42);
         session.quit();
 
-        assert!(!session.can_connect(Some(42), true));
-        assert!(!session.can_connect(None, true));
-        assert!(!session.can_connect(Some(42), true));
-        assert!(session.can_connect(Some(43), true));
+        assert!(!session.can_connect(Some(42)));
+        assert!(!session.can_connect(None));
+        assert!(!session.can_connect(Some(42)));
+        assert!(session.can_connect(Some(43)));
     }
 
     #[test]
     fn a_second_shutdown_blocks_the_new_server() {
         let mut session = OpenVrSession::default();
-        session.connected(Some(42));
+        session.connected(42);
         session.quit();
-        session.connected(Some(43));
+        session.connected(43);
         session.quit();
 
-        assert!(!session.can_connect(Some(43), true));
-        assert!(session.can_connect(Some(44), true));
+        assert!(!session.can_connect(Some(43)));
+        assert!(session.can_connect(Some(44)));
     }
 
     #[test]
-    fn non_steamvr_openvr_allows_missing_pid_and_still_tracks_daemon_quit() {
+    fn missing_server_pid_never_allows_connecting() {
         let mut session = OpenVrSession::default();
-        assert!(session.can_connect(None, false));
-        session.connected(None);
+        assert!(!session.can_connect(None));
+        session.connected(77);
         session.quit();
-        assert!(session.can_connect(None, false));
-
-        assert!(session.can_connect(Some(77), false));
-        session.connected(Some(77));
-        session.quit();
-        assert!(!session.can_connect(Some(77), false));
-        assert!(session.can_connect(Some(78), false));
-        assert!(session.can_connect(None, false));
+        assert!(!session.can_connect(None));
+        assert!(!session.can_connect(Some(77)));
+        assert!(session.can_connect(Some(78)));
     }
 
     #[cfg(linux_vr)]

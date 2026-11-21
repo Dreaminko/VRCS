@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::{broadcast, watch};
 use vrcs_core::{PresentationEvent, VrOcrConfig, VrOverlayConfig};
 
-use super::backend::{Backend, BackendKind, OverlayKind};
+use super::backend::{Backend, BackendKind, OpenXrProbe, OverlayKind};
 use super::control_protocol::ControlHub;
 #[cfg(any(windows, linux_vr))]
 use super::control_protocol::{ControlAction, ControlSource};
@@ -25,7 +25,7 @@ use super::presentation::PresentationFrame;
 use super::presentation::{HeadsetPresentation, WristPresentation};
 #[cfg(any(windows, linux_vr))]
 use super::presentation::{MessageSide, PresentationContent, WristMessage};
-use super::process::{openvr_server_gate, OpenVrSession};
+use super::process::{openvr_server_pid, OpenVrSession};
 
 pub const STATUS_EVENT: &str = "vr-overlay-status-changed";
 const UPDATE_INTERVAL: Duration = Duration::from_millis(50);
@@ -33,6 +33,7 @@ const IDLE_WAITING_INTERVAL: Duration = Duration::from_millis(250);
 const IDLE_DISABLED_INTERVAL: Duration = Duration::from_millis(500);
 pub(super) const SURFACE_FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_700);
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(2);
+const MAX_RECONNECT_INTERVAL: Duration = Duration::from_secs(30);
 const EVENT_QUEUE_CAPACITY: usize = 256;
 const DROP_WARNING_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -572,6 +573,12 @@ struct WorkerState {
     last_input_error: Option<String>,
     next_reconnect: Instant,
     next_probe: Instant,
+    probe_ready: bool,
+    probe_incompatibility: Option<String>,
+    incompatible_openvr: Option<(u32, String)>,
+    xr_session_ready: bool,
+    xr_stall_count: u32,
+    last_connect_error: Option<String>,
     #[cfg(any(windows, linux_vr))]
     surfaces_dormant: bool,
     #[cfg(windows)]
@@ -606,6 +613,286 @@ impl WorkerState {
             self.headset_cache = None;
         }
     }
+}
+
+fn reconnect_backoff(attempt: u32) -> Duration {
+    let shift = attempt.saturating_sub(1).min(4);
+    let secs = RECONNECT_INTERVAL.as_secs().saturating_mul(1_u64 << shift);
+    Duration::from_secs(secs).min(MAX_RECONNECT_INTERVAL)
+}
+
+fn is_openxr_incompatibility(detail: &str) -> bool {
+    matches!(
+        detail,
+        "vr.openxr_backend_unavailable"
+            | "vr.openxr_overlay_unsupported"
+            | "vr.openxr_vulkan_unavailable"
+            | "vr.runtime_arch_unverified"
+    )
+}
+
+fn is_openxr_session_end(error: &str) -> bool {
+    matches!(error, "vr.openxr_session_ended" | "vr.openxr_instance_lost")
+        || error.contains("ERROR_SESSION_LOST")
+        || error.contains("ERROR_INSTANCE_LOST")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConnectFailureKind {
+    MissingRuntime,
+    Incompatible,
+    Transient,
+}
+
+fn classify_connect_error(error: &str) -> ConnectFailureKind {
+    if is_openxr_incompatibility(error)
+        || error.contains("Init_InvalidApplicationType")
+        || error.starts_with("Unsupported VR Overlay backend:")
+    {
+        ConnectFailureKind::Incompatible
+    } else if matches!(
+        error,
+        "vr.openxr_headset_unavailable" | "vr.openxr_loader_unavailable"
+    ) || error.starts_with("OpenXR runtime unavailable")
+        || error.contains("Init_NoServerForBackgroundApp")
+        || error.contains("Init_HmdNotFound")
+        || error.contains("Init_PathRegistryNotFound")
+        || error.contains("Init_InstallationNotFound")
+    {
+        ConnectFailureKind::MissingRuntime
+    } else {
+        ConnectFailureKind::Transient
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProbeSnapshot {
+    selected_backend: Option<BackendKind>,
+    runtime_installed: bool,
+    hmd_present: bool,
+    openvr_pid: Option<u32>,
+    ready_to_connect: bool,
+    incompatibility_detail: Option<String>,
+    clear_incompatible_openvr: bool,
+}
+
+fn evaluate_probe(
+    requested_backend: &str,
+    incompatible_openvr: Option<(u32, &str)>,
+    openxr: impl FnOnce() -> OpenXrProbe,
+    openvr_installed: impl FnOnce() -> bool,
+    openvr_server_pid: impl FnOnce(bool) -> Option<u32>,
+    openvr_can_connect: impl FnOnce(Option<u32>) -> bool,
+    openvr_hmd_present: impl FnOnce() -> bool,
+) -> ProbeSnapshot {
+    match requested_backend {
+        "openxr" => {
+            let xr = openxr();
+            let ready = xr.runtime_installed && xr.hmd_present;
+            let incompatibility_detail = (!ready)
+                .then(|| xr.detail.filter(|detail| is_openxr_incompatibility(detail)))
+                .flatten();
+            ProbeSnapshot {
+                selected_backend: Some(BackendKind::OpenXr),
+                runtime_installed: xr.runtime_installed,
+                hmd_present: xr.hmd_present,
+                openvr_pid: None,
+                ready_to_connect: ready,
+                incompatibility_detail,
+                clear_incompatible_openvr: true,
+            }
+        }
+        "openvr" => {
+            let installed = openvr_installed();
+            if !installed {
+                return ProbeSnapshot {
+                    selected_backend: Some(BackendKind::OpenVr),
+                    runtime_installed: false,
+                    hmd_present: false,
+                    openvr_pid: None,
+                    ready_to_connect: false,
+                    incompatibility_detail: None,
+                    clear_incompatible_openvr: true,
+                };
+            }
+            let pid = openvr_server_pid(true);
+            if let Some((bad_pid, reason)) = incompatible_openvr {
+                if pid == Some(bad_pid) {
+                    return ProbeSnapshot {
+                        selected_backend: Some(BackendKind::OpenVr),
+                        runtime_installed: true,
+                        hmd_present: false,
+                        openvr_pid: pid,
+                        ready_to_connect: false,
+                        incompatibility_detail: Some(reason.to_owned()),
+                        clear_incompatible_openvr: false,
+                    };
+                }
+            }
+            let server_ready = openvr_can_connect(pid);
+            let hmd = server_ready && openvr_hmd_present();
+            ProbeSnapshot {
+                selected_backend: Some(BackendKind::OpenVr),
+                runtime_installed: true,
+                hmd_present: hmd,
+                openvr_pid: pid,
+                ready_to_connect: server_ready && hmd,
+                incompatibility_detail: None,
+                clear_incompatible_openvr: true,
+            }
+        }
+        "auto" => {
+            let xr = openxr();
+            if xr.runtime_installed && xr.hmd_present {
+                return ProbeSnapshot {
+                    selected_backend: Some(BackendKind::OpenXr),
+                    runtime_installed: true,
+                    hmd_present: true,
+                    openvr_pid: None,
+                    ready_to_connect: true,
+                    incompatibility_detail: None,
+                    clear_incompatible_openvr: true,
+                };
+            }
+            let ovr_installed = openvr_installed();
+            if ovr_installed {
+                let pid = openvr_server_pid(false);
+                if let Some((bad_pid, reason)) = incompatible_openvr {
+                    if pid == Some(bad_pid) {
+                        return ProbeSnapshot {
+                            selected_backend: Some(BackendKind::OpenVr),
+                            runtime_installed: true,
+                            hmd_present: false,
+                            openvr_pid: pid,
+                            ready_to_connect: false,
+                            incompatibility_detail: Some(reason.to_owned()),
+                            clear_incompatible_openvr: false,
+                        };
+                    }
+                }
+                let server_ready = openvr_can_connect(pid);
+                let ovr_hmd = server_ready && openvr_hmd_present();
+                if server_ready && ovr_hmd {
+                    return ProbeSnapshot {
+                        selected_backend: Some(BackendKind::OpenVr),
+                        runtime_installed: true,
+                        hmd_present: true,
+                        openvr_pid: pid,
+                        ready_to_connect: true,
+                        incompatibility_detail: None,
+                        clear_incompatible_openvr: true,
+                    };
+                }
+            }
+            ProbeSnapshot {
+                selected_backend: Some(if xr.runtime_installed {
+                    BackendKind::OpenXr
+                } else {
+                    BackendKind::OpenVr
+                }),
+                runtime_installed: xr.runtime_installed || ovr_installed,
+                hmd_present: false,
+                openvr_pid: None,
+                ready_to_connect: false,
+                incompatibility_detail: None,
+                clear_incompatible_openvr: true,
+            }
+        }
+        other => ProbeSnapshot {
+            selected_backend: None,
+            runtime_installed: false,
+            hmd_present: false,
+            openvr_pid: None,
+            ready_to_connect: false,
+            incompatibility_detail: Some(format!("Unsupported VR Overlay backend: {other}")),
+            clear_incompatible_openvr: true,
+        },
+    }
+}
+
+fn reset_detached_state(state: &mut WorkerState) {
+    if let Some(mut backend) = state.backend.take() {
+        backend.hide_all();
+        if state.config.backend == "auto" {
+            state.selected_backend = None;
+        }
+    }
+    #[cfg(windows)]
+    {
+        state.ocr.unavailable(state.ocr_config.enabled);
+        state.reset_ui();
+    }
+    #[cfg(linux_vr)]
+    {
+        state.reset_ui();
+        state.last_input_error = None;
+    }
+    state.reset_headset();
+    state.reset_dashboard();
+    state.probe_ready = false;
+    state.xr_session_ready = false;
+}
+
+fn apply_waiting_runtime(
+    state: &mut WorkerState,
+    status: &mut VrOverlayStatus,
+    detail: Option<String>,
+) {
+    status.state = RuntimeState::WaitingRuntime;
+    status.backend = None;
+    status.reconnect_attempt = 0;
+    status.last_error_detail = detail;
+    status.headset.state = if state.config.enabled && state.config.headset.enabled {
+        ResourceState::ReadyHidden
+    } else {
+        ResourceState::Disabled
+    };
+    status.headset.last_error_code = None;
+    status.wrist.state = if state.config.enabled && state.config.wrist.enabled {
+        ResourceState::DeviceUnavailable
+    } else {
+        ResourceState::Disabled
+    };
+    status.wrist.last_error_code = None;
+    status.wrist.tracked_device_available = false;
+    status.wrist.bound_role = None;
+    status.dashboard.state = ResourceState::DeviceUnavailable;
+    status.dashboard.visible = false;
+    status.dashboard.last_error_code = None;
+}
+
+fn detach_to_waiting_runtime(
+    state: &mut WorkerState,
+    status: &mut VrOverlayStatus,
+    detail: Option<String>,
+    retry_delay: Duration,
+) {
+    reset_detached_state(state);
+    status.hmd_present = false;
+    apply_waiting_runtime(state, status, detail);
+    let now = Instant::now();
+    state.next_probe = now + RECONNECT_INTERVAL;
+    state.next_reconnect = now + retry_delay;
+}
+
+fn detach_for_reconnect(
+    state: &mut WorkerState,
+    status: &mut VrOverlayStatus,
+    error: String,
+    immediate_probe: bool,
+) {
+    reset_detached_state(state);
+    status.state = RuntimeState::Reconnecting;
+    status.backend = None;
+    status.reconnect_attempt = status.reconnect_attempt.saturating_add(1);
+    status.last_error_detail = Some(error);
+    let now = Instant::now();
+    state.next_reconnect = now + reconnect_backoff(status.reconnect_attempt);
+    state.next_probe = if immediate_probe {
+        now
+    } else {
+        now + RECONNECT_INTERVAL
+    };
 }
 
 // Keep the existing worker spawn boundary explicit.
@@ -698,6 +985,12 @@ fn worker_loop(
         last_input_error: None,
         next_reconnect: Instant::now(),
         next_probe: Instant::now(),
+        probe_ready: false,
+        probe_incompatibility: None,
+        incompatible_openvr: None,
+        xr_session_ready: false,
+        xr_stall_count: 0,
+        last_connect_error: None,
         #[cfg(any(windows, linux_vr))]
         surfaces_dormant: false,
         #[cfg(windows)]
@@ -758,37 +1051,63 @@ fn worker_loop(
                 .expect("XR backend checked")
                 .begin_frame()
             {
-                Ok(true) => xr_not_ready = None,
+                Ok(true) => {
+                    xr_not_ready = None;
+                    if !state.xr_session_ready {
+                        state.xr_session_ready = true;
+                        state.xr_stall_count = 0;
+                        state.last_connect_error = None;
+                        status.state = RuntimeState::Ready;
+                        status.last_connected_at = Some(unix_timestamp());
+                        status.reconnect_attempt = 0;
+                        status.last_error_detail = None;
+                    }
+                }
                 Ok(false) => {
                     // `pump` can stay false while the runtime is STOPPING and
-                    // never deliver another frame. Reconnect instead of
-                    // sleeping forever.
+                    // never deliver another frame. Detach instead of sleeping forever.
                     let since = xr_not_ready.get_or_insert_with(Instant::now);
                     if since.elapsed() >= Duration::from_secs(2) {
-                        tracing::warn!("OpenXR session did not become ready; reconnecting");
-                        if let Some(mut backend) = state.backend.take() {
-                            backend.hide_all();
-                        }
                         xr_not_ready = None;
-                        status.state = RuntimeState::Reconnecting;
-                        status.reconnect_attempt = status.reconnect_attempt.saturating_add(1);
-                        status.last_error_detail = Some("vr.openxr_session_stalled".into());
-                        state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
+                        if state.xr_session_ready {
+                            tracing::warn!("OpenXR session did not become ready; reconnecting");
+                            detach_for_reconnect(
+                                &mut state,
+                                &mut status,
+                                "vr.openxr_session_stalled".into(),
+                                true,
+                            );
+                        } else {
+                            state.xr_stall_count = state.xr_stall_count.saturating_add(1);
+                            if state.xr_stall_count == 1 {
+                                tracing::info!(
+                                    "OpenXR session stayed idle before becoming ready; waiting for VR runtime"
+                                );
+                            }
+                            let retry_delay = reconnect_backoff(state.xr_stall_count);
+                            detach_to_waiting_runtime(&mut state, &mut status, None, retry_delay);
+                        }
+                        update_status(&app, &shared_status, &status);
                     } else {
                         std::thread::sleep(Duration::from_millis(10));
                     }
                     continue;
                 }
                 Err(error) => {
-                    tracing::warn!(%error, "OpenXR frame wait failed");
-                    if let Some(mut backend) = state.backend.take() {
-                        backend.hide_all();
-                    }
                     xr_not_ready = None;
-                    status.state = RuntimeState::Reconnecting;
-                    status.reconnect_attempt = status.reconnect_attempt.saturating_add(1);
-                    status.last_error_detail = Some(error);
-                    state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
+                    if is_openxr_session_end(&error) {
+                        tracing::info!(%error, "OpenXR session ended; waiting for VR runtime");
+                        detach_to_waiting_runtime(
+                            &mut state,
+                            &mut status,
+                            None,
+                            RECONNECT_INTERVAL,
+                        );
+                    } else {
+                        tracing::warn!(%error, "OpenXR frame wait failed");
+                        detach_for_reconnect(&mut state, &mut status, error, true);
+                    }
+                    update_status(&app, &shared_status, &status);
                     continue;
                 }
             }
@@ -859,22 +1178,27 @@ fn worker_loop(
                     }
                     let backend_changed = state.config.backend != config.backend;
                     state.config = config;
-                    if backend_changed || state.backend.is_none() {
-                        if backend_changed {
-                            if let Some(mut backend) = state.backend.take() {
-                                backend.hide_all();
-                            }
-                            #[cfg(any(windows, linux_vr))]
-                            state.reset_ui();
-                            state.reset_headset();
-                            state.reset_dashboard();
-                            state.next_reconnect = Instant::now();
-                            state.next_probe = Instant::now();
+                    if backend_changed {
+                        if let Some(mut backend) = state.backend.take() {
+                            backend.hide_all();
                         }
+                        #[cfg(any(windows, linux_vr))]
+                        state.reset_ui();
+                        state.reset_headset();
+                        state.reset_dashboard();
+                        state.next_reconnect = Instant::now();
+                        state.next_probe = Instant::now();
+                        state.probe_ready = false;
+                        state.probe_incompatibility = None;
+                        state.incompatible_openvr = None;
+                        state.xr_session_ready = false;
+                        state.xr_stall_count = 0;
+                        state.last_connect_error = None;
+                        status.reconnect_attempt = 0;
+                        status.last_error_detail = None;
                         state.selected_backend = None;
                     }
                     state.ocr_config = ocr_config;
-                    status.last_error_detail = None;
                 }
             }
             if let Ok(mut pending) = latest_dashboard.lock() {
@@ -939,6 +1263,12 @@ fn worker_loop(
                     app.state::<super::surface::SurfaceHub>().retry(&app);
                     state.next_reconnect = Instant::now();
                     state.next_probe = Instant::now();
+                    state.probe_ready = false;
+                    state.probe_incompatibility = None;
+                    state.incompatible_openvr = None;
+                    state.xr_session_ready = false;
+                    state.xr_stall_count = 0;
+                    state.last_connect_error = None;
                     status.reconnect_attempt = 0;
                     status.last_error_detail = None;
                 }
@@ -1079,15 +1409,19 @@ fn worker_loop(
             let accepted = match state.backend.as_mut().map(Backend::end_frame) {
                 Some(Ok(submitted)) => submitted,
                 Some(Err(error)) => {
-                    tracing::warn!(%error, "OpenXR frame submission failed");
-                    let _ = state.backend.take();
-                    if state.config.backend == "auto" {
-                        state.selected_backend = None;
+                    if is_openxr_session_end(&error) {
+                        tracing::info!(%error, "OpenXR session ended; waiting for VR runtime");
+                        detach_to_waiting_runtime(
+                            &mut state,
+                            &mut status,
+                            None,
+                            RECONNECT_INTERVAL,
+                        );
+                    } else {
+                        tracing::warn!(%error, "OpenXR frame submission failed");
+                        detach_for_reconnect(&mut state, &mut status, error, true);
                     }
-                    status.state = RuntimeState::Reconnecting;
-                    status.reconnect_attempt = status.reconnect_attempt.saturating_add(1);
-                    status.last_error_detail = Some(error);
-                    state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
+                    update_status(&app, &shared_status, &status);
                     false
                 }
                 None => false,
@@ -1121,9 +1455,13 @@ fn recover_from_panic(state: &mut WorkerState, status: &mut VrOverlayStatus) {
     }
     state.reset_headset();
     state.reset_dashboard();
-    state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
+    state.probe_ready = false;
+    state.xr_session_ready = false;
+    state.next_probe = Instant::now();
     status.state = RuntimeState::Reconnecting;
+    status.backend = None;
     status.reconnect_attempt = status.reconnect_attempt.saturating_add(1);
+    state.next_reconnect = Instant::now() + reconnect_backoff(status.reconnect_attempt);
     status.last_error_detail = Some("VR Overlay worker panicked".into());
 }
 
@@ -1137,44 +1475,9 @@ fn tick(
     if state.backend.as_mut().is_some_and(Backend::quit_requested) {
         tracing::info!("VR runtime requested quit; detaching backend and keeping VRCS running");
         state.session.quit();
-        state.backend = None;
-        if state.config.backend == "auto" {
-            state.selected_backend = None;
-        }
-        #[cfg(windows)]
-        {
-            state.ocr.unavailable(state.ocr_config.enabled);
-            state.reset_ui();
-        }
-        #[cfg(linux_vr)]
-        {
-            state.reset_ui();
-            state.last_input_error = None;
-        }
-        state.reset_headset();
-        state.reset_dashboard();
-        state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
-        status.state = RuntimeState::WaitingRuntime;
-        status.hmd_present = false;
-        status.reconnect_attempt = 0;
-        status.last_error_detail = None;
-        status.headset.state = if state.config.enabled && state.config.headset.enabled {
-            ResourceState::ReadyHidden
-        } else {
-            ResourceState::Disabled
-        };
-        status.headset.last_error_code = None;
-        status.wrist.state = if state.config.enabled && state.config.wrist.enabled {
-            ResourceState::DeviceUnavailable
-        } else {
-            ResourceState::Disabled
-        };
-        status.wrist.last_error_code = None;
-        status.wrist.tracked_device_available = false;
-        status.wrist.bound_role = None;
-        status.dashboard.state = ResourceState::DeviceUnavailable;
-        status.dashboard.visible = false;
-        status.dashboard.last_error_code = None;
+        state.last_connect_error = None;
+        state.xr_stall_count = 0;
+        detach_to_waiting_runtime(state, status, None, RECONNECT_INTERVAL);
         return;
     }
 
@@ -1189,6 +1492,15 @@ fn tick(
         if let Some(mut backend) = state.backend.take() {
             backend.hide_all();
         }
+        state.selected_backend = None;
+        state.probe_ready = false;
+        state.probe_incompatibility = None;
+        state.incompatible_openvr = None;
+        state.xr_session_ready = false;
+        state.xr_stall_count = 0;
+        state.last_connect_error = None;
+        state.next_probe = Instant::now();
+        state.next_reconnect = Instant::now();
         state.headset_sample = false;
         state.wrist_sample = false;
         state.headset = HeadsetPresentation::default();
@@ -1198,6 +1510,11 @@ fn tick(
         state.reset_headset();
         state.reset_dashboard();
         status.state = RuntimeState::Disabled;
+        status.backend = None;
+        status.runtime_installed = false;
+        status.hmd_present = false;
+        status.reconnect_attempt = 0;
+        status.last_error_detail = None;
         status.headset.state = ResourceState::Disabled;
         status.wrist.state = ResourceState::Disabled;
         status.dashboard.state = ResourceState::Disabled;
@@ -1211,52 +1528,27 @@ fn tick(
     if state.backend.is_some() {
         status.runtime_installed = true;
         status.hmd_present = true;
-    } else if state.selected_backend.is_none() || Instant::now() >= state.next_probe {
-        match state.config.backend.as_str() {
-            "openxr" => {
-                state.selected_backend = Some(BackendKind::OpenXr);
-                let (installed, hmd) = Backend::openxr_probe();
-                status.runtime_installed = installed;
-                status.hmd_present = hmd;
-            }
-            "openvr" => {
-                state.selected_backend = Some(BackendKind::OpenVr);
-                status.runtime_installed = Backend::runtime_installed();
-                status.hmd_present = Backend::hmd_present();
-            }
-            "auto" => {
-                let (xr_installed, xr_hmd) = Backend::openxr_probe();
-                if xr_installed && xr_hmd {
-                    state.selected_backend = Some(BackendKind::OpenXr);
-                    status.runtime_installed = true;
-                    status.hmd_present = true;
-                } else {
-                    let ovr_installed = Backend::runtime_installed();
-                    let ovr_hmd = if ovr_installed {
-                        Backend::hmd_present()
-                    } else {
-                        false
-                    };
-                    if ovr_installed && ovr_hmd {
-                        state.selected_backend = Some(BackendKind::OpenVr);
-                        status.runtime_installed = true;
-                        status.hmd_present = true;
-                    } else {
-                        state.selected_backend = Some(if xr_installed {
-                            BackendKind::OpenXr
-                        } else {
-                            BackendKind::OpenVr
-                        });
-                        status.runtime_installed = xr_installed || ovr_installed;
-                        status.hmd_present = false;
-                    }
-                }
-            }
-            _ => {
-                state.selected_backend = None;
-                status.runtime_installed = false;
-                status.hmd_present = false;
-            }
+    } else if Instant::now() >= state.next_probe {
+        let runtime_path = Backend::openvr_runtime_path();
+        let snapshot = evaluate_probe(
+            state.config.backend.as_str(),
+            state
+                .incompatible_openvr
+                .as_ref()
+                .map(|(pid, reason)| (*pid, reason.as_str())),
+            Backend::openxr_probe,
+            Backend::runtime_installed,
+            |explicit| openvr_server_pid(runtime_path.as_deref(), explicit),
+            |pid| state.session.can_connect(pid),
+            Backend::hmd_present,
+        );
+        state.selected_backend = snapshot.selected_backend;
+        status.runtime_installed = snapshot.runtime_installed;
+        status.hmd_present = snapshot.hmd_present;
+        state.probe_ready = snapshot.ready_to_connect;
+        state.probe_incompatibility = snapshot.incompatibility_detail;
+        if snapshot.clear_incompatible_openvr {
+            state.incompatible_openvr = None;
         }
         state.next_probe = Instant::now() + RECONNECT_INTERVAL;
     }
@@ -1282,56 +1574,40 @@ fn tick(
     #[cfg(not(windows))]
     let vision_enabled = false;
     let waiting_runtime = state.backend.is_none()
-        && ((!openxr && (!status.runtime_installed || !status.hmd_present))
-            || (state.config.backend == "auto" && !status.hmd_present));
+        && (!state.probe_ready || !status.runtime_installed || !status.hmd_present);
     if waiting_runtime {
-        #[cfg(windows)]
-        {
-            state.ocr.unavailable(ocr_enabled);
-            state.reset_ui();
-        }
-        #[cfg(linux_vr)]
-        {
-            state.reset_ui();
-            state.last_input_error = None;
-        }
-        if let Some(mut backend) = state.backend.take() {
-            backend.hide_all();
-        }
-        state.reset_headset();
-        state.reset_dashboard();
-        status.state = RuntimeState::WaitingRuntime;
-        status.reconnect_attempt = 0;
-        status.last_error_detail = None;
-        status.headset.state = if state.config.headset.enabled {
-            ResourceState::ReadyHidden
-        } else {
-            ResourceState::Disabled
-        };
-        status.wrist.state = if state.config.wrist.enabled {
-            ResourceState::DeviceUnavailable
-        } else {
-            ResourceState::Disabled
-        };
-        status.wrist.tracked_device_available = false;
-        status.dashboard.state = ResourceState::DeviceUnavailable;
-        status.dashboard.visible = false;
+        state.xr_stall_count = 0;
+        reset_detached_state(state);
+        apply_waiting_runtime(state, status, state.probe_incompatibility.clone());
         return;
     }
 
     if state.backend.is_none() && Instant::now() >= state.next_reconnect {
         #[cfg(windows)]
         state.ocr.unavailable(ocr_enabled);
-        let (pid, require_pid) = if openxr {
-            (None, false)
+        let pid = if openxr {
+            None
         } else {
-            openvr_server_gate(Backend::openvr_runtime_path().as_deref())
+            openvr_server_pid(
+                Backend::openvr_runtime_path().as_deref(),
+                state.config.backend == "openvr",
+            )
         };
-        if !openxr && !state.session.can_connect(pid, require_pid) {
-            status.state = RuntimeState::WaitingRuntime;
-            status.reconnect_attempt = 0;
-            status.last_error_detail = None;
-            state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
+        if !openxr
+            && (!state.session.can_connect(pid)
+                || pid.is_some_and(|pid| {
+                    state
+                        .incompatible_openvr
+                        .as_ref()
+                        .is_some_and(|(bad_pid, _)| *bad_pid == pid)
+                }))
+        {
+            detach_to_waiting_runtime(
+                state,
+                status,
+                state.probe_incompatibility.clone(),
+                RECONNECT_INTERVAL,
+            );
             return;
         }
         status.state = if status.reconnect_attempt == 0 {
@@ -1349,13 +1625,27 @@ fn tick(
         match Backend::connect(preference) {
             Ok(backend) => {
                 if !openxr {
-                    state.session.connected(pid);
+                    if let Some(pid) = pid {
+                        state.session.connected(pid);
+                    }
                 }
-                state.selected_backend = Some(backend.kind());
+                let kind = backend.kind();
+                state.selected_backend = Some(kind);
                 state.backend = Some(backend);
-                if openxr {
+                state.last_connect_error = None;
+                state.probe_incompatibility = None;
+                if kind == BackendKind::OpenXr {
                     status.runtime_installed = true;
                     status.hmd_present = true;
+                    state.xr_session_ready = false;
+                    status.state = RuntimeState::Initializing;
+                } else {
+                    state.xr_session_ready = true;
+                    state.xr_stall_count = 0;
+                    status.state = RuntimeState::Ready;
+                    status.last_connected_at = Some(unix_timestamp());
+                    status.reconnect_attempt = 0;
+                    status.last_error_detail = None;
                 }
                 #[cfg(linux_vr)]
                 {
@@ -1363,27 +1653,64 @@ fn tick(
                 }
                 #[cfg(any(windows, linux_vr))]
                 state.reset_ui();
-                status.state = RuntimeState::Ready;
-                status.last_connected_at = Some(unix_timestamp());
-                status.reconnect_attempt = 0;
-                status.last_error_detail = None;
                 state.reset_headset();
                 state.reset_dashboard();
                 #[cfg(windows)]
                 state.ocr.reset_surfaces();
             }
-            Err(error) => {
-                status.reconnect_attempt = status.reconnect_attempt.saturating_add(1);
-                tracing::warn!(
-                    error = %error,
-                    reconnect_attempt = status.reconnect_attempt,
-                    "VR Overlay connection failed"
-                );
-                status.last_error_detail = Some(error);
-                status.state = RuntimeState::Reconnecting;
-                state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
-                return;
-            }
+            Err(error) => match classify_connect_error(&error) {
+                ConnectFailureKind::MissingRuntime => {
+                    if state.last_connect_error.as_deref() != Some(&error) {
+                        tracing::info!(
+                            error = %error,
+                            "VR runtime unavailable during connect; waiting for VR runtime"
+                        );
+                        state.last_connect_error = Some(error);
+                    }
+                    state.xr_stall_count = 0;
+                    detach_to_waiting_runtime(state, status, None, RECONNECT_INTERVAL);
+                    return;
+                }
+                ConnectFailureKind::Incompatible => {
+                    if state.last_connect_error.as_deref() != Some(&error) {
+                        tracing::warn!(
+                            error = %error,
+                            "VR Overlay backend is incompatible with the active runtime"
+                        );
+                        state.last_connect_error = Some(error.clone());
+                    }
+                    if !openxr {
+                        if let Some(pid) = pid {
+                            state.incompatible_openvr = Some((pid, error.clone()));
+                        }
+                    }
+                    state.xr_stall_count = 0;
+                    state.probe_incompatibility = Some(error.clone());
+                    detach_to_waiting_runtime(state, status, Some(error), RECONNECT_INTERVAL);
+                    return;
+                }
+                ConnectFailureKind::Transient => {
+                    status.reconnect_attempt = status.reconnect_attempt.saturating_add(1);
+                    let delay = reconnect_backoff(status.reconnect_attempt);
+                    if state.last_connect_error.as_deref() != Some(&error)
+                        || status.reconnect_attempt <= 3
+                    {
+                        tracing::warn!(
+                            error = %error,
+                            reconnect_attempt = status.reconnect_attempt,
+                            retry_in_secs = delay.as_secs(),
+                            "VR Overlay connection failed"
+                        );
+                        state.last_connect_error = Some(error.clone());
+                    }
+                    state.xr_session_ready = false;
+                    status.last_error_detail = Some(error);
+                    status.state = RuntimeState::Reconnecting;
+                    state.next_probe = Instant::now() + RECONNECT_INTERVAL;
+                    state.next_reconnect = Instant::now() + delay;
+                    return;
+                }
+            },
         }
     }
 
@@ -1394,8 +1721,11 @@ fn tick(
         state.reset_ui();
         return;
     };
-    status.state = RuntimeState::Ready;
-    status.last_error_detail = None;
+    let openxr = backend.kind() == BackendKind::OpenXr;
+    if !openxr || state.xr_session_ready {
+        status.state = RuntimeState::Ready;
+        status.last_error_detail = None;
+    }
     #[cfg(linux_vr)]
     if !openxr {
         if state.ocr_manifest.is_none() {
@@ -1565,10 +1895,8 @@ fn tick(
             wrist_failed,
             "VR Overlay resources failed; reconnecting"
         );
-        backend.hide_all();
-        status.state = RuntimeState::Reconnecting;
-        status.reconnect_attempt = status.reconnect_attempt.saturating_add(1);
-        state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
+        state.backend = Some(backend);
+        detach_for_reconnect(state, status, error, true);
     } else {
         state.backend = Some(backend);
     }
@@ -2606,5 +2934,238 @@ mod tests {
         assert!(!status.runtime_installed);
         assert_eq!(status.headset.state, ResourceState::Disabled);
         assert!(!status.wrist.sample_visible);
+    }
+
+    #[test]
+    fn explicit_openxr_waits_without_reconnecting_when_no_vr_runtime_or_hmd_exists() {
+        let missing_loader = evaluate_probe(
+            "openxr",
+            None,
+            || OpenXrProbe {
+                runtime_installed: false,
+                hmd_present: false,
+                detail: Some("vr.openxr_loader_unavailable".into()),
+            },
+            || unreachable!("openxr must not probe openvr"),
+            |_| unreachable!(),
+            |_| unreachable!(),
+            || unreachable!(),
+        );
+        assert!(!missing_loader.ready_to_connect);
+        assert_eq!(missing_loader.selected_backend, Some(BackendKind::OpenXr));
+        assert_eq!(missing_loader.incompatibility_detail, None);
+
+        let missing_hmd = evaluate_probe(
+            "openxr",
+            None,
+            || OpenXrProbe {
+                runtime_installed: true,
+                hmd_present: false,
+                detail: None,
+            },
+            || unreachable!(),
+            |_| unreachable!(),
+            |_| unreachable!(),
+            || unreachable!(),
+        );
+        assert!(!missing_hmd.ready_to_connect);
+        assert!(missing_hmd.runtime_installed);
+        assert!(!missing_hmd.hmd_present);
+        assert_eq!(missing_hmd.incompatibility_detail, None);
+
+        let unsupported_platform = evaluate_probe(
+            "openxr",
+            None,
+            || OpenXrProbe {
+                runtime_installed: false,
+                hmd_present: false,
+                detail: Some("vr.openxr_backend_unavailable".into()),
+            },
+            || unreachable!(),
+            |_| unreachable!(),
+            |_| unreachable!(),
+            || unreachable!(),
+        );
+        assert!(!unsupported_platform.ready_to_connect);
+        assert_eq!(
+            unsupported_platform.incompatibility_detail.as_deref(),
+            Some("vr.openxr_backend_unavailable")
+        );
+    }
+
+    #[test]
+    fn openvr_and_auto_wait_without_probing_hmd_when_no_server_is_running() {
+        let mut hmd_probed = false;
+        let openvr_idle = evaluate_probe(
+            "openvr",
+            None,
+            || unreachable!(),
+            || true,
+            |explicit| {
+                assert!(explicit);
+                None
+            },
+            |pid| pid.is_some(),
+            || {
+                hmd_probed = true;
+                true
+            },
+        );
+        assert!(!hmd_probed);
+        assert!(!openvr_idle.ready_to_connect);
+        assert!(openvr_idle.runtime_installed);
+        assert!(!openvr_idle.hmd_present);
+
+        let auto_idle = evaluate_probe(
+            "auto",
+            None,
+            || OpenXrProbe {
+                runtime_installed: false,
+                hmd_present: false,
+                detail: Some("vr.openxr_loader_unavailable".into()),
+            },
+            || true,
+            |explicit| {
+                assert!(!explicit);
+                None
+            },
+            |pid| pid.is_some(),
+            || {
+                hmd_probed = true;
+                true
+            },
+        );
+        assert!(!hmd_probed);
+        assert!(!auto_idle.ready_to_connect);
+        assert!(!auto_idle.hmd_present);
+        assert_eq!(auto_idle.selected_backend, Some(BackendKind::OpenVr));
+    }
+
+    #[test]
+    fn auto_prefers_openxr_when_ready_and_uses_non_explicit_openvr_gate_otherwise() {
+        let xr_ready = evaluate_probe(
+            "auto",
+            None,
+            || OpenXrProbe {
+                runtime_installed: true,
+                hmd_present: true,
+                detail: None,
+            },
+            || unreachable!("auto must not touch openvr when openxr is ready"),
+            |_| unreachable!(),
+            |_| unreachable!(),
+            || unreachable!(),
+        );
+        assert!(xr_ready.ready_to_connect);
+        assert_eq!(xr_ready.selected_backend, Some(BackendKind::OpenXr));
+
+        let ovr_ready = evaluate_probe(
+            "auto",
+            None,
+            || OpenXrProbe {
+                runtime_installed: true,
+                hmd_present: false,
+                detail: None,
+            },
+            || true,
+            |explicit| {
+                assert!(!explicit);
+                Some(1234)
+            },
+            |pid| pid == Some(1234),
+            || true,
+        );
+        assert!(ovr_ready.ready_to_connect);
+        assert_eq!(ovr_ready.selected_backend, Some(BackendKind::OpenVr));
+        assert_eq!(ovr_ready.openvr_pid, Some(1234));
+    }
+
+    #[test]
+    fn incompatible_openvr_server_is_suppressed_until_pid_changes() {
+        let mut hmd_probed = false;
+        let same_pid = evaluate_probe(
+            "openvr",
+            Some((
+                42,
+                "OpenVR initialization failed: Init_InvalidApplicationType",
+            )),
+            || unreachable!(),
+            || true,
+            |_| Some(42),
+            |_| unreachable!(),
+            || {
+                hmd_probed = true;
+                true
+            },
+        );
+        assert!(!hmd_probed);
+        assert!(!same_pid.ready_to_connect);
+        assert!(!same_pid.clear_incompatible_openvr);
+        assert_eq!(
+            same_pid.incompatibility_detail.as_deref(),
+            Some("OpenVR initialization failed: Init_InvalidApplicationType")
+        );
+
+        let restarted_pid = evaluate_probe(
+            "openvr",
+            Some((
+                42,
+                "OpenVR initialization failed: Init_InvalidApplicationType",
+            )),
+            || unreachable!(),
+            || true,
+            |_| Some(43),
+            |pid| pid == Some(43),
+            || true,
+        );
+        assert!(restarted_pid.ready_to_connect);
+        assert!(restarted_pid.clear_incompatible_openvr);
+        assert_eq!(restarted_pid.incompatibility_detail, None);
+    }
+
+    #[test]
+    fn connect_error_classification_and_backoff_are_bounded() {
+        assert_eq!(
+            classify_connect_error("vr.openxr_headset_unavailable"),
+            ConnectFailureKind::MissingRuntime
+        );
+        assert_eq!(
+            classify_connect_error("OpenXR runtime unavailable: ERROR_RUNTIME_FAILURE"),
+            ConnectFailureKind::MissingRuntime
+        );
+        assert_eq!(
+            classify_connect_error("OpenVR initialization failed: Init_HmdNotFoundPresenceFailed"),
+            ConnectFailureKind::MissingRuntime
+        );
+        assert_eq!(
+            classify_connect_error("OpenVR initialization failed: Init_NoServerForBackgroundApp"),
+            ConnectFailureKind::MissingRuntime
+        );
+        assert_eq!(
+            classify_connect_error("OpenVR initialization failed: Init_InvalidApplicationType"),
+            ConnectFailureKind::Incompatible
+        );
+        assert_eq!(
+            classify_connect_error("vr.openxr_overlay_unsupported"),
+            ConnectFailureKind::Incompatible
+        );
+        assert_eq!(
+            classify_connect_error("OpenVR overlay interface failed: unknown"),
+            ConnectFailureKind::Transient
+        );
+        assert!(is_openxr_session_end("vr.openxr_session_ended"));
+        assert!(is_openxr_session_end(
+            "Frame wait failed: ERROR_SESSION_LOST"
+        ));
+        assert!(!is_openxr_session_end(
+            "Frame wait failed: ERROR_RUNTIME_FAILURE"
+        ));
+
+        assert_eq!(reconnect_backoff(1), Duration::from_secs(2));
+        assert_eq!(reconnect_backoff(2), Duration::from_secs(4));
+        assert_eq!(reconnect_backoff(3), Duration::from_secs(8));
+        assert_eq!(reconnect_backoff(4), Duration::from_secs(16));
+        assert_eq!(reconnect_backoff(5), Duration::from_secs(30));
+        assert_eq!(reconnect_backoff(99), Duration::from_secs(30));
     }
 }
