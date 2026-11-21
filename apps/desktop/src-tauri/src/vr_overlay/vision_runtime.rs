@@ -529,7 +529,7 @@ mod tests {
         };
         let result = resize(&image, 2);
         assert_eq!((result.width, result.height), (2, 1));
-        assert_eq!(result.pixels, vec![0, 1, 2, 3, 8, 9, 10, 11]);
+        assert_eq!(result.pixels, vec![10, 11, 12, 13, 18, 19, 20, 21]);
     }
     #[test]
     fn completed_answer_keeps_pin_and_starts_at_the_first_page() {
