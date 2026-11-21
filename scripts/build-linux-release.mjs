@@ -1,9 +1,9 @@
-import { cpSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { checkProjectVersion, writeTargetManifest } from "./release-metadata.mjs";
+import { checkProjectVersion, validatePackage, writeTargetManifest } from "./release-metadata.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 process.chdir(root);
@@ -13,10 +13,27 @@ const host = execFileSync("rustc", ["-vV"], { encoding: "utf8" }).match(/^host: 
 const triple = `${arch}-unknown-linux-gnu`;
 if (host !== triple) throw new Error(`Native Rust host ${triple} required; got ${host}`);
 const preview = process.argv.includes("--preview");
+const verifyPackages = process.argv.includes("--verify-packages");
 const requireSigned = process.argv.includes("--require-signed");
 const signed = Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY?.trim());
 if ((requireSigned || signed) && !process.env.TAURI_UPDATER_PUBLIC_KEY?.trim()) throw new Error("Updater public key required for signed release");
 if (requireSigned && !signed) throw new Error("Updater private key required for a publishable release");
+const channelFlags = [
+  process.argv.includes("--deb-only") && "deb",
+  process.argv.includes("--rpm-only") && "rpm",
+  process.argv.includes("--appimage-only") && "appimage",
+].filter(Boolean);
+if (preview && channelFlags.length) throw new Error("--preview cannot be combined with *-only flags");
+if (channelFlags.length > 1) throw new Error("Specify at most one *-only flag");
+const maxGlibc = (() => {
+  const index = process.argv.indexOf("--max-glibc");
+  if (index >= 0) {
+    const value = process.argv[index + 1];
+    if (!value || value.startsWith("--")) throw new Error("Missing version after --max-glibc");
+    return value;
+  }
+  return process.env.VRCS_MAX_GLIBC?.trim() || null;
+})();
 const version = JSON.parse(readFileSync("apps/desktop/src-tauri/tauri.conf.json", "utf8")).version;
 if (process.env.GITHUB_REF?.startsWith("refs/tags/") && process.env.GITHUB_REF_NAME !== version) throw new Error("Release tag does not match application version");
 checkProjectVersion(version);
@@ -99,10 +116,34 @@ const DEB_DEPENDS = [
   "libopus0",
   "libpipewire-0.3-0t64 | libpipewire-0.3-0",
   "libsoup-3.0-0",
+  "libssl3t64 | libssl3",
   "libstdc++6",
   "libvulkan1",
   "libwebkit2gtk-4.1-0",
   "pkexec | policykit-1",
+];
+const RPM_DEPENDS = [
+  "/usr/bin/pkexec",
+  "libc.so.6()(64bit)",
+  "libcairo.so.2()(64bit)",
+  "libdbus-1.so.3()(64bit)",
+  "libgcc_s.so.1()(64bit)",
+  "libgdk-3.so.0()(64bit)",
+  "libgdk_pixbuf-2.0.so.0()(64bit)",
+  "libgio-2.0.so.0()(64bit)",
+  "libglib-2.0.so.0()(64bit)",
+  "libgobject-2.0.so.0()(64bit)",
+  "libgomp.so.1()(64bit)",
+  "libgtk-3.so.0()(64bit)",
+  "libjavascriptcoregtk-4.1.so.0()(64bit)",
+  "libm.so.6()(64bit)",
+  "libopus.so.0()(64bit)",
+  "libpipewire-0.3.so.0()(64bit)",
+  "libsoup-3.0.so.0()(64bit)",
+  "libssl.so.3()(64bit)",
+  "libstdc++.so.6()(64bit)",
+  "libvulkan.so.1()(64bit)",
+  "libwebkit2gtk-4.1.so.0()(64bit)",
 ];
 const ALLOWED_SYSTEM_SONAMES = new Set([
   "ld-linux-x86-64.so.2",
@@ -140,6 +181,29 @@ function verifyDirectDependencies(binary, bundledLibraries) {
     throw new Error(`Unexpected direct DT_NEEDED dependencies in ${binary}: ${unexpected.join(", ")}`);
   }
 }
+function compareVersions(a, b) {
+  const partsA = a.split(".").map(Number);
+  const partsB = b.split(".").map(Number);
+  for (let index = 0; index < Math.max(partsA.length, partsB.length); index++) {
+    const diff = (partsA[index] || 0) - (partsB[index] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+function inspectAbiVersions(binary) {
+  const output = execFileSync("readelf", ["-V", binary], { encoding: "utf8", env: { ...env, LC_ALL: "C" } });
+  let maxGlibc = null;
+  let maxGlibcxx = null;
+  for (const line of output.split("\n")) {
+    const match = line.match(/Name:\s+(GLIBC|GLIBCXX)_([0-9.]+)\s+Flags:\s+([^\s]+)/);
+    if (!match) continue;
+    const [, family, ver, flags] = match;
+    if (/\bWEAK\b/.test(flags)) continue;
+    if (family === "GLIBC" && (!maxGlibc || compareVersions(ver, maxGlibc) > 0)) maxGlibc = ver;
+    if (family === "GLIBCXX" && (!maxGlibcxx || compareVersions(ver, maxGlibcxx) > 0)) maxGlibcxx = ver;
+  }
+  return { maxGlibc, maxGlibcxx };
+}
 function hostOs() {
   try {
     const release = readFileSync("/etc/os-release", "utf8");
@@ -157,8 +221,102 @@ function selfTest(binary, cwd) {
   delete cleanEnv.LD_LIBRARY_PATH;
   execFileSync("dbus-run-session", ["--", "xvfb-run", "-a", binary, "--release-self-test"], { cwd, env: cleanEnv, stdio: "inherit", timeout: 180_000 });
 }
+function configureLinuxBundles(config, stageLib) {
+  const mapped = Object.fromEntries(readdirSync(stageLib).map((name) => [`/usr/lib/vrcs/${name}`, join(stageLib, name)]));
+  const systemFiles = {
+    ...mapped,
+    "/usr/share/polkit-1/actions/app.vrcs.network-capture.policy": resolve("packaging/linux/app.vrcs.network-capture.policy"),
+  };
+  config.bundle.linux.deb = {
+    ...config.bundle.linux.deb,
+    files: systemFiles,
+    depends: DEB_DEPENDS,
+    postInstallScript: resolve("packaging/linux/postinst"),
+  };
+  config.bundle.linux.rpm = {
+    ...config.bundle.linux.rpm,
+    files: systemFiles,
+    depends: RPM_DEPENDS,
+    postInstallScript: resolve("packaging/linux/postinst"),
+  };
+  config.bundle.linux.appimage = {
+    ...config.bundle.linux.appimage,
+    files: Object.fromEntries(readdirSync(stageLib).map((name) => [`usr/lib/vrcs/${name}`, join(stageLib, name)])),
+  };
+}
+function verifyRpmMetadata(rpmPath) {
+  const scripts = execFileSync("rpm", ["-qp", "--nosignature", "--scripts", rpmPath], { encoding: "utf8", env });
+  if (!scripts.includes("postinstall") || !scripts.includes("vrcs-desktop")) {
+    throw new Error(`RPM ${rpmPath} is missing expected postinstall scriptlet`);
+  }
+  const requires = new Set(
+    execFileSync("rpm", ["-qp", "--nosignature", "--requires", rpmPath], { encoding: "utf8", env })
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean),
+  );
+  for (const required of [
+    "libwebkit2gtk-4.1.so.0()(64bit)",
+    "libpipewire-0.3.so.0()(64bit)",
+    "libopus.so.0()(64bit)",
+    "libvulkan.so.1()(64bit)",
+    "/usr/bin/pkexec",
+  ]) {
+    if (!requires.has(required)) {
+      throw new Error(`RPM ${rpmPath} is missing required capability: ${required}`);
+    }
+  }
+}
+function extractPackage(pkgPath, channel, extracted) {
+  if (channel === "deb") {
+    run("dpkg-deb", ["--extract", pkgPath, extracted]);
+  } else if (channel === "rpm") {
+    execFileSync("sh", ["-c", 'rpm2cpio "$1" | cpio -idm --no-absolute-filenames --quiet', "--", pkgPath], { cwd: extracted, env, stdio: "inherit" });
+  } else {
+    run("chmod", ["+x", pkgPath]);
+    run(pkgPath, ["--appimage-extract"], { cwd: extracted });
+  }
+}
+function bundleAndCollect({ config, executable, stageBin, channel, outputPath, debug }) {
+  copyFileSync(stageBin, executable);
+  config.bundle.active = true;
+  config.bundle.targets = [channel];
+  writeFileSync(generated, JSON.stringify(config));
+  const bundleDirectory = join(binaryRoot, "bundle", channel);
+  rmSync(bundleDirectory, { recursive: true, force: true });
+  tauri([
+    "bundle",
+    ...(debug ? ["--debug"] : []),
+    "--target", triple,
+    "--config", "src-tauri/tauri.linux.generated.conf.json",
+    "--bundles", channel,
+    ...(signed && channel === "appimage" ? [] : ["--no-sign"]),
+  ]);
+  const suffix = { deb: ".deb", rpm: ".rpm", appimage: ".AppImage" }[channel];
+  const packages = files(bundleDirectory).filter((path) => path.endsWith(suffix) && !path.endsWith(".src.rpm"));
+  if (packages.length !== 1) throw new Error(`Expected exactly one ${channel} package`);
+  rmSync(`${outputPath}.sig`, { force: true });
+  copyFileSync(packages[0], outputPath);
+  if (channel === "appimage" && signed) copyFileSync(`${packages[0]}.sig`, `${outputPath}.sig`);
+}
+function verifyBundledPackage({ channel, pkgPath, extracted, runSelfTest }) {
+  validatePackage(pkgPath, { os: "linux", arch, channel });
+  extractPackage(pkgPath, channel, extracted);
+  if (channel === "deb" || channel === "rpm") {
+    if (!existsSync(join(extracted, "usr/share/polkit-1/actions/app.vrcs.network-capture.policy"))) {
+      throw new Error(`${channel} package is missing polkit policy`);
+    }
+  }
+  if (channel === "rpm") verifyRpmMetadata(pkgPath);
+  const packagedBinary = join(extracted, ...(channel === "appimage" ? ["squashfs-root"] : []), "usr/bin/vrcs-desktop");
+  dependencies(packagedBinary);
+  if (runSelfTest) {
+    if (channel === "appimage") selfTest(join(extracted, "squashfs-root", "AppRun"), join(extracted, "squashfs-root"));
+    else selfTest(packagedBinary, dirname(packagedBinary));
+  }
+}
 try {
-  const channels = preview ? ["development"] : process.argv.includes("--deb-only") ? ["deb"] : ["deb", "appimage"];
+  const channels = preview ? ["development"] : channelFlags.length ? channelFlags : ["deb", "rpm", "appimage"];
   const config = JSON.parse(readFileSync("apps/desktop/src-tauri/tauri.linux.release.conf.json", "utf8"));
   config.bundle.active = !preview;
   config.bundle.targets = preview ? ["deb"] : channels;
@@ -178,49 +336,54 @@ try {
     const linked = collectRuntime(rawExecutable, stageLib);
     const bundledLibraries = readdirSync(stageLib).sort();
     verifyDirectDependencies(stageBin, bundledLibraries);
+    const abi = inspectAbiVersions(stageBin);
+    if (maxGlibc && abi.maxGlibc && compareVersions(abi.maxGlibc, maxGlibc) > 0) {
+      throw new Error(`Binary requires GLIBC_${abi.maxGlibc}, exceeding --max-glibc ${maxGlibc}`);
+    }
     run("patchelf", ["--set-rpath", "$ORIGIN/../lib/vrcs:$ORIGIN/../lib:$ORIGIN/lib", stageBin]);
     writeFileSync(join(artifactRoot, `linux-${arch}-${channel}.ldd.txt`), linked);
-    const report = { os: hostOs(), arch, channel, host, systemPackages: DEB_DEPENDS, bundledLibraries, networkHelper: channel === "appimage" ? "requires system installation (/usr/bin/vrcs-desktop)" : "built-in (--network-helper)", onnx: "pending-self-test" };
+    const report = {
+      os: hostOs(),
+      arch,
+      channel,
+      host,
+      abi,
+      systemPackages: channel === "rpm" ? RPM_DEPENDS : DEB_DEPENDS,
+      bundledLibraries,
+      networkHelper: channel === "appimage" ? "requires system installation (/usr/bin/vrcs-desktop)" : "built-in (--network-helper)",
+      onnx: "pending-self-test",
+    };
     selfTest(stageBin, stage);
     report.onnx = "Silero-v6.2.1-session-loaded";
     writeFileSync(join(artifactRoot, `linux-${arch}-${channel}.runtime.json`), `${JSON.stringify(report, null, 2)}\n`);
+    configureLinuxBundles(config, stageLib);
     if (preview) {
       cpSync(stage, join(artifactRoot, `VRCS-preview-linux-${arch}`), { recursive: true });
       copyFileSync("LICENSE", join(artifactRoot, `VRCS-preview-linux-${arch}/LICENSE`));
       copyFileSync("THIRD_PARTY_NOTICES.md", join(artifactRoot, `VRCS-preview-linux-${arch}/THIRD_PARTY_NOTICES.md`));
       writeFileSync(join(artifactRoot, `VRCS-preview-linux-${arch}/README.txt`), "Unsigned development preview. Run usr/bin/vrcs-desktop with the entire directory intact. Requires the Linux system libraries listed in the adjacent runtime report and CJK fonts. This CI native ONNX self-test is not desktop/hardware acceptance or a published release. No automatic updates.\n");
+      if (verifyPackages) {
+        const verifyRoot = join(work, "verify-packages");
+        mkdirSync(verifyRoot, { recursive: true });
+        for (const pkgChannel of ["deb", "rpm"]) {
+          const suffix = pkgChannel === "deb" ? ".deb" : ".rpm";
+          const pkgPath = join(verifyRoot, `VRCS-${version}-linux-${arch}${suffix}`);
+          const extracted = join(verifyRoot, `extracted-${pkgChannel}`);
+          mkdirSync(extracted, { recursive: true });
+          bundleAndCollect({ config, executable, stageBin, channel: pkgChannel, outputPath: pkgPath, debug: true });
+          verifyBundledPackage({ channel: pkgChannel, pkgPath, extracted, runSelfTest: false });
+        }
+        copyFileSync(stageBin, executable);
+      }
       continue;
     }
-    copyFileSync(stageBin, executable);
-    const mapped = Object.fromEntries(readdirSync(stageLib).map((name) => [`/usr/lib/vrcs/${name}`, join(stageLib, name)]));
-    config.bundle.linux.deb.files = {
-      ...mapped,
-      "/usr/share/polkit-1/actions/app.vrcs.network-capture.policy": resolve("packaging/linux/app.vrcs.network-capture.policy"),
-    };
-    config.bundle.linux.deb.depends = DEB_DEPENDS;
-    config.bundle.linux.deb.postInstallScript = resolve("packaging/linux/postinst");
-    config.bundle.linux.appimage.files = Object.fromEntries(readdirSync(stageLib).map((name) => [`usr/lib/vrcs/${name}`, join(stageLib, name)]));
-    writeFileSync(generated, JSON.stringify(config));
-    const bundleDirectory = join(binaryRoot, "bundle", channel);
-    rmSync(bundleDirectory, { recursive: true, force: true });
-    tauri(["bundle", "--target", triple, "--config", "src-tauri/tauri.linux.generated.conf.json", "--bundles", channel, ...(signed && channel === "appimage" ? [] : ["--no-sign"])]);
-    const suffix = channel === "deb" ? ".deb" : ".AppImage";
-    const packages = files(bundleDirectory).filter((path) => path.endsWith(suffix));
-    if (packages.length !== 1) throw new Error(`Expected exactly one ${channel} package`);
+    const suffix = { deb: ".deb", rpm: ".rpm", appimage: ".AppImage" }[channel];
     const output = join(artifactRoot, `VRCS-${version}-linux-${arch}${suffix}`);
-    rmSync(`${output}.sig`, { force: true });
-    copyFileSync(packages[0], output);
-    if (channel === "appimage" && signed) copyFileSync(`${packages[0]}.sig`, `${output}.sig`);
+    bundleAndCollect({ config, executable, stageBin, channel, outputPath: output, debug: false });
     writeTargetManifest({ root: artifactRoot, version, os: "linux", arch, channel });
     const extracted = join(work, `extracted-${channel}`);
     mkdirSync(extracted);
-    if (channel === "deb") run("dpkg-deb", ["--extract", output, extracted]);
-    else run("chmod", ["+x", output]);
-    if (channel === "appimage") run(output, ["--appimage-extract"], { cwd: extracted });
-    const packagedBinary = join(extracted, ...(channel === "appimage" ? ["squashfs-root"] : []), "usr/bin/vrcs-desktop");
-    dependencies(packagedBinary);
-    if (channel === "appimage") selfTest(join(extracted, "squashfs-root", "AppRun"), join(extracted, "squashfs-root"));
-    else selfTest(packagedBinary, dirname(packagedBinary));
+    verifyBundledPackage({ channel, pkgPath: output, extracted, runSelfTest: true });
   }
 } finally {
   rmSync(generated, { force: true });

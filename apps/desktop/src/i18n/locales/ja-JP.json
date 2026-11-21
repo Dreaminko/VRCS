@@ -13,7 +13,7 @@
       "qwen_unavailable": "管理対象の Qwen ランタイムは、このプラットフォームでは利用できないか未起動です。クラウド音声認識は明示的に選択できます。",
       "local_translation_unavailable": "ローカル PLaMo 翻訳は利用できないか未起動です。保存済みのモデル設定は保持されます。必要に応じてクラウド設定を明示的に選択してください。",
       "network_capture_unsupported": "このプラットフォームでは実験的なプレイヤー別音声と Chatbox ネットワーク受信に対応していません。OSC Chatbox 送信は独立して利用できます。",
-      "network_helper_missing": "システムネットワークキャプチャの認証を利用できません。プレイヤー別音声または Chatbox ネットワーク受信を有効にする前に、polkit を含むシステムパッケージ（.deb など）で VRCS をインストールしてください。",
+      "network_helper_missing": "システムネットワークキャプチャの認証を利用できません。プレイヤー別音声または Chatbox ネットワーク受信を有効にする前に、polkit を含むシステムパッケージ（.deb / .rpm など）で VRCS をインストールしてください。",
       "windows_only": "このオプションは Windows でのみ使用できます。",
       "directml_unsupported": "DirectML は Windows 専用です。Linux のローカル OCR には CPU を使用してください。",
       "vr_unavailable": "Linux の VR 字幕とコントローラー入力は未実装です。デスクトップ字幕は引き続き利用できます。",

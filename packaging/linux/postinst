@@ -1,12 +1,18 @@
 #!/bin/sh
 set -e
-if [ "$1" = "configure" ]; then
-  if [ -d /usr/lib/vrcs ]; then
-    chown root:root /usr/lib/vrcs
-    chmod 0755 /usr/lib/vrcs
-  fi
-  if [ -f /usr/bin/vrcs-desktop ]; then
-    chown root:root /usr/bin/vrcs-desktop
-    chmod 0755 /usr/bin/vrcs-desktop
-  fi
-fi
+case "${1:-}" in
+  configure|[1-9]*)
+    if [ -d /usr/lib/vrcs ]; then
+      chown root:root /usr/lib/vrcs
+      chmod 0755 /usr/lib/vrcs
+    fi
+    if [ -f /usr/bin/vrcs-desktop ]; then
+      chown root:root /usr/bin/vrcs-desktop
+      chmod 0755 /usr/bin/vrcs-desktop
+    fi
+    if [ -f /usr/share/polkit-1/actions/app.vrcs.network-capture.policy ]; then
+      chown root:root /usr/share/polkit-1/actions/app.vrcs.network-capture.policy
+      chmod 0644 /usr/share/polkit-1/actions/app.vrcs.network-capture.policy
+    fi
+    ;;
+esac

@@ -13,7 +13,7 @@
       "qwen_unavailable": "当前平台的托管 Qwen 运行组件不可用或尚未运行，可显式选择云端识别。",
       "local_translation_unavailable": "当前平台的 PLaMo 本地翻译不可用或尚未运行。已保存的模型绑定会保留，需要时请显式选择云端配置。",
       "network_capture_unsupported": "当前平台不支持实验性分玩家音轨和 Chatbox 网络接收；OSC Chatbox 发送独立可用。",
-      "network_helper_missing": "系统网络采集授权不可用。启用分玩家音轨或 Chatbox 网络接收前，请先通过系统安装包（如 .deb）安装 VRCS 与 polkit 策略。",
+      "network_helper_missing": "系统网络采集授权不可用。启用分玩家音轨或 Chatbox 网络接收前，请先通过系统安装包（如 .deb / .rpm）安装 VRCS 与 polkit 策略。",
       "windows_only": "此选项仅在 Windows 上可用。",
       "directml_unsupported": "DirectML 仅支持 Windows，Linux 本地 OCR 请使用 CPU。",
       "vr_unavailable": "Linux VR 字幕与控制器输入尚未实现，桌面字幕仍可使用。",

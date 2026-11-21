@@ -192,13 +192,28 @@ fn nightly_supported() -> bool {
 fn package_channel() -> &'static str {
     #[cfg(target_os = "linux")]
     {
-        if std::env::var_os("APPIMAGE").is_some() {
+        if std::env::var_os("APPIMAGE").is_some()
+            || matches!(
+                tauri::utils::platform::bundle_type(),
+                Some(tauri::utils::config::BundleType::AppImage)
+            )
+        {
             "appimage"
+        } else if matches!(
+            tauri::utils::platform::bundle_type(),
+            Some(tauri::utils::config::BundleType::Rpm)
+        ) {
+            "rpm"
+        } else if matches!(
+            tauri::utils::platform::bundle_type(),
+            Some(tauri::utils::config::BundleType::Deb)
+        ) {
+            "deb"
         } else if std::env::current_exe()
             .ok()
             .is_some_and(|path| path == std::path::Path::new("/usr/bin/vrcs-desktop"))
         {
-            "deb"
+            "system"
         } else if cfg!(debug_assertions) {
             "development"
         } else {

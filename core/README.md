@@ -8,10 +8,10 @@ VRCS 已包含 Linux 适配（当前面向 GNU `x86_64`，ARM64 暂缓发布）�
 polkit 授权的实验性分玩家音轨与 Chatbox 网络接收；抓包和取钥均由内嵌的
 `--network-helper` 子模式（`/usr/bin/vrcs-desktop --network-helper`，独立运行亦支持
 `vrcs-core --network-helper`）在独立特权进程内完成，Core 只接收已归属的数据包与认证后的密钥。`.deb`
-会在同一包内安装主程序及 polkit 策略；AppImage 不安装系统可执行文件或策略，
-须手动安装 `/usr/bin/vrcs-desktop` 或使用完整 deb，目前没有单独发布的助手包。Arch 开发安装、更新和卸载
+与 `.rpm` 系统安装包都会在同一包内安装主程序及 polkit 策略；AppImage 不安装系统可执行文件或策略，
+须手动安装 `/usr/bin/vrcs-desktop` 或使用 `.deb` / `.rpm` 系统包，目前没有单独发布的助手包。Arch 开发安装、更新和卸载
 命令见下方 Linux 开发说明；`npm run dev` 不自动安装。运行时需会话 polkit 认证代理，
-音频需系统 Opus（Ubuntu 为 `libopus0`）。
+音频需系统 Opus（Debian/Ubuntu/openSUSE 为 `libopus0`，Fedora 为 `opus`）。
 
 Linux 助手按目标进程持有的 socket inode、本地/远端端点确认流量归属；取钥时打开
 绑定原进程内存的 `/proc/<pid>/mem`，并在读取前后复核 PID/starttime。扫描取消和
@@ -63,7 +63,7 @@ Linux 凭据工作线程不会因缺少调用线程的 runtime 而触发刷新�
 
 Core 默认构建和 `--no-default-features` 均支持云端功能和托管 Qwen CPU 识别。`--features vulkan` 允许独立 `llama-server` 运行时使用 Vulkan GPU，无需 Vulkan SDK 或着色器编译器。自动设备模式优先使用可用 GPU；GPU 启动失败且启动时限仍有剩余时尝试 CPU。未启用 Vulkan 时不探测 GPU，自动模式使用 CPU，显式选择 GPU 会报告 Vulkan 后端不可用。语音在本机处理。
 
-Linux GNU x86_64 的 Vulkan 构建下载对应的固定 Vulkan 运行包，包含 CPU 后端，无需 Vulkan SDK 或编译着色器；系统需安装 Vulkan loader（Ubuntu 为 `libvulkan1`）及显卡驱动。桌面开发用 `npm run dev:vulkan`，独立 Core 用 `cargo run --manifest-path core/Cargo.toml --features vulkan`。默认开发构建仍仅使用 CPU，Linux 发布/预览包已启用 Vulkan。CPU/Vulkan 运行包按后端分别存放；首次切换到 Vulkan 构建需在模型设置中下载该运行组件，已有 ASR 模型不需重下。
+Linux GNU x86_64 的 Vulkan 构建下载对应的固定 Vulkan 运行包，包含 CPU 后端，无需 Vulkan SDK 或编译着色器；系统需安装 Vulkan loader（Debian/Ubuntu/openSUSE 为 `libvulkan1`，Fedora 为 `vulkan-loader`）及显卡驱动。桌面开发用 `npm run dev:vulkan`，独立 Core 用 `cargo run --manifest-path core/Cargo.toml --features vulkan`。默认开发构建仍仅使用 CPU，Linux 发布/预览包已启用 Vulkan。CPU/Vulkan 运行包按后端分别存放；首次切换到 Vulkan 构建需在模型设置中下载该运行组件，已有 ASR 模型不需重下。
 
 升级配置时，旧本地 Whisper 选择迁移为托管 Qwen；已有 Qwen 设置、目录及校验记录保留。缺少 Qwen 模型或运行时时，需要先安装再开始识别。云端连接失败继续重连，不再回退到 Whisper。远程服务的 Whisper 模型仍可使用。
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -39,6 +39,42 @@ function appimage(root, arch, payloadArch = arch) {
   execFileSync("mksquashfs", [directory, squashfs, "-noappend", "-no-progress", "-processors", "1"], { stdio: "pipe" });
   return Buffer.concat([elf(arch, true), readFileSync(squashfs)]);
 }
+function buildRpmFixture(root, arch, artifact, payloadArch = arch) {
+  const rpmTop = join(root, `rpm-${arch}-${payloadArch}`);
+  for (const dir of ["SPECS", "BUILD", "BUILDROOT", "RPMS", "SRPMS", "SOURCES"]) {
+    mkdirSync(join(rpmTop, dir), { recursive: true });
+  }
+  const stageRoot = join(rpmTop, "STAGE");
+  mkdirSync(join(stageRoot, "usr/bin"), { recursive: true });
+  mkdirSync(join(stageRoot, "usr/lib/vrcs"), { recursive: true });
+  writeFileSync(join(stageRoot, "usr/bin/vrcs-desktop"), elf(payloadArch), { mode: 0o755 });
+  const specPath = join(rpmTop, "SPECS/vrcs.spec");
+  writeFileSync(specPath, [
+    `%define _topdir ${rpmTop}`,
+    "%define _build_id_links none",
+    "%define __strip /bin/true",
+    "%define __os_install_post %{nil}",
+    "%define debug_package %{nil}",
+    "Name: vrcs",
+    `Version: ${version}`,
+    "Release: 1",
+    "Summary: test release consumer",
+    "License: AGPL-3.0-only",
+    `BuildArch: ${arch}`,
+    "AutoReqProv: no",
+    "%description",
+    "test release consumer",
+    "%install",
+    "mkdir -p %{buildroot}/usr/bin %{buildroot}/usr/lib/vrcs",
+    `cp -a ${stageRoot}/usr/bin/vrcs-desktop %{buildroot}/usr/bin/vrcs-desktop`,
+    "%files",
+    "%attr(0755, root, root) /usr/bin/vrcs-desktop",
+    "%dir /usr/lib/vrcs",
+    "",
+  ].join("\n"));
+  execFileSync("rpmbuild", ["-bb", "--nodeps", "--define", `_topdir ${rpmTop}`, specPath], { stdio: "pipe" });
+  copyFileSync(join(rpmTop, "RPMS", arch, `vrcs-${version}-1.${arch}.rpm`), artifact);
+}
 function packageFixture(root, target) {
   const artifact = join(root, `VRCS-${version}-${target.suffix}`);
   if (target.channel === "deb") {
@@ -49,6 +85,8 @@ function packageFixture(root, target) {
     writeFileSync(join(directory, "DEBIAN/control"), `Package: vrcs\nVersion: ${version}\nArchitecture: ${target.arch === "x86_64" ? "amd64" : "arm64"}\nMaintainer: Test <test@example.invalid>\nDescription: test release consumer\n`);
     writeFileSync(join(directory, "usr/bin/vrcs-desktop"), elf(target.arch), { mode: 0o755 });
     execFileSync("dpkg-deb", ["--build", "--root-owner-group", directory, artifact], { stdio: "pipe" });
+  } else if (target.channel === "rpm") {
+    buildRpmFixture(root, target.arch, artifact);
   } else if (target.channel === "appimage") writeFileSync(artifact, appimage(root, target.arch));
   else {
     const data = Buffer.alloc(128);
@@ -93,6 +131,22 @@ test("missing architecture never produces partial latest.json", { skip: !linux }
   rmSync(join(root, "linux-x86_64-appimage.manifest.json"));
   assert.throws(() => aggregateRelease({ root, version, publicKey: encodedKey }), /every release target/);
 });
+test("missing rpm manifest never produces partial latest.json", { skip: !linux }, (t) => {
+  const root = complete(t);
+  rmSync(join(root, "linux-x86_64-rpm.manifest.json"));
+  assert.throws(() => aggregateRelease({ root, version, publicKey: encodedKey }), /every release target/);
+});
+test("rejects fabricated updater signature on deb or rpm packages", { skip: !linux }, (t) => {
+  for (const channel of ["deb", "rpm"]) {
+    const root = complete(t);
+    const manifestPath = join(root, `linux-x86_64-${channel}.manifest.json`);
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.signature = `${manifest.artifact}.sig`;
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    writeFileSync(join(root, manifest.signature), signature(readFileSync(join(root, manifest.artifact))));
+    assert.throws(() => aggregateRelease({ root, version, publicKey: encodedKey }), /package-manager updates/);
+  }
+});
 for (const mutation of ["empty signature", "wrong signature", "modified package", "wrong architecture"]) {
   test(`rejects ${mutation} before publishing updater metadata`, { skip: !linux }, (t) => {
     const root = complete(t);
@@ -111,6 +165,13 @@ test("deb control architecture cannot conceal a wrong ELF payload", { skip: !lin
   const directory = join(root, "deb-x86_64");
   writeFileSync(join(directory, "usr/bin/vrcs-desktop"), elf("aarch64"));
   execFileSync("dpkg-deb", ["--build", directory, artifact], { stdio: "pipe" });
+  assert.throws(() => validatePackage(artifact, target), /ELF architecture/);
+});
+test("rpm header architecture cannot conceal a wrong ELF payload", { skip: !linux }, (t) => {
+  const root = fixture(t);
+  const target = releaseTargets.find((target) => target.channel === "rpm" && target.arch === "x86_64");
+  const artifact = join(root, `VRCS-${version}-${target.suffix}`);
+  buildRpmFixture(root, "x86_64", artifact, "aarch64");
   assert.throws(() => validatePackage(artifact, target), /ELF architecture/);
 });
 test("unsigned local AppImages have no fabricated signature", { skip: !linux }, (t) => {

@@ -10,6 +10,7 @@ export const releaseTargets = [
   { os: "windows", arch: "x86_64", channel: "nsis", suffix: "windows-x64.exe", targets: ["windows-x86_64-standard"] },
   ...["x86_64"].flatMap((arch) => [
     { os: "linux", arch, channel: "deb", suffix: `linux-${arch}.deb`, targets: [] },
+    { os: "linux", arch, channel: "rpm", suffix: `linux-${arch}.rpm`, targets: [] },
     { os: "linux", arch, channel: "appimage", suffix: `linux-${arch}.AppImage`, targets: [`linux-${arch}-standard`] },
   ]),
 ];
@@ -52,6 +53,16 @@ function walk(directory) {
     return item.isDirectory() ? walk(path) : item.isFile() ? [path] : [];
   });
 }
+function validateExtractedLinuxTree(directory, arch, label) {
+  const binDir = join(directory, "usr", "bin");
+  if (!existsSync(binDir)) throw new Error(`${label} must contain vrcs-desktop`);
+  const executables = walk(binDir).filter((file) => basename(file) === "vrcs-desktop");
+  if (executables.length !== 1) throw new Error(`${label} must contain vrcs-desktop`);
+  elfArchitecture(readFileSync(executables[0]), arch);
+  for (const file of walk(directory).filter((file) => /\.so(?:\.|$)/.test(file))) {
+    elfArchitecture(readFileSync(file), arch);
+  }
+}
 export function validatePackage(path, target) {
   const data = readFileSync(path);
   if (!data.length) throw new Error("Release package is empty");
@@ -77,12 +88,24 @@ export function validatePackage(path, target) {
     const directory = mkdtempSync(join(tmpdir(), "vrcs-deb-"));
     try {
       execFileSync("dpkg-deb", ["--extract", path, directory]);
-      const executables = walk(join(directory, "usr", "bin")).filter((file) => basename(file) === "vrcs-desktop");
-      if (executables.length !== 1) throw new Error("Deb must contain vrcs-desktop");
-      elfArchitecture(readFileSync(executables[0]), target.arch);
-      for (const file of walk(directory).filter((file) => /\.so(?:\.|$)/.test(file))) {
-        elfArchitecture(readFileSync(file), target.arch);
-      }
+      validateExtractedLinuxTree(directory, target.arch, "Deb");
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  } else if (target.channel === "rpm") {
+    if (data.length < 96 || !data.subarray(0, 4).equals(Buffer.from([0xed, 0xab, 0xee, 0xdb]))) {
+      throw new Error("Expected an RPM package");
+    }
+    const actual = execFileSync("rpm", ["-qp", "--nosignature", "--qf", "%{ARCH}\n", path], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    if (actual !== target.arch) throw new Error(`Rpm architecture ${actual} does not match ${target.arch}`);
+    const directory = mkdtempSync(join(tmpdir(), "vrcs-rpm-"));
+    try {
+      execFileSync("sh", ["-c", 'rpm2cpio "$1" | cpio -idm --no-absolute-filenames --quiet', "--", path], {
+        cwd: directory,
+        stdio: "pipe",
+      });
+      validateExtractedLinuxTree(directory, target.arch, "Rpm");
     } finally { rmSync(directory, { recursive: true, force: true }); }
   } else {
     if (data.length < 64 || data.toString("ascii", 0, 2) !== "MZ") throw new Error("Expected a PE installer");
@@ -146,9 +169,9 @@ export function aggregateRelease({ root, version, publicKey, repository = "Dream
       const signature = readFileSync(`${path}.sig`, "utf8").trim();
       verifyUpdaterSignature(data, signature, publicKey);
       for (const name of target.targets) platforms[name] = { url: `https://github.com/${repository}/releases/download/${version}/${artifact}`, signature };
-    } else if (manifest.signature !== null) throw new Error("Deb packages must use package-manager updates");
+    } else if (manifest.signature !== null) throw new Error("System packages (deb/rpm) must use package-manager updates");
   }
-  const latest = { version, notes: `VRCS ${version}. Windows x64 and Ubuntu 24.04 Linux x86_64. Deb updates use the package manager; signed AppImage packages support in-app updates. Hardware compatibility is documented separately.`, pub_date: now.toISOString(), platforms };
+  const latest = { version, notes: `VRCS ${version}. Windows x64 and Linux x86_64 (deb, rpm, AppImage; glibc 2.36+ baseline). System packages (deb/rpm) update through the package manager; signed AppImage packages support in-app updates. Hardware compatibility is documented separately.`, pub_date: now.toISOString(), platforms };
   const path = join(root, "latest.json");
   writeFileSync(path, `${JSON.stringify(latest, null, 2)}\n`);
   return path;

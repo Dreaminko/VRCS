@@ -125,6 +125,8 @@ jobs:
           - arch: x86_64
             runner: ubuntu-24.04
     runs-on: ${{ matrix.runner }}
+    container:
+      image: public.ecr.aws/docker/library/rust:1-bookworm
     timeout-minutes: 60
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
@@ -132,32 +134,36 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Install native desktop dependencies
-        run: bash scripts/install-linux-deps.sh
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-          cache: npm
       - name: Install pinned Rust toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         id: cache
         with:
-          shared-key: release-linux-${{ matrix.arch }}-vulkan
+          shared-key: release-linux-bookworm-${{ matrix.arch }}-vulkan
           save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: . -> .build
-      - run: npm ci
+      - name: Install native desktop dependencies
+        if: startsWith(github.ref, 'refs/tags/') || steps.cache.outputs.cache-hit != 'true'
+        run: bash scripts/install-linux-deps.sh
+      - uses: actions/setup-node@v6
+        if: startsWith(github.ref, 'refs/tags/') || steps.cache.outputs.cache-hit != 'true'
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install frontend dependencies
+        if: startsWith(github.ref, 'refs/tags/') || steps.cache.outputs.cache-hit != 'true'
+        run: npm ci
       - name: Warm native dependency cache
         if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
         run: |
           npm --workspace apps/desktop run tauri -- build --target x86_64-unknown-linux-gnu --features vulkan --config src-tauri/tauri.linux.release.conf.json --no-bundle --no-sign -- --locked
-      - name: Build deb and signed AppImage target manifests
+      - name: Build deb, rpm, and signed AppImage target manifests
         if: startsWith(github.ref, 'refs/tags/')
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
-        run: node scripts/build-linux-release.mjs --require-signed
+        run: node scripts/build-linux-release.mjs --require-signed --max-glibc 2.36
       - uses: actions/upload-artifact@v7
         if: startsWith(github.ref, 'refs/tags/')
         with:
@@ -167,12 +173,56 @@ jobs:
           compression-level: 0
           retention-days: 7
 
+  verify-linux-packages:
+    name: verify linux (${{ matrix.distro }})
+    needs: [linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: debian-12
+            image: public.ecr.aws/docker/library/debian:12
+            format: deb
+          - distro: ubuntu-24.04
+            image: public.ecr.aws/docker/library/ubuntu:24.04
+            format: deb
+          - distro: fedora
+            image: quay.io/fedora/fedora:latest
+            format: rpm
+          - distro: opensuse-leap-15.6
+            image: registry.opensuse.org/opensuse/leap:15.6
+            format: rpm
+          - distro: opensuse-tumbleweed
+            image: registry.opensuse.org/opensuse/tumbleweed:latest
+            format: rpm
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/verify-linux-package.sh
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-linux-x86_64-${{ github.sha }}
+          path: release-artifacts
+      - name: Install and verify ${{ matrix.format }} on ${{ matrix.distro }}
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/release-artifacts:/artifacts:ro" \
+            -v "${{ github.workspace }}/scripts/verify-linux-package.sh:/verify.sh:ro" \
+            "${{ matrix.image }}" \
+            sh /verify.sh "${{ matrix.format }}" "$GITHUB_REF_NAME"
+
   publish:
-    needs: [ci-status, validate, windows-x64, linux]
+    needs: [ci-status, validate, windows-x64, linux, verify-linux-packages]
     if: >-
       ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') &&
           needs.ci-status.result == 'success' && needs.windows-x64.result == 'success' &&
-          needs.linux.result == 'success' &&
+          needs.linux.result == 'success' && needs.verify-linux-packages.result == 'success' &&
           (needs.ci-status.outputs.reuse == 'true' || needs.validate.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -194,7 +244,7 @@ jobs:
           merge-multiple: true
           path: release-artifacts
       - name: Install package inspection tools
-        run: sudo apt-get update && sudo apt-get install -y squashfs-tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends squashfs-tools rpm rpm2cpio cpio
       - name: Verify every package, architecture, checksum and updater signature
         env:
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
@@ -202,17 +252,17 @@ jobs:
       - name: Ensure GitHub release exists
         run: |
           cat > "$RUNNER_TEMP/release-notes.txt" <<NOTES
-          Windows 10/11 x64 and native Ubuntu 24.04 x86_64 packages for VRCS.
+          Windows 10/11 x64 and Linux x86_64 (\`.deb\`, \`.rpm\`, and \`.AppImage\`) packages for VRCS.
 
           - \`VRCS-${GITHUB_REF_NAME}-windows-x64.exe\` supports cloud recognition and managed local Qwen ASR on CPU or Vulkan. A compatible GPU and graphics driver are required for Vulkan.
           - Local recognition models and the Qwen runtime are downloaded through recognition settings. Cloud recognition does not require the Qwen runtime.
-          - Linux deb installations update through the package manager/manual download, not the AppImage updater.
-          - The deb installs \`/usr/bin/vrcs-desktop\` with built-in \`--network-helper\` support and the polkit policy; AppImage does not elevate its user-mounted FUSE binary via pkexec.
+          - Linux packages target Debian 12+ (\`glibc 2.36+\`) x86_64: \`.deb\` covers Debian/Ubuntu derivatives, \`.rpm\` uses standard SONAME/file dependencies for Fedora/Nobara/Bazzite/RHEL-family 10/openSUSE Leap & Tumbleweed/Mageia, and \`.AppImage\` provides portable execution.
+          - Linux system packages (\`.deb\` and \`.rpm\`) update through the package manager or manual download, not the AppImage updater.
+          - \`.deb\` and \`.rpm\` install \`/usr/bin/vrcs-desktop\` with built-in \`--network-helper\` support and the polkit policy; AppImage does not elevate its user-mounted FUSE binary via pkexec.
           - AppImage installations use architecture-specific signed in-app updates.
-          - Linux player audio needs libopus0; the deb declares it, AppImage users install it separately.
-          - Ubuntu 24.04 is the Linux ABI baseline; AppImage does not promise compatibility with older distributions.
-          - Install CJK fonts (fonts-noto-cjk) when they are not already available.
-          - CI ONNX loading does not replace real desktop/audio/VR hardware acceptance; consult the compatibility matrix.
+          - Linux player audio needs Opus (\`libopus0\` on Debian/Ubuntu/openSUSE, \`opus\` on Fedora/RHEL); \`.deb\` and \`.rpm\` declare it, AppImage users install it separately.
+          - Install CJK fonts (\`fonts-noto-cjk\` / \`google-noto-sans-cjk-fonts\` / \`noto-sans-cjk-fonts\`) when they are not already available.
+          - CI ONNX loading and container install checks do not replace real desktop/audio/VR hardware acceptance; consult the compatibility matrix.
           NOTES
           if gh release view "$GITHUB_REF_NAME" --json isDraft >/dev/null 2>&1; then
             gh release edit "$GITHUB_REF_NAME" --title "VRCS $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.txt"

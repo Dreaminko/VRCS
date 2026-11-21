@@ -98,6 +98,8 @@ jobs:
           - arch: x86_64
             runner: ubuntu-24.04
     runs-on: ${{ matrix.runner }}
+    container:
+      image: public.ecr.aws/docker/library/rust:1-bookworm
     timeout-minutes: 45
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
@@ -115,12 +117,12 @@ jobs:
         run: rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: ci-linux-${{ matrix.arch }}-cpu-vulkan
+          shared-key: ci-linux-bookworm-${{ matrix.arch }}-cpu-vulkan
           save-if: false
           workspaces: . -> .build
       - run: npm ci
       - name: Collect native runtime and load ONNX session
-        run: node scripts/build-linux-release.mjs --preview
+        run: node scripts/build-linux-release.mjs --preview --max-glibc 2.36
       - uses: actions/upload-artifact@v7
         with:
           name: VRCS-preview-linux-${{ matrix.arch }}-${{ github.sha }}

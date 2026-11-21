@@ -7,7 +7,7 @@ export interface AppBuildInfo {
   variant: "standard";
   os?: string;
   arch?: string;
-  packageChannel?: "development" | "installer" | "manual" | "deb" | "appimage";
+  packageChannel?: "development" | "installer" | "manual" | "system" | "deb" | "rpm" | "appimage";
   updaterAvailable: boolean;
   canInstall?: boolean;
 }

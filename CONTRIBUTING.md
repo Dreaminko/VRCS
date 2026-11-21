@@ -79,18 +79,20 @@ Vulkan runtime; default development builds remain CPU-only. Install the system
 Vulkan loader (`libvulkan1` on Ubuntu) and a compatible GPU driver, not a GPU SDK.
 `npm run build` remains the Windows installer entry point.
 
-For the Ubuntu 24.04 native build baseline, install Node.js 24+ and the pinned
-Rust toolchain, then run `bash scripts/install-linux-deps.sh`, `npm ci`, and
+For the Debian 12 (`glibc 2.36+`) CI/release ABI baseline (also compatible with
+Ubuntu 24.04+ and Debian 13+), install Node.js 24+ and the pinned Rust
+toolchain, then run `bash scripts/install-linux-deps.sh`, `npm ci`, and
 `npm run dev` in a graphical user session. Linux network capture additionally
 needs `/usr/bin/vrcs-desktop` (with built-in `--network-helper`) and its polkit
-policy, installed by the full deb or manually as below. `npm run dev` does not
-install or update either file; a build-tree binary is intentionally not executed
-through pkexec. The dependency script includes WebKitGTK 4.1/GTK3, PipeWire/SPA,
-D-Bus, AppIndicator, native build tools, CJK fonts, `libopus0`, `pkexec` and
-`polkitd`. A running polkit authentication agent in the graphical user session is
-also required (provided by many desktops; start your compositor's configured
-agent on minimal Wayland sessions). It is a build prerequisite list, not a
-portability guarantee.
+policy, installed by the `.deb`/`.rpm` system package or manually as below.
+`npm run dev` does not install or update either file; a build-tree binary is
+intentionally not executed through pkexec. The dependency script includes
+WebKitGTK 4.1/GTK3, PipeWire/SPA, D-Bus, AppIndicator, native build tools,
+RPM inspection/packaging tools (`rpm`, `rpm2cpio`, `cpio`), CJK fonts, `libopus0`,
+`pkexec` and `polkitd`. A running polkit authentication agent in the graphical
+user session is also required (provided by many desktops; start your compositor's
+configured agent on minimal Wayland sessions). It is a build prerequisite list,
+not a portability guarantee.
 
 For Arch Linux x86_64 development, install the network runtime prerequisites and
 the desktop binary/policy from the repository root after setting up Rust:
@@ -118,12 +120,12 @@ manual installation, stop capture and run:
 sudo rm -f /usr/bin/vrcs-desktop /usr/share/polkit-1/actions/app.vrcs.network-capture.policy
 ```
 
-For a deb-managed installation, upgrade/remove the full deb with your package
-manager instead. AppImage installs neither file; use the manual procedure or the
-full deb on Ubuntu. There is currently no separately published helper package.
-These steps install prerequisites only: network capture remains experimental,
-and real VRChat/Proton reception, authorization and sustained operation still
-require game acceptance.
+For a `.deb`- or `.rpm`-managed installation, upgrade/remove the system package
+with your package manager instead. AppImage installs neither file; use the
+manual procedure or the `.deb`/`.rpm` package on supported distributions. There
+is currently no separately published helper package. These steps install
+prerequisites only: network capture remains experimental, and real VRChat/Proton
+reception, authorization and sustained operation still require game acceptance.
 
 Schema 43 retains Linux device keys and numeric device IDs while migrating legacy
 player selections to per-account source policies. Upgrades from schema 41 or 42
@@ -174,11 +176,11 @@ Implemented boundaries:
   disabled on Linux pending upstream OpenXR/Monado scene-capture APIs. Desktop
   OCR and desktop visual question answering via `org.freedesktop.portal.Screenshot`
   remain available, and OSC sending is independent. Linux GNU x86_64 now has
-  helper-backed experimental player audio and Chatbox network reception. The deb
-  installs `/usr/bin/vrcs-desktop` with built-in `--network-helper` support and
-  its polkit policy in the same package; AppImage needs manual system
-  installation or the full deb. No standalone helper package is currently
-  published. Capture needs a session polkit agent and system Opus.
+  helper-backed experimental player audio and Chatbox network reception. Both
+  `.deb` and `.rpm` install `/usr/bin/vrcs-desktop` with built-in `--network-helper`
+  support and its polkit policy in the same package; AppImage needs manual system
+  installation or a `.deb`/`.rpm` package. No standalone helper package is
+  currently published. Capture needs a session polkit agent and system Opus.
   Real VRChat/Proton traffic, authorization, packaging, anti-cheat behavior and
   long-running capture are not yet accepted; ARM64 is deferred for now.
   Candidate packets require a fresh inode/endpoint/target-fd confirmation; stale
@@ -199,23 +201,31 @@ Implemented boundaries:
   is private; configuration, migration backups and database files are owner-only,
   including existing files when reopened. Wayland compact subtitles do not promise
   global stacking. Tray failure leaves close-to-exit behavior.
-- `node scripts/build-linux-release.mjs` builds native deb/AppImage channels with
-  Qwen Vulkan support; `--deb-only` limits local packaging and `--preview` stages
-  an unsigned directory with the same inference support.
+- `node scripts/build-linux-release.mjs` builds native deb/rpm/AppImage channels with
+  Qwen Vulkan support; `--deb-only`, `--rpm-only`, and `--appimage-only` limit
+  local packaging, `--preview` stages an unsigned directory with the same
+  inference support, `--verify-packages` additionally checks deb/rpm packaging
+  in preview mode, and `--max-glibc` enforces the ELF glibc version ceiling.
   Runtime dependencies include the managed llama.cpp libraries' system requirements
-  (`libgomp1`, `libssl3t64`, `libstdc++6`, `libgcc-s1` and the Vulkan loader), which
-  are not all visible in the desktop executable's ELF dependency list.
-  deb/development installs cannot install updates in-app (`deb` can check for
-  updates and guide manual/package-manager updates); writable AppImages support
-  signed in-app updates when configured with the updater signing keys. Complete
-  release aggregation verifies every platform's package, architecture, hash and
-  signature before writing `latest.json`.
-- CI/Preview/Release run on `ubuntu-24.04` (`x86_64`); ARM64 (`aarch64` /
-  `ubuntu-24.04-arm`) is temporarily removed until future enablement. Same-commit
-  CI reuse checks `linux (x86_64)` alongside Windows/frontend jobs. Workflow
-  configuration is not evidence that the remote jobs have run successfully.
-  Changes to `packaging/linux/`, including polkit policy and installation scripts,
-  select the native CI checks.
+  (`libgomp1`, `libssl3`/`libssl3t64`/`libssl.so.3`, `libstdc++6`, `libgcc-s1`,
+  Opus, and the Vulkan loader), which are not all visible in the desktop
+  executable's ELF dependency list. `.rpm` packages declare cross-distro
+  SONAME and `/usr/bin/pkexec` dependencies so one package covers Fedora,
+  Nobara, Bazzite, RHEL-family 10, openSUSE Leap/Tumbleweed, and Mageia.
+  `deb`/`rpm`/development installs cannot install updates in-app (`deb`/`rpm` can
+  check for updates and guide manual/package-manager updates); writable AppImages
+  support signed in-app updates when configured with the updater signing keys.
+  Complete release aggregation verifies every platform's package, architecture,
+  hash and signature before writing `latest.json`.
+- CI/Preview/Release Linux jobs run inside `public.ecr.aws/docker/library/rust:1-bookworm`
+  (`x86_64`, `glibc 2.36` baseline); ARM64 (`aarch64` / `ubuntu-24.04-arm`) is
+  temporarily removed until future enablement. Same-commit CI reuse checks
+  `linux (x86_64)` alongside Windows/frontend jobs, and Release runs container
+  install verification (`scripts/verify-linux-package.sh`) on Debian 12,
+  Ubuntu 24.04, Fedora, openSUSE Leap 15.6, and openSUSE Tumbleweed before
+  publishing. Workflow configuration is not evidence that the remote jobs have
+  run successfully. Changes to `packaging/linux/`, including polkit policy and
+  installation scripts, select the native CI checks.
 
 Measured evidence (2026-11-10 unless dated otherwise; x86_64 Xeon E3-1245 v6, Arch/niri Wayland unless
 otherwise stated):
@@ -256,11 +266,11 @@ Current milestone gates:
 | Milestone | Remaining acceptance |
 | --- | --- |
 | M0 | Real SteamVR/OpenXR static/dynamic headset submission; WebKit host experiment passed on this x86_64 desktop (ARM64 deferred) |
-| M1 | Clean x86_64 deb install, real dual-source/cloud-ASR/translation/subtitle/VRChat OSC loop, restart persistence, GNOME X11/Wayland and long-running device tests |
+| M1 | Clean x86_64 deb/rpm install, real dual-source/cloud-ASR/translation/subtitle/VRChat OSC loop, restart persistence, GNOME X11/Wayland and long-running device tests |
 | M2 | Broader x86_64 GPU-driver and sustained-inference acceptance (ARM64 deferred) |
 | M3 | Real-headset acceptance for Linux x86_64 subtitles, wrist overlays, dashboard, independent controller input, and runtime/host recovery (enabled in default builds) |
 | M4 | Portal end-to-end desktop selection/OCR/VQA and cancellation across target desktops, real global-shortcut binding/activation (VR scene capture / VR OCR / VR VQA remain disabled on Linux pending upstream OpenXR/Monado APIs) |
-| M5 | Linux x86_64 AppImage/deb install/upgrade, real signed-update rejection, offline restart and read-only installation; KDE Wayland and remote CI results (ARM64 deferred) |
+| M5 | Linux x86_64 AppImage/deb/rpm install/upgrade, real signed-update rejection, offline restart and read-only installation; KDE Wayland and remote CI results (ARM64 deferred) |
 
 Missing prerequisites are SteamVR/OpenXR headset & controllers,
 configured provider credentials for real cloud requests, and release signing and
