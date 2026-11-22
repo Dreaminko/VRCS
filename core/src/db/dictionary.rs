@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use rusqlite::{params, params_from_iter, Statement, ToSql};
+use rusqlite::{Statement, ToSql, params, params_from_iter};
 
 use std::sync::Mutex;
 
@@ -237,11 +237,24 @@ impl Database {
         })();
         match &result {
             Ok(_) => report_progress(1.0),
-            Err(_) => {
-                if let Ok(db) = lock() {
-                    let _ = db.delete_dictionary_source(staged_id);
+            Err(_) => match lock() {
+                Ok(db) => {
+                    if let Err(cleanup_error) = db.delete_dictionary_source(staged_id) {
+                        tracing::warn!(
+                            staged_id,
+                            %cleanup_error,
+                            "Failed to delete staged Yomitan dictionary source after import error"
+                        );
+                    }
                 }
-            }
+                Err(lock_error) => {
+                    tracing::warn!(
+                        staged_id,
+                        %lock_error,
+                        "Failed to lock database to delete staged Yomitan dictionary source"
+                    );
+                }
+            },
         }
         result
     }
@@ -393,17 +406,17 @@ fn deinflect_candidates(query: &str) -> Vec<String> {
         ("て", &["る", ""]),
         ("た", &["る", ""]),
     ] {
-        if let Some(stem) = query.strip_suffix(suffix) {
-            if !stem.is_empty() {
-                for replacement in replacements {
-                    if replacement.is_empty() {
-                        bare_stems.push(stem.to_owned());
-                    } else {
-                        push(format!("{stem}{replacement}"));
-                    }
+        if let Some(stem) = query.strip_suffix(suffix)
+            && !stem.is_empty()
+        {
+            for replacement in replacements {
+                if replacement.is_empty() {
+                    bare_stems.push(stem.to_owned());
+                } else {
+                    push(format!("{stem}{replacement}"));
                 }
-                push_godan_bases(stem, &mut push);
             }
+            push_godan_bases(stem, &mut push);
         }
     }
     for stem in bare_stems {
@@ -420,24 +433,24 @@ fn deinflect_candidates(query: &str) -> Vec<String> {
             ("es", &["", "e"]),
             ("s", &[""]),
         ] {
-            if let Some(stem) = lower.strip_suffix(suffix) {
-                if stem.len() >= 2 {
-                    for replacement in replacements {
-                        // glass→glas、makes→mak 这类候选不可能是词条，直接跳过以减少 SQL 查询。
-                        let implausible = match (suffix, *replacement) {
-                            ("es", "") => !["s", "x", "z", "ch", "sh", "o"]
-                                .iter()
-                                .any(|ending| stem.ends_with(ending)),
-                            ("s", "") => stem.ends_with('s'),
-                            _ => false,
-                        };
-                        if !implausible {
-                            push(format!("{stem}{replacement}"));
-                        }
+            if let Some(stem) = lower.strip_suffix(suffix)
+                && stem.len() >= 2
+            {
+                for replacement in replacements {
+                    // glass→glas、makes→mak 这类候选不可能是词条，直接跳过以减少 SQL 查询。
+                    let implausible = match (suffix, *replacement) {
+                        ("es", "") => !["s", "x", "z", "ch", "sh", "o"]
+                            .iter()
+                            .any(|ending| stem.ends_with(ending)),
+                        ("s", "") => stem.ends_with('s'),
+                        _ => false,
+                    };
+                    if !implausible {
+                        push(format!("{stem}{replacement}"));
                     }
-                    if matches!(suffix, "ing" | "ed") && has_doubled_trailing_consonant(stem) {
-                        push(stem[..stem.len() - 1].to_owned());
-                    }
+                }
+                if matches!(suffix, "ing" | "ed") && has_doubled_trailing_consonant(stem) {
+                    push(stem[..stem.len() - 1].to_owned());
                 }
             }
         }

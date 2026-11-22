@@ -1,12 +1,12 @@
 use std::time::Duration;
 
-use base64::{engine::general_purpose::STANDARD, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
 use reqwest::header;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::config::ApiProfile;
-use crate::providers::{self, OpenAiProtocolBehavior, OPENROUTER_PROVIDER};
+use crate::providers::{self, OPENROUTER_PROVIDER, OpenAiProtocolBehavior};
 
 use super::http::{completion_error, invalid_response, network_error, response_status_error};
 use super::reasoning::{self, InlineReasoningFilter};
@@ -30,7 +30,7 @@ pub(super) async fn generate(
         request,
         provider_name,
         behavior,
-        Some(profile),
+        profile,
         on_progress,
         None,
         model_details,
@@ -56,7 +56,7 @@ pub(super) async fn generate_with_image(
         request,
         provider_name,
         behavior,
-        Some(profile),
+        profile,
         None,
         Some(image),
         model_details,
@@ -82,7 +82,7 @@ pub(super) async fn generate_standard(
         request,
         provider_name,
         behavior,
-        Some(profile),
+        profile,
         on_progress,
         None,
         None,
@@ -127,12 +127,15 @@ pub(super) async fn test_streaming(
     if profile.provider == OPENROUTER_PROVIDER {
         super::openrouter::apply_reasoning(&mut body, model_details, request.thinking_enabled);
     }
-    super::models_dev::apply_request(&mut body, profile, &request);
+    let fallback_details = super::models_dev::model_details(profile, request.model);
+    if let Some(details) = &fallback_details {
+        details.apply_request(&mut body, &profile.provider, request.thinking_enabled);
+    }
     reasoning::apply_explicit_control(
         &mut body,
         &profile.provider,
         &request,
-        model_details.or(super::models_dev::model_details(profile, request.model).as_ref()),
+        model_details.or(fallback_details.as_ref()),
     )?;
     let endpoint = chat_completions_url(profile)?;
     check_request_size(&endpoint, &body)?;
@@ -170,27 +173,28 @@ async fn generate_chat_completion(
     request: LlmRequest<'_>,
     provider_name: &str,
     behavior: OpenAiProtocolBehavior,
-    profile: Option<&ApiProfile>,
+    profile: &ApiProfile,
     on_progress: Option<&LlmProgress>,
     image: Option<&[u8]>,
     model_details: Option<&super::openrouter::ModelDetails>,
 ) -> Result<String, LlmError> {
     let mut body = chat_completion_body(&request, behavior, on_progress.is_some());
-    if profile.is_some_and(|profile| profile.provider == OPENROUTER_PROVIDER) {
+    if profile.provider == OPENROUTER_PROVIDER {
         super::openrouter::apply_reasoning(&mut body, model_details, request.thinking_enabled);
     }
-    if let Some(profile) = profile {
-        super::models_dev::apply_request(&mut body, profile, &request);
-        if let Some(details) = model_details {
-            details.apply_request(&mut body, &profile.provider, request.thinking_enabled);
-        }
-        reasoning::apply_explicit_control(
-            &mut body,
-            &profile.provider,
-            &request,
-            model_details.or(super::models_dev::model_details(profile, request.model).as_ref()),
-        )?;
+    let fallback_details = super::models_dev::model_details(profile, request.model);
+    if let Some(details) = &fallback_details {
+        details.apply_request(&mut body, &profile.provider, request.thinking_enabled);
     }
+    if let Some(details) = model_details {
+        details.apply_request(&mut body, &profile.provider, request.thinking_enabled);
+    }
+    reasoning::apply_explicit_control(
+        &mut body,
+        &profile.provider,
+        &request,
+        model_details.or(fallback_details.as_ref()),
+    )?;
     if let Some(image) = image {
         body["messages"][1]["content"] = json!([
             { "type": "text", "text": request.input },
@@ -202,11 +206,7 @@ async fn generate_chat_completion(
     }
     check_request_size(&endpoint, &body)?;
     let builder = http.post(endpoint).json(&body);
-    let builder = if let Some(profile) = profile {
-        apply_profile_request(builder, profile, api_key)?
-    } else {
-        builder.bearer_auth(api_key)
-    };
+    let builder = apply_profile_request(builder, profile, api_key)?;
     let response = builder.send().await.map_err(network_error)?;
     let status = response.status();
     if !status.is_success() {
@@ -381,8 +381,8 @@ fn process_sse_event(
     if data.is_empty() {
         return Ok(false);
     }
-    process_sse_line(
-        format!("data: {data}").as_bytes(),
+    process_sse_data(
+        data.trim(),
         output,
         filter,
         on_progress,
@@ -392,6 +392,7 @@ fn process_sse_event(
     )
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn process_sse_line(
     line: &[u8],
@@ -411,6 +412,27 @@ fn process_sse_line(
     let Some(data) = line.trim().strip_prefix("data:").map(str::trim) else {
         return Ok(false);
     };
+    process_sse_data(
+        data,
+        output,
+        filter,
+        on_progress,
+        provider_name,
+        model,
+        finished,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn process_sse_data(
+    data: &str,
+    output: &mut String,
+    filter: Option<&mut InlineReasoningFilter>,
+    on_progress: &LlmProgress,
+    provider_name: &str,
+    model: &str,
+    finished: &mut bool,
+) -> Result<bool, LlmError> {
     if data == "[DONE]" {
         return Ok(true);
     }
@@ -475,7 +497,7 @@ fn check_completion_status(value: &Value, provider_name: &str) -> Result<(), Llm
                 "{provider_name} response was incomplete: output token limit reached (finish_reason=length). Increase the output token limit or disable thinking."
             ),
             retryable: false,
-        retry_after: None,
+            retry_after: None,
         });
     }
     Ok(())
@@ -540,17 +562,17 @@ fn check_request_size(endpoint: &str, body: &Value) -> Result<(), LlmError> {
             .flatten()
             .flat_map(|message| message["content"].as_array().into_iter().flatten())
         {
-            if let Some(uri) = content.pointer("/image_url/url").and_then(Value::as_str) {
-                if uri.starts_with("data:") && uri.len() > 20_000_000 {
-                    return Err(LlmError {
-                        code: "llm.request_failed",
-                        detail:
-                            "Qwen image Data URI exceeds the 20 MB limit. Reduce the image size."
-                                .into(),
-                        retryable: false,
-                        retry_after: None,
-                    });
-                }
+            if let Some(uri) = content.pointer("/image_url/url").and_then(Value::as_str)
+                && uri.starts_with("data:")
+                && uri.len() > 20_000_000
+            {
+                return Err(LlmError {
+                    code: "llm.request_failed",
+                    detail: "Qwen image Data URI exceeds the 20 MB limit. Reduce the image size."
+                        .into(),
+                    retryable: false,
+                    retry_after: None,
+                });
             }
         }
         super::http::max_serialized_body(body, 64_000_000, "Qwen request (64 MB)")?;
@@ -703,7 +725,7 @@ mod tests {
 
     #[tokio::test]
     async fn openrouter_wire_request_excludes_reasoning_and_preserves_image_budget() {
-        use axum::{routing::post, Json, Router};
+        use axum::{Json, Router, routing::post};
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
         let app = Router::new().route("/chat/completions", post(move |Json(body): Json<Value>| async move {
             sender.send(body).unwrap();
@@ -757,7 +779,7 @@ mod tests {
                         },
                         "OpenRouter",
                         OpenAiProtocolBehavior::Standard,
-                        Some(&profile),
+                        &profile,
                         streamed.then_some(&progress as &LlmProgress),
                         image,
                         Some(&details),
@@ -782,7 +804,7 @@ mod tests {
 
     #[tokio::test]
     async fn image_requests_preserve_provider_reasoning_and_final_answer_filtering() {
-        use axum::{routing::post, Json, Router};
+        use axum::{Json, Router, routing::post};
 
         for (behavior, model, reply) in [
             (
@@ -881,11 +903,36 @@ mod tests {
     #[test]
     fn image_chat_endpoints_follow_provider_connections() {
         for (provider, region, workspace, expected) in [
-            (providers::DEEPSEEK_PROVIDER, None, None, "https://api.deepseek.com/v1/chat/completions"),
-            (GROQ_PROVIDER, None, None, "https://api.groq.com/openai/v1/chat/completions"),
-            (providers::QWEN_AI_PROVIDER, None, None, "https://maas.qianwenaiapi.com/compatible-mode/v1/chat/completions"),
-            (providers::ALIBABA_PROVIDER, Some("singapore"), None, "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"),
-            (providers::ALIBABA_PROVIDER, Some("china_beijing"), Some("ws-example"), "https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions"),
+            (
+                providers::DEEPSEEK_PROVIDER,
+                None,
+                None,
+                "https://api.deepseek.com/v1/chat/completions",
+            ),
+            (
+                GROQ_PROVIDER,
+                None,
+                None,
+                "https://api.groq.com/openai/v1/chat/completions",
+            ),
+            (
+                providers::QWEN_AI_PROVIDER,
+                None,
+                None,
+                "https://maas.qianwenaiapi.com/compatible-mode/v1/chat/completions",
+            ),
+            (
+                providers::ALIBABA_PROVIDER,
+                Some("singapore"),
+                None,
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+            ),
+            (
+                providers::ALIBABA_PROVIDER,
+                Some("china_beijing"),
+                Some("ws-example"),
+                "https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
+            ),
         ] {
             let profile = ApiProfile {
                 provider: provider.into(),
@@ -997,7 +1044,7 @@ mod tests {
 
     #[tokio::test]
     async fn qwen_ai_image_requests_preserve_auth_image_and_thinking_controls() {
-        use axum::{http::HeaderMap, routing::post, Json, Router};
+        use axum::{Json, Router, http::HeaderMap, routing::post};
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
         let app = Router::new().route(
             "/chat/completions",
@@ -1036,7 +1083,7 @@ mod tests {
                     request,
                     "Qwen AI",
                     OpenAiProtocolBehavior::Alibaba,
-                    Some(&profile),
+                    &profile,
                     None,
                     Some(b"\x89PNG\r\n\x1a\n"),
                     None,
@@ -1082,10 +1129,12 @@ mod tests {
         assert!(error.detail.contains("Data URI"));
         for (_, _, host) in providers::QWEN_CLOUD_REGIONS {
             let endpoint = format!("https://{host}/compatible-mode/v1/chat/completions");
-            assert!(check_request_size(&endpoint, &body)
-                .unwrap_err()
-                .detail
-                .contains("Data URI"));
+            assert!(
+                check_request_size(&endpoint, &body)
+                    .unwrap_err()
+                    .detail
+                    .contains("Data URI")
+            );
         }
         check_request_size(
             "https://maas.qianwenaiapi.com.example/compatible-mode/v1/chat/completions",
@@ -1386,11 +1435,10 @@ mod tests {
     #[test]
     fn failed_finish_reasons_without_error_objects_are_rejected() {
         for reason in ["error", "content_filter"] {
-            assert!(check_completion_status(
-                &json!({"choices": [{"finish_reason": reason}]}),
-                "Test"
-            )
-            .is_err());
+            assert!(
+                check_completion_status(&json!({"choices": [{"finish_reason": reason}]}), "Test")
+                    .is_err()
+            );
         }
     }
 
@@ -1519,38 +1567,44 @@ mod tests {
             *progress_target.lock().unwrap() = text.to_owned();
         };
         let mut output = String::new();
-        assert!(!process_sse_line(
-            br#"data: {"choices":[{"delta":{"content":"\u4f60"}}]}"#,
-            &mut output,
-            None,
-            &progress,
-            "DeepSeek",
-            "deepseek-v4-flash",
-            &mut false,
-        )
-        .unwrap());
-        assert!(!process_sse_line(
-            br#"data: {"choices":[{"delta":{"content":"\u597d"}}]}"#,
-            &mut output,
-            None,
-            &progress,
-            "DeepSeek",
-            "deepseek-v4-flash",
-            &mut false,
-        )
-        .unwrap());
+        assert!(
+            !process_sse_line(
+                br#"data: {"choices":[{"delta":{"content":"\u4f60"}}]}"#,
+                &mut output,
+                None,
+                &progress,
+                "DeepSeek",
+                "deepseek-v4-flash",
+                &mut false,
+            )
+            .unwrap()
+        );
+        assert!(
+            !process_sse_line(
+                br#"data: {"choices":[{"delta":{"content":"\u597d"}}]}"#,
+                &mut output,
+                None,
+                &progress,
+                "DeepSeek",
+                "deepseek-v4-flash",
+                &mut false,
+            )
+            .unwrap()
+        );
         assert_eq!(output, "你好");
         assert_eq!(*captured.lock().unwrap(), "你好");
-        assert!(process_sse_line(
-            b"data: [DONE]\n",
-            &mut output,
-            None,
-            &progress,
-            "DeepSeek",
-            "deepseek-v4-flash",
-            &mut false,
-        )
-        .unwrap());
+        assert!(
+            process_sse_line(
+                b"data: [DONE]\n",
+                &mut output,
+                None,
+                &progress,
+                "DeepSeek",
+                "deepseek-v4-flash",
+                &mut false,
+            )
+            .unwrap()
+        );
     }
 
     #[test]

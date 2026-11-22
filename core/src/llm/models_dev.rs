@@ -11,7 +11,7 @@ use serde_json::Value;
 use tokio::sync::watch;
 
 use super::model_catalog::{
-    modalities, positive_limit, ModelCatalog, ModelDetails, ReasoningControl, ReasoningOptions,
+    ModelCatalog, ModelDetails, ReasoningControl, ReasoningOptions, modalities, positive_limit,
 };
 use crate::config::ApiProfile;
 
@@ -280,12 +280,6 @@ pub fn model_details(profile: &ApiProfile, model: &str) -> Option<ModelDetails> 
     }
 }
 
-pub fn apply_request(body: &mut Value, profile: &ApiProfile, request: &super::LlmRequest<'_>) {
-    if let Some(details) = model_details(profile, request.model) {
-        details.apply_request(body, &profile.provider, request.thinking_enabled);
-    }
-}
-
 pub fn supplement(profile: &ApiProfile, catalog: &mut ModelCatalog) {
     if provider_id(profile).is_none() {
         return;
@@ -392,9 +386,6 @@ async fn fetch(url: &str, etag: Option<&str>) -> Result<Option<Snapshot>, String
     if !response.status().is_success() {
         return Err(format!("Catalog HTTP status {}", response.status()));
     }
-    let response = response
-        .error_for_status()
-        .map_err(|error| error.to_string())?;
     let etag = response
         .headers()
         .get(reqwest::header::ETAG)
@@ -504,9 +495,11 @@ mod tests {
         for model in ["Shared", "shared:free", "org/shared"] {
             assert!(snapshot.lookup(&profile("openai", None), model).is_none());
         }
-        assert!(snapshot
-            .lookup(&profile("openai_compatible", None), "shared")
-            .is_none());
+        assert!(
+            snapshot
+                .lookup(&profile("openai_compatible", None), "shared")
+                .is_none()
+        );
         assert!(provider_id(&profile("alibaba_cloud", None)).is_none());
         let token_plan = snapshot
             .lookup(&profile("alibaba_token_plan", None), "shared")
@@ -547,9 +540,11 @@ mod tests {
             1
         );
         let snapshot = Snapshot::parse(&fixture(), now(), None).unwrap();
-        assert!(!serde_json::to_string(&snapshot)
-            .unwrap()
-            .contains("wrong.invalid"));
+        assert!(
+            !serde_json::to_string(&snapshot)
+                .unwrap()
+                .contains("wrong.invalid")
+        );
     }
 
     #[test]
@@ -606,7 +601,7 @@ mod tests {
 
     #[tokio::test]
     async fn refresh_is_shared_nonblocking_and_cancelled_on_shutdown() {
-        use axum::{routing::get, Router};
+        use axum::{Router, routing::get};
         use std::sync::atomic::{AtomicUsize, Ordering};
         let count = Arc::new(AtomicUsize::new(0));
         let started = Arc::new(tokio::sync::Notify::new());
@@ -683,7 +678,7 @@ mod tests {
 
     #[tokio::test]
     async fn conditional_fetch_accepts_304_and_rejects_invalid_updates() {
-        use axum::{routing::get, Router};
+        use axum::{Router, routing::get};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let app = Router::new()
@@ -699,10 +694,12 @@ mod tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        assert!(fetch(&format!("{url}/unchanged"), Some("tag"))
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            fetch(&format!("{url}/unchanged"), Some("tag"))
+                .await
+                .unwrap()
+                .is_none()
+        );
         assert!(fetch(&format!("{url}/invalid"), None).await.is_err());
         server.abort();
     }

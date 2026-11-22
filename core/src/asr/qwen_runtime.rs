@@ -4,8 +4,8 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, Mutex as StdMutex,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -94,13 +94,14 @@ impl Drop for QwenLease {
     fn drop(&mut self) {
         if self.leases.fetch_sub(1, Ordering::AcqRel) == 1
             && self.deferred_stop.swap(false, Ordering::AcqRel)
+            && let Ok(handle) = tokio::runtime::Handle::try_current()
         {
-            if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                let runtime = Arc::clone(&self.runtime);
-                handle.spawn(async move {
-                    let _ = runtime.stop().await;
-                });
-            }
+            let runtime = Arc::clone(&self.runtime);
+            handle.spawn(async move {
+                if let Err(error) = runtime.stop().await {
+                    tracing::warn!(%error, "Failed to stop deferred Qwen ASR runtime on lease drop");
+                }
+            });
         }
     }
 }
@@ -204,10 +205,8 @@ impl QwenRuntime {
             let mut state = self.state.lock().await;
             check_child(&mut state)?;
             let same_selection = state.selection.as_ref() == Some(&selection);
-            if same_selection {
-                if let Some(connection) = &state.connection {
-                    return Ok(connection.clone());
-                }
+            if same_selection && let Some(connection) = &state.connection {
+                return Ok(connection.clone());
             }
             stop_child(&mut state).await?;
             if !same_selection {
@@ -534,13 +533,13 @@ fn checked_file(path: &Path) -> Result<PathBuf, String> {
     Ok(absolute)
 }
 fn check_child(state: &mut RuntimeState) -> Result<(), String> {
-    if let Some(child) = &mut state.child {
-        if let Some(exit) = child.try_wait().map_err(|error| error.to_string())? {
-            state.child = None;
-            state.connection = None;
-            state.status = "error";
-            state.error = Some(format!("Qwen ASR runtime exited: {exit}"));
-        }
+    if let Some(child) = &mut state.child
+        && let Some(exit) = child.try_wait().map_err(|error| error.to_string())?
+    {
+        state.child = None;
+        state.connection = None;
+        state.status = "error";
+        state.error = Some(format!("Qwen ASR runtime exited: {exit}"));
     }
     Ok(())
 }
@@ -552,8 +551,11 @@ fn startup_guard(state: &Arc<Mutex<RuntimeState>>, session: u64) -> StartupGuard
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(async move {
                 let mut state = state.lock().await;
-                if state.session == session && state.connection.is_none() {
-                    let _ = stop_session(&mut state).await;
+                if state.session == session
+                    && state.connection.is_none()
+                    && let Err(error) = stop_session(&mut state).await
+                {
+                    tracing::warn!(%error, "Failed to stop Qwen ASR session during startup rollback");
                 }
             });
         }

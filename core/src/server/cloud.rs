@@ -1,18 +1,19 @@
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::config::{ApiAuthMode, ApiProfile, HttpHeaderConfig, DEFAULT_PROFILE_TIMEOUT_MS};
+use crate::config::{ApiAuthMode, ApiProfile, DEFAULT_PROFILE_TIMEOUT_MS, HttpHeaderConfig};
 use crate::credentials;
 use crate::providers::{
-    self, BaseUrlPolicy, ProviderCategory, ProviderDefinition, ProviderServiceDefinition,
-    ServiceAdapter, ALIBABA_PROVIDER, CAPABILITY_IMAGE_UNDERSTANDING, CAPABILITY_SPEECH_TO_TEXT,
-    CAPABILITY_TEXT_GENERATION, CAPABILITY_TEXT_TRANSLATION, MICROSOFT_PROVIDER,
+    self, ALIBABA_PROVIDER, BaseUrlPolicy, CAPABILITY_IMAGE_UNDERSTANDING,
+    CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION, CAPABILITY_TEXT_TRANSLATION,
+    MICROSOFT_PROVIDER, ProviderCategory, ProviderDefinition, ProviderServiceDefinition,
+    ServiceAdapter,
 };
 
-use super::{api_error, ApiResult, SettingsContext};
+use super::{ApiResult, SettingsContext, api_error};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -499,11 +500,17 @@ async fn profile_list_response(state: &SettingsContext) -> ApiResult<Json<Value>
     config.resolve_model_assignments();
     let mut profiles = Vec::with_capacity(config.asr.api_profiles.len());
     for profile in &config.asr.api_profiles {
-        profiles.push(
-            profile_value_resolved(profile, &config)
-                .await
-                .unwrap_or_else(|_| unavailable_profile_value_resolved(profile, &config)),
-        );
+        profiles.push(match profile_value_resolved(profile, &config).await {
+            Ok(value) => value,
+            Err(error) => {
+                tracing::warn!(
+                    profile_id = %profile.id,
+                    %error,
+                    "Failed to inspect API profile status"
+                );
+                unavailable_profile_value_resolved(profile, &config)
+            }
+        });
     }
     Ok(Json(json!({ "profiles": profiles })))
 }
@@ -555,27 +562,25 @@ pub(super) async fn profile_create(
         if let Some(api_key) = input
             .api_key
             .filter(|value| profile.requires_api_key() && !value.trim().is_empty())
-        {
-            if let Err(error) =
+            && let Err(error) =
                 credentials::write_credential_async(&profile.id, &profile.provider, &api_key).await
-            {
-                let mut rollback = state.config.config.read().expect("config lock").clone();
-                rollback
-                    .asr
-                    .api_profiles
-                    .retain(|item| item.id != profile.id);
-                if let Err(recovery) = commit_profile_config(&state, rollback).await {
-                    return Err(api_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "settings.rollback_failed",
-                        format!(
-                            "{error}; configuration rollback failed: {}",
-                            api_detail(&recovery)
-                        ),
-                    ));
-                }
-                return Err(credential_error(error));
+        {
+            let mut rollback = state.config.config.read().expect("config lock").clone();
+            rollback
+                .asr
+                .api_profiles
+                .retain(|item| item.id != profile.id);
+            if let Err(recovery) = commit_profile_config(&state, rollback).await {
+                return Err(api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "settings.rollback_failed",
+                    format!(
+                        "{error}; configuration rollback failed: {}",
+                        api_detail(&recovery)
+                    ),
+                ));
             }
+            return Err(credential_error(error));
         }
         let config = state.config.config.read().expect("config lock").clone();
         Ok(Json(
@@ -730,8 +735,8 @@ pub(super) async fn profile_delete(
         }
         disable_vision_profile(&mut candidate, &profile_id);
         disable_title_profile(&mut candidate, &profile_id);
-        candidate.resolve_model_assignments();
         if query.dry_run {
+            candidate.resolve_model_assignments();
             candidate.validate_settings().map_err(profile_invalid)?;
             return Ok(Json(
                 json!({ "side_effects": profile_usages(&current, &profile_id) }),
@@ -1004,14 +1009,13 @@ async fn service_models(
     } else {
         String::new()
     };
-    if !query.refresh {
-        if let Some(catalog) = state
+    if !query.refresh
+        && let Some(catalog) = state
             .integrations
             .model_catalogs
             .get(profile, service.id, &api_key)
-        {
-            return Ok(Json(catalog));
-        }
+    {
+        return Ok(Json(catalog));
     }
     if query.cached_only {
         return Ok(Json(
@@ -1540,9 +1544,11 @@ mod tests {
         ] {
             assert!(effects.iter().any(|usage| usage["kind"] == kind), "{kind}");
         }
-        assert!(profile_usages(&config, "shared")
-            .iter()
-            .any(|usage| usage["kind"] == "model_default_vision"));
+        assert!(
+            profile_usages(&config, "shared")
+                .iter()
+                .any(|usage| usage["kind"] == "model_default_vision")
+        );
         clear_model_bindings(&mut config, "shared");
         disable_translation_profile(&mut config, "shared");
         disable_vision_profile(&mut config, "shared");
@@ -1906,11 +1912,13 @@ mod tests {
             value["connection"]["base_url"]["default"],
             "https://maas.qianwenaiapi.com/compatible-mode/v1"
         );
-        assert!(value["services"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|s| s["id"] == "qwen_live_translate"));
+        assert!(
+            value["services"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s["id"] == "qwen_live_translate")
+        );
         let profile = ApiProfile {
             provider: providers::QWEN_AI_PROVIDER.into(),
             ..Default::default()

@@ -180,13 +180,23 @@ pub fn det_boxes(
     Ok(boxes)
 }
 
-pub fn crop_and_rec_input(
+#[cfg(test)]
+fn crop_and_rec_input(
     rgba: &[u8],
     width: u32,
     height: u32,
     quad: Quad,
 ) -> Result<Array4<f32>, String> {
     validate_image(rgba, width, height)?;
+    crop_and_rec_input_validated(rgba, width, height, quad)
+}
+
+pub(super) fn crop_and_rec_input_validated(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    quad: Quad,
+) -> Result<Array4<f32>, String> {
     if quad.iter().flatten().any(|p| !p.is_finite()) {
         return Err("Invalid OCR text polygon".into());
     }
@@ -711,12 +721,16 @@ mod tests {
 
     #[test]
     fn detector_rejects_low_score_and_empty_regions() {
-        assert!(det_boxes(&vec![0.3; 32 * 32], 32, 32, 32, 32)
-            .unwrap()
-            .is_empty());
-        assert!(det_boxes(&vec![0.0; 32 * 32], 32, 32, 32, 32)
-            .unwrap()
-            .is_empty());
+        assert!(
+            det_boxes(&vec![0.3; 32 * 32], 32, 32, 32, 32)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            det_boxes(&vec![0.0; 32 * 32], 32, 32, 32, 32)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

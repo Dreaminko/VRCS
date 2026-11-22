@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 
 use serde::{Deserialize, Deserializer};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::db::conversations::{publish_catalog, TitleRequestError};
+use crate::db::conversations::{TitleRequestError, publish_catalog};
 
-use super::{api_domain_error, api_error, db_call, ApiResult, ContentState, ServiceContext};
+use super::{ApiResult, ContentState, ServiceContext, api_domain_error, api_error, db_call};
 use crate::conversation_titles;
 
 const ICONS: [&str; 16] = [
@@ -73,10 +73,11 @@ pub(super) async fn create(
     State(state): State<ServiceContext>,
     Json(_input): Json<EmptyRequest>,
 ) -> ApiResult<Json<Value>> {
-    let auto_generate = state.config.config.read().is_ok_and(|config| {
+    let auto_generate = {
+        let config = state.config.config.read().expect("config lock");
         config.conversation_titles.auto_generate
             && conversation_titles::configuration(&config).is_some()
-    });
+    };
     let conversation_catalog = state.content.conversation_catalog_tx.clone();
     let (catalog, job) = db_call(Arc::clone(&state.content.db), move |db| {
         let (catalog, job) = db.create_conversation_with_title(auto_generate)?;
@@ -97,11 +98,10 @@ pub(super) async fn generate_title(
     Json(input): Json<GenerateTitleRequest>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
     validate_path_id(&id)?;
-    let configured = state
-        .config
-        .config
-        .read()
-        .is_ok_and(|config| conversation_titles::configuration(&config).is_some());
+    let configured = {
+        let config = state.config.config.read().expect("config lock");
+        conversation_titles::configuration(&config).is_some()
+    };
     let requested_id = id.clone();
     let sender = state.content.conversation_catalog_tx.clone();
     let (catalog, job) = db_call(state.content.db.clone(), move |db| {

@@ -2,15 +2,15 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use tokio::sync::{broadcast, mpsc, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast, mpsc};
 use tokio::task::JoinSet;
 
 use crate::config::{
     ApiProfile, AppConfig, TranslationBackend, TranslationPromptConfig, TranslationTargetConfig,
     VrchatContextConfig,
 };
-use crate::db::conversations::{CatalogRefresh, ConversationCatalog};
 use crate::db::Database;
+use crate::db::conversations::{CatalogRefresh, ConversationCatalog};
 use crate::models::Subtitle;
 use crate::room_context::{RoomContextReader, RoomContextSnapshot};
 use crate::subtitle_output::{SubtitleLifecyclePublisher, TranslationFailure};
@@ -485,16 +485,18 @@ impl TranslationDispatcher {
                     result = running.join_next_with_id(), if !running.is_empty() => {
                         let task_id = match result.expect("running task") {
                             Ok((id, ())) => id,
-                            Err(error) => error.id(),
+                            Err(error) => {
+                                tracing::error!(%error, "Translation worker task panicked");
+                                error.id()
+                            }
                         };
-                        if let Some(id) = task_players.remove(&task_id) {
-                            if let Some(remaining) = active_players.get_mut(&id) {
+                        if let Some(id) = task_players.remove(&task_id)
+                            && let Some(remaining) = active_players.get_mut(&id) {
                                 *remaining -= 1;
                                 if *remaining == 0 {
                                     active_players.remove(&id);
                                 }
                             }
-                        }
                     }
                     job = receiver.recv(), if !closed => match job {
                         Some(job) => pending.push_back(job),
@@ -683,7 +685,10 @@ async fn process_job(
                 }
             })
             .await
-            .unwrap_or_default()
+            .unwrap_or_else(|error| {
+                tracing::warn!(%error, "Translation context task failed");
+                Default::default()
+            })
         })
         .await
         .clone();

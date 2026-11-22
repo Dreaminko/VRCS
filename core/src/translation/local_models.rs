@@ -2,11 +2,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock as StdRwLock};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::{watch, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
+use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, watch};
 
 use crate::asr::{
-    download_model_file, paths_equivalent, verify_model_file, verify_model_file_forced,
-    ModelAssetSpec,
+    ModelAssetSpec, download_model_file, paths_equivalent, verify_model_file,
+    verify_model_file_forced,
 };
 
 use super::plamo::{
@@ -112,7 +112,10 @@ impl LocalTranslationModels {
 
     pub(crate) fn status(&self) -> LocalTranslationModelStatus {
         let package = package_dir(&self.root());
-        let installed = verify_assets(&package, &[MODEL, LICENSE]).unwrap_or(false);
+        let installed = verify_assets(&package, &[MODEL, LICENSE]).unwrap_or_else(|error| {
+            tracing::warn!(%error, "Local translation model asset verification failed");
+            false
+        });
         let package_exists = package.exists();
         let job = self.job.lock().expect("translation model job lock").clone();
         let (status, downloaded_bytes, error) = match job {
@@ -298,17 +301,16 @@ impl LocalTranslationModels {
             &assets,
             cancel,
             |asset, bytes| {
-                if asset.name == MODEL.name {
-                    if let Some(job) = self
+                if asset.name == MODEL.name
+                    && let Some(job) = self
                         .job
                         .lock()
                         .expect("translation model job lock")
                         .as_mut()
-                    {
-                        job.downloaded_bytes = bytes;
-                        if bytes == MODEL_BYTES {
-                            job.status = "verifying";
-                        }
+                {
+                    job.downloaded_bytes = bytes;
+                    if bytes == MODEL_BYTES {
+                        job.status = "verifying";
                     }
                 }
             },
@@ -572,7 +574,7 @@ fn remove_managed_assets(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{routing::get, Router};
+    use axum::{Router, routing::get};
     use std::time::Duration;
 
     const FIXTURE: ModelAssetSpec = ModelAssetSpec {

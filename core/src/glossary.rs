@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use crate::config::{
-    validate_glossary_source_url, AsrConfig, GlossaryCategory, GlossaryConfig, GlossaryEntry,
-    GlossarySource,
+    AsrConfig, GlossaryCategory, GlossaryConfig, GlossaryEntry, GlossarySource,
+    validate_glossary_source_url,
 };
 
 const MAX_SOURCE_BYTES: usize = 1024 * 1024;
@@ -667,14 +667,27 @@ impl GlossaryStore {
                 .collect(),
         };
         if cache.subscriptions.is_empty() {
-            let _ = fs::remove_file(&self.cache_path);
+            match fs::remove_file(&self.cache_path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    tracing::warn!(%error, "glossary subscription cache could not be removed");
+                }
+            }
             return;
         }
-        let Ok(payload) = serde_json::to_vec_pretty(&cache) else {
-            return;
+        let payload = match serde_json::to_vec_pretty(&cache) {
+            Ok(payload) => payload,
+            Err(error) => {
+                tracing::warn!(%error, "glossary subscription cache could not be serialized");
+                return;
+            }
         };
-        if let Some(parent) = self.cache_path.parent() {
-            let _ = fs::create_dir_all(parent);
+        if let Some(parent) = self.cache_path.parent()
+            && let Err(error) = fs::create_dir_all(parent)
+        {
+            tracing::warn!(%error, "glossary subscription cache directory could not be created");
+            return;
         }
         if let Err(error) = fs::write(&self.cache_path, payload) {
             tracing::warn!(%error, "glossary subscription cache could not be saved");
@@ -1049,7 +1062,7 @@ fn subscription_error(code: &'static str, detail: impl Into<String>) -> Glossary
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{routing::get, Json, Router};
+    use axum::{Json, Router, routing::get};
     use serde_json::json;
 
     fn entry(source: &str, target: Option<&str>) -> GlossaryEntry {
@@ -1459,10 +1472,12 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(reloaded
-            .statuses(&config)
-            .iter()
-            .all(|status| status.state == "ready" && status.entry_count == 1));
+        assert!(
+            reloaded
+                .statuses(&config)
+                .iter()
+                .all(|status| status.state == "ready" && status.entry_count == 1)
+        );
         assert_eq!(
             reloaded.phrases_for_live_translation(&config),
             store.phrases_for_live_translation(&config)

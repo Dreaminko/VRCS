@@ -1,5 +1,5 @@
 use super::assets::{ModelAssets, ModelStatus};
-use super::{processors, OcrImage, OcrImageData, Phase, TextBlock};
+use super::{OcrImage, OcrImageData, Phase, TextBlock, processors};
 use crate::config::OcrDevice;
 use ort::session::{RunOptions, Session};
 use ort::value::Value;
@@ -48,7 +48,7 @@ impl LocalOcrRuntime {
     pub fn execution_status(&self) -> OcrExecutionStatus {
         self.execution
             .read()
-            .unwrap_or_else(|error| error.into_inner())
+            .expect("OCR execution status lock")
             .clone()
     }
 
@@ -81,8 +81,7 @@ impl LocalOcrRuntime {
             let _permit = permit;
             let mut engine = engine.lock().map_err(|_| "Local OCR engine lock failed")?;
             *engine = None;
-            *execution.write().unwrap_or_else(|error| error.into_inner()) =
-                OcrExecutionStatus::default();
+            *execution.write().expect("OCR execution status lock") = OcrExecutionStatus::default();
             assets.delete()
         })
         .await
@@ -103,8 +102,7 @@ impl LocalOcrRuntime {
             let _permit = permit;
             let mut engine = engine.lock().map_err(|_| "Local OCR engine lock failed")?;
             *engine = None;
-            *execution.write().unwrap_or_else(|error| error.into_inner()) =
-                OcrExecutionStatus::default();
+            *execution.write().expect("OCR execution status lock") = OcrExecutionStatus::default();
             assets.move_directory(directory)
         })
         .await
@@ -157,8 +155,10 @@ impl LocalOcrRuntime {
             .await
             .map_err(|_| "Local OCR worker is unavailable")?;
         let cancelled = Arc::new(AtomicBool::new(false));
-        let options =
-            Arc::new(RunOptions::new().map_err(|_| "Could not create OCR inference options")?);
+        let options = Arc::new(
+            RunOptions::new()
+                .map_err(|error| format!("Could not create OCR inference options: {error}"))?,
+        );
         let _cancel = std::mem::DropGuard::new(
             (cancelled.clone(), options.clone()),
             |(cancelled, options)| {
@@ -185,17 +185,16 @@ impl LocalOcrRuntime {
                 assets.verify()?;
                 // Release the previous sessions before loading another GPU backend.
                 *engine = None;
-                *execution.write().unwrap_or_else(|error| error.into_inner()) =
-                    OcrExecutionStatus {
-                        requested_device: device,
-                        ..Default::default()
-                    };
+                *execution.write().expect("OCR execution status lock") = OcrExecutionStatus {
+                    requested_device: device,
+                    ..Default::default()
+                };
                 *engine = Some(Engine::load(&assets.directory(), device)?);
                 let status = engine.as_ref().unwrap().execution.clone();
                 if let Some(reason) = &status.fallback_reason {
                     tracing::warn!(reason, "OCR DirectML loading failed; using CPU");
                 }
-                *execution.write().unwrap_or_else(|error| error.into_inner()) = status;
+                *execution.write().expect("OCR execution status lock") = status;
                 tracing::info!(
                     elapsed_ms = started.elapsed().as_millis() as u64,
                     "OCR local model loaded"
@@ -222,7 +221,7 @@ impl LocalOcrRuntime {
                         )?;
                         engine.execution.requested_device = device;
                         engine.execution.fallback_reason = Some(error);
-                        *execution.write().unwrap_or_else(|error| error.into_inner()) =
+                        *execution.write().expect("OCR execution status lock") =
                             engine.execution.clone();
                         check_cancelled(&cancelled)?;
                         engine.recognize(&image, &options, &cancelled)?
@@ -305,7 +304,7 @@ impl Engine {
             recognizer,
             characters: characters(
                 &std::fs::read_to_string(directory.join("dict.txt"))
-                    .map_err(|_| "Could not read the OCR dictionary")?,
+                    .map_err(|error| format!("Could not read the OCR dictionary: {error}"))?,
             )?,
             execution,
         })
@@ -323,7 +322,7 @@ impl Engine {
         };
         let detecting = std::time::Instant::now();
         let input = Value::from_array(processors::det_input(pixels, image.width, image.height)?)
-            .map_err(|_| "Could not create OCR detector input")?;
+            .map_err(|error| format!("Could not create OCR detector input: {error}"))?;
         let preparation_ms = detecting.elapsed().as_millis() as u64;
         check_cancelled(cancelled)?;
         let inference = std::time::Instant::now();
@@ -334,7 +333,7 @@ impl Engine {
         let inference_ms = inference.elapsed().as_millis() as u64;
         let (shape, probabilities) = output[0]
             .try_extract_tensor::<f32>()
-            .map_err(|_| "Invalid OCR detector tensor")?;
+            .map_err(|error| format!("Invalid OCR detector tensor: {error}"))?;
         if shape.len() != 4 || shape[0] != 1 || shape[1] != 1 || shape[2] <= 0 || shape[3] <= 0 {
             return Err("Unexpected OCR detector output shape".into());
         }
@@ -366,8 +365,8 @@ impl Engine {
                 skipped += 1;
                 continue;
             };
-            let input =
-                Value::from_array(input).map_err(|_| "Could not create OCR recognition input")?;
+            let input = Value::from_array(input)
+                .map_err(|error| format!("Could not create OCR recognition input: {error}"))?;
             preparation_time += preparation.elapsed();
             check_cancelled(cancelled)?;
             let inference = std::time::Instant::now();
@@ -378,7 +377,7 @@ impl Engine {
             inference_time += inference.elapsed();
             let (shape, probabilities) = output[0]
                 .try_extract_tensor::<f32>()
-                .map_err(|_| "Invalid OCR recognizer tensor")?;
+                .map_err(|error| format!("Invalid OCR recognizer tensor: {error}"))?;
             if shape.len() != 3 || shape[0] != 1 || shape[1] <= 0 || shape[2] <= 0 {
                 return Err("Unexpected OCR recognizer output shape".into());
             }
@@ -449,7 +448,7 @@ fn rec_input(
 ) -> Result<Option<ndarray::Array4<f32>>, String> {
     processors::validate_image(pixels, width, height)?;
     // Once pixels are valid, crop errors describe only invalid polygon geometry.
-    Ok(processors::crop_and_rec_input(pixels, width, height, polygon).ok())
+    Ok(processors::crop_and_rec_input_validated(pixels, width, height, polygon).ok())
 }
 
 fn characters(text: &str) -> Result<Vec<String>, String> {
@@ -719,12 +718,14 @@ mod tests {
                     "Missing {expected}"
                 );
             }
-            assert!(blocks.iter().all(|block| block.confidence >= 0.6
-                && block
-                    .polygon
-                    .iter()
-                    .flatten()
-                    .all(|coordinate| coordinate.is_finite())));
+            assert!(blocks.iter().all(|block| {
+                block.confidence >= 0.6
+                    && block
+                        .polygon
+                        .iter()
+                        .flatten()
+                        .all(|coordinate| coordinate.is_finite())
+            }));
         }
         for (left, right) in result[0].iter().zip(&result[1]) {
             assert_eq!(left.text, right.text);
@@ -828,9 +829,11 @@ mod tests {
             .recognize([sample()], OcrDevice::Directml, |_| {})
             .await
             .unwrap();
-        assert!(result[0]
-            .iter()
-            .any(|block| block.text == "LOCAL OCR TEST 123"));
+        assert!(
+            result[0]
+                .iter()
+                .any(|block| block.text == "LOCAL OCR TEST 123")
+        );
         let status = runtime.execution_status();
         assert_eq!(status.active_device, Some(OcrDevice::Cpu));
         assert_eq!(status.requested_device, OcrDevice::Directml);
@@ -848,7 +851,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires downloaded official PP-OCRv6 small weights"]
     async fn ocr_local_vr_streams_translations_while_the_second_eye_is_recognizing() {
-        use axum::{routing::post, Json, Router};
+        use axum::{Json, Router, routing::post};
         use std::sync::atomic::AtomicUsize;
         let directory = std::env::var_os("VRCS_TEST_OCR_MODELS")
             .map(PathBuf::from)
@@ -912,9 +915,11 @@ mod tests {
         );
         assert_eq!(requests.load(Ordering::SeqCst), 1);
         assert_eq!(stereo.summary.success_count, 2);
-        assert!(snapshots
-            .iter()
-            .any(|snapshot| snapshot.recognition_phases.contains(&Phase::LoadingModel)));
+        assert!(
+            snapshots
+                .iter()
+                .any(|snapshot| snapshot.recognition_phases.contains(&Phase::LoadingModel))
+        );
         assert!(snapshots.iter().any(|snapshot| snapshot.translation_started
             && !snapshot.recognition_done
             && snapshot.images_done == 1));
@@ -929,12 +934,16 @@ mod tests {
             (2, 2, 1, 1)
         );
         assert_eq!((stereo.blocks[0].len(), stereo.blocks[1].len()), (1, 1));
-        assert!(updates
-            .iter()
-            .any(|update| update.eye == 0 && update.target_language.is_some()));
-        assert!(updates
-            .iter()
-            .any(|update| update.eye == 1 && update.target_language.is_some()));
+        assert!(
+            updates
+                .iter()
+                .any(|update| update.eye == 0 && update.target_language.is_some())
+        );
+        assert!(
+            updates
+                .iter()
+                .any(|update| update.eye == 1 && update.target_language.is_some())
+        );
         snapshots.clear();
         let mono = service
             .process_vr_scan_with_progress(
@@ -953,9 +962,11 @@ mod tests {
         assert!(mono.blocks[1].is_empty());
         assert_eq!(mono.summary.success_count, 1);
         assert_eq!(requests.load(Ordering::SeqCst), 1);
-        assert!(!snapshots
-            .iter()
-            .any(|snapshot| snapshot.recognition_phases.contains(&Phase::LoadingModel)));
+        assert!(
+            !snapshots
+                .iter()
+                .any(|snapshot| snapshot.recognition_phases.contains(&Phase::LoadingModel))
+        );
         let last = snapshots.last().unwrap();
         assert_eq!(
             (

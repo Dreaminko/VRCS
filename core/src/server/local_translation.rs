@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::{api_error, ApiResult, ServiceContext};
+use super::{ApiResult, ServiceContext, api_error};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -16,7 +16,7 @@ pub(super) struct DownloadInput {
 }
 
 pub(super) async fn status(State(state): State<ServiceContext>) -> ApiResult<Json<Value>> {
-    Ok(Json(status_value(&state).await))
+    Ok(Json(status_value(&state).await?))
 }
 
 pub(super) async fn download(
@@ -46,12 +46,12 @@ pub(super) async fn download(
             detail,
         ));
     }
-    Ok(Json(status_value(&state).await))
+    Ok(Json(status_value(&state).await?))
 }
 
 pub(super) async fn cancel(State(state): State<ServiceContext>) -> ApiResult<Json<Value>> {
     state.content.local_translation_models.cancel().await;
-    Ok(Json(status_value(&state).await))
+    Ok(Json(status_value(&state).await?))
 }
 
 pub(super) async fn verify(State(state): State<ServiceContext>) -> ApiResult<Json<Value>> {
@@ -67,7 +67,7 @@ pub(super) async fn verify(State(state): State<ServiceContext>) -> ApiResult<Jso
                 detail,
             )
         })?;
-    Ok(Json(status_value(&state).await))
+    Ok(Json(status_value(&state).await?))
 }
 
 pub(super) async fn unload(State(state): State<ServiceContext>) -> ApiResult<Json<Value>> {
@@ -77,7 +77,7 @@ pub(super) async fn unload(State(state): State<ServiceContext>) -> ApiResult<Jso
         .stop()
         .await
         .map_err(storage_error)?;
-    Ok(Json(status_value(&state).await))
+    Ok(Json(status_value(&state).await?))
 }
 
 pub(super) async fn delete(
@@ -106,16 +106,16 @@ pub(super) async fn delete(
         })?;
     Ok(Json(json!({
         "deleted": deleted,
-        "local_translation": status_value(&state).await,
+        "local_translation": status_value(&state).await?,
     })))
 }
 
-async fn status_value(state: &ServiceContext) -> Value {
+async fn status_value(state: &ServiceContext) -> ApiResult<Value> {
     let models = Arc::clone(&state.content.local_translation_models);
     let model = tokio::task::spawn_blocking(move || models.status())
         .await
-        .unwrap_or_else(|_| state.content.local_translation_models.status());
-    json!({
+        .map_err(|error| storage_error(error.to_string()))?;
+    Ok(json!({
         "model": model,
         "runtime": state.content.plamo_runtime.snapshot().await,
         "languages": crate::translation::SUPPORTED_LANGUAGE_CODES.as_slice(),
@@ -124,7 +124,7 @@ async fn status_value(state: &ServiceContext) -> Value {
             "url": "https://plamo.preferredai.jp/info/plamo-community-license-en",
             "attribution": "Built with PLaMo"
         }
-    })
+    }))
 }
 
 fn require_model(id: &str) -> ApiResult<()> {

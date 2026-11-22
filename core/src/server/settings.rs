@@ -1,15 +1,15 @@
 use std::sync::atomic::Ordering;
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::config::AppConfig;
 use crate::models::SettingsUpdate;
 use crate::providers;
 
-use super::{api_error, ApiResult, SettingsContext, CONFIG_REVISION_HEADER};
+use super::{ApiResult, CONFIG_REVISION_HEADER, SettingsContext, api_error};
 
 mod change_plan;
 
@@ -206,7 +206,6 @@ fn protect_profile_owned_settings(
         .any(|profile_id| !profile_exists(profile_id))
     {
         candidate.translation = current.translation.clone();
-        candidate.translation.mode = current.translation.mode.clone();
     }
 }
 
@@ -312,9 +311,11 @@ mod tests {
     fn feature_switches_reject_partial_settings_payloads() {
         let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
         raw["features"] = serde_json::json!({ "ocr": false });
-        assert!(parse_settings_update(&serde_json::to_vec(&raw).unwrap())
-            .unwrap_err()
-            .contains("features.glossary"));
+        assert!(
+            parse_settings_update(&serde_json::to_vec(&raw).unwrap())
+                .unwrap_err()
+                .contains("features.glossary")
+        );
         raw.as_object_mut().unwrap().remove("features");
         assert!(parse_settings_update(&serde_json::to_vec(&raw).unwrap()).is_err());
     }
@@ -331,9 +332,11 @@ mod tests {
             .as_object_mut()
             .unwrap()
             .remove("visual_question_answering");
-        assert!(parse_settings_update(&serde_json::to_vec(&raw).unwrap())
-            .unwrap_err()
-            .contains("features.visual_question_answering"));
+        assert!(
+            parse_settings_update(&serde_json::to_vec(&raw).unwrap())
+                .unwrap_err()
+                .contains("features.visual_question_answering")
+        );
     }
 
     #[test]
@@ -444,9 +447,11 @@ mod tests {
             candidate.asr.service_settings[crate::providers::SERVICE_QWEN_REALTIME].context,
             "updated"
         );
-        assert!(candidate
-            .asr
-            .service_settings
-            .contains_key(SERVICE_GROQ_TRANSCRIPTION));
+        assert!(
+            candidate
+                .asr
+                .service_settings
+                .contains_key(SERVICE_GROQ_TRANSCRIPTION)
+        );
     }
 }

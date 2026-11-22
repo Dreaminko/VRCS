@@ -1,5 +1,5 @@
 use super::{BlockTranslation, TextBlock, TranslatedBlock, VrOcrService};
-use futures_util::{stream, stream::FuturesUnordered, Stream, StreamExt};
+use futures_util::{Stream, StreamExt, stream, stream::FuturesUnordered};
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 
@@ -425,7 +425,7 @@ impl VrOcrService {
         let cached = self
             .cache
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .expect("OCR translation cache lock")
             .get(&request.key);
         if let Some(cached) = cached {
             return (
@@ -470,13 +470,12 @@ impl VrOcrService {
                 == self
                     .translation
                     .ocr_glossary_fingerprint(&config.translation.prompt)
+            && let Some(text) = &translation.text
         {
-            if let Some(text) = &translation.text {
-                self.cache
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .insert(request.key, text.clone());
-            }
+            self.cache
+                .lock()
+                .expect("OCR translation cache lock")
+                .insert(request.key, text.clone());
         }
         (translation, false)
     }
@@ -485,7 +484,7 @@ impl VrOcrService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{routing::post, Json, Router};
+    use axum::{Json, Router, routing::post};
     use serde_json::json;
     use std::sync::{Arc, RwLock};
     use std::time::Duration;

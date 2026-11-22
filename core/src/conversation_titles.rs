@@ -3,11 +3,11 @@
 use std::time::{Duration, Instant};
 
 use crate::config::{ApiProfile, AppConfig, TITLE_OUTPUT_LANGUAGES};
-use crate::db::conversations::{publish_latest_catalog, TitleJob};
+use crate::db::conversations::{TitleJob, publish_latest_catalog};
 use crate::error::AppResult;
 use crate::llm::{LlmClient, LlmRequest};
-use crate::providers::{resolve_profile_capability, CAPABILITY_TEXT_GENERATION};
-use crate::server::{db_call, ServiceContext};
+use crate::providers::{CAPABILITY_TEXT_GENERATION, resolve_profile_capability};
+use crate::server::{ServiceContext, db_call};
 
 pub(crate) struct TitleConfiguration {
     profile: ApiProfile,
@@ -46,13 +46,21 @@ pub(crate) fn spawn(state: ServiceContext, job: TitleJob, automatic: bool) {
         };
         tracing::warn!(conversation_id = job.conversation_id, %error, "Conversation title task failed");
         let sender = state.content.conversation_catalog_tx.clone();
-        let _ = db_call(state.content.db.clone(), move |db| {
+        let conversation_id = job.conversation_id.clone();
+        if let Err(cleanup_error) = db_call(state.content.db.clone(), move |db| {
             if db.finish_conversation_title(&job, Err("conversations.title_service_failed"))? {
                 publish_latest_catalog(db, &sender);
             }
             Ok(())
         })
-        .await;
+        .await
+        {
+            tracing::warn!(
+                conversation_id,
+                %cleanup_error,
+                "Failed to persist conversation title failure state"
+            );
+        }
     });
 }
 
@@ -64,15 +72,11 @@ async fn run(state: &ServiceContext, job: TitleJob, automatic: bool) -> AppResul
         .await
         .map_err(|_| crate::error::AppError::internal("Title task queue is closed"))?;
     // Settings may change while queued, so read them only once the slot is ours.
-    let (enabled, config) = state
-        .config
-        .config
-        .read()
-        .map(|config| {
-            let enabled = !automatic || config.conversation_titles.auto_generate;
-            (enabled, enabled.then(|| configuration(&config)).flatten())
-        })
-        .unwrap_or((!automatic, None));
+    let (enabled, config) = {
+        let config = state.config.config.read().expect("config lock");
+        let enabled = !automatic || config.conversation_titles.auto_generate;
+        (enabled, enabled.then(|| configuration(&config)).flatten())
+    };
     let configured = config.is_some();
     let sender = state.content.conversation_catalog_tx.clone();
     let task = job.clone();
@@ -104,18 +108,35 @@ async fn run(state: &ServiceContext, job: TitleJob, automatic: bool) -> AppResul
         Err("conversations.title_empty")
     } else {
         let profile = config.profile.clone();
-        let key = tokio::task::spawn_blocking(move || {
+        let key = match tokio::task::spawn_blocking(move || {
             if !profile.requires_api_key() {
-                return Ok(String::new());
+                return Ok(Some(String::new()));
             }
             crate::credentials::read_credential(&profile.id, &profile.provider)
-                .ok()
-                .flatten()
-                .filter(|key| !key.trim().is_empty())
-                .ok_or("conversations.title_not_configured")
         })
         .await
-        .unwrap_or(Err("conversations.title_not_configured"));
+        {
+            Ok(Ok(Some(key))) if !config.profile.requires_api_key() || !key.trim().is_empty() => {
+                Ok(key)
+            }
+            Ok(Ok(_)) => Err("conversations.title_not_configured"),
+            Ok(Err(error)) => {
+                tracing::warn!(
+                    profile_id = %config.profile.id,
+                    %error,
+                    "Failed to read credential for conversation title"
+                );
+                Err("conversations.title_service_failed")
+            }
+            Err(error) => {
+                tracing::error!(
+                    profile_id = %config.profile.id,
+                    %error,
+                    "Credential lookup task failed for conversation title"
+                );
+                Err("conversations.title_service_failed")
+            }
+        };
         match key {
             Ok(key) => {
                 generate(
@@ -242,8 +263,8 @@ fn normalize_title(response: &str) -> Option<String> {
 mod tests {
     use super::*;
     use crate::db::conversations::{Conversation, ConversationCatalog};
-    use axum::{http::StatusCode, routing::post, Json, Router};
-    use serde_json::{json, Value};
+    use axum::{Json, Router, http::StatusCode, routing::post};
+    use serde_json::{Value, json};
     use tokio::sync::{broadcast, mpsc, oneshot};
 
     const TEST_WAIT: Duration = Duration::from_secs(10);
@@ -390,10 +411,12 @@ mod tests {
         assert!(
             !input.contains("private translated content") && !input.contains("private-session-id")
         );
-        assert!(body["messages"][0]["content"]
-            .as_str()
-            .unwrap()
-            .contains("Simplified Chinese"));
+        assert!(
+            body["messages"][0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("Simplified Chinese")
+        );
         assert_eq!(
             api(
                 &client,
@@ -688,17 +711,19 @@ mod tests {
             .acquire()
             .await
             .unwrap();
-        assert!(!handle
-            .state
-            .content
-            .db
-            .lock()
-            .unwrap()
-            .conversation_catalog()
-            .unwrap()
-            .conversations
-            .iter()
-            .any(|item| item.id == next));
+        assert!(
+            !handle
+                .state
+                .content
+                .db
+                .lock()
+                .unwrap()
+                .conversation_catalog()
+                .unwrap()
+                .conversations
+                .iter()
+                .any(|item| item.id == next)
+        );
         drop(permit);
         assert!(received.try_recv().is_err());
         handle.shutdown().await.unwrap();

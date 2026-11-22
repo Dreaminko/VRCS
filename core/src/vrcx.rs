@@ -4,12 +4,12 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use tokio::sync::{watch, Mutex};
+use serde_json::{Value, json};
+use tokio::sync::{Mutex, watch};
 use tokio::task::JoinHandle;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::tungstenite::http::{header::AUTHORIZATION, HeaderValue};
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::http::{HeaderValue, header::AUTHORIZATION};
 
 use crate::config::{AsrConfig, VrcxConfig};
 #[cfg(test)]
@@ -402,12 +402,17 @@ fn parse_room_snapshot(value: &Value) -> Result<Option<VrcxRoomContext>, String>
 }
 
 fn update_joined(shared: &Arc<Shared>, value: &Value, app_version: &str, protocol: u32) {
-    let member = value
-        .get("member")
-        .cloned()
-        .and_then(|member| serde_json::from_value::<WireMember>(member).ok())
-        .map(VrcxMemberContext::from);
-    let Some(member) = member else { return };
+    let Some(raw_member) = value.get("member").cloned() else {
+        return;
+    };
+    let member: WireMember = match serde_json::from_value(raw_member) {
+        Ok(member) => member,
+        Err(error) => {
+            tracing::warn!(%error, "Ignoring malformed VRCX joined member payload");
+            return;
+        }
+    };
+    let member = VrcxMemberContext::from(member);
     let snapshot = {
         let mut guard = shared.room.write().expect("VRCX room lock");
         let Some(room) = guard.as_mut() else { return };
@@ -628,12 +633,16 @@ mod tests {
             ..Default::default()
         };
         assert!(integration.apply_asr_context(&mut openai).is_empty());
-        assert!(openai.service_settings[providers::SERVICE_QWEN_REALTIME]
-            .context
-            .is_empty());
-        assert!(openai.service_settings[providers::SERVICE_FUN_ASR_REALTIME]
-            .context
-            .is_empty());
+        assert!(
+            openai.service_settings[providers::SERVICE_QWEN_REALTIME]
+                .context
+                .is_empty()
+        );
+        assert!(
+            openai.service_settings[providers::SERVICE_FUN_ASR_REALTIME]
+                .context
+                .is_empty()
+        );
 
         let mut local = AsrConfig {
             backend: crate::config::QWEN_MANAGED_BACKEND.into(),

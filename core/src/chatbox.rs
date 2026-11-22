@@ -138,9 +138,7 @@ pub struct NewChatboxMessage {
 pub fn preview_chatbox(
     input: &ChatboxComposeInput,
 ) -> Result<ChatboxPreview, ChatboxValidationError> {
-    validate_input(input)?;
-    let original = compact_text(&input.original);
-    let translation = input.translation.as_deref().map(compact_text);
+    let (original, translation) = validate_input(input)?;
     let template = format_template(input.send_mode, input)?;
     let full_text = render(&template, &original, translation.as_deref());
     let full_length = full_text.chars().count();
@@ -213,7 +211,9 @@ pub fn automatic_chatbox(
         .unwrap_or_default()
 }
 
-fn validate_input(input: &ChatboxComposeInput) -> Result<(), ChatboxValidationError> {
+fn validate_input(
+    input: &ChatboxComposeInput,
+) -> Result<(String, Option<String>), ChatboxValidationError> {
     validate_optional_language(input.source_language.as_deref())?;
     validate_optional_language(input.target_language.as_deref())?;
     validate_text("original", &input.original)?;
@@ -242,7 +242,7 @@ fn validate_input(input: &ChatboxComposeInput) -> Result<(), ChatboxValidationEr
                 "Original and translation text are required",
             ))
         }
-        _ => Ok(()),
+        _ => Ok((original, translation)),
     }
 }
 

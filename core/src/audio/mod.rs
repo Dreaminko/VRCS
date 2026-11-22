@@ -1,8 +1,8 @@
 //! 音频采集公共接口与生命周期管理。
 //! Windows 的设备枚举、WASAPI 采集和 PCM 转换位于 `audio/wasapi/`。
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 
 use tokio::sync::mpsc;
@@ -269,12 +269,27 @@ impl AudioCapture {
                 let _ = join.join();
                 return Err(error);
             }
-            Err(_) => {
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 stop.store(true, Ordering::Relaxed);
-                let _ = join.join();
+                if let Err(payload) = join.join() {
+                    tracing::error!(
+                        ?payload,
+                        "Audio capture thread panicked while stopping after start timeout"
+                    );
+                }
                 return Err(AudioError::with_code(
                     "audio.start_timeout",
                     "Timed out while starting audio capture",
+                ));
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                stop.store(true, Ordering::Relaxed);
+                if let Err(payload) = join.join() {
+                    tracing::error!(?payload, "Audio capture thread panicked during startup");
+                }
+                return Err(AudioError::with_code(
+                    "audio.start_failed",
+                    "Audio capture thread exited before reporting readiness",
                 ));
             }
         };
@@ -611,10 +626,12 @@ mod tests {
                     (microphone.len(), output.len()),
                     (CHUNK_FRAMES, CHUNK_FRAMES)
                 );
-                assert!(microphone
-                    .iter()
-                    .chain(&output)
-                    .all(|sample| sample.is_finite()));
+                assert!(
+                    microphone
+                        .iter()
+                        .chain(&output)
+                        .all(|sample| sample.is_finite())
+                );
                 microphone_energy += microphone
                     .iter()
                     .map(|&sample| f64::from(sample).powi(2))
@@ -668,11 +685,13 @@ mod tests {
             .unwrap()["id"]
             .as_u64()
             .unwrap();
-        assert!(std::process::Command::new("pw-cli")
-            .args(["destroy", &id.to_string()])
-            .status()
-            .unwrap()
-            .success());
+        assert!(
+            std::process::Command::new("pw-cli")
+                .args(["destroy", &id.to_string()])
+                .status()
+                .unwrap()
+                .success()
+        );
         let failure = tokio::time::timeout(std::time::Duration::from_secs(3), async {
             loop {
                 if let Err(error) = disconnected.read().await {
@@ -771,11 +790,13 @@ mod tests {
                 .unwrap()["id"]
                 .as_u64()
                 .unwrap();
-            assert!(std::process::Command::new("pw-cli")
-                .args(["destroy", &id.to_string()])
-                .status()
-                .unwrap()
-                .success());
+            assert!(
+                std::process::Command::new("pw-cli")
+                    .args(["destroy", &id.to_string()])
+                    .status()
+                    .unwrap()
+                    .success()
+            );
         }
         for capture in [&mut default_microphone, &mut default_output] {
             assert!(

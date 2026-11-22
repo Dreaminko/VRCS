@@ -24,27 +24,27 @@ pub use crate::credentials::read_credential;
 pub use manager::ModelManager;
 pub(crate) use migration::paths_equivalent;
 pub(crate) use question::{
-    recognize_live_question, validate_backend as validate_question_backend, QuestionDraft,
+    QuestionDraft, recognize_live_question, validate_backend as validate_question_backend,
 };
 pub(crate) use qwen_models::is_supported as is_supported_qwen_package;
 pub(crate) use qwen_models::{
-    download_file as download_model_file, verify_file as verify_model_file,
-    verify_file_forced as verify_model_file_forced, AssetSpec as ModelAssetSpec,
+    AssetSpec as ModelAssetSpec, download_file as download_model_file,
+    verify_file as verify_model_file, verify_file_forced as verify_model_file_forced,
 };
 pub(crate) use qwen_runtime::QwenRuntime;
-pub(crate) use runtime_context::{AsrContextSource, AsrEchoGuard};
+pub(crate) use runtime_context::AsrContextSource;
+pub use session::{
+    CloudRecognitionSession, spawn_cloud_recognition_session, test_cloud_service,
+    validate_cloud_connection,
+};
 pub(crate) use session::{
     prepare_managed_qwen, spawn_cloud_recognition_session_with_context, spawn_managed_qwen_session,
-};
-pub use session::{
-    spawn_cloud_recognition_session, test_cloud_service, validate_cloud_connection,
-    CloudRecognitionSession,
 };
 #[cfg(any(windows, target_os = "linux"))]
 pub(crate) use streaming::connection_rate_controlled;
 pub use streaming::{
-    streaming_test_backend, test_streaming_connection, CloudEvent, LiveTranslationResult,
-    SegmentationMode,
+    CloudEvent, LiveTranslationResult, SegmentationMode, streaming_test_backend,
+    test_streaming_connection,
 };
 
 pub(crate) type SharedAudio = std::sync::Arc<Vec<f32>>;

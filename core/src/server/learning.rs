@@ -1,21 +1,21 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::anki as anki_service;
 use crate::error::AppError;
 use crate::learning::{
-    generate_draft, AnalyzeLearningItemRequest, CreateLearningDraftRequest, CreateLearningItem,
+    AnalyzeLearningItemRequest, CreateLearningDraftRequest, CreateLearningItem,
     ExportLearningItemRequest, LearningError, LearningItem, LearningStatus, PatchLearningItem,
-    SelectionQueryRequest,
+    SelectionQueryRequest, generate_draft,
 };
 
-use super::{api_error, api_error_with_params, db_call, ApiResult, ServiceContext};
+use super::{ApiResult, ServiceContext, api_error, api_error_with_params, db_call};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -68,7 +68,6 @@ pub(super) async fn learning_item_create(
     State(state): State<ServiceContext>,
     Json(input): Json<CreateLearningItem>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
-    input.validate().map_err(learning_validation_error)?;
     let item = learning_db_call(&state, move |db| db.create_learning_item(input))
         .await
         .map_err(learning_db_error)?;
@@ -81,7 +80,6 @@ pub(super) async fn learning_item_patch(
     Json(patch): Json<PatchLearningItem>,
 ) -> ApiResult<Json<Value>> {
     validate_id(id)?;
-    patch.validate().map_err(learning_validation_error)?;
     let item = learning_db_call(&state, move |db| db.patch_learning_item(id, patch))
         .await
         .map_err(learning_db_error)?
@@ -258,13 +256,12 @@ pub(super) async fn learning_item_export(
     };
     // 已导出且有待同步修改：覆盖原笔记；原笔记已在 Anki 中被删除时再新建。
     let mut updated_note_id = None;
-    if let Some(note_id) = item.anki_note_id {
-        if anki_service::update_card(&state.integrations.http, &card, &anki_config, note_id)
+    if let Some(note_id) = item.anki_note_id
+        && anki_service::update_card(&state.integrations.http, &card, &anki_config, note_id)
             .await
             .map_err(anki_error)?
-        {
-            updated_note_id = Some(note_id);
-        }
+    {
+        updated_note_id = Some(note_id);
     }
     let note_id = match updated_note_id {
         Some(note_id) => note_id,

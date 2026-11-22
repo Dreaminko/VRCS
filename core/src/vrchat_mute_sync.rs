@@ -166,8 +166,15 @@ async fn discover_and_follow(
     set_status(state, status, connected(muted));
 
     let websocket = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}")).await;
-    let Ok((mut websocket, _)) = websocket else {
-        return poll_mute(client, port, enabled, shutdown, state, status).await;
+    let mut websocket = match websocket {
+        Ok((websocket, _)) => websocket,
+        Err(error) => {
+            tracing::debug!(
+                %error,
+                "VRChat OSCQuery WebSocket unavailable; falling back to HTTP polling"
+            );
+            return poll_mute(client, port, enabled, shutdown, state, status).await;
+        }
     };
     websocket
         .send(Message::Text(
@@ -191,7 +198,8 @@ async fn discover_and_follow(
                 Some(Ok(Message::Ping(bytes))) => {
                     websocket.send(Message::Pong(bytes)).await.map_err(|error| error.to_string())?;
                 }
-                Some(Ok(Message::Close(_))) | Some(Err(_)) | None => return Err("VRChat OSCQuery connection closed".into()),
+                Some(Ok(Message::Close(_))) | None => return Err("VRChat OSCQuery connection closed".into()),
+                Some(Err(error)) => return Err(format!("VRChat OSCQuery WebSocket error: {error}")),
                 _ => {}
             },
             _ = refresh.tick() => {

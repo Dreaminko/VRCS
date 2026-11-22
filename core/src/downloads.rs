@@ -63,14 +63,14 @@ impl DownloadSources {
         *self
             .preference
             .read()
-            .unwrap_or_else(|error| error.into_inner())
+            .expect("download source preference lock")
     }
 
     pub(crate) fn set_preference(&self, source: ModelDownloadSource) {
         *self
             .preference
             .write()
-            .unwrap_or_else(|error| error.into_inner()) = source;
+            .expect("download source preference lock") = source;
     }
 
     async fn detect_source(&self) -> Option<ModelDownloadSource> {
@@ -87,7 +87,10 @@ impl DownloadSources {
                 probe_url(&client, MIRRORS[0].0),
                 probe_url(&client, MIRRORS[0].1),
             ),
-            Err(_) => (None, None),
+            Err(error) => {
+                tracing::warn!(%error, "Could not build HTTP client for download source probe");
+                (None, None)
+            }
         };
         let recommended = recommend_source(official_latency_ms, mirror_latency_ms);
         // An offline first launch must not freeze automatic selection for the
@@ -189,10 +192,13 @@ mod tests {
     async fn mirror_uses_its_own_revision_and_preserves_official_fallback() {
         let sources = DownloadSources::new(Modelscope);
         let official = "https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/928ab958557df9aa2ef1c93e0e83c7ad0933fae2/Qwen3-ASR-0.6B-Q8_0.gguf";
-        assert_eq!(sources.urls(official).await, vec![
-            "https://modelscope.cn/api/v1/models/ggml-org/Qwen3-ASR-0.6B-GGUF/repo?Revision=86222636b790fae434fb24c03c46fc817dfb27b2&FilePath=Qwen3-ASR-0.6B-Q8_0.gguf",
-            official,
-        ]);
+        assert_eq!(
+            sources.urls(official).await,
+            vec![
+                "https://modelscope.cn/api/v1/models/ggml-org/Qwen3-ASR-0.6B-GGUF/repo?Revision=86222636b790fae434fb24c03c46fc817dfb27b2&FilePath=Qwen3-ASR-0.6B-Q8_0.gguf",
+                official,
+            ]
+        );
         sources.set_preference(Official);
         assert_eq!(sources.urls(official).await, vec![official]);
     }
@@ -229,10 +235,10 @@ mod tests {
     #[tokio::test]
     async fn probe_checks_download_response_and_rejects_error_pages_and_empty_bodies() {
         use axum::{
+            Router,
             http::{HeaderMap, StatusCode},
             response::IntoResponse,
             routing::get,
-            Router,
         };
         let app = Router::new()
             .route(
@@ -264,21 +270,31 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let client = client_builder().build().unwrap();
-        assert!(probe_url(&client, &format!("http://{address}/file"))
-            .await
-            .is_some());
-        assert!(probe_url(&client, &format!("http://{address}/redirect"))
-            .await
-            .is_some());
-        assert!(probe_url(&client, &format!("http://{address}/html"))
-            .await
-            .is_none());
-        assert!(probe_url(&client, &format!("http://{address}/blocked"))
-            .await
-            .is_none());
-        assert!(probe_url(&client, &format!("http://{address}/empty"))
-            .await
-            .is_none());
+        assert!(
+            probe_url(&client, &format!("http://{address}/file"))
+                .await
+                .is_some()
+        );
+        assert!(
+            probe_url(&client, &format!("http://{address}/redirect"))
+                .await
+                .is_some()
+        );
+        assert!(
+            probe_url(&client, &format!("http://{address}/html"))
+                .await
+                .is_none()
+        );
+        assert!(
+            probe_url(&client, &format!("http://{address}/blocked"))
+                .await
+                .is_none()
+        );
+        assert!(
+            probe_url(&client, &format!("http://{address}/empty"))
+                .await
+                .is_none()
+        );
         server.abort();
     }
 

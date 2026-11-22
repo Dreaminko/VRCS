@@ -93,17 +93,11 @@ impl ModelAssets {
     }
 
     pub fn snapshot(&self) -> ModelStatus {
-        self.status
-            .read()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone()
+        self.status.read().expect("OCR status lock").clone()
     }
 
     pub(super) fn directory(&self) -> PathBuf {
-        self.directory
-            .read()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone()
+        self.directory.read().expect("OCR directory lock").clone()
     }
 
     pub(super) fn move_directory(&self, directory: PathBuf) -> Result<(), String> {
@@ -114,17 +108,11 @@ impl ModelAssets {
         let current = self.directory();
         if current != directory {
             migrate_managed_directory(&current, &directory)?;
-            *self
-                .directory
-                .write()
-                .unwrap_or_else(|error| error.into_inner()) = directory;
+            *self.directory.write().expect("OCR directory lock") = directory;
         }
         self.clear_verified_cache();
         let bytes = self.verified_bytes()?;
-        let mut status = self
-            .status
-            .write()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut status = self.status.write().expect("OCR status lock");
         status.downloaded_bytes = bytes;
         status.state = if bytes == status.total_bytes {
             ModelState::Ready
@@ -143,11 +131,8 @@ impl ModelAssets {
             let assets = self.clone();
             let bytes = tokio::task::spawn_blocking(move || assets.verified_bytes())
                 .await
-                .map_err(|_| "OCR model verification worker failed")??;
-            let mut status = self
-                .status
-                .write()
-                .unwrap_or_else(|error| error.into_inner());
+                .map_err(|error| format!("OCR model verification worker failed: {error}"))??;
+            let mut status = self.status.write().expect("OCR status lock");
             status.downloaded_bytes = bytes;
             if bytes == status.total_bytes {
                 status.state = ModelState::Ready;
@@ -161,10 +146,7 @@ impl ModelAssets {
             return Ok(self.snapshot());
         };
         {
-            let mut status = self
-                .status
-                .write()
-                .unwrap_or_else(|error| error.into_inner());
+            let mut status = self.status.write().expect("OCR status lock");
             status.state = ModelState::Downloading;
             status.downloaded_bytes = 0;
             status.error = None;
@@ -173,10 +155,7 @@ impl ModelAssets {
         let task = tokio::spawn(async move {
             let _guard = guard;
             let result = assets.download().await;
-            let mut status = assets
-                .status
-                .write()
-                .unwrap_or_else(|error| error.into_inner());
+            let mut status = assets.status.write().expect("OCR status lock");
             match result {
                 Ok(()) => {
                     status.state = ModelState::Ready;
@@ -197,10 +176,7 @@ impl ModelAssets {
         if let Some(task) = task.filter(|task| !task.is_finished()) {
             task.abort();
             let _ = task.await;
-            let mut status = self
-                .status
-                .write()
-                .unwrap_or_else(|error| error.into_inner());
+            let mut status = self.status.write().expect("OCR status lock");
             status.state = ModelState::Missing;
             status.error = None;
         }
@@ -213,10 +189,7 @@ impl ModelAssets {
             .map_err(|_| "OCR models are being downloaded or verified")?;
         self.clear_verified_cache();
         {
-            let mut status = self
-                .status
-                .write()
-                .unwrap_or_else(|error| error.into_inner());
+            let mut status = self.status.write().expect("OCR status lock");
             status.state = ModelState::Missing;
             status.downloaded_bytes = 0;
             status.error = None;
@@ -228,7 +201,12 @@ impl ModelAssets {
                 match std::fs::remove_file(file) {
                     Ok(()) => {}
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(_) => return Err(format!("Could not delete OCR asset {}", asset.name)),
+                    Err(error) => {
+                        return Err(format!(
+                            "Could not delete OCR asset {}: {error}",
+                            asset.name
+                        ));
+                    }
                 }
             }
         }
@@ -236,27 +214,26 @@ impl ModelAssets {
     }
 
     fn clear_verified_cache(&self) {
-        self.verified_cache
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clear();
+        self.verified_cache.lock().expect("OCR cache lock").clear();
     }
 
     fn verify_asset(&self, path: &Path, asset: &Asset) -> Result<bool, String> {
         let metadata = match path.metadata() {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-            Err(_) => return Err(format!("Could not inspect OCR asset {}", asset.name)),
+            Err(error) => {
+                return Err(format!(
+                    "Could not inspect OCR asset {}: {error}",
+                    asset.name
+                ));
+            }
         };
         if !metadata.is_file() || metadata.len() != asset.bytes {
             return Ok(false);
         }
         let modified = metadata.modified().ok();
         if let Some(modified) = modified {
-            let cache = self
-                .verified_cache
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
+            let cache = self.verified_cache.lock().expect("OCR cache lock");
             if cache
                 .get(asset.name)
                 .is_some_and(|(cached_path, bytes, cached_modified)| {
@@ -267,13 +244,11 @@ impl ModelAssets {
             }
         }
         let verified = verify_file(path, asset)?;
-        if verified {
-            if let Some(modified) = modified {
-                self.verified_cache
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .insert(asset.name, (path.to_path_buf(), asset.bytes, modified));
-            }
+        if verified && let Some(modified) = modified {
+            self.verified_cache
+                .lock()
+                .expect("OCR cache lock")
+                .insert(asset.name, (path.to_path_buf(), asset.bytes, modified));
         }
         Ok(verified)
     }
@@ -302,16 +277,16 @@ impl ModelAssets {
         let directory = self.directory();
         tokio::fs::create_dir_all(&directory)
             .await
-            .map_err(|_| "Could not create the OCR model directory")?;
+            .map_err(|error| format!("Could not create the OCR model directory: {error}"))?;
         let client = crate::downloads::client_builder()
             .build()
-            .map_err(|_| "Could not create the OCR model download client")?;
+            .map_err(|error| format!("Could not create the OCR model download client: {error}"))?;
         for asset in &ASSETS {
             let path = directory.join(asset.name);
             let check_path = path.clone();
             if tokio::task::spawn_blocking(move || verify_file(&check_path, asset))
                 .await
-                .map_err(|_| "OCR model verification worker failed")??
+                .map_err(|error| format!("OCR model verification worker failed: {error}"))??
             {
                 self.add_progress(asset.bytes);
                 continue;
@@ -337,7 +312,7 @@ impl ModelAssets {
         for url in urls {
             self.status
                 .write()
-                .unwrap_or_else(|error| error.into_inner())
+                .expect("OCR status lock")
                 .downloaded_bytes = completed;
             match self
                 .download_file(client, asset, url, temporary, path)
@@ -366,9 +341,9 @@ impl ModelAssets {
             .get(url)
             .send()
             .await
-            .map_err(|_| format!("Could not download OCR asset {}", asset.name))?
+            .map_err(|error| format!("Could not download OCR asset {}: {error}", asset.name))?
             .error_for_status()
-            .map_err(|_| format!("OCR asset {} download was rejected", asset.name))?;
+            .map_err(|error| format!("OCR asset {} download was rejected: {error}", asset.name))?;
         if response
             .content_length()
             .is_some_and(|bytes| bytes != asset.bytes)
@@ -377,12 +352,13 @@ impl ModelAssets {
         }
         let mut file = tokio::fs::File::create(temporary)
             .await
-            .map_err(|_| "Could not create the OCR download file")?;
+            .map_err(|error| format!("Could not create the OCR download file: {error}"))?;
         let mut stream = response.bytes_stream();
         let mut bytes = 0;
         let mut digest = Sha256::new();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|_| "OCR model download was interrupted")?;
+            let chunk =
+                chunk.map_err(|error| format!("OCR model download was interrupted: {error}"))?;
             bytes += chunk.len() as u64;
             if bytes > asset.bytes {
                 return Err("OCR model download exceeds the expected size".into());
@@ -390,7 +366,7 @@ impl ModelAssets {
             digest.update(&chunk);
             file.write_all(&chunk)
                 .await
-                .map_err(|_| "Could not write the OCR model download")?;
+                .map_err(|error| format!("Could not write the OCR model download: {error}"))?;
             self.add_progress(chunk.len() as u64);
         }
         if bytes != asset.bytes || format!("{:x}", digest.finalize()) != asset.sha256 {
@@ -401,16 +377,13 @@ impl ModelAssets {
         }
         file.sync_all()
             .await
-            .map_err(|_| "Could not save the OCR model download")?;
+            .map_err(|error| format!("Could not save the OCR model download: {error}"))?;
         drop(file);
         tokio::fs::rename(temporary, path)
             .await
-            .map_err(|_| "Could not install the OCR model download".to_string())?;
+            .map_err(|error| format!("Could not install the OCR model download: {error}"))?;
         let modified = path.metadata().and_then(|meta| meta.modified()).ok();
-        let mut cache = self
-            .verified_cache
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut cache = self.verified_cache.lock().expect("OCR cache lock");
         if let Some(modified) = modified {
             cache.insert(asset.name, (path.to_path_buf(), asset.bytes, modified));
         } else {
@@ -420,11 +393,10 @@ impl ModelAssets {
     }
 
     fn add_progress(&self, bytes: u64) {
-        let mut status = self
-            .status
+        self.status
             .write()
-            .unwrap_or_else(|error| error.into_inner());
-        status.downloaded_bytes += bytes;
+            .expect("OCR status lock")
+            .downloaded_bytes += bytes;
     }
 }
 
@@ -436,16 +408,7 @@ pub(super) fn migrate_managed_directory(source: &Path, destination: &Path) -> Re
     if !source_metadata.is_dir() || source_metadata.file_type().is_symlink() {
         return Err("Legacy OCR model path is not a managed directory".into());
     }
-    if destination.exists()
-        && (paths_equivalent(source, destination)
-            || matches!(
-                (
-                    std::fs::canonicalize(source),
-                    std::fs::canonicalize(destination)
-                ),
-                (Ok(source), Ok(destination)) if paths_equivalent(&source, &destination)
-            ))
-    {
+    if destination.exists() && paths_equivalent(source, destination) {
         return Ok(());
     }
     if destination.exists() {
@@ -506,7 +469,14 @@ pub(super) fn migrate_managed_directory(source: &Path, destination: &Path) -> Re
             );
             if let Err(error) = move_managed_file(&source_file, &destination_file) {
                 for (from, to) in moved.into_iter().rev() {
-                    let _ = move_managed_file(&from, &to);
+                    if let Err(rollback_error) = move_managed_file(&from, &to) {
+                        tracing::warn!(
+                            from = %from.display(),
+                            to = %to.display(),
+                            error = %rollback_error,
+                            "Failed to roll back migrated OCR model file"
+                        );
+                    }
                 }
                 return Err(error);
             }
@@ -560,19 +530,24 @@ fn verify_file(path: &Path, asset: &Asset) -> Result<bool, String> {
     let metadata = match path.metadata() {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(_) => return Err(format!("Could not inspect OCR asset {}", asset.name)),
+        Err(error) => {
+            return Err(format!(
+                "Could not inspect OCR asset {}: {error}",
+                asset.name
+            ));
+        }
     };
     if !metadata.is_file() || metadata.len() != asset.bytes {
         return Ok(false);
     }
     let mut file = std::fs::File::open(path)
-        .map_err(|_| format!("Could not read OCR asset {}", asset.name))?;
+        .map_err(|error| format!("Could not read OCR asset {}: {error}", asset.name))?;
     let mut digest = Sha256::new();
     let mut buffer = [0u8; 64 * 1024];
     loop {
         let count = file
             .read(&mut buffer)
-            .map_err(|_| "Could not verify the OCR model file")?;
+            .map_err(|error| format!("Could not verify the OCR model file: {error}"))?;
         if count == 0 {
             break;
         }
@@ -716,7 +691,7 @@ mod tests {
 
     #[tokio::test]
     async fn ocr_fallback_resets_progress_after_a_corrupt_mirror_response() {
-        use axum::{routing::get, Router};
+        use axum::{Router, routing::get};
         let app = Router::new()
             .route("/mirror", get(|| async { "abd" }))
             .route("/official", get(|| async { "abc" }));
@@ -750,7 +725,7 @@ mod tests {
 
     #[tokio::test]
     async fn ocr_model_download_verifies_before_replacing_an_existing_file() {
-        use axum::{routing::get, Router};
+        use axum::{Router, routing::get};
         use std::sync::atomic::{AtomicBool, Ordering};
         let corrupt = Arc::new(AtomicBool::new(true));
         let handler_corrupt = corrupt.clone();
@@ -784,11 +759,13 @@ mod tests {
             sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
         };
         let client = crate::http_client();
-        assert!(assets
-            .download_file(&client, &asset, asset.url, &temporary, &path)
-            .await
-            .unwrap_err()
-            .contains("integrity"));
+        assert!(
+            assets
+                .download_file(&client, &asset, asset.url, &temporary, &path)
+                .await
+                .unwrap_err()
+                .contains("integrity")
+        );
         assert_eq!(std::fs::read(&path).unwrap(), b"previous");
         corrupt.store(false, Ordering::Release);
         assets

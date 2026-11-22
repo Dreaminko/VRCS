@@ -1,7 +1,7 @@
-use base64::{engine::general_purpose::STANDARD, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
 use reqwest::StatusCode;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::time::Duration;
 
 use crate::config::ApiProfile;
@@ -18,12 +18,15 @@ pub(super) async fn generate(
     on_progress: Option<&LlmProgress>,
 ) -> Result<String, LlmError> {
     let mut body = request_body(&request);
-    super::models_dev::apply_request(&mut body, profile, &request);
+    let details = super::models_dev::model_details(profile, request.model);
+    if let Some(details) = &details {
+        details.apply_request(&mut body, &profile.provider, request.thinking_enabled);
+    }
     super::reasoning::apply_explicit_control(
         &mut body,
         &profile.provider,
         &request,
-        super::models_dev::model_details(profile, request.model).as_ref(),
+        details.as_ref(),
     )?;
     let request = generation_request(
         http,
@@ -44,12 +47,15 @@ pub(super) async fn generate_with_image(
     image: &[u8],
 ) -> Result<String, LlmError> {
     let mut body = image_request_body(&request, image);
-    super::models_dev::apply_request(&mut body, profile, &request);
+    let details = super::models_dev::model_details(profile, request.model);
+    if let Some(details) = &details {
+        details.apply_request(&mut body, &profile.provider, request.thinking_enabled);
+    }
     super::reasoning::apply_explicit_control(
         &mut body,
         &profile.provider,
         &request,
-        super::models_dev::model_details(profile, request.model).as_ref(),
+        details.as_ref(),
     )?;
     let request = generation_request(http, profile, api_key, request.model, &body, false)?;
     generate_response(request, None).await
@@ -497,10 +503,12 @@ mod tests {
                 .unwrap()
                 .build()
                 .unwrap();
-        assert!(stream_request
-            .url()
-            .path()
-            .ends_with(":streamGenerateContent"));
+        assert!(
+            stream_request
+                .url()
+                .path()
+                .ends_with(":streamGenerateContent")
+        );
         assert_eq!(stream_request.url().query(), Some("alt=sse"));
     }
 

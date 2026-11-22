@@ -1,19 +1,19 @@
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::audio;
 use crate::config::{AppConfig, AsrConfig, QWEN_MANAGED_BACKEND};
 use crate::error::AppError;
-use crate::pipeline::{AsrEchoGuard, PipelineDependencies};
-use crate::player_audio::{session::NetworkConsumers, AudioEvent};
+use crate::pipeline::PipelineDependencies;
+use crate::player_audio::{AudioEvent, session::NetworkConsumers};
 use tokio::sync::mpsc;
 
-use super::{api_domain_error, api_error, ApiResult, CaptureContext};
+use super::{ApiResult, CaptureContext, api_domain_error, api_error};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct CaptureReloadPlan {
@@ -405,7 +405,7 @@ fn asr_context_source(state: &CaptureContext) -> crate::asr::AsrContextSource {
     )
 }
 
-fn effective_asr_config(config: &AppConfig, source: &str) -> (AsrConfig, AsrEchoGuard) {
+fn effective_asr_config(config: &AppConfig, source: &str) -> AsrConfig {
     let mut asr = config.asr.clone();
     if crate::providers::is_live_translation(&asr.backend) {
         let targets = if source == "microphone" {
@@ -415,7 +415,7 @@ fn effective_asr_config(config: &AppConfig, source: &str) -> (AsrConfig, AsrEcho
         };
         asr.live_translation_target = targets.first().map(|target| target.target_language.clone());
     }
-    (asr, AsrEchoGuard::default())
+    asr
 }
 
 fn pipeline_dependencies(state: &CaptureContext) -> PipelineDependencies {
@@ -449,7 +449,7 @@ async fn start_speaker_pipeline(
         .then_some(output.device_id)
         .flatten();
     let process_name = (output.mode == "vrchat").then_some("VRChat.exe");
-    let (asr, echo_guard) = effective_asr_config(config, "speaker");
+    let asr = effective_asr_config(config, "speaker");
     if output.mode == "vrchat_players" {
         #[cfg(not(any(windows, target_os = "linux")))]
         {
@@ -480,7 +480,6 @@ async fn start_speaker_pipeline(
                     output.trigger_threshold_dbfs,
                     &config.vad,
                     asr,
-                    echo_guard,
                     pipeline_dependencies(state),
                 )
                 .await
@@ -507,7 +506,6 @@ async fn start_speaker_pipeline(
             Some(output.trigger_threshold_dbfs),
             &config.vad,
             asr,
-            echo_guard,
             pipeline_dependencies(state),
         )
         .await
@@ -533,7 +531,7 @@ async fn start_microphone_pipeline(
     let microphone_id = (config.audio.microphone.mode == "device")
         .then_some(config.audio.microphone.device_id)
         .flatten();
-    let (asr, echo_guard) = effective_asr_config(config, "microphone");
+    let asr = effective_asr_config(config, "microphone");
     state
         .capture
         .microphone_pipeline
@@ -547,7 +545,6 @@ async fn start_microphone_pipeline(
             Some(config.audio.microphone.trigger_threshold_dbfs),
             &config.vad,
             asr,
-            echo_guard,
             pipeline_dependencies(state),
         )
         .await
@@ -569,7 +566,6 @@ async fn start_planned_pipelines(
     Option<crate::models::AudioDevice>,
     Option<crate::models::AudioDevice>,
 )> {
-    validate_platform_capture(config)?;
     if let Err(error) = state
         .content
         .translation_service
@@ -687,11 +683,7 @@ fn isolate_audio_failure<T>(
                     .unwrap_or("Audio startup failed")
                     .to_owned(),
             );
-            if text_active {
-                Ok(None)
-            } else {
-                Err(error)
-            }
+            if text_active { Ok(None) } else { Err(error) }
         }
     }
 }
@@ -759,11 +751,11 @@ pub(crate) async fn stop_pipelines(state: &CaptureContext, plan: CaptureReloadPl
             network.detach_outputs(consumers);
         }
     }
-    if plan.chatbox || plan.network_restart {
-        if let Some(task) = state.capture.chatbox_task.lock().await.take() {
-            task.abort();
-            let _ = task.await;
-        }
+    if (plan.chatbox || plan.network_restart)
+        && let Some(task) = state.capture.chatbox_task.lock().await.take()
+    {
+        task.abort();
+        let _ = task.await;
     }
     match (plan.speaker, plan.microphone) {
         (true, true) => {
@@ -824,28 +816,28 @@ pub(super) async fn capture_start(
     })?;
     let config = session.apply_to(&global);
     validate_platform_capture(&global)?;
-    if has_audio_sources(&config) && config.asr.backend != QWEN_MANAGED_BACKEND {
-        if let Some(profile) = active_asr_profile(&config.asr).cloned() {
-            tokio::task::spawn_blocking(move || {
-                crate::credentials::read_credential_for_use(&profile.id, &profile.provider)
-            })
-            .await
-            .map_err(|error| {
-                api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "credentials.read_failed",
-                    error.to_string(),
-                )
-            })?
-            .map_err(|error| {
-                api_error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    crate::credentials::error_reason_code(&error)
-                        .unwrap_or("credentials.read_failed"),
-                    error,
-                )
-            })?;
-        }
+    if has_audio_sources(&config)
+        && config.asr.backend != QWEN_MANAGED_BACKEND
+        && let Some(profile) = active_asr_profile(&config.asr).cloned()
+    {
+        tokio::task::spawn_blocking(move || {
+            crate::credentials::read_credential_for_use(&profile.id, &profile.provider)
+        })
+        .await
+        .map_err(|error| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "credentials.read_failed",
+                error.to_string(),
+            )
+        })?
+        .map_err(|error| {
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                crate::credentials::error_reason_code(&error).unwrap_or("credentials.read_failed"),
+                error,
+            )
+        })?;
     }
     validate_capture_config(&state, &config).await?;
     if state.capture.capture_requested.load(Ordering::SeqCst)
@@ -952,7 +944,7 @@ pub(crate) async fn resume_microphone(state: &CaptureContext) -> Result<(), Stri
         .then_some(config.audio.microphone.device_id)
         .flatten();
     let dependencies = pipeline_dependencies(state);
-    let (asr, echo_guard) = effective_asr_config(&config, "microphone");
+    let asr = effective_asr_config(&config, "microphone");
     state
         .capture
         .microphone_pipeline
@@ -966,7 +958,6 @@ pub(crate) async fn resume_microphone(state: &CaptureContext) -> Result<(), Stri
             Some(config.audio.microphone.trigger_threshold_dbfs),
             &config.vad,
             asr,
-            echo_guard,
             dependencies,
         )
         .await
@@ -976,7 +967,7 @@ pub(crate) async fn resume_microphone(state: &CaptureContext) -> Result<(), Stri
 
 #[cfg(test)]
 mod tests {
-    use super::{asr_runtime_changed, CaptureReloadPlan};
+    use super::{CaptureReloadPlan, asr_runtime_changed};
 
     #[test]
     fn audio_start_failures_preserve_text_and_record_each_error_without_hiding_success() {

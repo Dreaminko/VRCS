@@ -7,13 +7,13 @@ use tokio::sync::broadcast;
 
 use crate::asr::{ModelManager, QwenRuntime};
 use crate::config::{AppConfig, TranslationConfig};
-use crate::db::conversations::{CatalogRefresh, ConversationCatalog};
 use crate::db::Database;
+use crate::db::conversations::{CatalogRefresh, ConversationCatalog};
 use crate::models::{
-    now_iso8601, LiveTranscription, Subtitle, SubtitleTranslation, TranslationSourceGroup,
+    LiveTranscription, Subtitle, SubtitleTranslation, TranslationSourceGroup, now_iso8601,
 };
 use crate::subtitle_output::{SubtitleLifecyclePublisher, TranslationFailure};
-use crate::translation::{same_translation_language, TranslationDispatcher};
+use crate::translation::{TranslationDispatcher, same_translation_language};
 use crate::vrchat_chatbox::TaskValidity;
 
 #[derive(Clone)]
@@ -931,10 +931,10 @@ impl PipelineDependencies {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        if let Some(native) = &native {
-            if native_pending || !native.text.is_empty() {
-                output_targets.insert(0, native.target_language.clone());
-            }
+        if let Some(native) = &native
+            && (native_pending || !native.text.is_empty())
+        {
+            output_targets.insert(0, native.target_language.clone());
         }
         self.output.subtitle_stored_with_message(
             saved.clone(),
@@ -1338,9 +1338,10 @@ mod tests {
         let database = base.database.lock().unwrap();
         let rows = database.subtitle_history(10).unwrap();
         assert_eq!(rows.len(), 3);
-        assert!(rows
-            .iter()
-            .all(|row| row.speaker.as_ref() == Some(&speaker)));
+        assert!(
+            rows.iter()
+                .all(|row| row.speaker.as_ref() == Some(&speaker))
+        );
     }
 
     #[tokio::test]
@@ -1460,12 +1461,12 @@ mod tests {
 
     #[tokio::test]
     async fn twelve_player_pcm_streams_reach_independent_asr_and_translation_requests() {
-        use super::super::{run, AsrEchoGuard, PipelineRunContext};
+        use super::super::{PipelineRunContext, run};
         use crate::config::{ApiAuthMode, ApiProfile, AsrConfig};
         use crate::models::SpeakerIdentity;
-        use axum::{body::Bytes, routing::post, Json, Router};
-        use serde_json::{json, Value};
-        use std::sync::{atomic::AtomicBool, Arc};
+        use axum::{Json, Router, body::Bytes, routing::post};
+        use serde_json::{Value, json};
+        use std::sync::{Arc, atomic::AtomicBool};
         use std::time::Duration;
         use tokio::sync::{mpsc, watch};
         let router = Router::new()
@@ -1586,8 +1587,7 @@ mod tests {
                     PipelineRunContext {
                         dependencies,
                         source: "speaker",
-                        cloud: Some(session),
-                        echo_guard: AsrEchoGuard::default(),
+                        cloud: session,
                         sample_rate: 16_000,
                         trigger_threshold_dbfs: Some(-45.0),
                         discard_on_stop: Arc::new(AtomicBool::new(false)),
@@ -1679,14 +1679,16 @@ mod tests {
             events.try_recv().unwrap(),
             crate::subtitle_output::TranslationEvent::TranslationStarted { .. }
         ));
-        assert!(dependencies
-            .database
-            .lock()
-            .unwrap()
-            .subtitle_history(10)
-            .unwrap()
-            .iter()
-            .all(|subtitle| subtitle.translations.is_empty()));
+        assert!(
+            dependencies
+                .database
+                .lock()
+                .unwrap()
+                .subtitle_history(10)
+                .unwrap()
+                .iter()
+                .all(|subtitle| subtitle.translations.is_empty())
+        );
         for (id, text) in [("first", "你好。"), ("second", "最近怎么样？")] {
             let mut result = native_result();
             result.transcript.utterance_id = id.into();
@@ -1901,14 +1903,16 @@ mod tests {
             }
         }
         assert!(dependencies.pending_native.lock().unwrap().is_empty());
-        assert!(dependencies
-            .database
-            .lock()
-            .unwrap()
-            .subtitle_history(10)
-            .unwrap()
-            .iter()
-            .all(|subtitle| subtitle.translations.is_empty()));
+        assert!(
+            dependencies
+                .database
+                .lock()
+                .unwrap()
+                .subtitle_history(10)
+                .unwrap()
+                .iter()
+                .all(|subtitle| subtitle.translations.is_empty())
+        );
     }
 
     #[tokio::test]
@@ -1966,16 +1970,17 @@ mod tests {
         }
         assert!(events.try_recv().is_err());
         assert!(dependencies.pending_native.lock().unwrap().is_empty());
-        assert!(dependencies
-            .database
-            .lock()
-            .unwrap()
-            .subtitle_history(10)
-            .unwrap()
-            .iter()
-            .all(
-                |row| row.translations.len() == 1 && row.translations[0].text == "第一句和第二句。"
-            ));
+        assert!(
+            dependencies
+                .database
+                .lock()
+                .unwrap()
+                .subtitle_history(10)
+                .unwrap()
+                .iter()
+                .all(|row| row.translations.len() == 1
+                    && row.translations[0].text == "第一句和第二句。")
+        );
     }
 
     #[tokio::test]
@@ -2018,14 +2023,16 @@ mod tests {
             .await
             .unwrap();
         assert!(events.try_recv().is_err());
-        assert!(dependencies
-            .database
-            .lock()
-            .unwrap()
-            .subtitle_history(10)
-            .unwrap()
-            .iter()
-            .all(|subtitle| subtitle.translations.is_empty()));
+        assert!(
+            dependencies
+                .database
+                .lock()
+                .unwrap()
+                .subtitle_history(10)
+                .unwrap()
+                .iter()
+                .all(|subtitle| subtitle.translations.is_empty())
+        );
     }
 
     #[tokio::test]

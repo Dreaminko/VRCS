@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 
 use crate::platform_capabilities::{
     self as platform, AudioCapabilities, Capability, ChatboxCapabilities, InferenceCapabilities,
@@ -35,15 +35,23 @@ pub(crate) async fn snapshot(state: &AppState) -> PlatformCapabilities {
     let network_capture_supported = platform::network_capture_supported();
     let ((credentials_available, credentials_reason), network_capture_available) = tokio::join!(
         async {
-            tokio::task::spawn_blocking(crate::credentials::storage_capability)
-                .await
-                .unwrap_or((false, Some("credentials.no_service")))
+            match tokio::task::spawn_blocking(crate::credentials::storage_capability).await {
+                Ok(capability) => capability,
+                Err(error) => {
+                    tracing::warn!(%error, "Credential storage capability probe failed");
+                    (false, Some("credentials.no_service"))
+                }
+            }
         },
         async {
             if network_capture_supported {
-                tokio::task::spawn_blocking(platform::network_capture_available)
-                    .await
-                    .unwrap_or(false)
+                match tokio::task::spawn_blocking(platform::network_capture_available).await {
+                    Ok(available) => available,
+                    Err(error) => {
+                        tracing::warn!(%error, "Network capture capability probe failed");
+                        false
+                    }
+                }
             } else {
                 false
             }
@@ -65,22 +73,34 @@ pub(crate) async fn snapshot(state: &AppState) -> PlatformCapabilities {
             .qwen_runtime
             .executable_path()
             .is_ok_and(|path| path.is_file())
-            && tokio::task::spawn_blocking(move || manager.describe_qwen(&package))
-                .await
-                .ok()
-                .and_then(Result::ok)
-                .is_some_and(|model| model.status == "installed")
+            && match tokio::task::spawn_blocking(move || manager.describe_qwen(&package)).await {
+                Ok(Ok(model)) => model.status == "installed",
+                Ok(Err(error)) => {
+                    tracing::warn!(%error, "Failed to inspect Qwen model status");
+                    false
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "Qwen model capability probe failed");
+                    false
+                }
+            }
     } else {
         false
     };
     let local_installed = if managed && plamo.runtime_available {
         let models = Arc::clone(&state.content.local_translation_models);
-        tokio::task::spawn_blocking(move || {
+        match tokio::task::spawn_blocking(move || {
             let model = models.status();
             model.status == "installed" && model.license_accepted
         })
         .await
-        .unwrap_or(false)
+        {
+            Ok(installed) => installed,
+            Err(error) => {
+                tracing::warn!(%error, "Local translation capability probe failed");
+                false
+            }
+        }
     } else {
         false
     };
@@ -181,7 +201,7 @@ pub(crate) async fn snapshot(state: &AppState) -> PlatformCapabilities {
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[tokio::test]
     async fn linux_keeps_imported_preferences_and_rejects_unimplemented_backends() {
@@ -311,13 +331,15 @@ mod tests {
         );
         let mut repair = before.clone();
         repair["audio"]["output"]["trigger_threshold_dbfs"] = json!(-50.0);
-        assert!(request(reqwest::Method::PUT, "/api/settings")
-            .json(&repair)
-            .send()
-            .await
-            .unwrap()
-            .status()
-            .is_success());
+        assert!(
+            request(reqwest::Method::PUT, "/api/settings")
+                .json(&repair)
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .is_success()
+        );
         let after: Value = request(reqwest::Method::GET, "/api/settings")
             .send()
             .await

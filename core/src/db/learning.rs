@@ -1,6 +1,6 @@
 use std::io;
 
-use rusqlite::{params, types::Type, OptionalExtension, Row};
+use rusqlite::{OptionalExtension, Row, params, types::Type};
 
 use super::Database;
 use crate::error::{AppError, AppResult};
@@ -314,8 +314,6 @@ impl Database {
     }
 
     fn persist_learning_item(&self, item: &LearningItem) -> AppResult<()> {
-        item.validate()
-            .map_err(crate::error::AppError::validation)?;
         let subtitle_ids = serde_json::to_string(&item.source_subtitle_ids)
             .map_err(|error| crate::error::AppError::internal(error.to_string()))?;
         let dictionary_entries = serde_json::to_string(&item.dictionary_entries)
@@ -435,7 +433,7 @@ mod tests {
     use crate::learning::{
         AnalysisConfidence, AnalysisTaskType, LearningAnalysis, LearningCardType, LearningKind,
     };
-    use crate::models::{now_iso8601, DictionaryEntry, Subtitle};
+    use crate::models::{DictionaryEntry, Subtitle, now_iso8601};
 
     fn analysis() -> LearningAnalysis {
         LearningAnalysis {

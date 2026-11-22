@@ -15,7 +15,7 @@ pub use assets::{ModelState, ModelStatus};
 pub(crate) use local::{LocalOcrRuntime, OcrExecutionStatus};
 pub use progress::PipelineProgress;
 pub use tasks::{
-    source_view, BlockUpdate, ScanConfiguration, ScanOutcome, ScanResult, ScanSummary,
+    BlockUpdate, ScanConfiguration, ScanOutcome, ScanResult, ScanSummary, source_view,
 };
 
 use serde::Serialize;
@@ -179,7 +179,7 @@ impl VrOcrService {
                     Phase::Recognizing => 2,
                     Phase::Translating => 3,
                 };
-                let mut state = state.lock().unwrap_or_else(|error| error.into_inner());
+                let mut state = state.lock().expect("OCR phase lock");
                 if rank > state.1 {
                     state.1 = rank;
                     (state.0)(phase);
@@ -189,7 +189,7 @@ impl VrOcrService {
                 report(phase);
                 pipeline
                     .lock()
-                    .unwrap_or_else(|error| error.into_inner())
+                    .expect("OCR pipeline lock")
                     .phase(eye, phase);
             };
             // At most two results are queued. Both futures remain owned by this scan.
@@ -222,7 +222,7 @@ impl VrOcrService {
                 |event| {
                     pipeline
                         .lock()
-                        .unwrap_or_else(|error| error.into_inner())
+                        .expect("OCR pipeline lock")
                         .translation(event)
                 },
             );
@@ -285,7 +285,7 @@ mod tests {
 
     #[tokio::test]
     async fn ocr_translation_queue_releases_slots_before_the_first_request_finishes() {
-        use axum::{routing::post, Json, Router};
+        use axum::{Json, Router, routing::post};
         let release = Arc::new(tokio::sync::Notify::new());
         let fifth = Arc::new(tokio::sync::Notify::new());
         let release_handler = release.clone();
@@ -362,7 +362,7 @@ mod tests {
 
     #[tokio::test]
     async fn both_eye_blocks_share_translation_but_keep_their_own_coordinates() {
-        use axum::{routing::post, Json, Router};
+        use axum::{Json, Router, routing::post};
         use std::sync::atomic::{AtomicUsize, Ordering};
         let requests = Arc::new(AtomicUsize::new(0));
         let count = requests.clone();

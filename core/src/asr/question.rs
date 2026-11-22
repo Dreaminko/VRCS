@@ -5,9 +5,11 @@ use crate::config::{AsrConfig, QWEN_MANAGED_BACKEND};
 use crate::providers::{self, ServiceAdapter};
 
 use super::{
-    share_audio, spawn_cloud_recognition_session, spawn_managed_qwen_session, CloudEvent,
-    CloudRecognitionSession, ModelManager, QwenRuntime, SharedAudio,
+    CloudEvent, CloudRecognitionSession, ModelManager, QwenRuntime, SharedAudio, share_audio,
+    spawn_cloud_recognition_session, spawn_managed_qwen_session,
 };
+
+const MIN_SPEECH_POWER: f64 = 1e-8;
 
 pub(super) fn validate_audio(samples: &[f32]) -> Result<(), String> {
     if samples.is_empty() {
@@ -22,7 +24,7 @@ pub(super) fn validate_audio(samples: &[f32]) -> Result<(), String> {
         .sum::<f64>()
         / samples.len() as f64;
     // Reject digital silence and negligible capture noise before contacting a model.
-    if power <= 1e-8 {
+    if power <= MIN_SPEECH_POWER {
         return Err("Question audio is silent".into());
     }
     Ok(())
@@ -140,14 +142,19 @@ pub(super) async fn recognize_live_session(
         }
         CloudRecognitionSession::Segmented(upload) => {
             let mut samples = Vec::new();
+            let mut power_sum = 0.0_f64;
             let mut last_preview = Instant::now();
             while let Some(chunk) = reader.next().await? {
-                if chunk.iter().any(|sample| !sample.is_finite()) {
-                    return Err("Question audio contains non-finite samples".into());
+                for &sample in chunk.iter() {
+                    if !sample.is_finite() {
+                        return Err("Question audio contains non-finite samples".into());
+                    }
+                    power_sum += f64::from(sample).powi(2);
                 }
                 samples.extend_from_slice(&chunk);
                 if last_preview.elapsed() >= Duration::from_millis(750)
-                    && validate_audio(&samples).is_ok()
+                    && !samples.is_empty()
+                    && power_sum / samples.len() as f64 > MIN_SPEECH_POWER
                     && reader.released_at().is_none()
                 {
                     let preview =
@@ -156,7 +163,12 @@ pub(super) async fn recognize_live_session(
                     last_preview = Instant::now();
                 }
             }
-            validate_audio(&samples)?;
+            if samples.is_empty() {
+                return Err("Question audio is empty".into());
+            }
+            if power_sum / samples.len() as f64 <= MIN_SPEECH_POWER {
+                return Err("Question audio is silent".into());
+            }
             // Always recognize the exact released window. A preview is never final.
             let text = recognize_snapshot(upload, share_audio(samples), false).await?;
             *draft.lock().expect("question draft lock") = text.clone();
@@ -339,24 +351,28 @@ mod tests {
 
     #[test]
     fn incomplete_empty_and_failed_results_are_errors() {
-        assert!(merge_finals(vec![CloudEvent::Partial {
-            utterance_id: "one".into(),
-            text: "preview".into(),
-            language: None,
-        }])
-        .is_err());
+        assert!(
+            merge_finals(vec![CloudEvent::Partial {
+                utterance_id: "one".into(),
+                text: "preview".into(),
+                language: None,
+            }])
+            .is_err()
+        );
         assert!(merge_finals(vec![final_event("one", " ")]).is_err());
-        assert!(merge_finals(vec![
-            final_event("one", "valid"),
-            CloudEvent::Failed {
-                utterance_id: None,
-                reset_session: true,
-                code: "failure".into(),
-                detail: "broken".into(),
-            }
-        ])
-        .unwrap_err()
-        .contains("broken"));
+        assert!(
+            merge_finals(vec![
+                final_event("one", "valid"),
+                CloudEvent::Failed {
+                    utterance_id: None,
+                    reset_session: true,
+                    code: "failure".into(),
+                    detail: "broken".into(),
+                }
+            ])
+            .unwrap_err()
+            .contains("broken")
+        );
     }
 
     #[test]
@@ -365,26 +381,31 @@ mod tests {
             merge_finals_with_empty(vec![final_event("one", " ")], true).unwrap(),
             ""
         );
-        assert!(merge_finals_with_empty(
-            vec![CloudEvent::Partial {
-                utterance_id: "one".into(),
-                text: String::new(),
-                language: None,
-            }],
-            true,
-        )
-        .is_err());
-        assert!(merge_finals_with_empty(
-            vec![CloudEvent::Failed {
-                utterance_id: None,
-                reset_session: false,
-                code: "fatal".into(),
-                detail: "Transcription response did not contain text: malformed response".into(),
-            }],
-            true,
-        )
-        .unwrap_err()
-        .contains("malformed response"));
+        assert!(
+            merge_finals_with_empty(
+                vec![CloudEvent::Partial {
+                    utterance_id: "one".into(),
+                    text: String::new(),
+                    language: None,
+                }],
+                true,
+            )
+            .is_err()
+        );
+        assert!(
+            merge_finals_with_empty(
+                vec![CloudEvent::Failed {
+                    utterance_id: None,
+                    reset_session: false,
+                    code: "fatal".into(),
+                    detail: "Transcription response did not contain text: malformed response"
+                        .into(),
+                }],
+                true,
+            )
+            .unwrap_err()
+            .contains("malformed response")
+        );
     }
 
     #[test]

@@ -25,9 +25,14 @@ impl Database {
         }
         let map_row = |row: &rusqlite::Row<'_>| {
             let speaker_json: Option<String> = row.get(3)?;
-            let speaker = speaker_json
-                .as_deref()
-                .and_then(|raw| serde_json::from_str(raw).ok());
+            let speaker = speaker_json.as_deref().and_then(|raw| {
+                serde_json::from_str(raw)
+                    .map_err(|error| {
+                        tracing::warn!(%error, "Malformed speaker JSON in translation context");
+                        error
+                    })
+                    .ok()
+            });
             Ok(TranslationContextEntry {
                 source: row.get(0)?,
                 text: row.get(1)?,
@@ -156,10 +161,12 @@ mod tests {
         assert_eq!(entries[0].text, "remote history");
         config.include_speaker = false;
         config.include_chatbox = true;
-        assert!(database
-            .recent_translation_context(&config, None)
-            .unwrap()
-            .is_empty());
+        assert!(
+            database
+                .recent_translation_context(&config, None)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -212,9 +219,11 @@ mod tests {
         assert_eq!(entries[0].text, "speaker old");
         assert_eq!(entries[1].source, "microphone");
         assert_eq!(entries[2].text, "chatbox original");
-        assert!(entries
-            .iter()
-            .all(|entry| entry.text != "chatbox translation"));
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry.text != "chatbox translation")
+        );
         assert!(entries.iter().all(|entry| entry.text != "current"));
     }
 

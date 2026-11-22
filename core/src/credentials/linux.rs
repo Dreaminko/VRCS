@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::sync::{mpsc, OnceLock};
+use std::sync::{OnceLock, mpsc};
 use std::time::Duration;
 
 use secret_service::blocking::{Item, SecretService};
 use secret_service::{EncryptionType, Error};
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 use super::StoredStatus;
 
@@ -196,19 +196,17 @@ impl KeyringWorker {
                 return Ok(None);
             };
             item.ensure_unlocked()?;
-            let mut bytes = item.get_secret()?;
-            let parsed = std::str::from_utf8(&bytes).ok().map(str::to_owned);
-            bytes.zeroize();
-            Ok(parsed.map(Some).unwrap_or(None))
+            item.get_secret().map(|bytes| Some(Zeroizing::new(bytes)))
         })?;
-        match secret {
-            Some(value) => {
-                self.cache
-                    .insert(target.to_owned(), Zeroizing::new(value.clone()));
-                Ok(Some(value))
-            }
-            None => Ok(None),
-        }
+        let Some(bytes) = secret else {
+            return Ok(None);
+        };
+        let value = std::str::from_utf8(&bytes)
+            .map(str::to_owned)
+            .map_err(|_| format!("{READ_FAILED}: Secret Service credential is not valid UTF-8"))?;
+        self.cache
+            .insert(target.to_owned(), Zeroizing::new(value.clone()));
+        Ok(Some(value))
     }
 
     fn write(&mut self, target: &str, value: Zeroizing<String>) -> Result<(), String> {
@@ -322,22 +320,43 @@ fn worker_sender() -> &'static mpsc::Sender<Request> {
     })
 }
 
+#[derive(Clone, Copy)]
+enum RequestError {
+    Timeout,
+    Disconnected,
+}
+
+impl RequestError {
+    fn detail(self) -> &'static str {
+        match self {
+            Self::Timeout => "Secret Service request timed out",
+            Self::Disconnected => "Secret Service worker disconnected",
+        }
+    }
+}
+
 fn send_request<T>(
     timeout: Duration,
     build: impl FnOnce(mpsc::SyncSender<T>) -> Request,
-    on_timeout: impl FnOnce() -> T,
+    on_error: impl FnOnce(RequestError) -> T,
 ) -> T {
     let (reply_tx, reply_rx) = mpsc::sync_channel(1);
     if worker_sender().send(build(reply_tx)).is_err() {
-        return on_timeout();
+        tracing::error!("Linux keyring worker disconnected");
+        return on_error(RequestError::Disconnected);
     }
-    reply_rx
-        .recv_timeout(timeout)
-        .unwrap_or_else(|_| on_timeout())
+    match reply_rx.recv_timeout(timeout) {
+        Ok(reply) => reply,
+        Err(mpsc::RecvTimeoutError::Timeout) => on_error(RequestError::Timeout),
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            tracing::error!("Linux keyring worker disconnected");
+            on_error(RequestError::Disconnected)
+        }
+    }
 }
 
 pub(super) fn capability() -> (bool, Option<&'static str>) {
-    send_request(NON_INTERACTIVE_TIMEOUT, Request::Capability, || {
+    send_request(NON_INTERACTIVE_TIMEOUT, Request::Capability, |_| {
         (false, Some("credentials.read_failed"))
     })
 }
@@ -350,7 +369,7 @@ pub(super) fn status(targets: &[String]) -> StoredStatus {
             targets: owned,
             reply,
         },
-        || StoredStatus {
+        |_| StoredStatus {
             configured: false,
             available: false,
             reason_code: Some("credentials.read_failed"),
@@ -372,7 +391,7 @@ pub(super) fn read(target: &str, authorize: bool) -> Result<Option<String>, Stri
             authorize,
             reply,
         },
-        || Err(format!("{READ_FAILED}: Secret Service request timed out")),
+        |error| Err(format!("{READ_FAILED}: {}", error.detail())),
     )
 }
 
@@ -386,7 +405,7 @@ pub(super) fn write(target: &str, value: &str) -> Result<(), String> {
             value: owned_value,
             reply,
         },
-        || Err(format!("{WRITE_FAILED}: Secret Service request timed out")),
+        |error| Err(format!("{WRITE_FAILED}: {}", error.detail())),
     )
 }
 
@@ -398,7 +417,7 @@ pub(super) fn delete(targets: &[String]) -> Result<(), String> {
             targets: owned,
             reply,
         },
-        || Err(format!("{WRITE_FAILED}: Secret Service request timed out")),
+        |error| Err(format!("{WRITE_FAILED}: {}", error.detail())),
     )
 }
 

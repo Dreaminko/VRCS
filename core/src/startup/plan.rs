@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use crate::config::{load_config, AppConfig};
-use crate::{resolve_config_path, CoreOptions};
+use crate::config::{AppConfig, load_config};
+use crate::{CoreOptions, resolve_config_path};
 
 pub(crate) struct StartupPlan {
     pub(crate) config_path: PathBuf,
@@ -21,9 +21,6 @@ pub(crate) struct StartupPlan {
 impl StartupPlan {
     pub(crate) fn resolve(options: CoreOptions, defer_managed_vad: bool) -> Result<Self, String> {
         let mut config = load_config(&options.config_path)?;
-        config
-            .validate_settings()
-            .map_err(|error| format!("Invalid startup configuration: {error}"))?;
 
         let host = options.host.unwrap_or_else(|| config.server.host.clone());
         let port = options.port.unwrap_or(config.server.port);

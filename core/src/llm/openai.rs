@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use base64::{engine::general_purpose::STANDARD, Engine};
-use serde_json::{json, Value};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use serde_json::{Value, json};
 
 use crate::config::ApiProfile;
 
@@ -51,15 +51,18 @@ async fn generate_response(
     timeout: Option<Duration>,
     allow_budget_retry: bool,
 ) -> Result<String, LlmError> {
+    let details = super::models_dev::model_details(profile, request.model);
     let mut max_output_tokens = request.max_output_tokens;
     for attempt in 0..=1 {
         body["max_output_tokens"] = json!(max_output_tokens);
-        super::models_dev::apply_request(&mut body, profile, &request);
+        if let Some(details) = &details {
+            details.apply_request(&mut body, &profile.provider, request.thinking_enabled);
+        }
         let explicit_reasoning = super::reasoning::apply_explicit_control(
             &mut body,
             &profile.provider,
             &request,
-            super::models_dev::model_details(profile, request.model).as_ref(),
+            details.as_ref(),
         )?;
         let response = generation_request(http, api_key, &body, timeout)
             .send()
@@ -68,21 +71,21 @@ async fn generate_response(
         match parse_http_response(response).await? {
             ParsedResponse::Complete(text) => return Ok(text),
             ParsedResponse::Incomplete(reason) => {
-                if attempt == 0 {
-                    if let Some(retry_limit) = retry_output_token_limit(
+                if attempt == 0
+                    && let Some(retry_limit) = retry_output_token_limit(
                         &reason,
                         max_output_tokens,
                         allow_budget_retry && !explicit_reasoning,
-                    ) {
-                        tracing::warn!(
-                            model = request.model,
-                            initial_limit = max_output_tokens,
-                            retry_limit,
-                            "Retrying incomplete OpenAI response with a larger output budget"
-                        );
-                        max_output_tokens = retry_limit;
-                        continue;
-                    }
+                    )
+                {
+                    tracing::warn!(
+                        model = request.model,
+                        initial_limit = max_output_tokens,
+                        retry_limit,
+                        "Retrying incomplete OpenAI response with a larger output budget"
+                    );
+                    max_output_tokens = retry_limit;
+                    continue;
                 }
                 return Err(incomplete_error(&reason));
             }
@@ -551,9 +554,11 @@ mod tests {
                 .and_then(Value::as_str),
             Some("medium")
         );
-        assert!(request_body(&request("gpt-4o-mini", false), 1_024)
-            .get("reasoning")
-            .is_none());
+        assert!(
+            request_body(&request("gpt-4o-mini", false), 1_024)
+                .get("reasoning")
+                .is_none()
+        );
     }
 
     #[test]

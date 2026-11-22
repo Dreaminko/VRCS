@@ -4,8 +4,8 @@ use std::time::Instant;
 
 use crate::config::{ApiProfile, ReasoningSetting};
 use crate::providers::{
-    self, OpenAiProtocolBehavior, ServiceAdapter, CAPABILITY_IMAGE_UNDERSTANDING,
-    CAPABILITY_TEXT_GENERATION,
+    self, CAPABILITY_IMAGE_UNDERSTANDING, CAPABILITY_TEXT_GENERATION, OpenAiProtocolBehavior,
+    ServiceAdapter,
 };
 
 mod alibaba;
@@ -127,21 +127,29 @@ impl LlmClient {
                 retry_after: None,
             });
         }
-        let details = self
+        let openrouter_details = self
             .openrouter_model_details(profile, api_key, request.model)
-            .await
-            .or_else(|| models_dev::model_details(profile, request.model));
-        if details.as_ref().is_some_and(|details| {
-            details
-                .field_sources
-                .get("input_modalities")
-                .is_some_and(|source| source == "provider_api")
-                && !details.input_modalities.is_empty()
-                && !details
-                    .input_modalities
-                    .iter()
-                    .any(|modality| modality == "image")
-        }) {
+            .await;
+        let models_dev_details = if openrouter_details.is_none() {
+            models_dev::model_details(profile, request.model)
+        } else {
+            None
+        };
+        if openrouter_details
+            .as_ref()
+            .or(models_dev_details.as_ref())
+            .is_some_and(|details| {
+                details
+                    .field_sources
+                    .get("input_modalities")
+                    .is_some_and(|source| source == "provider_api")
+                    && !details.input_modalities.is_empty()
+                    && !details
+                        .input_modalities
+                        .iter()
+                        .any(|modality| modality == "image")
+            })
+        {
             return Err(LlmError {
                 code: "llm.request_failed",
                 detail: format!(
@@ -171,7 +179,7 @@ impl LlmClient {
                     image,
                     resolved.provider.display_name,
                     behavior,
-                    details.as_ref(),
+                    openrouter_details.as_ref(),
                 )
                 .await
             }
@@ -424,8 +432,8 @@ fn unsupported_adapter(adapter: ServiceAdapter) -> LlmError {
 mod tests {
     use super::*;
     use crate::config::{ApiAuthMode, HttpHeaderConfig};
-    use axum::{http::HeaderMap, routing::post, Json, Router};
-    use serde_json::{json, Value};
+    use axum::{Json, Router, http::HeaderMap, routing::post};
+    use serde_json::{Value, json};
 
     fn request() -> LlmRequest<'static> {
         LlmRequest {

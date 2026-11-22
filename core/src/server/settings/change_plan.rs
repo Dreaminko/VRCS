@@ -1,12 +1,12 @@
 use std::sync::atomic::Ordering;
 
-use axum::http::StatusCode;
 use axum::Json;
+use axum::http::StatusCode;
 use serde_json::Value;
 
 use crate::config::AppConfig;
 
-use super::super::{api_error, ApiResult, SettingsContext};
+use super::super::{ApiResult, SettingsContext, api_error};
 
 mod capture;
 mod external_api;
@@ -61,12 +61,12 @@ impl SettingsChangePlan {
         }
         super::protect_profile_owned_settings(&mut candidate, &current, has_current_revision);
         validation::validate_candidate(state, &mut candidate, &current).await?;
-        Self::build(state, candidate, current, None).await
+        Self::build(state, candidate, current, None, true).await
     }
 
     pub(super) async fn prepare(state: &SettingsContext, candidate: AppConfig) -> ApiResult<Self> {
         let current = state.config.config.read().expect("config lock").clone();
-        Self::build(state, candidate, current, None).await
+        Self::build(state, candidate, current, None, false).await
     }
 
     pub(super) async fn prepare_profile_update(
@@ -91,7 +91,7 @@ impl SettingsChangePlan {
         crate::credentials::write_credential_async(&profile.id, &profile.provider, api_key)
             .await
             .map_err(credential_error)?;
-        match Self::build(state, candidate, current, Some(&profile.id)).await {
+        match Self::build(state, candidate, current, Some(&profile.id), false).await {
             Ok(mut plan) => {
                 plan.credential = Some((profile.clone(), previous));
                 Ok(plan)
@@ -108,9 +108,12 @@ impl SettingsChangePlan {
         mut candidate: AppConfig,
         current: AppConfig,
         credential_profile: Option<&str>,
+        already_validated: bool,
     ) -> ApiResult<Self> {
-        candidate.resolve_model_assignments();
-        candidate.clear_changed_inherited_reasoning(&current);
+        if !already_validated {
+            candidate.resolve_model_assignments();
+            candidate.clear_changed_inherited_reasoning(&current);
+        }
         let language_session = state
             .config
             .language_session
@@ -118,7 +121,8 @@ impl SettingsChangePlan {
             .expect("language session lock")
             .clone();
         let effective_current = language_session.apply_to(&current);
-        let effective_candidate = validate_effective_candidate(&language_session, &candidate)?;
+        let effective_candidate =
+            validate_effective_candidate(&language_session, &candidate, already_validated)?;
         let mut capture = CaptureChange::between(state, &effective_current, &effective_candidate);
         if credential_profile
             .is_some_and(|id| super::super::capture::uses_asr_profile(&effective_candidate, id))
@@ -219,10 +223,10 @@ impl SettingsChangePlan {
     async fn rollback(&mut self, state: &SettingsContext) -> Result<(), String> {
         let mut errors = Vec::new();
         self.capture.stop_for_rollback(state).await;
-        if let Some((profile, previous)) = self.credential.take() {
-            if let Err(error) = super::super::cloud::restore_credential(&profile, previous).await {
-                errors.push(format!("credential rollback failed: {error}"));
-            }
+        if let Some((profile, previous)) = self.credential.take()
+            && let Err(error) = super::super::cloud::restore_credential(&profile, previous).await
+        {
+            errors.push(format!("credential rollback failed: {error}"));
         }
         if let Err(error) = self.model_directory.rollback(state).await {
             errors.push(error);
@@ -264,11 +268,19 @@ fn api_detail(error: &ApiError) -> String {
 fn validate_effective_candidate(
     language_session: &crate::language_session::ActiveLanguageSession,
     candidate: &AppConfig,
+    already_validated: bool,
 ) -> ApiResult<AppConfig> {
     let effective = language_session.apply_to(candidate);
-    effective.validate_settings().map_err(|detail| {
-        api_error(StatusCode::UNPROCESSABLE_ENTITY, "settings.invalid", detail)
-    })?;
+    if !(already_validated
+        && matches!(
+            language_session,
+            crate::language_session::ActiveLanguageSession::Global
+        ))
+    {
+        effective.validate_settings().map_err(|detail| {
+            api_error(StatusCode::UNPROCESSABLE_ENTITY, "settings.invalid", detail)
+        })?;
+    }
     Ok(effective)
 }
 
@@ -320,11 +332,13 @@ mod tests {
             },
         };
 
-        let error = validate_effective_candidate(&session, &candidate).unwrap_err();
+        let error = validate_effective_candidate(&session, &candidate, true).unwrap_err();
         assert_eq!(error.0, StatusCode::UNPROCESSABLE_ENTITY);
-        assert!(error.1["detail"]
-            .as_str()
-            .unwrap()
-            .contains("PLaMo does not support target language: pt-BR"));
+        assert!(
+            error.1["detail"]
+                .as_str()
+                .unwrap()
+                .contains("PLaMo does not support target language: pt-BR")
+        );
     }
 }

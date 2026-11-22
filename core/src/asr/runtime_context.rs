@@ -9,7 +9,7 @@ use crate::glossary::GlossaryStore;
 use crate::models::SpeakerIdentity;
 use crate::providers;
 use crate::room_context::{
-    sanitize_display_name, RoomContextAvailability, RoomContextReader, RoomContextSnapshot,
+    RoomContextAvailability, RoomContextReader, RoomContextSnapshot, sanitize_display_name,
 };
 use crate::vrcx::VrcxIntegration;
 
@@ -212,10 +212,10 @@ impl AsrContextSource {
             .as_ref()
             .and_then(|speaker| speaker.display_name.as_deref())
             .and_then(sanitize_display_name)
+            && seen.insert(name.to_lowercase())
+            && terms.len() < max_terms
         {
-            if seen.insert(name.to_lowercase()) && terms.len() < max_terms {
-                terms.push(name);
-            }
+            terms.push(name);
         }
         for term in snapshot.asr_terms(include_world_name, max_terms) {
             if terms.len() >= max_terms {
@@ -240,10 +240,10 @@ impl AsrContextSource {
             .as_ref()
             .and_then(|speaker| speaker.display_name.as_deref())
             .and_then(sanitize_display_name)
+            && seen.insert(name.to_lowercase())
+            && names.len() < max_names
         {
-            if seen.insert(name.to_lowercase()) && names.len() < max_names {
-                names.push(name);
-            }
+            names.push(name);
         }
         for name in snapshot.member_names(max_names) {
             if names.len() >= max_names {
@@ -261,8 +261,8 @@ impl AsrContextSource {
 mod tests {
     use super::*;
     use crate::config::{GlossaryCategory, GlossaryEntry, GlossarySource, QWEN_MANAGED_BACKEND};
-    use crate::player_audio::session::NetworkConsumers;
     use crate::player_audio::PlayerInfo;
+    use crate::player_audio::session::NetworkConsumers;
     use crate::room_context::RoomContextStore;
     use crate::vrchat_log;
     use crate::vrchat_process::ProcessIdentity;
@@ -391,10 +391,12 @@ mod tests {
             "アリス"
         );
         assert_eq!(prepared.asr_config.live_translation_phrases["Bob"], "Bob");
-        assert!(!prepared
-            .asr_config
-            .live_translation_phrases
-            .contains_key("Starlight Bar"));
+        assert!(
+            !prepared
+                .asr_config
+                .live_translation_phrases
+                .contains_key("Starlight Bar")
+        );
     }
 
     #[test]
@@ -408,5 +410,22 @@ mod tests {
         };
         let prepared = source.prepare(&asr);
         assert_eq!(prepared.asr_config, asr);
+    }
+
+    #[test]
+    fn vrcx_echo_guard_blocks_generated_context_without_blocking_real_mentions() {
+        let guard = AsrEchoGuard::new(vec!["Names: Alice, Bob".into(), "Alice\nBob".into()]);
+
+        assert!(guard.is_echo("Names: Alice, Bob."));
+        assert!(guard.is_echo("names: alice, bob"));
+        assert!(guard.is_echo("Alice\nBob"));
+        assert!(guard.suppresses_partial("Names: Al"));
+        assert!(!guard.is_echo("Alice"));
+        assert!(!guard.is_echo("Hi Alice"));
+        assert!(!guard.is_echo("Club_GoH2.0"));
+        assert!(!guard.is_echo("We are in Club_GoH2.0"));
+        assert!(!guard.is_echo("Club_GoH2.0 is a nice world"));
+        assert!(!guard.is_echo("Club_GoH2.0 Club_GoH2.0"));
+        assert!(!guard.suppresses_partial("Club_GoH2.0"));
     }
 }
