@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { test } from "node:test";
-import { aggregateRelease, checkProjectVersion, releaseTargets, validatePackage, verifyUpdaterSignature, writeTargetManifest } from "./release-metadata.mjs";
+import { aggregateRelease, checkProjectVersion, publishAssetNames, releaseTargets, stagePublishAssets, validatePackage, verifyUpdaterSignature, writeTargetManifest } from "./release-metadata.mjs";
 
 const version = "1.2.3";
 const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -235,4 +235,79 @@ test("updater verifies both payload and trusted comment signatures", () => {
   assert.doesNotThrow(() => verifyUpdaterSignature(data, signature(data), encodedKey));
   const tampered = Buffer.from(signature(data), "base64").toString("utf8").replace("timestamp:12345", "timestamp:54321");
   assert.throws(() => verifyUpdaterSignature(data, Buffer.from(tampered).toString("base64"), encodedKey), /verification failed/);
+});
+
+test("publishAssetNames lists only the installers, SHA256SUMS.txt, and latest.json", () => {
+  assert.deepEqual(publishAssetNames(version), [
+    `VRCS-${version}-windows-x64.exe`,
+    `VRCS-${version}-linux-x86_64.deb`,
+    `VRCS-${version}-linux-x86_64.rpm`,
+    `VRCS-${version}-linux-x86_64.AppImage`,
+    "SHA256SUMS.txt",
+    "latest.json",
+  ]);
+  assert.throws(() => publishAssetNames("not-a-version"), /Invalid release version/);
+});
+
+test("stagePublishAssets isolates publishable files and rejects overlapping or incomplete directories", (t) => {
+  const workspace = fixture(t);
+  const root = join(workspace, "release-artifacts");
+  const publishDir = join(workspace, "release-publish");
+  mkdirSync(root, { recursive: true });
+  const expected = publishAssetNames(version);
+  for (const name of expected) writeFileSync(join(root, name), `content:${name}`);
+  for (const extra of [
+    "windows-x86_64-nsis.manifest.json",
+    "linux-x86_64-appimage.manifest.json",
+    "linux-x86_64.ldd.txt",
+    "linux-x86_64-deb.runtime.json",
+    `VRCS-${version}-windows-x64.exe.sig`,
+    `VRCS-${version}-windows-x64.exe.sha256`,
+  ]) {
+    writeFileSync(join(root, extra), `extra:${extra}`);
+  }
+
+  mkdirSync(publishDir, { recursive: true });
+  writeFileSync(join(publishDir, "stale.manifest.json"), "stale");
+  const staged = stagePublishAssets({ root, version, publishDir });
+  assert.equal(staged.length, expected.length);
+  assert.deepEqual(readdirSync(publishDir).sort(), [...expected].sort());
+  assert.equal(readFileSync(join(publishDir, "latest.json"), "utf8"), "content:latest.json");
+
+  rmSync(join(root, "SHA256SUMS.txt"));
+  assert.throws(() => stagePublishAssets({ root, version, publishDir }), /Missing publishable release asset/);
+  assert.deepEqual(readdirSync(publishDir).sort(), [...expected].sort());
+
+  writeFileSync(join(root, "SHA256SUMS.txt"), "content:SHA256SUMS.txt");
+  for (const badPublishDir of [root, join(root, "nested"), workspace]) {
+    assert.throws(() => stagePublishAssets({ root, version, publishDir: badPublishDir }), /separate from artifact root/);
+    assert.ok(existsSync(join(root, "latest.json")));
+  }
+});
+
+test("aggregateRelease writes SHA256SUMS.txt and stages strictly publishable assets", { skip: !linux }, (t) => {
+  const workspace = fixture(t);
+  const root = join(workspace, "release-artifacts");
+  const publishDir = join(workspace, "release-publish");
+  mkdirSync(root, { recursive: true });
+  for (const target of releaseTargets) packageFixture(root, target);
+  writeFileSync(join(root, "linux-x86_64.ldd.txt"), "ldd diagnostic");
+  writeFileSync(join(root, "linux-x86_64-deb.runtime.json"), "{}");
+
+  const latestPath = aggregateRelease({ root, version, publicKey: encodedKey, publishDir });
+  assert.ok(existsSync(latestPath));
+  assert.deepEqual(readdirSync(publishDir).sort(), [...publishAssetNames(version)].sort());
+  const sums = readFileSync(join(publishDir, "SHA256SUMS.txt"), "utf8");
+  assert.ok(!sums.includes("\r\n"));
+  assert.equal(sums.trim().split("\n").length, releaseTargets.length);
+  execFileSync("sha256sum", ["-c", "SHA256SUMS.txt"], { cwd: publishDir, stdio: "pipe" });
+
+  const brokenRoot = join(workspace, "broken-artifacts");
+  const brokenPublish = join(workspace, "broken-publish");
+  mkdirSync(brokenRoot, { recursive: true });
+  for (const target of releaseTargets) packageFixture(brokenRoot, target);
+  rmSync(join(brokenRoot, "linux-x86_64-rpm.manifest.json"));
+  assert.throws(() => aggregateRelease({ root: brokenRoot, version, publicKey: encodedKey, publishDir: brokenPublish }), /every release target/);
+  assert.ok(!existsSync(join(brokenRoot, "SHA256SUMS.txt")));
+  assert.ok(!existsSync(brokenPublish));
 });

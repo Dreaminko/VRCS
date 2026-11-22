@@ -1,7 +1,7 @@
 import { createHash, createPublicKey, verify } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -174,10 +174,51 @@ export function writeTargetManifest({ root, version, os, arch, channel, extractT
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   return manifestPath;
 }
-export function aggregateRelease({ root, version, publicKey, repository = "Dreaminko/VRCS", now = new Date() }) {
+function pathsOverlap(a, b) {
+  const relAB = relative(a, b);
+  const relBA = relative(b, a);
+  return relAB === "" || (!relAB.startsWith("..") && !isAbsolute(relAB)) || (!relBA.startsWith("..") && !isAbsolute(relBA));
+}
+export function publishAssetNames(version) {
+  requireVersion(version);
+  return [
+    ...releaseTargets.map((target) => `VRCS-${version}-${target.suffix}`),
+    "SHA256SUMS.txt",
+    "latest.json",
+  ];
+}
+export function stagePublishAssets({ root, version, publishDir }) {
+  requireVersion(version);
+  const resolvedRoot = resolve(root);
+  const resolvedPublish = resolve(publishDir);
+  if (pathsOverlap(resolvedRoot, resolvedPublish)) {
+    throw new Error("Publish directory must be separate from artifact root");
+  }
+  const names = publishAssetNames(version);
+  for (const name of names) {
+    if (!existsSync(join(resolvedRoot, name))) {
+      throw new Error(`Missing publishable release asset: ${name}`);
+    }
+  }
+  rmSync(resolvedPublish, { recursive: true, force: true });
+  mkdirSync(resolvedPublish, { recursive: true });
+  return names.map((name) => {
+    const source = join(resolvedRoot, name);
+    const destination = join(resolvedPublish, name);
+    try {
+      linkSync(source, destination);
+    } catch (error) {
+      if (error.code === "EXDEV" || error.code === "EPERM") copyFileSync(source, destination);
+      else throw error;
+    }
+    return destination;
+  });
+}
+export function aggregateRelease({ root, version, publicKey, repository = "Dreaminko/VRCS", now = new Date(), publishDir }) {
   requireVersion(version);
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error("Invalid release repository");
   const platforms = {};
+  const checksums = [];
   const manifestFiles = readdirSync(root).filter((file) => file.endsWith(".manifest.json"));
   if (manifestFiles.length !== releaseTargets.length) throw new Error("Expected every release target manifest exactly once");
   for (const target of releaseTargets) {
@@ -195,16 +236,20 @@ export function aggregateRelease({ root, version, publicKey, repository = "Dream
       verifyUpdaterSignature(data, signature, publicKey);
       for (const name of target.targets) platforms[name] = { url: `https://github.com/${repository}/releases/download/${version}/${artifact}`, signature };
     } else if (manifest.signature !== null) throw new Error("System packages (deb/rpm) must use package-manager updates");
+    checksums.push({ artifact, hash });
   }
+  checksums.sort((a, b) => (a.artifact < b.artifact ? -1 : a.artifact > b.artifact ? 1 : 0));
+  writeFileSync(join(root, "SHA256SUMS.txt"), `${checksums.map(({ artifact, hash }) => `${hash}  ${artifact}`).join("\n")}\n`);
   const latest = { version, notes: `VRCS ${version}. Windows x64 and Linux x86_64 (deb, rpm, AppImage; Ubuntu 24.04 / glibc 2.39+ baseline). System packages (deb/rpm) update through the package manager; signed AppImage packages support in-app updates. Hardware compatibility is documented separately.`, pub_date: now.toISOString(), platforms };
   const path = join(root, "latest.json");
   writeFileSync(path, `${JSON.stringify(latest, null, 2)}\n`);
+  if (publishDir) stagePublishAssets({ root, version, publishDir });
   return path;
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [command, ...args] = process.argv.slice(2);
   if (command === "target") console.log(writeTargetManifest({ root: args[0], version: args[1], os: args[2], arch: args[3], channel: args[4] }));
-  else if (command === "aggregate") console.log(aggregateRelease({ root: args[0], version: args[1], publicKey: process.env.TAURI_UPDATER_PUBLIC_KEY, repository: process.env.GITHUB_REPOSITORY || "Dreaminko/VRCS" }));
+  else if (command === "aggregate") console.log(aggregateRelease({ root: args[0], version: args[1], publicKey: process.env.TAURI_UPDATER_PUBLIC_KEY, repository: process.env.GITHUB_REPOSITORY || "Dreaminko/VRCS", publishDir: args[2] }));
   else if (command === "check-version") checkProjectVersion(args[0], args[1] || ".");
-  else throw new Error("Usage: release-metadata.mjs target ROOT VERSION OS ARCH CHANNEL | aggregate ROOT VERSION | check-version VERSION [ROOT]");
+  else throw new Error("Usage: release-metadata.mjs target ROOT VERSION OS ARCH CHANNEL | aggregate ROOT VERSION [PUBLISH_DIR] | check-version VERSION [ROOT]");
 }

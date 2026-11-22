@@ -241,7 +241,7 @@ jobs:
       - name: Verify every package, architecture, checksum and updater signature
         env:
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
-        run: node scripts/release-metadata.mjs aggregate release-artifacts "$GITHUB_REF_NAME"
+        run: node scripts/release-metadata.mjs aggregate release-artifacts "$GITHUB_REF_NAME" release-publish
       - name: Ensure GitHub release exists
         run: |
           cat > "$RUNNER_TEMP/release-notes.txt" <<NOTES
@@ -262,5 +262,20 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" --draft --title "VRCS $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.txt"
           fi
+      - name: Prune obsolete assets on draft release
+        run: |
+          node -e '
+            const { execFileSync } = require("node:child_process");
+            const { readdirSync } = require("node:fs");
+            const tag = process.env.GITHUB_REF_NAME;
+            const release = JSON.parse(execFileSync("gh", ["release", "view", tag, "--json", "isDraft,assets"], { encoding: "utf8" }));
+            if (!release.isDraft) process.exit(0);
+            const expected = new Set(readdirSync("release-publish"));
+            for (const asset of release.assets ?? []) {
+              if (!expected.has(asset.name)) {
+                execFileSync("gh", ["release", "delete-asset", tag, asset.name, "--yes"], { stdio: "inherit" });
+              }
+            }
+          '
       - name: Upload validated release assets
-        run: gh release upload "$GITHUB_REF_NAME" release-artifacts/* --clobber
+        run: gh release upload "$GITHUB_REF_NAME" release-publish/* --clobber
