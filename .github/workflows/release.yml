@@ -182,7 +182,7 @@ jobs:
       matrix:
         include:
           - distro: ubuntu-24.04
-            image: public.ecr.aws/docker/library/ubuntu:24.04
+            image: ghcr.io/linuxserver/baseimage-ubuntu:noble
             format: deb
           - distro: fedora
             image: quay.io/fedora/fedora:latest
@@ -204,10 +204,11 @@ jobs:
       - name: Install and verify ${{ matrix.format }} on ${{ matrix.distro }}
         run: |
           docker run --rm \
+            --entrypoint /bin/sh \
             -v "${{ github.workspace }}/release-artifacts:/artifacts:ro" \
             -v "${{ github.workspace }}/scripts/verify-linux-package.sh:/verify.sh:ro" \
             "${{ matrix.image }}" \
-            sh /verify.sh "${{ matrix.format }}" "$GITHUB_REF_NAME"
+            /verify.sh "${{ matrix.format }}" "$GITHUB_REF_NAME"
 
   publish:
     needs: [ci-status, validate, windows-x64, linux, verify-linux-packages]
