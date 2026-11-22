@@ -1,13 +1,13 @@
 use super::SurfaceHub;
-#[cfg(all(test, windows))]
-use crate::vr_overlay::surface_protocol::{decode_request, SurfaceId};
 use crate::vr_overlay::surface_protocol::{
     BridgeError, DocumentSession, HostId, Operation, PageReply, PageRequest,
 };
+#[cfg(all(test, windows))]
+use crate::vr_overlay::surface_protocol::{SurfaceId, decode_request};
 
 impl SurfaceHub {
     pub(super) fn navigation_started(&self, host: HostId, navigation_id: u64) -> bool {
-        let mut entries = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut entries = self.0.lock().expect("surface hub lock");
         let entry = &mut entries[host.surface.index()];
         if entry.host_epoch != host.host_epoch
             || navigation_id <= entry.navigation_id
@@ -29,7 +29,7 @@ impl SurfaceHub {
         navigation_id: u64,
         source: String,
     ) -> Option<DocumentSession> {
-        let mut entries = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut entries = self.0.lock().expect("surface hub lock");
         let entry = &mut entries[host.surface.index()];
         if entry.host_epoch != host.host_epoch
             || navigation_id == 0
@@ -56,8 +56,16 @@ impl SurfaceHub {
         session: &DocumentSession,
         request: PageRequest,
     ) -> Result<PageReply, BridgeError> {
-        session.authorize(&session.source, &request)?;
-        let mut entries = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let PageRequest::Call {
+            nonce, operation, ..
+        } = request
+        else {
+            return Err(BridgeError::InvalidRequest);
+        };
+        if nonce != session.nonce {
+            return Err(BridgeError::StaleSession);
+        }
+        let mut entries = self.0.lock().expect("surface hub lock");
         let entry = &mut entries[session.host.surface.index()];
         if entry.host_epoch != session.host.host_epoch
             || entry.document.as_ref() != Some(session)
@@ -65,9 +73,6 @@ impl SurfaceHub {
         {
             return Err(BridgeError::StaleSession);
         }
-        let PageRequest::Call { operation, .. } = request else {
-            return Err(BridgeError::InvalidRequest);
-        };
         Ok(match operation {
             Operation::Ready {} => PageReply::State(Box::new(entry.page_ready())),
             Operation::Layout {
@@ -101,7 +106,7 @@ impl SurfaceHub {
 mod tests {
     use super::*;
     use crate::vr_overlay::surface_protocol::SurfaceView;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use std::time::Instant;
 
     const SOURCE: &str = "https://vrcs-surface.invalid/vr-surface.html?surface=reader&host_epoch=1";
@@ -214,9 +219,11 @@ mod tests {
                 Err(BridgeError::InvalidSource)
             );
         }
-        assert!(session
-            .authorize(SOURCE, &call(&session, "ready", json!({})))
-            .is_ok());
+        assert!(
+            session
+                .authorize(SOURCE, &call(&session, "ready", json!({})))
+                .is_ok()
+        );
         let mut foreign = session.clone();
         foreign.host.surface = SurfaceId::Menu;
         assert!(matches!(

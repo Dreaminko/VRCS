@@ -11,8 +11,8 @@ mod vr_overlay;
 
 use std::net::TcpListener;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -152,10 +152,11 @@ fn project_link(target: &str) -> Result<String, String> {
         }
         return Err("Invalid GitHub username".into());
     }
-    if let Ok(url) = tauri::Url::parse(target) {
-        if url.scheme() == "https" && url.host_str().is_some() {
-            return Ok(url.to_string());
-        }
+    if let Ok(url) = tauri::Url::parse(target)
+        && url.scheme() == "https"
+        && url.host_str().is_some()
+    {
+        return Ok(url.to_string());
     }
     let links: serde_json::Value =
         serde_json::from_str(include_str!("../../src/about/project-links.json"))
@@ -327,8 +328,8 @@ fn update_native_labels(
 #[cfg(windows)]
 fn apply_native_topmost(window: &tauri::WebviewWindow, enabled: bool) -> Result<(), String> {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE,
-        SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, WS_EX_TOPMOST,
+        GWL_EXSTYLE, GetWindowLongPtrW, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE,
+        SWP_NOOWNERZORDER, SWP_NOSIZE, SetWindowPos, WS_EX_TOPMOST,
     };
 
     let hwnd = window.hwnd().map_err(|error| error.to_string())?.0 as _;
@@ -468,10 +469,10 @@ pub(crate) fn prepare_for_exit(app: &tauri::AppHandle) {
     app.state::<desktop_vision::Manager>().stop();
     app.state::<vr_overlay::Manager>().stop();
     #[cfg(any(windows, linux_vr))]
-    if let Some(hosts) = app.try_state::<vr_overlay::surface::NativeHostManager>() {
-        if let Err(error) = hosts.finish_shutdown(std::time::Duration::from_secs(5)) {
-            tracing::warn!("{error}");
-        }
+    if let Some(hosts) = app.try_state::<vr_overlay::surface::NativeHostManager>()
+        && let Err(error) = hosts.finish_shutdown(std::time::Duration::from_secs(5))
+    {
+        tracing::warn!("{error}");
     }
     stop_core(app);
 }
@@ -728,7 +729,7 @@ pub fn run() {
             #[cfg(any(windows, linux_vr))]
             app.manage(vr_overlay::surface::SurfaceHub::default());
             #[cfg(any(windows, linux_vr))]
-            app.manage(vr_overlay::surface::NativeHostManager::start(app.handle().clone()).map_err(std::io::Error::other)?);
+            app.manage(vr_overlay::surface::NativeHostManager::start(app.handle().clone()));
             app.manage(desktop_ocr::Manager::new(app.handle().clone()));
             app.manage(desktop_vision::Manager::new(app.handle().clone()));
             app.manage(CoreRuntime {
@@ -777,11 +778,9 @@ pub fn run() {
         .on_page_load(|webview, payload| {
             if webview.label() == "main"
                 && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
-            {
-                if let Some(manager) = webview.app_handle().try_state::<vr_overlay::Manager>() {
+                && let Some(manager) = webview.app_handle().try_state::<vr_overlay::Manager>() {
                     manager.revoke_controls();
                 }
-            }
         })
         .on_window_event(|window, event| {
             #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
@@ -789,21 +788,19 @@ pub fn run() {
             {
                 window.app_handle().exit(0);
             }
-            if window.label() == "ocr" {
-                if let WindowEvent::CloseRequested { api, .. } = event {
+            if window.label() == "ocr"
+                && let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     window.app_handle().state::<desktop_ocr::Manager>().close();
                 }
-            }
-            if window.label() == "vision" {
-                if let WindowEvent::CloseRequested { api, .. } = event {
+            if window.label() == "vision"
+                && let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     window
                         .app_handle()
                         .state::<desktop_vision::Manager>()
                         .close();
                 }
-            }
             if window.label() == "main" {
                 if matches!(event, WindowEvent::Destroyed) {
                     window
@@ -819,17 +816,15 @@ pub fn run() {
                 ) {
                     desktop_capture::finish_shortcut_recording(window.app_handle());
                 }
-                if matches!(event, WindowEvent::Focused(false)) {
-                    if let Some(window) = window.app_handle().get_webview_window("main") {
+                if matches!(event, WindowEvent::Focused(false))
+                    && let Some(window) = window.app_handle().get_webview_window("main") {
                         reassert_compact_topmost(&window, "focus_lost");
                     }
-                }
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    if minimize_to_tray_enabled(window.app_handle()) {
+                if let WindowEvent::CloseRequested { api, .. } = event
+                    && minimize_to_tray_enabled(window.app_handle()) {
                         api.prevent_close();
                         let _ = window.hide();
                     }
-                }
             }
         })
         .build(tauri::generate_context!())
@@ -876,7 +871,7 @@ pub fn release_self_test() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{core_connection_config, project_link, DEFAULT_CORE_PORT};
+    use super::{DEFAULT_CORE_PORT, core_connection_config, project_link};
 
     const CAPABILITIES: &str = include_str!("../capabilities/default.json");
 

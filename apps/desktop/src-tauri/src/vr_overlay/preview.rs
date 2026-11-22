@@ -10,7 +10,7 @@ use super::ocr_wrist::{self, Action, LaserEvent, View, ViewMode};
 use super::placement::{Mode, Placement, Pose, Request};
 use super::presentation::{MessageSide, WristMessage};
 use super::surface_protocol::{
-    reader_action, SurfaceId, SurfaceKey, SurfaceLayout, SurfaceState, SurfaceView,
+    SurfaceId, SurfaceKey, SurfaceLayout, SurfaceState, SurfaceView, reader_action,
 };
 use super::{dialogue, player_display, transform, wrist_menu};
 use serde::{Deserialize, Serialize};
@@ -226,7 +226,7 @@ impl Preview {
     }
 
     fn info(&self) -> Info {
-        let p = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+        let p = self.placement.lock().expect("vr placement lock");
         Info {
             session: self.session,
             live: self.live,
@@ -254,7 +254,7 @@ impl Preview {
         self.dashboard.clear_pointer();
         self.placement
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .expect("vr placement lock")
             .cancel_drag();
         self.hover = None;
         self.pressed = None;
@@ -414,7 +414,7 @@ impl Preview {
                 self.cancel();
                 self.placement
                     .lock()
-                    .unwrap_or_else(|e| e.into_inner())
+                    .expect("vr placement lock")
                     .reset_tracking();
                 self.generation += 1;
                 self.menu_ui = Default::default();
@@ -451,10 +451,7 @@ impl Preview {
             },
             generation: u64::from(self.generation),
             revision: if self.panel == 2 {
-                self.placement
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .revision
+                self.placement.lock().expect("vr placement lock").revision
             } else {
                 u64::from(self.revision)
             },
@@ -488,7 +485,7 @@ impl Preview {
             && self
                 .placement
                 .lock()
-                .unwrap_or_else(|e| e.into_inner())
+                .expect("vr placement lock")
                 .dragging()
                 .is_some();
         if input.panel != self.panel
@@ -559,15 +556,13 @@ impl Preview {
                 ))
             )
             && {
-                let placement = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+                let placement = self.placement.lock().expect("vr placement lock");
                 placement.display_mode() == Mode::World && !placement.busy()
             };
         let mut output = self.router.step(&[sample], &[key]);
         let now = Instant::now();
-        if can_recenter {
-            if let Some(event) = self.router.long_press(now) {
-                output.events.push(event);
-            }
+        if can_recenter && let Some(event) = self.router.long_press(now) {
+            output.events.push(event);
         }
         let hold_progress = can_recenter
             .then(|| self.router.hold_progress(now))
@@ -591,7 +586,7 @@ impl Preview {
         }
         let controller = synthetic_controller(input);
         {
-            let mut p = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+            let mut p = self.placement.lock().expect("vr placement lock");
             if self.panel == 2 && p.dragging().is_some() {
                 p.drag(1, controller);
             }
@@ -650,7 +645,7 @@ impl Preview {
                     _ => self.pressed = None,
                 },
                 2 => {
-                    let mut p = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut p = self.placement.lock().expect("vr placement lock");
                     let request = match event.kind {
                         Kind::Grab => {
                             let panel = p.absolute_pose().unwrap_or_else(wrist_pose);
@@ -729,7 +724,7 @@ impl Preview {
         self.dirty = true;
         self.placement
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .expect("vr placement lock")
             .set_mode(
                 mode,
                 (mode == Mode::World).then(|| dialogue::in_front(head_pose())),
@@ -802,15 +797,12 @@ impl Preview {
                 self.last_action = format!("Mock: {action:?}");
             }
             Effect::Placement(request) => {
-                self.placement
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .resolve(
-                        request.id,
-                        !self.fail_save,
-                        self.fail_save
-                            .then(|| "Synthetic save failed; previous anchor restored".into()),
-                    );
+                self.placement.lock().expect("vr placement lock").resolve(
+                    request.id,
+                    !self.fail_save,
+                    self.fail_save
+                        .then(|| "Synthetic save failed; previous anchor restored".into()),
+                );
                 self.last_action = format!(
                     "Mock anchor: {:?}{}",
                     request.mode,
@@ -868,7 +860,7 @@ impl Preview {
                 self.dirty = true;
             }
         }
-        let mut placement = self.placement.lock().map_err(|e| e.to_string())?;
+        let mut placement = self.placement.lock().expect("vr placement lock");
         placement.sync_mode(Mode::from_config(&self.view.wrist.anchor_mode));
         placement.sync_follow_view(self.view.wrist.follow_view);
         Ok(())
@@ -917,7 +909,7 @@ impl Preview {
             self.view.osc.enabled = self.controls.items[2].requested;
             self.view.capture.running = self.controls.items[3].requested;
             self.view.ocr.gesture = self.controls.items[4].requested;
-            let placement = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+            let placement = self.placement.lock().expect("vr placement lock");
             self.view.wrist.anchor_mode = match placement.mode() {
                 Mode::Wrist => "wrist",
                 Mode::World => "world",
@@ -926,7 +918,7 @@ impl Preview {
             self.view.wrist.follow_view = placement.follow_view();
         }
         self.dashboard.update_view(&self.view);
-        let mut placement = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+        let mut placement = self.placement.lock().expect("vr placement lock");
         if self.tracking {
             placement.update_head(head_pose());
             placement.initialize_world(dialogue::in_front(head_pose()));
@@ -948,7 +940,7 @@ impl Preview {
                 ui: self.dashboard.ui.clone(),
             },
             2 => {
-                let p = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+                let p = self.placement.lock().expect("vr placement lock");
                 let messages = if matches!(self.scene, Scene::Empty | Scene::Expired) {
                     Vec::new()
                 } else {
@@ -976,6 +968,7 @@ impl Preview {
                     controls: self.controls.clone(),
                     messages,
                     notice: None,
+                    notice_error: false,
                     labels: Default::default(),
                     mode: p.display_mode(),
                     follow_view: p.follow_view(),
@@ -1012,6 +1005,7 @@ impl Preview {
                     }]
                 },
                 notice: None,
+                notice_error: false,
                 labels: Default::default(),
                 lines_per_language: 2,
                 font_size: 38,
@@ -1076,11 +1070,7 @@ impl Preview {
                                 if i < step {
                                     Stage::Complete
                                 } else if i == step {
-                                    if failed {
-                                        Stage::Failed
-                                    } else {
-                                        Stage::Active
-                                    }
+                                    if failed { Stage::Failed } else { Stage::Active }
                                 } else {
                                     Stage::Pending
                                 }
@@ -1111,11 +1101,7 @@ impl Preview {
         if !self.dirty {
             return Ok(());
         }
-        let placement_revision = self
-            .placement
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .revision;
+        let placement_revision = self.placement.lock().expect("vr placement lock").revision;
         let mut view = self.surface_view().ok_or("Unknown preview panel")?;
         if self
             .surface
@@ -1658,11 +1644,7 @@ fn apply_dashboard(view: &mut DashboardViewModel, action: DashboardAction) {
                 * match field {
                     super::dashboard::AppearanceField::Width => {
                         if kind == DisplayKind::Wrist {
-                            if coarse {
-                                0.05
-                            } else {
-                                0.01
-                            }
+                            if coarse { 0.05 } else { 0.01 }
                         } else if coarse {
                             0.15
                         } else {
@@ -1995,12 +1977,13 @@ mod tests {
                 disabled: true,
             },
         );
-        assert!(p
-            .players
-            .players
-            .iter()
-            .filter(|player| player.user_id == first.user_id)
-            .all(|player| player.chatbox_disabled));
+        assert!(
+            p.players
+                .players
+                .iter()
+                .filter(|player| player.user_id == first.user_id)
+                .all(|player| player.chatbox_disabled)
+        );
         assert_eq!(p.players.languages, languages);
         select(
             &mut p,
@@ -2010,12 +1993,13 @@ mod tests {
             },
         );
         assert!(p.players.players[0].hidden);
-        assert!(p
-            .players
-            .players
-            .iter()
-            .filter(|player| player.user_id == first.user_id)
-            .all(|player| player.voice_disabled && player.voice_locked));
+        assert!(
+            p.players
+                .players
+                .iter()
+                .filter(|player| player.user_id == first.user_id)
+                .all(|player| player.voice_disabled && player.voice_locked)
+        );
         select(&mut p, player_display::Action::ShowAllTracks(()));
         assert!(p.players.players.iter().all(|player| !player.hidden));
         select(&mut p, player_display::Action::SetFollowDefault(false));
@@ -2509,9 +2493,11 @@ mod tests {
         assert!(p.input(input(&p, point, 1)).unwrap().is_empty());
         assert_eq!(p.pressed, Some(17));
         let effects = p.input(input(&p, point, 0)).unwrap();
-        assert!(effects
-            .iter()
-            .any(|effect| matches!(effect, Effect::Dashboard(DashboardAction::ToggleOcr))));
+        assert!(
+            effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Dashboard(DashboardAction::ToggleOcr)))
+        );
         assert!(p.layout.is_none());
 
         p.render().unwrap();

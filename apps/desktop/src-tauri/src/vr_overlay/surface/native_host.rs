@@ -119,8 +119,8 @@ pub(crate) struct NativeHostManager {
 }
 
 impl NativeHostManager {
-    pub fn start(app: AppHandle) -> Result<Self, String> {
-        Ok(Self {
+    pub fn start(app: AppHandle) -> Self {
+        Self {
             app,
             shared: Arc::new(Shared {
                 control: Mutex::new(ControlMailbox::default()),
@@ -132,7 +132,7 @@ impl NativeHostManager {
                 counts: Mutex::new((0, 0)),
             }),
             thread: Mutex::new(None),
-        })
+        }
     }
 
     pub(super) fn ensure(&self, id: HostId) -> Result<(), String> {

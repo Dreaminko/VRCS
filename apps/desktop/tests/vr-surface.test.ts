@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { markerBits, menuStatus, newerKey, pageGeometry, sameKey } from "../src/vr-surface/protocol.ts";
+import { markerBits, menuStatus, newerKey, pageGeometry, sameKey, serialAtLeast } from "../src/vr-surface/protocol.ts";
 
 test("menu distinguishes requested settings from effective content and prioritizes failures and busy", () => {
   const item = { requested: true, effective: false, available: true, busy: false, reason: null, label: "Wrist dialogue" };
@@ -23,6 +23,11 @@ test("surface identity rejects stale generations, revisions and invalid 32-bit k
   for (const value of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, 0x100000000]) {
     assert.equal(newerKey({ generation: value, revision: 1 }, null), false);
   }
+  assert.equal(serialAtLeast(12, 12), true);
+  assert.equal(serialAtLeast(13, 12), true);
+  assert.equal(serialAtLeast(11, 12), false);
+  assert.equal(serialAtLeast(1, 0xffffffff), true);
+  assert.equal(serialAtLeast(0xffffffff, 1), false);
 });
 
 test("capture marker contains content identity and a checked visual serial in two 256px rows", () => {

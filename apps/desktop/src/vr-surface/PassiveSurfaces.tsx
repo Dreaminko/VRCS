@@ -11,9 +11,7 @@ const CAPTION_LINE_HEIGHT = 1.3;
 let cachedMeasureContext: CanvasRenderingContext2D | null | undefined;
 function canvasMeasureContext() {
   if (cachedMeasureContext === undefined) {
-    cachedMeasureContext = typeof document !== "undefined"
-      ? document.createElement("canvas").getContext("2d")
-      : null;
+    cachedMeasureContext = document.createElement("canvas").getContext("2d");
   }
   return cachedMeasureContext;
 }
@@ -122,7 +120,7 @@ export function Headset({ view }: { view: Extract<SurfaceView, { kind: "headset"
   if (!visible) return null;
   const lines = Math.min(4, Math.max(1, view.lines_per_language));
   return <section ref={root} className="vr-headset-panel vr-surface-panel" aria-live="polite">
-    {view.notice && <p className="vr-caption-notice" role="status">{view.notice}</p>}
+    {view.notice && <p className={view.notice_error ? "vr-caption-notice error" : "vr-caption-notice"} role={view.notice_error ? "alert" : "status"}>{view.notice}</p>}
     <HeadsetCaptions messages={messages} labels={view.labels} lines={lines} fontSize={Math.min(68, Math.max(16, view.font_size))} height={height} />
   </section>;
 }

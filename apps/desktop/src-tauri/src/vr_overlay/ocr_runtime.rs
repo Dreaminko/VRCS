@@ -1,11 +1,11 @@
 use super::{
     backend::{Backend, OverlayKind},
-    ocr_capture::{center_crop, CropTransform, StereoCapture},
-    ocr_input::{install_manifest, InputActions},
+    ocr_capture::{CropTransform, StereoCapture, center_crop},
+    ocr_input::{InputActions, install_manifest},
     ocr_plane::{OcrPresentation, PlaneRenderer},
     ocr_progress::{Feedback, ProgressLabels},
     ocr_selection::Selection,
-    ocr_status::{failure_code, OcrState, OcrStatus, OcrWristState},
+    ocr_status::{OcrState, OcrStatus, OcrWristState, failure_code},
     ocr_wrist::Button,
     ocr_wrist::{Action, LaserEvent, Pointer, Reader, View},
     pose::SpaceId,
@@ -19,11 +19,11 @@ use std::{
 use tauri::{AppHandle, Manager as _};
 use tokio::sync::{mpsc, watch};
 use vrcs_core::{
-    ocr::{
-        source_view, BlockUpdate, OcrImage, OcrImageData, Phase, PipelineProgress,
-        ScanConfiguration, ScanOutcome, ScanResult, ScanSummary, TranslatedBlock, VrOcrService,
-    },
     VrOcrConfig, VrOcrDisplayMode,
+    ocr::{
+        BlockUpdate, OcrImage, OcrImageData, Phase, PipelineProgress, ScanConfiguration,
+        ScanOutcome, ScanResult, ScanSummary, TranslatedBlock, VrOcrService, source_view,
+    },
 };
 
 enum Update {
@@ -471,15 +471,16 @@ impl OcrRuntime {
             self.status.wrist_state = OcrWristState::Error;
             self.status.wrist_error = Some(error);
         }
-        if self.task.is_none() && self.summary.is_some() {
-            if let Some(feedback) = &mut self.feedback {
-                let state = if self.status.timed_out {
-                    OcrState::TimedOut
-                } else {
-                    self.status.state
-                };
-                feedback.finish(state, std::time::Instant::now());
-            }
+        if self.task.is_none()
+            && self.summary.is_some()
+            && let Some(feedback) = &mut self.feedback
+        {
+            let state = if self.status.timed_out {
+                OcrState::TimedOut
+            } else {
+                self.status.state
+            };
+            feedback.finish(state, std::time::Instant::now());
         }
         if let Err(error) = self.update_feedback(app, backend, player_progress, business) {
             if self.status.progress_error.as_deref() != Some(error.as_str()) {
@@ -1016,10 +1017,8 @@ impl OcrRuntime {
             return Ok(());
         }
         backend.show(OverlayKind::OcrWrist)?;
-        if has_blocks {
-            if let Some(feedback) = &mut self.feedback {
-                feedback.displayed();
-            }
+        if has_blocks && let Some(feedback) = &mut self.feedback {
+            feedback.displayed();
         }
         self.status.wrist_state = OcrWristState::Visible;
         self.status.wrist_error = None;
@@ -1030,7 +1029,7 @@ impl OcrRuntime {
         let Some(progress) = &self.progress else {
             return;
         };
-        let mut progress = progress.lock().unwrap_or_else(|error| error.into_inner());
+        let mut progress = progress.lock().expect("ocr progress lock");
         let first_stereo_pair = self.blocks.iter().any(Vec::is_empty)
             && progress.blocks.iter().all(|blocks| !blocks.is_empty());
         if self
@@ -1317,9 +1316,7 @@ impl OcrRuntime {
                                 return;
                             }
                             completed_crops[update.eye].restore_group(&mut update.block);
-                            let mut saved = saved_blocks
-                                .lock()
-                                .unwrap_or_else(|error| error.into_inner());
+                            let mut saved = saved_blocks.lock().expect("ocr progress lock");
                             saved.apply(update);
                         },
                         move |snapshot| {
@@ -1339,7 +1336,7 @@ impl OcrRuntime {
                 Err(_) => {
                     let blocks = completed_blocks
                         .lock()
-                        .unwrap_or_else(|error| error.into_inner())
+                        .expect("ocr progress lock")
                         .blocks
                         .clone();
                     let summary =
@@ -1584,9 +1581,11 @@ mod tests {
         runtime.feedback = Some(super::Feedback::new(id, false, now));
         runtime.invalidate(&vrcs_core::VrOcrConfig::default());
         let view = runtime.feedback.as_ref().unwrap().view(now).unwrap();
-        assert!(!view
-            .stages
-            .contains(&super::super::ocr_progress::Stage::Active));
+        assert!(
+            !view
+                .stages
+                .contains(&super::super::ocr_progress::Stage::Active)
+        );
         assert!(view.status.contains("View changed"));
         runtime.clear();
         assert!(runtime.feedback.is_none());
@@ -1807,10 +1806,12 @@ mod tests {
         let capture = capture();
         let calibration = capture.calibration();
         assert_eq!(calibration.eyes[0].image.width, 2);
-        assert!(calibration
-            .eyes
-            .iter()
-            .all(|eye| eye.image.pixels.is_empty()));
+        assert!(
+            calibration
+                .eyes
+                .iter()
+                .all(|eye| eye.image.pixels.is_empty())
+        );
         assert_eq!(capture.eyes[0].image.pixels.len(), 16);
     }
 
@@ -1911,18 +1912,22 @@ mod tests {
         assert_eq!(presentation.scene.opacity, 0.4);
         assert_eq!(presentation.scene.blocks.len(), 1);
         assert_eq!(presentation.scene.blocks[0].text, "VR");
-        assert!(presentation.scene.blocks[0]
-            .quad
-            .iter()
-            .flatten()
-            .all(|v| v.is_finite() && (0.0..=1.0).contains(v)));
-        assert!(runtime
-            .result_frame(&VrOcrConfig {
-                display_mode: VrOcrDisplayMode::Wrist,
-                ..config.clone()
-            })
-            .unwrap()
-            .is_none());
+        assert!(
+            presentation.scene.blocks[0]
+                .quad
+                .iter()
+                .flatten()
+                .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+        );
+        assert!(
+            runtime
+                .result_frame(&VrOcrConfig {
+                    display_mode: VrOcrDisplayMode::Wrist,
+                    ..config.clone()
+                })
+                .unwrap()
+                .is_none()
+        );
         runtime.clear();
         assert!(runtime.result_frame(&config).unwrap().is_none());
     }
@@ -2004,12 +2009,16 @@ mod tests {
                 4,
                 "both complete groups and both single-eye results survive"
             );
-            assert!(fallback
-                .iter()
-                .any(|block| block.source.text == "eye 0 only"));
-            assert!(fallback
-                .iter()
-                .any(|block| block.source.text == "eye 1 only"));
+            assert!(
+                fallback
+                    .iter()
+                    .any(|block| block.source.text == "eye 0 only")
+            );
+            assert!(
+                fallback
+                    .iter()
+                    .any(|block| block.source.text == "eye 1 only")
+            );
             let ids: std::collections::HashSet<_> =
                 fallback.iter().map(|block| block.source.id).collect();
             assert_eq!(ids.len(), 4);

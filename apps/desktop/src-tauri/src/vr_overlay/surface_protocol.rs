@@ -123,6 +123,7 @@ pub enum SurfaceView {
         controls: ControlSnapshot,
         messages: Vec<WristMessage>,
         notice: Option<String>,
+        notice_error: bool,
         labels: super::caption_status::CaptionLabels,
         mode: Mode,
         follow_view: bool,
@@ -145,6 +146,7 @@ pub enum SurfaceView {
         dark: bool,
         messages: Vec<WristMessage>,
         notice: Option<String>,
+        notice_error: bool,
         labels: super::caption_status::CaptionLabels,
         lines_per_language: u32,
         font_size: u32,
@@ -747,10 +749,10 @@ impl DocumentSession {
         if source != self.source {
             return Err(BridgeError::InvalidSource);
         }
-        if let PageRequest::Call { nonce, .. } = request {
-            if nonce != &self.nonce {
-                return Err(BridgeError::StaleSession);
-            }
+        if let PageRequest::Call { nonce, .. } = request
+            && nonce != &self.nonce
+        {
+            return Err(BridgeError::StaleSession);
         }
         Ok(())
     }
@@ -1252,11 +1254,13 @@ mod tests {
         ] {
             assert_eq!(policy.route("GET", uri), ResourceRoute::Reject(403));
         }
-        assert!(ResourcePolicy::new(
-            Some(&tauri::Url::parse("https://example.com/").unwrap()),
-            std::iter::empty()
-        )
-        .is_err());
+        assert!(
+            ResourcePolicy::new(
+                Some(&tauri::Url::parse("https://example.com/").unwrap()),
+                std::iter::empty()
+            )
+            .is_err()
+        );
     }
 
     #[test]

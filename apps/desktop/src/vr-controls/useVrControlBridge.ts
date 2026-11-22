@@ -167,7 +167,7 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
   const settings = options.getSettings();
   const notice = epoch ? playerAudioPrompt(options.playerAudioStart.notice, now, t) : null;
   // A missing health snapshot is not a confirmed stop.
-  const chatbox = settings?.audio.output.mode !== "vrchat_players" && Boolean(settings?.vrchat_chatbox?.enabled);
+  const chatbox = settings?.audio.output.mode !== "vrchat_players" && Boolean(settings?.vrchat_chatbox.enabled);
   const requested = usesVrchatNetwork(settings) && (options.requested ?? lastAudio.current.requested);
   const status = (chatbox ? options.chatboxStatus : options.playerAudioStatus)
     ?? (lastAudio.current.chatbox === chatbox ? lastAudio.current.status : null);

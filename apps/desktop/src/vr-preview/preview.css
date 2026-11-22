@@ -19,6 +19,7 @@
 .vr-preview-react-inner { position: absolute; inset: 0 auto auto 0; transform-origin: top left; }
 .vr-preview-hint { margin: 12px 0; }
 .vr-preview-output { display: block; min-height: 50px; padding: 12px; border-radius: var(--radius-md); background: var(--surface-subtle); font-size: 12px; overflow-wrap: anywhere; }
+.vr-preview-output.is-error { border: 1px solid var(--error-border); color: var(--error); background: var(--error-soft); }
 .vr-preview-options { display: flex; flex-direction: column; gap: 14px; }
 .vr-preview-options section > * + * { margin-top: 10px; }
 .vr-preview-options label { display: block; font-size: 12px; color: var(--text-secondary); }

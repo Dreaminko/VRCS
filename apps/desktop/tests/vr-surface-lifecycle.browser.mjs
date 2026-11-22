@@ -41,6 +41,7 @@ test("surface sleep preserves reading position and visual receipts follow actual
       };
       const root = createRoot(document.getElementById('root'));
       const viewport = () => document.querySelector('[data-vr-page-viewport]');
+      const layouts = () => calls.filter(call => call.command === 'vr_surface_layout');
       const paints = () => calls.filter(call => call.command === 'vr_surface_paint');
       const serial = () => paints().at(-1)?.args.paintSerial;
       let state = { key: { generation: 3, revision: 1 }, hovered: null, pressed: null, pointer: null,
@@ -54,6 +55,7 @@ test("surface sleep preserves reading position and visual receipts follow actual
         flushSync(() => root.render(<SurfaceHost surface="reader" />));
         await settle(); publish({}); await document.fonts.ready; await settle();
         check(serial() > 0, 'Initial pixels have a visual receipt');
+        check(paints().every(call => call.args.paintSerial >= layouts().at(-1).args.paintSerial), 'Paint receipts never precede the accepted layout serial');
         check(document.querySelectorAll('.vr-surface-marker i').length === 128, 'Marker fits two rows at the minimum surface width');
         const initial = serial(); publish({ hovered: 6 }); await settle();
         check(serial() > initial, 'Hover changes pixels without changing the content key');
@@ -164,7 +166,7 @@ test("surface sleep preserves reading position and visual receipts follow actual
     assert.ok(output, "The lifecycle fixture must finish");
     const result = JSON.parse(output);
     assert.equal(result.error, undefined, result.error);
-    assert.equal(result.passed.length, 21, JSON.stringify(result));
+    assert.equal(result.passed.length, 22, JSON.stringify(result));
   } finally {
     rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }

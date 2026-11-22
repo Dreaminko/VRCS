@@ -24,8 +24,8 @@ pub(crate) use windows_wgc as frame;
 
 use crate::vr_overlay::frame_receipt::serial_at_least;
 use crate::vr_overlay::surface_protocol::{
-    reader_identity, DocumentSession, HostId, ReaderIdentity, SurfaceActivity, SurfaceEvent,
-    SurfaceId, SurfaceKey, SurfaceLayout, SurfacePointer, SurfaceScroll, SurfaceState, SurfaceView,
+    DocumentSession, HostId, ReaderIdentity, SurfaceActivity, SurfaceEvent, SurfaceId, SurfaceKey,
+    SurfaceLayout, SurfacePointer, SurfaceScroll, SurfaceState, SurfaceView, reader_identity,
 };
 use std::sync::Arc;
 use std::{
@@ -367,14 +367,12 @@ impl Entry {
             view: SurfaceView::OcrResult { scene, .. },
             ..
         }) = &self.state
-        {
-            if layout
+            && layout
                 .unplaced
                 .iter()
                 .any(|id| !scene.blocks.iter().any(|block| block.id == *id))
-            {
-                return Err("Unknown OCR overflow block".into());
-            }
+        {
+            return Err("Unknown OCR overflow block".into());
         }
         self.layout = Some(Arc::new(layout));
         Ok(true)
@@ -653,18 +651,20 @@ impl Entry {
 }
 
 pub(super) enum SubmitOutcome {
-    Committed(Option<u32>),
+    Rejected,
+    Committed(u32),
+    UploadedStale,
     Pending(PendingFrame),
 }
 
 #[cfg(all(test, windows))]
 impl SubmitOutcome {
     fn is_some(&self) -> bool {
-        matches!(self, Self::Committed(Some(_)))
+        matches!(self, Self::Committed(_))
     }
 
     fn is_none(&self) -> bool {
-        matches!(self, Self::Committed(None))
+        matches!(self, Self::Rejected | Self::UploadedStale)
     }
 }
 
@@ -680,14 +680,14 @@ pub struct SurfaceHub(Mutex<[Entry; 10]>);
 
 impl SurfaceHub {
     pub(super) fn needs_surface_maintenance(&self) -> bool {
-        let entries = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        let entries = self.0.lock().expect("surface hub lock");
         entries
             .iter()
             .any(|entry| entry.active || entry.endpoint.is_some())
     }
 
     pub(super) fn needs_fast_tick(&self) -> bool {
-        let entries = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        let entries = self.0.lock().expect("surface hub lock");
         #[cfg(windows)]
         let progress_animating = {
             let progress = &entries[SurfaceId::OcrProgress.index()];
@@ -718,7 +718,7 @@ impl SurfaceHub {
             revision: frame.revision,
         };
         let identity = {
-            let mut entries = self.0.lock().map_err(|e| e.to_string())?;
+            let mut entries = self.0.lock().expect("surface hub lock");
             let entry = &mut entries[surface.index()];
             let bounds = entry
                 .layout
@@ -730,7 +730,7 @@ impl SurfaceHub {
                 .or_else(|| (bounds != frame.bounds).then_some("capture_bounds_changed"));
             if let Some(reason) = rejection {
                 entry.reject_frame(surface, frame, reason);
-                return Ok(SubmitOutcome::Committed(None));
+                return Ok(SubmitOutcome::Rejected);
             }
             (entry.host_epoch, entry.activity_request)
         };
@@ -743,13 +743,18 @@ impl SurfaceHub {
                 bounds: frame.bounds,
             }));
         }
-        Ok(SubmitOutcome::Committed(self.commit_frame(
-            surface,
-            identity,
-            key,
-            frame.paint_serial,
-            frame.bounds,
-        )?))
+        match self.commit_frame(surface, identity, key, frame.paint_serial, frame.bounds)? {
+            Some(activity) => Ok(SubmitOutcome::Committed(activity)),
+            None => {
+                let mut entries = self.0.lock().expect("surface hub lock");
+                entries[surface.index()].reject_frame(
+                    surface,
+                    frame,
+                    "state_changed_during_upload",
+                );
+                Ok(SubmitOutcome::UploadedStale)
+            }
+        }
     }
 
     fn commit_frame(
@@ -760,7 +765,7 @@ impl SurfaceHub {
         paint_serial: u32,
         bounds: [u32; 4],
     ) -> Result<Option<u32>, frame::CaptureError> {
-        let mut entries = self.0.lock().map_err(|e| e.to_string())?;
+        let mut entries = self.0.lock().expect("surface hub lock");
         let entry = &mut entries[surface.index()];
         let committed = (entry.host_epoch, entry.activity_request) == identity
             && entry.layout.as_ref().is_some_and(|layout| {
@@ -787,7 +792,7 @@ impl SurfaceHub {
             pending.bounds,
         )?;
         if activity.is_none() {
-            let mut entries = self.0.lock().map_err(|e| e.to_string())?;
+            let mut entries = self.0.lock().expect("surface hub lock");
             entries[surface.index()].reject_frame(surface, frame, "state_changed_during_upload");
         }
         Ok(activity)
@@ -795,7 +800,7 @@ impl SurfaceHub {
 
     fn set_active(&self, app: &AppHandle, surface: SurfaceId, active: bool) -> Result<(), String> {
         let request = {
-            let mut entries = self.0.lock().map_err(|e| e.to_string())?;
+            let mut entries = self.0.lock().expect("surface hub lock");
             let entry = &mut entries[surface.index()];
             entry
                 .set_active(active, Instant::now())
@@ -814,8 +819,7 @@ impl SurfaceHub {
     }
 
     fn send(&self, app: &AppHandle, surface: SurfaceId, event: SurfaceEvent) -> Result<(), String> {
-        let host_epoch =
-            self.0.lock().unwrap_or_else(|e| e.into_inner())[surface.index()].host_epoch;
+        let host_epoch = self.0.lock().expect("surface hub lock")[surface.index()].host_epoch;
         app.state::<NativeHostManager>().send(
             HostId {
                 surface,
@@ -826,24 +830,24 @@ impl SurfaceHub {
     }
 
     pub fn generation(&self, surface: SurfaceId) -> u32 {
-        self.0.lock().unwrap_or_else(|e| e.into_inner())[surface.index()].generation
+        self.0.lock().expect("surface hub lock")[surface.index()].generation
     }
 
     pub(super) fn recovery_failed(&self, surface: SurfaceId) -> bool {
-        self.0.lock().unwrap_or_else(|e| e.into_inner())[surface.index()]
+        self.0.lock().expect("surface hub lock")[surface.index()]
             .recovery
             .phase
             == recovery::Phase::Failed
     }
 
     pub fn layout(&self, surface: SurfaceId) -> Option<Arc<SurfaceLayout>> {
-        self.0.lock().ok()?[surface.index()]
+        self.0.lock().expect("surface hub lock")[surface.index()]
             .active_layout()
             .cloned()
     }
 
     pub fn pointer_layout(&self, surface: SurfaceId) -> Option<Arc<SurfaceLayout>> {
-        self.0.lock().ok()?[surface.index()]
+        self.0.lock().expect("surface hub lock")[surface.index()]
             .pointer_layout()
             .cloned()
     }
@@ -855,7 +859,7 @@ impl SurfaceHub {
         point: Option<[f32; 2]>,
     ) -> Result<(), String> {
         let update = {
-            let mut entries = self.0.lock().map_err(|e| e.to_string())?;
+            let mut entries = self.0.lock().expect("surface hub lock");
             let entry = &mut entries[surface.index()];
             if !entry.point(point) || !entry.ready {
                 return Ok(());
@@ -880,7 +884,7 @@ impl SurfaceHub {
             return Ok(());
         }
         let update = {
-            let entries = self.0.lock().map_err(|e| e.to_string())?;
+            let entries = self.0.lock().expect("surface hub lock");
             let entry = &entries[surface.index()];
             entry.scroll_key().map(|key| SurfaceScroll { key, delta })
         };
@@ -894,7 +898,7 @@ impl SurfaceHub {
     pub(super) fn retry(&self, app: &AppHandle) {
         let mut hosts = Vec::new();
         {
-            let mut entries = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            let mut entries = self.0.lock().expect("surface hub lock");
             for (index, entry) in entries.iter_mut().enumerate() {
                 hosts.push(HostId {
                     surface: SurfaceId::ALL[index],
@@ -921,7 +925,7 @@ impl SurfaceHub {
         pressed: Option<u8>,
     ) -> Result<Option<SurfaceKey>, String> {
         let (create, update, key) = {
-            let mut entries = self.0.lock().map_err(|e| e.to_string())?;
+            let mut entries = self.0.lock().expect("surface hub lock");
             let entry = &mut entries[surface.index()];
             if matches!(
                 entry.recovery.phase,
@@ -1075,7 +1079,7 @@ impl SurfaceRenderer {
             self.pending_action = None;
             let now = Instant::now();
             let (activity_request, cold, release_host) = {
-                let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                let mut entries = hub.0.lock().expect("surface hub lock");
                 let entry = &mut entries[self.surface.index()];
                 let activity_request = entry
                     .set_active(false, now)
@@ -1101,16 +1105,16 @@ impl SurfaceRenderer {
                 }
                 (activity_request, cold, release_host)
             };
-            if let Some((epoch, activity)) = activity_request {
-                if let Err(error) = app.state::<NativeHostManager>().set_activity(
+            if let Some((epoch, activity)) = activity_request
+                && let Err(error) = app.state::<NativeHostManager>().set_activity(
                     HostId {
                         surface: self.surface,
                         host_epoch: epoch,
                     },
                     activity,
-                ) {
-                    tracing::warn!(surface = self.surface.name(), %error, "Surface sleep failed");
-                }
+                )
+            {
+                tracing::warn!(surface = self.surface.name(), %error, "Surface sleep failed");
             }
             if cold && self.capture.is_some() {
                 // Keep textures alive if OpenVR refuses to detach its reference.
@@ -1122,7 +1126,7 @@ impl SurfaceRenderer {
             }
             if release_host {
                 let old = {
-                    let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut entries = hub.0.lock().expect("surface hub lock");
                     let entry = &mut entries[self.surface.index()];
                     let old = HostId {
                         surface: self.surface,
@@ -1137,7 +1141,7 @@ impl SurfaceRenderer {
                 let _ = app.state::<NativeHostManager>().close(old);
             }
         }
-        let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut entries = hub.0.lock().expect("surface hub lock");
         let entry = &mut entries[self.surface.index()];
         let state = if !entry.active {
             if entry.endpoint.is_some() {
@@ -1209,7 +1213,7 @@ impl SurfaceRenderer {
     ) -> Result<bool, String> {
         let hub = app.state::<SurfaceHub>();
         let update = {
-            let mut entries = hub.0.lock().map_err(|e| e.to_string())?;
+            let mut entries = hub.0.lock().expect("surface hub lock");
             let entry = &mut entries[self.surface.index()];
             if !entry.active {
                 return Ok(false);
@@ -1246,7 +1250,7 @@ impl SurfaceRenderer {
 
     pub fn current_frame(&self, app: &AppHandle) -> bool {
         let hub = app.state::<SurfaceHub>();
-        let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+        let entries = hub.0.lock().expect("surface hub lock");
         self.published_key.is_some()
             && self.published_key == self.retained_key
             && self.fade_frame_ready(&entries[self.surface.index()])
@@ -1259,7 +1263,7 @@ impl SurfaceRenderer {
     pub fn hold_for_fade(&mut self, app: &AppHandle, backend: &Backend, kind: OverlayKind) -> bool {
         let ready = {
             let hub = app.state::<SurfaceHub>();
-            let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+            let entries = hub.0.lock().expect("surface hub lock");
             self.fade_frame_ready(&entries[self.surface.index()])
         };
         if !ready || !backend.has_surface_texture(kind) {
@@ -1298,7 +1302,7 @@ impl SurfaceRenderer {
                 self.advance_recovery(&hub, now);
             }
         }
-        let failed = hub.0.lock().unwrap_or_else(|e| e.into_inner())[self.surface.index()]
+        let failed = hub.0.lock().expect("surface hub lock")[self.surface.index()]
             .recovery
             .phase
             == recovery::Phase::Failed;
@@ -1311,7 +1315,7 @@ impl SurfaceRenderer {
                 self.reset();
             }
             let (id, error) = {
-                let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                let mut entries = hub.0.lock().expect("surface hub lock");
                 let entry = &mut entries[self.surface.index()];
                 entry.endpoint = None;
                 entry.document = None;
@@ -1333,7 +1337,7 @@ impl SurfaceRenderer {
         }
         if self.pending_action.is_none() && self.capture_fault.is_none() {
             let repaint = {
-                let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                let entries = hub.0.lock().expect("surface hub lock");
                 let entry = &entries[self.surface.index()];
                 !self.visible_frame
                     && entry.active
@@ -1359,7 +1363,7 @@ impl SurfaceRenderer {
                 self.advance_recovery(&hub, Instant::now());
             }
         }
-        let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+        let entries = hub.0.lock().expect("surface hub lock");
         let entry = &entries[self.surface.index()];
         let visible = self.pending_frame.is_some()
             || self.frame_visible(entry, Instant::now())
@@ -1374,7 +1378,7 @@ impl SurfaceRenderer {
         if self.pending_action.is_some() {
             return;
         }
-        let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut entries = hub.0.lock().expect("surface hub lock");
         let entry = &mut entries[self.surface.index()];
         let fault = self
             .capture_fault
@@ -1479,7 +1483,7 @@ impl SurfaceRenderer {
         match action {
             Action::RecreateHost => {
                 let id = {
-                    let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut entries = hub.0.lock().expect("surface hub lock");
                     let entry = &mut entries[self.surface.index()];
                     let id = HostId {
                         surface: self.surface,
@@ -1493,10 +1497,9 @@ impl SurfaceRenderer {
                     .map_err(|error| frame::CaptureError::new(Fault::Host, error))?;
             }
             Action::RestartCapture => {
-                let endpoint = hub.0.lock().unwrap_or_else(|e| e.into_inner())
-                    [self.surface.index()]
-                .endpoint
-                .clone();
+                let endpoint = hub.0.lock().expect("surface hub lock")[self.surface.index()]
+                    .endpoint
+                    .clone();
                 if let (Some(capture), Some(endpoint)) = (&self.capture, endpoint) {
                     capture.borrow_mut().restart_source(&endpoint.source)?;
                 }
@@ -1504,7 +1507,7 @@ impl SurfaceRenderer {
                     .map_err(|error| frame::CaptureError::new(Fault::Host, error))?;
             }
             Action::RecreateDevice => {
-                hub.0.lock().unwrap_or_else(|e| e.into_inner())[self.surface.index()].clear_frame();
+                hub.0.lock().expect("surface hub lock")[self.surface.index()].clear_frame();
                 hub.send(app, self.surface, SurfaceEvent::Repaint)
                     .map_err(|error| frame::CaptureError::new(Fault::Host, error))?;
             }
@@ -1521,7 +1524,7 @@ impl SurfaceRenderer {
     ) -> Result<bool, frame::CaptureError> {
         let hub = app.state::<SurfaceHub>();
         let (endpoint, generation) = {
-            let entries = hub.0.lock().map_err(|e| e.to_string())?;
+            let entries = hub.0.lock().expect("surface hub lock");
             let entry = &entries[self.surface.index()];
             let Some(target) = entry.capture_generation() else {
                 return Ok(false);
@@ -1539,14 +1542,14 @@ impl SurfaceRenderer {
             if self.capture.is_some() || backend.has_surface_texture(kind) {
                 self.pending_action = Some((recovery::Action::RecreateDevice, Instant::now()));
                 self.visible_frame = false;
-                let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                let mut entries = hub.0.lock().expect("surface hub lock");
                 let entry = &mut entries[self.surface.index()];
                 entry.clear_frame();
                 entry.recovery.awaiting_frame(Instant::now());
                 return Ok(false);
             }
             let (width, height) = self.surface.size();
-            let counters = hub.0.lock().map_err(|e| e.to_string())?[self.surface.index()]
+            let counters = hub.0.lock().expect("surface hub lock")[self.surface.index()]
                 .metrics
                 .capture
                 .clone();
@@ -1590,35 +1593,23 @@ impl SurfaceRenderer {
                 upload(&frame)?;
                 Ok(())
             })?;
-            match outcome {
-                SubmitOutcome::Committed(activity) => {
-                    // Protect the slot even if the document changes during the external call.
-                    capture_guard.submitted(&frame).map_err(String::from)?;
-                    if let Some(activity) = activity {
-                        self.visible_frame = true;
-                        self.retained_key = Some(key);
-                        self.retained_activity = activity;
-                        self.output_bounds = Some(receipt.bounds);
-                    } else {
-                        self.visible_frame = false;
-                    }
-                }
-                SubmitOutcome::Pending(token) => {
-                    drop(capture_guard);
-                    self.pending_frame = Some(PendingSubmission {
-                        token,
-                        capture,
-                        frame,
-                        key,
-                        receipt,
-                    });
-                    return Ok(true);
-                }
+            if let Some(token) = self.apply_submit_outcome(key, receipt.bounds, outcome, || {
+                capture_guard.submitted(&frame)
+            })? {
+                drop(capture_guard);
+                self.pending_frame = Some(PendingSubmission {
+                    token,
+                    capture,
+                    frame,
+                    key,
+                    receipt,
+                });
+                return Ok(true);
             }
         }
         let now = Instant::now();
         let (needed, requested, bounds) = {
-            let entries = hub.0.lock().map_err(|e| e.to_string())?;
+            let entries = hub.0.lock().expect("surface hub lock");
             let entry = &entries[self.surface.index()];
             let requested = self
                 .copy_due(now)
@@ -1642,17 +1633,46 @@ impl SurfaceRenderer {
         Ok(self.visible_frame)
     }
 
+    fn apply_submit_outcome(
+        &mut self,
+        key: SurfaceKey,
+        bounds: [u32; 4],
+        outcome: SubmitOutcome,
+        mark_submitted: impl FnOnce() -> Result<(), frame::CaptureError>,
+    ) -> Result<Option<PendingFrame>, frame::CaptureError> {
+        match outcome {
+            // Rejections before upload leave the previous backend texture and slot intact.
+            SubmitOutcome::Rejected => Ok(None),
+            SubmitOutcome::Committed(activity) => {
+                mark_submitted()?;
+                self.visible_frame = true;
+                self.retained_key = Some(key);
+                self.retained_activity = activity;
+                self.output_bounds = Some(bounds);
+                Ok(None)
+            }
+            SubmitOutcome::UploadedStale => {
+                // Protect the uploaded slot while keeping the prior visible frame until the newer frame arrives.
+                mark_submitted()?;
+                Ok(None)
+            }
+            SubmitOutcome::Pending(token) => Ok(Some(token)),
+        }
+    }
+
     /// Confirm or reject a frame that was uploaded before the backend presented
     /// it. OpenXR calls this after `xrEndFrame`; OpenVR has no pending frame.
     pub fn confirm_frame(&mut self, app: &AppHandle, accepted: bool) {
         let Some(pending) = self.pending_frame.take() else {
             return;
         };
+        if !accepted {
+            self.visible_frame = false;
+            return;
+        }
         let hub = app.state::<SurfaceHub>();
-        if accepted {
-            if let Ok(Some(activity)) =
-                hub.commit_pending(self.surface, pending.token, pending.receipt)
-            {
+        match hub.commit_pending(self.surface, pending.token, pending.receipt) {
+            Ok(Some(activity)) => {
                 if pending
                     .capture
                     .borrow_mut()
@@ -1663,11 +1683,17 @@ impl SurfaceRenderer {
                     self.retained_key = Some(pending.key);
                     self.retained_activity = activity;
                     self.output_bounds = Some(pending.receipt.bounds);
-                    return;
+                } else {
+                    self.visible_frame = false;
                 }
             }
+            Ok(None) => {
+                let _ = pending.capture.borrow_mut().submitted(&pending.frame);
+            }
+            Err(_) => {
+                self.visible_frame = false;
+            }
         }
-        self.visible_frame = false;
     }
 
     fn capture_needed(&mut self, entry: &Entry, now: Instant) -> bool {
@@ -1816,9 +1842,11 @@ mod tests {
             let key = entry.state.as_ref().unwrap().key;
             let mut value = layout(key);
             value.regions.clear();
-            assert!(entry
-                .accept_layout_paint(surface, value.clone(), 3)
-                .unwrap());
+            assert!(
+                entry
+                    .accept_layout_paint(surface, value.clone(), 3)
+                    .unwrap()
+            );
             assert!(entry.commit_paint(key, 3));
             assert!(renderer.capture_needed(&entry, now + Duration::from_secs(6)));
             assert!(!renderer.capture_needed(&entry, now + Duration::from_secs(7)));
@@ -1921,6 +1949,7 @@ mod tests {
             controls: ControlSnapshot::default(),
             messages: vec![],
             notice: None,
+            notice_error: false,
             labels: Default::default(),
             mode: Mode::Wrist,
             follow_view: false,
@@ -1934,9 +1963,11 @@ mod tests {
         assert!(entry.scroll_key().is_none());
         let mut dialogue_layout = layout(key);
         dialogue_layout.regions[0].menu = None;
-        assert!(entry
-            .accept_layout_paint(SurfaceId::Dialogue, dialogue_layout.clone(), 1)
-            .unwrap());
+        assert!(
+            entry
+                .accept_layout_paint(SurfaceId::Dialogue, dialogue_layout.clone(), 1)
+                .unwrap()
+        );
         assert!(entry.commit_paint(key, 1));
         assert_eq!(entry.scroll_key(), Some(key));
 
@@ -1960,9 +1991,11 @@ mod tests {
         assert!(entry.scroll_key().is_none());
         assert!(!entry.commit_paint(key, 1));
         dialogue_layout.key = selected;
-        assert!(entry
-            .accept_layout_paint(SurfaceId::Dialogue, dialogue_layout, 2)
-            .unwrap());
+        assert!(
+            entry
+                .accept_layout_paint(SurfaceId::Dialogue, dialogue_layout, 2)
+                .unwrap()
+        );
         assert!(
             entry.scroll_key().is_none(),
             "layout alone is not a displayed frame"
@@ -2074,8 +2107,8 @@ mod tests {
                 bounds: [0, 0, 1280, 1280],
             },
         };
-        assert!(hub
-            .submit_frame(surface, frame.receipt, false, || {
+        assert!(
+            hub.submit_frame(surface, frame.receipt, false, || {
                 assert!(
                     hub.0.try_lock().is_ok(),
                     "OpenVR must not hold the shared hub lock"
@@ -2083,11 +2116,12 @@ mod tests {
                 Ok(())
             })
             .unwrap()
-            .is_some());
+            .is_some()
+        );
         frame.receipt.paint_serial = 2;
         hub.0.lock().unwrap()[surface.index()].accept_paint(key, 2);
-        assert!(hub
-            .submit_frame(surface, frame.receipt, false, || {
+        assert!(
+            hub.submit_frame(surface, frame.receipt, false, || {
                 hub.0.try_lock().unwrap()[surface.index()].publish(
                     SurfaceView::OcrSelection { dark: false },
                     None,
@@ -2096,10 +2130,106 @@ mod tests {
                 Ok(())
             })
             .unwrap()
-            .is_none());
-        assert!(hub.0.lock().unwrap()[surface.index()]
-            .active_layout()
-            .is_none());
+            .is_none()
+        );
+        assert!(
+            hub.0.lock().unwrap()[surface.index()]
+                .active_layout()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn rejected_and_stale_frames_preserve_visible_frame_and_only_protect_uploaded_slots() {
+        let hub = SurfaceHub::default();
+        let surface = SurfaceId::Menu;
+        let first_key = {
+            let mut entries = hub.0.lock().unwrap();
+            let entry = &mut entries[surface.index()];
+            entry.set_active(true, Instant::now());
+            entry.publish(SurfaceView::OcrSelection { dark: true }, None, None);
+            let key = entry.state.as_ref().unwrap().key;
+            entry.accept_layout_paint(surface, layout(key), 1).unwrap();
+            key
+        };
+        let bounds = [0, 0, 1280, 1280];
+        let first_receipt = crate::vr_overlay::frame_receipt::FrameReceipt {
+            generation: first_key.generation,
+            revision: first_key.revision,
+            paint_serial: 1,
+            requested_serial: 1,
+            bounds,
+        };
+        let mut renderer = SurfaceRenderer::new(surface);
+        let outcome = hub
+            .submit_frame(surface, first_receipt, false, || Ok(()))
+            .unwrap();
+        assert!(matches!(outcome, SubmitOutcome::Committed(_)));
+        let mut submitted_calls = 0;
+        renderer
+            .apply_submit_outcome(first_key, bounds, outcome, || {
+                submitted_calls += 1;
+                Ok(())
+            })
+            .unwrap();
+        assert!(renderer.visible_frame);
+        assert_eq!(renderer.retained_key, Some(first_key));
+        assert_eq!(submitted_calls, 1);
+
+        // Publish an update; an in-flight frame from the old revision must be rejected before upload
+        // without dropping visible_frame or flipping the active texture slot.
+        let second_key = {
+            let mut entries = hub.0.lock().unwrap();
+            let entry = &mut entries[surface.index()];
+            entry.publish(SurfaceView::OcrSelection { dark: false }, None, None);
+            let key = entry.state.as_ref().unwrap().key;
+            entry.accept_layout_paint(surface, layout(key), 2).unwrap();
+            key
+        };
+        let outcome = hub
+            .submit_frame(surface, first_receipt, false, || {
+                panic!("rejected frame must not upload");
+            })
+            .unwrap();
+        assert!(matches!(outcome, SubmitOutcome::Rejected));
+        renderer
+            .apply_submit_outcome(first_key, bounds, outcome, || {
+                submitted_calls += 1;
+                Ok(())
+            })
+            .unwrap();
+        assert!(renderer.visible_frame);
+        assert_eq!(renderer.retained_key, Some(first_key));
+        assert_eq!(submitted_calls, 1);
+
+        // A frame whose state changes during upload protects its uploaded slot while keeping visible_frame.
+        let second_receipt = crate::vr_overlay::frame_receipt::FrameReceipt {
+            generation: second_key.generation,
+            revision: second_key.revision,
+            paint_serial: 2,
+            requested_serial: 2,
+            bounds,
+        };
+        let outcome = hub
+            .submit_frame(surface, second_receipt, false, || {
+                hub.0.try_lock().unwrap()[surface.index()].publish(
+                    SurfaceView::OcrSelection { dark: true },
+                    None,
+                    None,
+                );
+                Ok(())
+            })
+            .unwrap();
+        assert!(matches!(outcome, SubmitOutcome::UploadedStale));
+        renderer
+            .apply_submit_outcome(second_key, bounds, outcome, || {
+                submitted_calls += 1;
+                Ok(())
+            })
+            .unwrap();
+        assert!(renderer.visible_frame);
+        assert_eq!(renderer.retained_key, Some(first_key));
+        assert_eq!(submitted_calls, 2);
     }
 
     #[test]
@@ -2443,22 +2573,28 @@ mod tests {
             None,
         );
         let key = entry.state.as_ref().unwrap().key;
-        assert!(entry
-            .accept_layout_paint(SurfaceId::Menu, layout(key), 10)
-            .unwrap());
+        assert!(
+            entry
+                .accept_layout_paint(SurfaceId::Menu, layout(key), 10)
+                .unwrap()
+        );
         assert!(entry.commit_paint(key, 10));
         assert!(entry.active_layout().is_some());
         let mut moved = layout(key);
         moved.regions[0].bounds = [0.2, 0., 0.4, 0.2];
-        assert!(entry
-            .accept_layout_paint(SurfaceId::Menu, moved.clone(), 11)
-            .unwrap());
+        assert!(
+            entry
+                .accept_layout_paint(SurfaceId::Menu, moved.clone(), 11)
+                .unwrap()
+        );
         assert!(entry.active_layout().is_none());
         assert!(!entry.accepts_frame(key, 10, 10));
         assert!(!entry.commit_paint(key, 10));
-        assert!(!entry
-            .accept_layout_paint(SurfaceId::Menu, layout(key), 10)
-            .unwrap());
+        assert!(
+            !entry
+                .accept_layout_paint(SurfaceId::Menu, layout(key), 10)
+                .unwrap()
+        );
         assert!(entry.commit_paint(key, 11));
         assert_eq!(
             entry.active_layout().unwrap().regions[0].bounds,
@@ -2636,9 +2772,11 @@ mod tests {
         );
         let old = entry.state.as_ref().unwrap().key;
         assert!(entry.pointer_layout().is_none());
-        assert!(entry
-            .accept_layout_paint(SurfaceId::Menu, layout(old), 1)
-            .unwrap());
+        assert!(
+            entry
+                .accept_layout_paint(SurfaceId::Menu, layout(old), 1)
+                .unwrap()
+        );
         assert!(entry.commit_paint(old, 1));
         assert_eq!(entry.pointer_layout().unwrap().key, old);
         let target = entry.capture_generation().unwrap();
@@ -2662,9 +2800,11 @@ mod tests {
         assert_eq!(entry.pointer_layout().unwrap().key, old);
         assert!(!entry.accepts_frame(old, 1, 1));
 
-        assert!(entry
-            .accept_layout_paint(SurfaceId::Menu, layout(current), 2)
-            .unwrap());
+        assert!(
+            entry
+                .accept_layout_paint(SurfaceId::Menu, layout(current), 2)
+                .unwrap()
+        );
         assert_eq!(entry.capture_generation(), Some(target));
         assert!(entry.active_layout().is_none());
         assert_eq!(entry.pointer_layout().unwrap().key, old);
@@ -2792,17 +2932,23 @@ mod tests {
             unplaced: vec![9],
             capture_bounds: None,
         };
-        assert!(entry
-            .accept_layout(SurfaceId::OcrResult, value.clone())
-            .is_err());
+        assert!(
+            entry
+                .accept_layout(SurfaceId::OcrResult, value.clone())
+                .is_err()
+        );
         value.unplaced = vec![7, 7];
-        assert!(entry
-            .accept_layout(SurfaceId::OcrResult, value.clone())
-            .is_err());
+        assert!(
+            entry
+                .accept_layout(SurfaceId::OcrResult, value.clone())
+                .is_err()
+        );
         value.unplaced = vec![7];
-        assert!(entry
-            .accept_layout(SurfaceId::OcrResult, value.clone())
-            .unwrap());
+        assert!(
+            entry
+                .accept_layout(SurfaceId::OcrResult, value.clone())
+                .unwrap()
+        );
         assert!(entry.active_layout().is_none());
         assert!(entry.commit(key));
         assert_eq!(entry.active_layout().unwrap().unplaced, vec![7]);
@@ -2847,12 +2993,13 @@ mod tests {
                 bounds: [0, 0, 2048, 2048],
             },
         };
-        assert!(hub
-            .submit_frame(surface, frame.receipt, false, || panic!(
+        assert!(
+            hub.submit_frame(surface, frame.receipt, false, || panic!(
                 "stale crop uploaded"
             ))
             .unwrap()
-            .is_none());
+            .is_none()
+        );
         let frame = frame::Captured {
             receipt: crate::vr_overlay::frame_receipt::FrameReceipt {
                 bounds: [100, 200, 500, 600],
@@ -2860,30 +3007,36 @@ mod tests {
             },
             ..frame
         };
-        assert!(hub
-            .submit_frame(surface, frame.receipt, false, || Ok(()))
-            .unwrap()
-            .is_some());
+        assert!(
+            hub.submit_frame(surface, frame.receipt, false, || Ok(()))
+                .unwrap()
+                .is_some()
+        );
         let mut value = hub.0.lock().unwrap()[surface.index()]
             .layout
             .as_deref()
             .cloned()
             .unwrap();
         value.capture_bounds = Some([200, 200, 600, 600]);
-        assert!(hub
-            .submit_frame(surface, frame.receipt, false, || {
-                assert!(hub.0.lock().unwrap()[surface.index()]
-                    .accept_layout_paint(surface, value, 2)
-                    .unwrap());
+        assert!(
+            hub.submit_frame(surface, frame.receipt, false, || {
+                assert!(
+                    hub.0.lock().unwrap()[surface.index()]
+                        .accept_layout_paint(surface, value, 2)
+                        .unwrap()
+                );
                 Ok(())
             })
             .unwrap()
-            .is_none());
-        assert!(hub.0.lock().unwrap()[surface.index()]
-            .active_layout()
-            .is_none());
-        assert!(hub
-            .submit_frame(
+            .is_none()
+        );
+        assert!(
+            hub.0.lock().unwrap()[surface.index()]
+                .active_layout()
+                .is_none()
+        );
+        assert!(
+            hub.submit_frame(
                 surface,
                 crate::vr_overlay::frame_receipt::FrameReceipt {
                     paint_serial: 2,
@@ -2893,7 +3046,8 @@ mod tests {
                 || panic!("old crop accepted under the new layout")
             )
             .unwrap()
-            .is_none());
+            .is_none()
+        );
     }
 
     #[test]

@@ -3,11 +3,11 @@
 //! GTK/WebKit objects never leave the main thread. The VR worker and the Tauri
 //! commands communicate with it through a bounded command queue.
 use super::super::surface_protocol::{
-    decode_request, DocumentSession, HostId, PageRequest, ResourcePolicy, ResourceRoute,
-    SurfaceActivity, SurfaceEvent,
+    DocumentSession, HostId, PageRequest, ResourcePolicy, ResourceRoute, SurfaceActivity,
+    SurfaceEvent, decode_request,
 };
-use super::endpoint::CaptureEndpoint;
 use super::SurfaceHub;
+use super::endpoint::CaptureEndpoint;
 use crate::vr_overlay::frame_receipt::decode_marker_pixels;
 use crate::vr_overlay::surface_protocol::SurfaceId;
 use gtk::prelude::*;
@@ -79,7 +79,7 @@ impl HostSlot {
     fn push(&self, command: Command) -> Result<(), String> {
         self.queue
             .lock()
-            .map_err(|_| "Surface host queue poisoned".to_string())?
+            .expect("surface host queue lock")
             .push_back(command);
         let dispatch = self.app.clone();
         let queue = self.queue.clone();
@@ -156,10 +156,7 @@ fn pump(app: AppHandle, queue: Arc<Mutex<VecDeque<Command>>>) {
             return;
         };
         loop {
-            let command = queue
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .pop_front();
+            let command = queue.lock().expect("surface host queue lock").pop_front();
             let Some(command) = command else {
                 break;
             };
@@ -235,7 +232,7 @@ impl Dispatcher {
                     };
                     let view = {
                         let hub = self.app.state::<SurfaceHub>();
-                        let mut entries = hub.0.lock().unwrap_or_else(|error| error.into_inner());
+                        let mut entries = hub.0.lock().expect("surface hub lock");
                         let entry = &mut entries[id.surface.index()];
                         if entry.host_epoch == id.host_epoch
                             && entry.activity_request == activity.request
@@ -268,7 +265,7 @@ impl Dispatcher {
         }
         {
             let hub = self.app.state::<SurfaceHub>();
-            let mut entries = hub.0.lock().unwrap_or_else(|error| error.into_inner());
+            let mut entries = hub.0.lock().expect("surface hub lock");
             let entry = &mut entries[id.surface.index()];
             if entry.host_epoch != id.host_epoch || !entry.active {
                 if entry.host_epoch == id.host_epoch {
@@ -281,7 +278,7 @@ impl Dispatcher {
             Ok((host, slot)) => {
                 self.hosts.insert((id.surface, id.host_epoch), host);
                 let hub = self.app.state::<SurfaceHub>();
-                let mut entries = hub.0.lock().unwrap_or_else(|error| error.into_inner());
+                let mut entries = hub.0.lock().expect("surface hub lock");
                 let entry = &mut entries[id.surface.index()];
                 if entry.host_epoch == id.host_epoch && entry.active {
                     entry.endpoint = Some(CaptureEndpoint {
@@ -649,7 +646,7 @@ fn post_event(web: &webkit2gtk::WebView, session: &DocumentSession, event: Surfa
 
 fn host_error(app: &AppHandle, id: HostId, error: String) {
     let hub = app.state::<SurfaceHub>();
-    let mut entries = hub.0.lock().unwrap_or_else(|error| error.into_inner());
+    let mut entries = hub.0.lock().expect("surface hub lock");
     let entry = &mut entries[id.surface.index()];
     if entry.host_epoch != id.host_epoch || entry.error.as_ref() == Some(&error) {
         return;
@@ -833,17 +830,17 @@ pub(crate) struct NativeHostManager {
 }
 
 impl NativeHostManager {
-    pub fn start(app: AppHandle) -> Result<Self, String> {
-        Ok(Self {
+    pub fn start(app: AppHandle) -> Self {
+        Self {
             app,
             queue: Arc::new(Mutex::new(VecDeque::new())),
-        })
+        }
     }
 
     pub(super) fn ensure(&self, id: HostId) -> Result<(), String> {
         {
             let hub = self.app.state::<SurfaceHub>();
-            let entries = hub.0.lock().unwrap_or_else(|error| error.into_inner());
+            let entries = hub.0.lock().expect("surface hub lock");
             let entry = &entries[id.surface.index()];
             if entry.host_epoch != id.host_epoch || !entry.active {
                 return Ok(());
@@ -858,7 +855,7 @@ impl NativeHostManager {
             .state::<SurfaceHub>()
             .0
             .lock()
-            .unwrap_or_else(|error| error.into_inner())[id.surface.index()]
+            .expect("surface hub lock")[id.surface.index()]
         .document
         .clone();
         let Some(session) = session.filter(|session| session.host == id) else {
@@ -886,7 +883,7 @@ impl NativeHostManager {
     fn push(&self, command: Command) -> Result<(), String> {
         self.queue
             .lock()
-            .map_err(|_| "Surface host queue poisoned".to_string())?
+            .expect("surface host queue lock")
             .push_back(command);
         let dispatch = self.app.clone();
         let queue = self.queue.clone();

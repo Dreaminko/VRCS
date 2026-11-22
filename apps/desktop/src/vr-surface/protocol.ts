@@ -40,9 +40,9 @@ export interface CaptionLabels { me: string; other: string }
 
 export type SurfaceView =
   | { kind: "menu"; controls: ControlSnapshot; players?: PlayerDisplayView; ui?: WristMenuUi; hold_progress?: number | null }
-  | ({ kind: "dialogue"; controls: ControlSnapshot; messages: CaptionMessage[]; notice?: string | null; labels?: CaptionLabels; mode: "wrist" | "world"; follow_view: boolean; busy: boolean; error: string | null; font_size: number; opacity: number } & CaptionSelection)
+  | ({ kind: "dialogue"; controls: ControlSnapshot; messages: CaptionMessage[]; notice?: string | null; notice_error?: boolean; labels?: CaptionLabels; mode: "wrist" | "world"; follow_view: boolean; busy: boolean; error: string | null; font_size: number; opacity: number } & CaptionSelection)
   | { kind: "reader"; dark: boolean; labels: Record<string, string>; reader: ReaderView; font_size: number; opacity: number }
-  | ({ kind: "headset"; dark: boolean; messages: CaptionMessage[]; notice?: string | null; labels?: CaptionLabels; lines_per_language: number; font_size: number; opacity: number } & CaptionSelection)
+  | ({ kind: "headset"; dark: boolean; messages: CaptionMessage[]; notice?: string | null; notice_error?: boolean; labels?: CaptionLabels; lines_per_language: number; font_size: number; opacity: number } & CaptionSelection)
   | { kind: "ocr_progress"; dark: boolean; progress: ProgressView | null }
   | { kind: "player_audio"; dark: boolean; notice: PlayerAudioPrompt }
   | { kind: "dashboard"; dark: boolean; dashboard: VrDashboardViewModel; ui: DashboardUi }
@@ -104,6 +104,10 @@ export function menuStatus(item: ControlItem, labels: Record<string, string>) {
 
 export function sameKey(a: SurfaceKey | null, b: SurfaceKey): boolean {
   return a?.generation === b.generation && a.revision === b.revision;
+}
+
+export function serialAtLeast(value: number, previous: number): boolean {
+  return ((value - previous) >>> 0) < 0x80000000;
 }
 
 export function newerKey(next: SurfaceKey, current: SurfaceKey | null): boolean {

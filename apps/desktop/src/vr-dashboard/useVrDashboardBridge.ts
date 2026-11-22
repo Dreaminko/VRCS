@@ -114,14 +114,16 @@ export function useVrDashboardBridge(
         if (version !== saveVersionRef.current) return;
         settingsRef.current = saved;
         setSaveState("saved");
-      } catch {
+      } catch (reason) {
+        console.warn("Failed to save VR dashboard action", reason);
         if (version !== saveVersionRef.current) return;
         setSaveState("error");
         setSaveError(t("settings.vrDashboard.saveFailed"));
       }
     };
     void listenVrDashboardActions((action) => {
-      void handleAction(action).catch(() => {
+      void handleAction(action).catch((reason) => {
+        console.warn("VR dashboard action handler failed", reason);
         setSaveState("error");
         setSaveError(t("settings.vrDashboard.actionFailed"));
       });

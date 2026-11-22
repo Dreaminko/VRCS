@@ -124,7 +124,7 @@ function Dialogue({ state, view }: { state: SurfaceState; view: Extract<SurfaceV
       <SurfaceButton state={state} id={2} label={labels.anchorWorld || "World"} active={view.mode === "world"} disabled={view.busy}><Pin /></SurfaceButton>
     </nav>
     <section className="vr-dialogue-body vr-surface-panel" data-vr-panel>
-      {view.notice && <p className="vr-caption-notice" role="status">{view.notice}</p>}
+      {view.notice && <p className={view.notice_error ? "vr-caption-notice error" : "vr-caption-notice"} role={view.notice_error ? "alert" : "status"}>{view.notice}</p>}
       <div ref={viewport} className="vr-dialogue-viewport" data-vr-page-viewport onScroll={(event) => {
         const element = event.currentTarget;
         following.current = element.scrollHeight - element.clientHeight - element.scrollTop <= 2;
@@ -162,9 +162,10 @@ function Reader({ state, view }: { state: SurfaceState; view: Extract<SurfaceVie
   const label = (key: string) => view.labels[key] || key;
   const vision = reader.mode === "vision";
   const busy = vision && ["listening", "finalizing", "requesting"].includes(reader.status);
-  const error = vision && reader.status === "visionError";
+  const visionError = vision && reader.status === "visionError";
+  const error = visionError || (!vision && ["error", "translation_failed", "timed_out"].includes(reader.status));
   const translation = busy ? label(reader.status === "listening" ? "listeningHint" : "requestingHint")
-    : error ? `${label("retryHint")}\n\n${reader.translation}` : reader.translation;
+    : visionError ? `${label("retryHint")}\n\n${reader.translation}` : reader.translation;
   const LoadedVisionMarkdown = visionMarkdownComponent;
   return <section className="vr-reader-panel vr-surface-panel" data-vr-panel>
     <header className="vr-reader-header">
@@ -178,7 +179,7 @@ function Reader({ state, view }: { state: SurfaceState; view: Extract<SurfaceVie
           <h2>{label(vision ? "question" : "source")}</h2><p className="vr-reader-plain">{reader.source}</p>
         </section>}
         {!reader.source_only && translation && <section className={`vr-reader-card${error ? " error" : ""}`}>
-          <h2>{label(error ? "visionError" : reader.translation_label || "answer")}</h2>
+          {!visionError && <h2>{label(reader.translation_label || "answer")}</h2>}
           {vision && reader.status === "complete"
             ? LoadedVisionMarkdown
               ? <VrVisionAnswerMarkdown Component={LoadedVisionMarkdown}>{translation}</VrVisionAnswerMarkdown>

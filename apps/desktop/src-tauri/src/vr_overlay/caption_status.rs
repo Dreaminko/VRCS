@@ -45,6 +45,13 @@ impl CaptionStatus {
             .filter(|_| self.expires.is_none_or(|expires| now < expires))
             .map(|notice| notice.text.clone())
     }
+
+    pub fn is_error(&self, now: Instant) -> bool {
+        self.notice
+            .as_ref()
+            .filter(|_| self.expires.is_none_or(|expires| now < expires))
+            .is_some_and(|notice| notice.key == "failed")
+    }
 }
 
 #[cfg(test)]

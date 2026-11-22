@@ -2,13 +2,13 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { subscribeLanguageDetector } from "../subtitles/player-history";
 import { connectSurfaceBridge, type SurfaceBridge } from "./bridge";
 import { preloadVisionMarkdown, VrSurface } from "./VrSurface";
-import { markerBits, newerKey, sameKey, type Surface, type SurfaceActivity, type SurfaceKey, type SurfaceLayout, type SurfacePointerState, type SurfaceScrollState, type SurfaceState } from "./protocol";
+import { markerBits, newerKey, sameKey, serialAtLeast, type Surface, type SurfaceActivity, type SurfaceKey, type SurfaceLayout, type SurfacePointerState, type SurfaceScrollState, type SurfaceState } from "./protocol";
 
 export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surface: Surface; connect?: (surface: Surface, signal: AbortSignal) => Promise<SurfaceBridge> }) {
   const connection = useRef<SurfaceBridge | null>(null);
   const root = useRef<HTMLElement>(null);
   const [state, setState] = useState<SurfaceState | null>(null);
-  const [measured, setMeasured] = useState<SurfaceKey | null>(null);
+  const [measured, setMeasured] = useState<{ key: SurfaceKey; serial: number } | null>(null);
   const current = useRef<SurfaceKey | null>(null);
   const scrollKey = useRef<SurfaceKey | null>(null);
   const pendingScroll = useRef<{ viewport: HTMLElement; top: number } | null>(null);
@@ -51,7 +51,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
         pendingPointer.current = null;
         if (next) {
           const merged = pointer && sameKey(next.key, pointer.key) ? { ...next, pointer: pointer.point } : next;
-          setMeasured(previous => sameKey(previous, merged.key) ? previous : null);
+          setMeasured(previous => sameKey(previous?.key ?? null, merged.key) ? previous : null);
           setState(previous => {
             if (!previous || !sameKey(previous.key, merged.key)) return merged;
             const view = merged.view.kind === "menu" && previous.view.kind === "menu" && merged.view.hold_progress !== previous.view.hold_progress
@@ -164,9 +164,13 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
     const request = ++layoutRequest.current;
     const paintSerial = markPaint();
     void connection.current?.layout(layout, paintSerial).then((accepted) => {
-      if (mounted.current && request === layoutRequest.current && sameKey(current.current, layout.key)) setMeasured(accepted ? layout.key : null);
+      if (mounted.current && request === layoutRequest.current && sameKey(current.current, layout.key)) {
+        setMeasured(accepted ? { key: layout.key, serial: paintSerial } : null);
+      }
     }).catch((error) => { if (mounted.current) console.error("VR surface layout failed", error); });
   }, [surface, markPaint]);
+
+  const markerReady = !!state && !!measured && sameKey(measured.key, state.key) && serialAtLeast(paintSerial, measured.serial);
 
   useLayoutEffect(() => {
     if (!state || sameKey(restored.current, state.key)) return;
@@ -179,12 +183,12 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   }, [state, markPaint]);
 
   useLayoutEffect(() => {
-    if (!active || !activity.current.active || !state || !sameKey(measured, state.key)) return;
+    if (!active || !activity.current.active || !state || !markerReady) return;
     // Notify the committed marker even if newer input has queued another frame.
     // WGC verifies the same-frame marker before accepting captured pixels.
     void connection.current?.paint(state.key, paintSerial)
       .catch(error => console.error("VR surface paint request failed", error));
-  }, [active, state?.key, measured, paintSerial, surface]);
+  }, [active, state?.key, markerReady, paintSerial, surface]);
 
   useEffect(() => {
     const changed = () => { markPaint(); };
@@ -200,7 +204,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
 
   return <main ref={root} className="vr-surface-host" data-active={active}>
     {state && <VrSurface state={state} onLayout={onLayout} />}
-    {state && sameKey(measured, state.key) && <div className="vr-surface-marker" aria-hidden="true">
+    {markerReady && <div className="vr-surface-marker" aria-hidden="true">
       {markerBits(state.key, paintSerial).map((bit, index) => <i key={index} style={{ background: bit ? "#ffffff" : "#000000" }} />)}
     </div>}
   </main>;

@@ -36,7 +36,7 @@ interface CachedPlayerLists {
 function playerDisplayState(workspace: AppWorkspace, optimistic = false, cached?: CachedPlayerLists) {
   const confirmed = workspace.settings.getCurrent();
   const settings = optimistic
-    ? workspace.settings.getOptimistic() ?? workspace.settings.value ?? confirmed
+    ? workspace.settings.getOptimistic() ?? workspace.settings.value
     : confirmed;
   const playerMode = settings?.audio.output.mode === "vrchat_players";
   const playerAudioAvailable = workspace.runtime.capabilities.core?.audio.player_audio.available === true;
@@ -82,8 +82,7 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
   const { t, i18n } = useTranslation();
   const active = Boolean(epoch && isTauri());
   const locale = i18n.resolvedLanguage ?? "en-US";
-  const confirmedSettings = workspace.settings.getCurrent();
-  const activeSettings = workspace.settings.getOptimistic() ?? workspace.settings.value ?? confirmedSettings;
+  const activeSettings = workspace.settings.getOptimistic() ?? workspace.settings.value;
   const playerMode = activeSettings?.audio.output.mode === "vrchat_players";
   const playerAudioAvailable = workspace.runtime.capabilities.core?.audio.player_audio.available === true;
   const names = activeSettings?.audio.output.player_audio?.selected_user_names ?? EMPTY_NAMES;

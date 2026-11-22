@@ -168,7 +168,7 @@ export function VrPreview() {
           </div>}
         </div>
         <p className="vr-preview-hint">左键 = Trigger；滚轮滚动对话 / OCR / 问答内容；右键抓取字幕把手，滚轮调深度，释放后固定；Esc 取消。先移入再按下。</p>
-        <output className="vr-preview-output" aria-live="polite">{error || info?.last_action || "正在连接预览窗口…"}</output>
+        <output className={error ? "vr-preview-output is-error" : "vr-preview-output"} role={error ? "alert" : "status"} aria-live="polite">{error || info?.last_action || "正在连接预览窗口…"}</output>
       </section>
       <aside className="vr-preview-options">
         <section><h2>显示</h2>

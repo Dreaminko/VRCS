@@ -25,7 +25,7 @@ use super::presentation::PresentationFrame;
 use super::presentation::{HeadsetPresentation, WristPresentation};
 #[cfg(any(windows, linux_vr))]
 use super::presentation::{MessageSide, PresentationContent, WristMessage};
-use super::process::{openvr_server_pid, OpenVrSession};
+use super::process::{OpenVrSession, openvr_server_pid};
 
 pub const STATUS_EVENT: &str = "vr-overlay-status-changed";
 const UPDATE_INTERVAL: Duration = Duration::from_millis(50);
@@ -60,12 +60,11 @@ pub(super) fn dispatch_control(
         .lock()
         .ok()
         .and_then(|mut hub| hub.begin(source, action));
-    if let Some(request) = request {
-        if let Err(error) = app.emit_to("main", super::control_protocol::REQUEST_EVENT, &request) {
-            if let Ok(mut hub) = controls.lock() {
-                hub.finish(&request, Some(error.to_string()));
-            }
-        }
+    if let Some(request) = request
+        && let Err(error) = app.emit_to("main", super::control_protocol::REQUEST_EVENT, &request)
+        && let Ok(mut hub) = controls.lock()
+    {
+        hub.finish(&request, Some(error.to_string()));
     }
 }
 
@@ -81,12 +80,11 @@ pub(super) fn dispatch_player_display(
         .lock()
         .ok()
         .and_then(|mut hub| hub.begin_player_display(source, expected, action));
-    if let Some(request) = request {
-        if let Err(error) = app.emit_to("main", super::player_display::REQUEST_EVENT, &request) {
-            if let Ok(mut hub) = controls.lock() {
-                hub.finish_player_display(&request, Some(error.to_string()));
-            }
-        }
+    if let Some(request) = request
+        && let Err(error) = app.emit_to("main", super::player_display::REQUEST_EVENT, &request)
+        && let Ok(mut hub) = controls.lock()
+    {
+        hub.finish_player_display(&request, Some(error.to_string()));
     }
 }
 
@@ -483,11 +481,23 @@ impl Manager {
 
 fn wake_worker_thread(wakeup: &AtomicBool, worker_thread: &Mutex<Option<std::thread::Thread>>) {
     wakeup.store(true, Ordering::Release);
-    if let Ok(guard) = worker_thread.lock() {
-        if let Some(thread) = guard.as_ref() {
-            thread.unpark();
-        }
+    if let Ok(guard) = worker_thread.lock()
+        && let Some(thread) = guard.as_ref()
+    {
+        thread.unpark();
     }
+}
+
+#[cfg(any(windows, linux_vr))]
+fn active_caption_notice(state: &WorkerState, now: Instant) -> (Option<String>, bool) {
+    #[cfg(windows)]
+    if state.player_progress.is_some() {
+        return (None, false);
+    }
+    (
+        state.caption_status.text(now),
+        state.caption_status.is_error(now),
+    )
 }
 
 #[cfg(any(windows, linux_vr))]
@@ -499,6 +509,7 @@ struct HeadsetPublishCache {
     dark: bool,
     draft: Option<String>,
     notice: Option<String>,
+    notice_error: bool,
     frame_opacity: Option<f32>,
     next_change: Option<Instant>,
 }
@@ -511,6 +522,7 @@ struct DialoguePublishCache {
     controls_version: u64,
     sample: bool,
     notice: Option<String>,
+    notice_error: bool,
     mode: Mode,
     follow_view: bool,
     busy: bool,
@@ -716,18 +728,18 @@ fn evaluate_probe(
                 };
             }
             let pid = openvr_server_pid(true);
-            if let Some((bad_pid, reason)) = incompatible_openvr {
-                if pid == Some(bad_pid) {
-                    return ProbeSnapshot {
-                        selected_backend: Some(BackendKind::OpenVr),
-                        runtime_installed: true,
-                        hmd_present: false,
-                        openvr_pid: pid,
-                        ready_to_connect: false,
-                        incompatibility_detail: Some(reason.to_owned()),
-                        clear_incompatible_openvr: false,
-                    };
-                }
+            if let Some((bad_pid, reason)) = incompatible_openvr
+                && pid == Some(bad_pid)
+            {
+                return ProbeSnapshot {
+                    selected_backend: Some(BackendKind::OpenVr),
+                    runtime_installed: true,
+                    hmd_present: false,
+                    openvr_pid: pid,
+                    ready_to_connect: false,
+                    incompatibility_detail: Some(reason.to_owned()),
+                    clear_incompatible_openvr: false,
+                };
             }
             let server_ready = openvr_can_connect(pid);
             let hmd = server_ready && openvr_hmd_present();
@@ -757,18 +769,18 @@ fn evaluate_probe(
             let ovr_installed = openvr_installed();
             if ovr_installed {
                 let pid = openvr_server_pid(false);
-                if let Some((bad_pid, reason)) = incompatible_openvr {
-                    if pid == Some(bad_pid) {
-                        return ProbeSnapshot {
-                            selected_backend: Some(BackendKind::OpenVr),
-                            runtime_installed: true,
-                            hmd_present: false,
-                            openvr_pid: pid,
-                            ready_to_connect: false,
-                            incompatibility_detail: Some(reason.to_owned()),
-                            clear_incompatible_openvr: false,
-                        };
-                    }
+                if let Some((bad_pid, reason)) = incompatible_openvr
+                    && pid == Some(bad_pid)
+                {
+                    return ProbeSnapshot {
+                        selected_backend: Some(BackendKind::OpenVr),
+                        runtime_installed: true,
+                        hmd_present: false,
+                        openvr_pid: pid,
+                        ready_to_connect: false,
+                        incompatibility_detail: Some(reason.to_owned()),
+                        clear_incompatible_openvr: false,
+                    };
                 }
                 let server_ready = openvr_can_connect(pid);
                 let ovr_hmd = server_ready && openvr_hmd_present();
@@ -1119,18 +1131,18 @@ fn worker_loop(
             #[cfg(any(windows, linux_vr))]
             let mut wake = next_tick;
             #[cfg(any(windows, linux_vr))]
-            if state.ui.pointer_fast_tick() || state.player_audio.active() {
-                if let Some(backend) = state.backend.as_mut() {
-                    if started >= next_pointer {
-                        if state.player_audio.active() {
-                            state.player_audio.update_pointer(&app, backend);
-                        } else {
-                            state.ui.update_pointer(&app, backend);
-                        }
-                        next_pointer = Instant::now() + backend.cursor_interval();
+            if (state.ui.pointer_fast_tick() || state.player_audio.active())
+                && let Some(backend) = state.backend.as_mut()
+            {
+                if started >= next_pointer {
+                    if state.player_audio.active() {
+                        state.player_audio.update_pointer(&app, backend);
+                    } else {
+                        state.ui.update_pointer(&app, backend);
                     }
-                    wake = wake.min(next_pointer);
+                    next_pointer = Instant::now() + backend.cursor_interval();
                 }
+                wake = wake.min(next_pointer);
             }
             if let Some(delay) = wake.checked_duration_since(Instant::now()) {
                 std::thread::park_timeout(delay);
@@ -1147,93 +1159,92 @@ fn worker_loop(
         #[cfg(any(windows, linux_vr))]
         let mut placement_mode = None;
         if business {
-            if let Ok(mut pending) = latest_config.lock() {
-                if let Some((config, ocr_config)) = pending.take() {
-                    #[cfg(any(windows, linux_vr))]
-                    if state.config != config {
-                        state.config_revision = state.config_revision.wrapping_add(1);
-                    }
-                    #[cfg(any(windows, linux_vr))]
-                    if state.config.wrist != config.wrist
-                        || state.config.translation_display != config.translation_display
-                    {
-                        state.dialogue_policy += 1;
-                    }
-                    #[cfg(windows)]
-                    if state.ocr_config != ocr_config && !state.ocr.vision.visible() {
-                        state.ocr.clear();
-                    }
-                    state.wrist.set_max_entries(config.wrist.max_entries);
-                    state.headset.set_show_partials(
-                        config.headset.show_partials || config.headset.show_translation_partials,
-                    );
-                    state.wrist.set_show_partials(
-                        config.wrist.show_partials || config.wrist.show_translation_partials,
-                    );
-                    if !config.enabled || !config.headset.enabled {
-                        state.headset_sample = false;
-                    }
-                    if !config.enabled || !config.wrist.enabled {
-                        state.wrist_sample = false;
-                    }
-                    let backend_changed = state.config.backend != config.backend;
-                    state.config = config;
-                    if backend_changed {
-                        if let Some(mut backend) = state.backend.take() {
-                            backend.hide_all();
-                        }
-                        #[cfg(any(windows, linux_vr))]
-                        state.reset_ui();
-                        state.reset_headset();
-                        state.reset_dashboard();
-                        state.next_reconnect = Instant::now();
-                        state.next_probe = Instant::now();
-                        state.probe_ready = false;
-                        state.probe_incompatibility = None;
-                        state.incompatible_openvr = None;
-                        state.xr_session_ready = false;
-                        state.xr_stall_count = 0;
-                        state.last_connect_error = None;
-                        status.reconnect_attempt = 0;
-                        status.last_error_detail = None;
-                        state.selected_backend = None;
-                    }
-                    state.ocr_config = ocr_config;
+            if let Ok(mut pending) = latest_config.lock()
+                && let Some((config, ocr_config)) = pending.take()
+            {
+                #[cfg(any(windows, linux_vr))]
+                if state.config != config {
+                    state.config_revision = state.config_revision.wrapping_add(1);
                 }
+                #[cfg(any(windows, linux_vr))]
+                if state.config.wrist != config.wrist
+                    || state.config.translation_display != config.translation_display
+                {
+                    state.dialogue_policy += 1;
+                }
+                #[cfg(windows)]
+                if state.ocr_config != ocr_config && !state.ocr.vision.visible() {
+                    state.ocr.clear();
+                }
+                state.wrist.set_max_entries(config.wrist.max_entries);
+                state.headset.set_show_partials(
+                    config.headset.show_partials || config.headset.show_translation_partials,
+                );
+                state.wrist.set_show_partials(
+                    config.wrist.show_partials || config.wrist.show_translation_partials,
+                );
+                if !config.enabled || !config.headset.enabled {
+                    state.headset_sample = false;
+                }
+                if !config.enabled || !config.wrist.enabled {
+                    state.wrist_sample = false;
+                }
+                let backend_changed = state.config.backend != config.backend;
+                state.config = config;
+                if backend_changed {
+                    if let Some(mut backend) = state.backend.take() {
+                        backend.hide_all();
+                    }
+                    #[cfg(any(windows, linux_vr))]
+                    state.reset_ui();
+                    state.reset_headset();
+                    state.reset_dashboard();
+                    state.next_reconnect = Instant::now();
+                    state.next_probe = Instant::now();
+                    state.probe_ready = false;
+                    state.probe_incompatibility = None;
+                    state.incompatible_openvr = None;
+                    state.xr_session_ready = false;
+                    state.xr_stall_count = 0;
+                    state.last_connect_error = None;
+                    status.reconnect_attempt = 0;
+                    status.last_error_detail = None;
+                    state.selected_backend = None;
+                }
+                state.ocr_config = ocr_config;
             }
-            if let Ok(mut pending) = latest_dashboard.lock() {
-                if let Some(view) = pending.take() {
-                    if state.dashboard_view.as_ref() != Some(&view) {
-                        #[cfg(any(windows, linux_vr))]
-                        if state.dashboard_view.as_ref().is_none_or(|previous| {
-                            previous.caption_visibility != view.caption_visibility
-                                || previous.max_visible_players != view.max_visible_players
-                        }) {
-                            state.dialogue_policy += 1;
-                        }
-                        #[cfg(any(windows, linux_vr))]
-                        if state.dashboard_view.as_ref().is_none_or(|previous| {
-                            previous.caption_visibility != view.caption_visibility
-                                || previous.max_visible_players != view.max_visible_players
-                                || previous.labels.captions != view.labels.captions
-                        }) {
-                            state.dashboard_caption_revision =
-                                state.dashboard_caption_revision.wrapping_add(1);
-                        }
-                        #[cfg(windows)]
-                        {
-                            state.ocr.progress_labels = view.labels.ocr_progress.clone();
-                            state
-                                .ocr
-                                .set_reader_labels(view.labels.wrist_reader.clone());
-                        }
-                        state
-                            .caption_status
-                            .update(view.caption_notice.clone(), Instant::now());
-                        state.dashboard.update_view(&view);
-                        state.dashboard_view = Some(view);
-                    }
+            if let Ok(mut pending) = latest_dashboard.lock()
+                && let Some(view) = pending.take()
+                && state.dashboard_view.as_ref() != Some(&view)
+            {
+                #[cfg(any(windows, linux_vr))]
+                if state.dashboard_view.as_ref().is_none_or(|previous| {
+                    previous.caption_visibility != view.caption_visibility
+                        || previous.max_visible_players != view.max_visible_players
+                }) {
+                    state.dialogue_policy += 1;
                 }
+                #[cfg(any(windows, linux_vr))]
+                if state.dashboard_view.as_ref().is_none_or(|previous| {
+                    previous.caption_visibility != view.caption_visibility
+                        || previous.max_visible_players != view.max_visible_players
+                        || previous.labels.captions != view.labels.captions
+                }) {
+                    state.dashboard_caption_revision =
+                        state.dashboard_caption_revision.wrapping_add(1);
+                }
+                #[cfg(windows)]
+                {
+                    state.ocr.progress_labels = view.labels.ocr_progress.clone();
+                    state
+                        .ocr
+                        .set_reader_labels(view.labels.wrist_reader.clone());
+                }
+                state
+                    .caption_status
+                    .update(view.caption_notice.clone(), Instant::now());
+                state.dashboard.update_view(&view);
+                state.dashboard_view = Some(view);
             }
             if let Ok(mut pending) = pending_control.lock() {
                 let control = std::mem::take(&mut *pending);
@@ -1294,10 +1305,10 @@ fn worker_loop(
 
         let available = features.borrow().vr_overlay;
         #[cfg(any(windows, linux_vr))]
-        if let Some(mode) = placement_mode {
-            if let Some(backend) = state.backend.as_ref() {
-                state.ui.place(&app, backend, &state.controls, mode);
-            }
+        if let Some(mode) = placement_mode
+            && let Some(backend) = state.backend.as_ref()
+        {
+            state.ui.place(&app, backend, &state.controls, mode);
         }
         // The panic hook records details; keep the worker alive and reconnect.
         let ticked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1624,10 +1635,8 @@ fn tick(
         };
         match Backend::connect(preference) {
             Ok(backend) => {
-                if !openxr {
-                    if let Some(pid) = pid {
-                        state.session.connected(pid);
-                    }
+                if !openxr && let Some(pid) = pid {
+                    state.session.connected(pid);
                 }
                 let kind = backend.kind();
                 state.selected_backend = Some(kind);
@@ -1679,10 +1688,8 @@ fn tick(
                         );
                         state.last_connect_error = Some(error.clone());
                     }
-                    if !openxr {
-                        if let Some(pid) = pid {
-                            state.incompatible_openvr = Some((pid, error.clone()));
-                        }
+                    if !openxr && let Some(pid) = pid {
+                        state.incompatible_openvr = Some((pid, error.clone()));
                     }
                     state.xr_stall_count = 0;
                     state.probe_incompatibility = Some(error.clone());
@@ -1778,7 +1785,7 @@ fn tick(
                     && !state
                         .wrist
                         .idle_expired(Instant::now(), &state.config.wrist)
-                || state.caption_status.text(Instant::now()).is_some(),
+                || active_caption_notice(state, Instant::now()).0.is_some(),
             dialogue_retention: dialogue_retention(state),
         };
         let (events, focused) =
@@ -1814,7 +1821,7 @@ fn tick(
                     && !state
                         .wrist
                         .idle_expired(Instant::now(), &state.config.wrist)
-                || state.caption_status.text(Instant::now()).is_some(),
+                || active_caption_notice(state, Instant::now()).0.is_some(),
             dialogue_retention: dialogue_retention(state),
         };
         let _ = state
@@ -1930,8 +1937,10 @@ fn update_dashboard(
     }
     let view = view.clone();
     // Error backoff is not a user hide and must not reset the Surface recovery budget.
-    if backend.dashboard_visible() {
-        let _ = state.dashboard_surface.request(app);
+    if backend.dashboard_visible()
+        && let Err(error) = state.dashboard_surface.request(app)
+    {
+        tracing::warn!(%error, "Failed to request VR dashboard surface");
     }
     if state
         .dashboard_retry_at
@@ -1945,7 +1954,7 @@ fn update_dashboard(
         // The OpenXR settings quad can open on this tick (menu button or wrist
         // menu); request its surface before the refresh path skips a dormant tab.
         if backend.dashboard_visible() {
-            let _ = state.dashboard_surface.request(app);
+            state.dashboard_surface.request(app)?;
         }
         let hub = app.state::<SurfaceHub>();
         // Keep the tab registered, but never wake its WebView before it is opened.
@@ -2066,10 +2075,10 @@ fn update_dashboard(
                                 request_id,
                                 action,
                             );
-                        } else if view.player_audio_notice.is_none() {
-                            if let Some(action) = state.dashboard.activate(command, &view) {
-                                dispatch_dashboard_action(app, state, backend, action);
-                            }
+                        } else if view.player_audio_notice.is_none()
+                            && let Some(action) = state.dashboard.activate(command, &view)
+                        {
+                            dispatch_dashboard_action(app, state, backend, action);
                         }
                         if dismiss {
                             backend.close_dashboard();
@@ -2185,8 +2194,13 @@ fn update_dashboard(
             // `reset_dashboard` cleared the renderer request flag. Keep the
             // OpenXR modal alive so its error placeholder is not hidden by
             // the same tick's `finish_tick`.
-            if backend.dashboard_visible() {
-                let _ = state.dashboard_surface.request(app);
+            if backend.dashboard_visible()
+                && let Err(request_error) = state.dashboard_surface.request(app)
+            {
+                tracing::warn!(
+                    error = %request_error,
+                    "Failed to request VR dashboard surface"
+                );
             }
             state.dashboard_retry_at = Some(Instant::now() + Duration::from_secs(1));
             status.dashboard.visible = false;
@@ -2311,7 +2325,7 @@ fn update_headset(
         use super::surface_protocol::SurfaceView;
         let now = Instant::now();
         let draft = question_draft.as_deref();
-        let notice = state.caption_status.text(now);
+        let (notice, notice_error) = active_caption_notice(state, now);
         let dark = state.controls.lock().map(|hub| hub.dark()).unwrap_or(false);
         let headset_revision = state.headset.revision();
         if let Some(cache) = state.headset_cache.as_ref().filter(|cache| {
@@ -2322,6 +2336,7 @@ fn update_headset(
                 && cache.dark == dark
                 && cache.draft.as_deref() == draft
                 && cache.notice.as_deref() == notice.as_deref()
+                && cache.notice_error == notice_error
                 && cache.next_change.is_none_or(|at| now < at)
                 && (cache.frame_opacity.is_none() || state.headset_surface.has_published_key())
         }) {
@@ -2350,7 +2365,6 @@ fn update_headset(
                     }
                 });
             if shown.is_err() {
-                backend.reset(OverlayKind::Headset);
                 state.reset_headset();
             }
             shown?;
@@ -2391,6 +2405,7 @@ fn update_headset(
                 dark,
                 draft: None,
                 notice,
+                notice_error,
                 frame_opacity: None,
                 next_change,
             });
@@ -2421,6 +2436,7 @@ fn update_headset(
                 dark,
                 messages,
                 notice: notice.clone(),
+                notice_error,
                 labels: state
                     .dashboard_view
                     .as_ref()
@@ -2447,7 +2463,6 @@ fn update_headset(
                 }
             });
         if shown.is_err() {
-            backend.reset(OverlayKind::Headset);
             state.reset_headset();
         }
         shown?;
@@ -2463,6 +2478,7 @@ fn update_headset(
                     dark,
                     draft: question_draft,
                     notice,
+                    notice_error,
                     frame_opacity: Some(frame_opacity),
                     next_change,
                 });
@@ -2556,7 +2572,7 @@ fn render_wrist(
         state.ui.reset_dialogue_visibility();
     }
     let (mode, pose, relative, follow_view, busy, error, revision) = {
-        let placement = state.ui.placement.lock().unwrap_or_else(|e| e.into_inner());
+        let placement = state.ui.placement.lock().expect("vr placement lock");
         (
             placement.display_mode(),
             placement.absolute_pose(),
@@ -2645,7 +2661,7 @@ fn render_wrist(
                     Some((state.ui.dialogue_hover, None, None)),
                 )?
             } else {
-                let notice = state.caption_status.text(now);
+                let (notice, notice_error) = active_caption_notice(state, now);
                 let wrist_revision = state.wrist.revision();
                 let controls_version = state
                     .controls
@@ -2659,6 +2675,7 @@ fn render_wrist(
                         && cache.controls_version == controls_version
                         && cache.sample == state.wrist_sample
                         && cache.notice.as_deref() == notice.as_deref()
+                        && cache.notice_error == notice_error
                         && cache.mode == mode
                         && cache.follow_view == follow_view
                         && cache.busy == busy
@@ -2722,6 +2739,7 @@ fn render_wrist(
                             controls_version,
                             sample: state.wrist_sample,
                             notice,
+                            notice_error,
                             mode,
                             follow_view,
                             busy,
@@ -2762,6 +2780,7 @@ fn render_wrist(
                             controls,
                             messages,
                             notice: notice.clone(),
+                            notice_error,
                             labels: state
                                 .dashboard_view
                                 .as_ref()
@@ -2786,6 +2805,7 @@ fn render_wrist(
                             controls_version,
                             sample: state.wrist_sample,
                             notice,
+                            notice_error,
                             mode,
                             follow_view,
                             busy,

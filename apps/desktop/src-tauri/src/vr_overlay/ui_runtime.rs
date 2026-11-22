@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager as _};
 use vrcs_core::VrOverlayConfig;
 
-use super::backend::{menu_config, Backend, BackendKind, CursorTarget, OverlayKind};
+use super::backend::{Backend, BackendKind, CursorTarget, OverlayKind, menu_config};
 use super::control_protocol::{ControlHub, ControlSource};
 use super::interaction::{Hit, Key, Kind, Router, Sample, Surface};
 use super::ocr_wrist::LaserEvent;
@@ -105,9 +105,10 @@ pub fn dispatch_placement(
         .map(|e| e.to_string())
     };
     if error.is_some() {
-        if let Ok(mut p) = placement.lock() {
-            p.resolve(request.id, false, error);
-        }
+        placement
+            .lock()
+            .expect("vr placement lock")
+            .resolve(request.id, false, error);
     }
 }
 
@@ -287,9 +288,10 @@ impl UiRuntime {
         self.pointer = None;
         self.last_input = Instant::now();
         self.pressed = None;
-        if let Ok(mut p) = self.placement.lock() {
-            p.cancel_drag();
-        }
+        self.placement
+            .lock()
+            .expect("vr placement lock")
+            .cancel_drag();
     }
 
     pub fn reset(&mut self) {
@@ -317,9 +319,10 @@ impl UiRuntime {
         self.menu_fade.reset();
         self.reset_dialogue_visibility();
         self.pressed = None;
-        if let Ok(mut p) = self.placement.lock() {
-            p.reset_tracking();
-        }
+        self.placement
+            .lock()
+            .expect("vr placement lock")
+            .reset_tracking();
     }
 
     pub fn place(
@@ -329,34 +332,35 @@ impl UiRuntime {
         controls: &Mutex<ControlHub>,
         mode: Mode,
     ) {
-        let epoch = controls
-            .lock()
-            .ok()
-            .filter(|hub| hub.active())
-            .map(|hub| hub.snapshot().owner_epoch)
-            .unwrap_or(0);
+        let epoch = {
+            let hub = controls.lock().expect("vr controls lock");
+            if hub.active() {
+                hub.snapshot().owner_epoch
+            } else {
+                0
+            }
+        };
         if epoch == 0 {
             return;
         }
-        if let Ok(mut p) = self.placement.lock() {
-            let pose = if mode == Mode::World {
-                match backend.ocr_tracking() {
-                    Ok((head, _, _)) => {
-                        p.update_head(head);
-                        Some(dialogue::in_front(head))
-                    }
-                    Err(error) => {
-                        p.error = Some(error);
-                        return;
-                    }
+        let mut p = self.placement.lock().expect("vr placement lock");
+        let pose = if mode == Mode::World {
+            match backend.ocr_tracking() {
+                Ok((head, _, _)) => {
+                    p.update_head(head);
+                    Some(dialogue::in_front(head))
                 }
-            } else {
-                None
-            };
-            if let Some(request) = p.set_mode(mode, pose) {
-                drop(p);
-                dispatch_placement(app, epoch, &self.placement, request);
+                Err(error) => {
+                    p.error = Some(error);
+                    return;
+                }
             }
+        } else {
+            None
+        };
+        if let Some(request) = p.set_mode(mode, pose) {
+            drop(p);
+            dispatch_placement(app, epoch, &self.placement, request);
         }
     }
 
@@ -523,20 +527,16 @@ impl UiRuntime {
         } = tick;
         let now = Instant::now();
         if business {
-            if let Ok(hub) = controls.lock() {
-                let version = hub.ui_version();
-                if self.snapshot_version != Some(version) {
-                    self.snapshot = Arc::new((
-                        hub.snapshot(),
-                        hub.player_display().clone(),
-                        hub.player_display_revision(),
-                        hub.active(),
-                    ));
-                    self.snapshot_version = Some(version);
-                }
-            } else {
-                self.snapshot = Default::default();
-                self.snapshot_version = None;
+            let hub = controls.lock().expect("vr controls lock");
+            let version = hub.ui_version();
+            if self.snapshot_version != Some(version) {
+                self.snapshot = Arc::new((
+                    hub.snapshot(),
+                    hub.player_display().clone(),
+                    hub.player_display_revision(),
+                    hub.active(),
+                ));
+                self.snapshot_version = Some(version);
             }
         }
         let snapshot = self.snapshot.clone();
@@ -546,7 +546,8 @@ impl UiRuntime {
             *owner_active
                 && controls
                     .lock()
-                    .is_ok_and(|hub| hub.owns_epoch(view.owner_epoch)),
+                    .expect("vr controls lock")
+                    .owns_epoch(view.owner_epoch),
         );
         let context_changed = !self.context.matches(config, view.owner_epoch, owner_active);
         let tracking = backend.ocr_tracking().ok();
@@ -567,14 +568,12 @@ impl UiRuntime {
                 self.lift = Default::default();
                 self.dialogue_lift = Default::default();
                 self.menu_ui = Default::default();
-                if let Ok(mut p) = self.placement.lock() {
-                    p.cancel();
-                }
+                self.placement.lock().expect("vr placement lock").cancel();
                 self.generation += 1;
                 self.context.update(config, view.owner_epoch, owner_active);
             }
         }
-        let mut placement = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+        let mut placement = self.placement.lock().expect("vr placement lock");
         if let Some((head, _, _)) = tracking {
             placement.update_head(head);
         }
@@ -769,10 +768,8 @@ impl UiRuntime {
         let was_active = self.router.active();
         let mut output = self.router.step(&samples, &keys);
         let now = Instant::now();
-        if can_recenter {
-            if let Some(event) = self.router.long_press(now) {
-                output.events.push(event);
-            }
+        if can_recenter && let Some(event) = self.router.long_press(now) {
+            output.events.push(event);
         }
         let hold_progress = can_recenter
             .then(|| self.router.hold_progress(now))
@@ -800,29 +797,25 @@ impl UiRuntime {
             events.push(LaserEvent::Leave);
         }
         if let Some(pointer) = pointer.filter(|p| input_allowed && p.key.surface == Surface::Reader)
+            && let Err(error) = surfaces.scroll_reader(app, scroll_delta(pointer.scroll_y, elapsed))
         {
-            if let Err(error) = surfaces.scroll_reader(app, scroll_delta(pointer.scroll_y, elapsed))
-            {
-                tracing::debug!(%error, "VR reader scroll unavailable");
-            }
+            tracing::debug!(%error, "VR reader scroll unavailable");
         }
         if let Some(pointer) = pointer.filter(|p| {
             input_allowed
                 && p.key.surface == Surface::Dialogue
                 && !was_active
                 && !self.router.active()
-        }) {
-            if let Err(error) = surfaces.scroll(
-                app,
-                SurfaceId::Dialogue,
-                scroll_delta(pointer.scroll_y, elapsed),
-            ) {
-                tracing::debug!(%error, "VR dialogue scroll unavailable");
-            }
+        }) && let Err(error) = surfaces.scroll(
+            app,
+            SurfaceId::Dialogue,
+            scroll_delta(pointer.scroll_y, elapsed),
+        ) {
+            tracing::debug!(%error, "VR dialogue scroll unavailable");
         }
         let mut save = None;
         let mut action = None;
-        let mut placement = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+        let mut placement = self.placement.lock().expect("vr placement lock");
         for event in output.events {
             match event.hit.key.surface {
                 Surface::Menu => match event.kind {
