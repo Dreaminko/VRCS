@@ -1,17 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 #[cfg(target_os = "linux")]
-fn configure_webkit_env() {
-    let wayland = vrcs_desktop_lib::platform_capabilities::session_type() == "wayland";
-    if wayland
-        && std::path::Path::new("/sys/module/nvidia").exists()
-        && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
-    {
-        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-    }
-}
-
-#[cfg(target_os = "linux")]
 fn configure_openvr_env() {
     if std::env::var_os("VR_OVERRIDE").is_none_or(|value| value.is_empty()) {
         return;
@@ -78,10 +67,7 @@ fn main() {
         std::process::exit(1);
     }
     #[cfg(target_os = "linux")]
-    {
-        configure_webkit_env();
-        configure_openvr_env();
-    }
+    configure_openvr_env();
     if std::env::args().any(|argument| argument == "--release-self-test") {
         if let Err(error) = vrcs_desktop_lib::release_self_test() {
             eprintln!("{error}");
