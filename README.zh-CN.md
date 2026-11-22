@@ -32,7 +32,7 @@
 - 云端识别、翻译和学习分析需要对应服务商的 API 凭据，服务商可能收取费用。
 - OCR 需下载本地 PP-OCRv6 模型。
 
-Linux GNU x86_64 原生支持（暂不发布 ARM64）：已实现 PipeWire 采集（系统音频、VRChat 进程与麦克风）、Secret Service、托管 Qwen CPU/Vulkan、Screenshot Portal 选区（用于桌面 OCR 与桌面视觉问答）、X11 / Portal 全局快捷键与 `.deb` / `.rpm` / AppImage 原生打包（基于 Debian 12 `glibc 2.36+` 基线，覆盖 Debian/Ubuntu、Fedora/Nobara/Bazzite/RHEL 10 系列、openSUSE Leap & Tumbleweed 与 Mageia）。GPU 开发使用 `npm run dev:vulkan`，Linux 原生包已启用 Vulkan 支持。
+Linux GNU x86_64 原生支持（暂不发布 ARM64）：已实现 PipeWire 采集（系统音频、VRChat 进程与麦克风）、Secret Service、托管 Qwen CPU/Vulkan、Screenshot Portal 选区（用于桌面 OCR 与桌面视觉问答）、X11 / Portal 全局快捷键与 `.deb` / `.rpm` / AppImage 原生打包（基于 Ubuntu 24.04 `glibc 2.39+` 基线，覆盖 Ubuntu 24.04+、Debian 13+、Fedora/Nobara/Bazzite/RHEL 10 系列、openSUSE Tumbleweed 与 Mageia）。GPU 开发使用 `npm run dev:vulkan`，Linux 原生包已启用 Vulkan 支持。
 Linux GNU x86_64 已支持 PLaMo 本地 CPU 翻译，并已默认开放 VR 字幕、腕部面板、Dashboard 与控制器输入（OpenXR/OpenVR）；由于上游 OpenXR/Monado 尚未提供开放给第三方应用的 VR 场景捕获 API，Linux 下的 VR OCR 与 VR 视觉问答暂不开放。完整桌面与硬件验收仍在进行中，实测结果、功能限制与发布门槛见 [Linux 开发说明](CONTRIBUTING.md#linux-development-initial-adaptation)。
 
 想试用 Nightly 时，可在「设置 › 系统 › 软件更新」开启「接收 Nightly 更新」。应用在检查到新版本后提示，由你确认安装。Nightly 可能不稳定，与正式版共用本机数据。关闭订阅后，应用只检查比已安装版本更新的正式版。

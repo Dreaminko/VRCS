@@ -32,7 +32,7 @@
 - 雲端辨識、翻譯及學習分析需要對應服務供應商的 API 認證資訊，供應商可能收取費用。
 - OCR 需下載本機 PP-OCRv6 模型。
 
-Linux GNU `x86_64` 原生支援（暫不發佈 ARM64）提供 `.deb`、`.rpm` 與 AppImage 套件（基於 Debian 12 `glibc 2.36+` 基線，涵蓋 Debian/Ubuntu、Fedora/Nobara/Bazzite/RHEL 10 系列、openSUSE Leap & Tumbleweed 與 Mageia）：支援 PipeWire（系統音訊、VRChat 程序與麥克風）、Secret Service、本機 Qwen CPU/Vulkan、本機 PLaMo CPU 翻譯、Screenshot Portal 桌面選區 OCR／視覺問答、X11 / Portal 全域快捷鍵，以及 OpenXR/OpenVR VR 字幕、腕部面板、Dashboard 與控制器輸入（VR 場景擷取因上游 OpenXR/Monado API 尚未就緒暫不開放）。分玩家音訊與 Chatbox 網路接收在 Linux 仍屬實驗性功能，需透過 `.deb` / `.rpm` 系統套件（或手動安裝內建 `--network-helper` 的 `/usr/bin/vrcs-desktop` 與 polkit 策略）配合 polkit 認證代理及系統 Opus（`libopus0` / `opus`）使用。詳細限制與實測進度請參閱 [Linux 開發說明](CONTRIBUTING.md#linux-development-initial-adaptation)。
+Linux GNU `x86_64` 原生支援（暫不發佈 ARM64）提供 `.deb`、`.rpm` 與 AppImage 套件（基於 Ubuntu 24.04 `glibc 2.39+` 基線，涵蓋 Ubuntu 24.04+、Debian 13+、Fedora/Nobara/Bazzite/RHEL 10 系列、openSUSE Tumbleweed 與 Mageia）：支援 PipeWire（系統音訊、VRChat 程序與麥克風）、Secret Service、本機 Qwen CPU/Vulkan、本機 PLaMo CPU 翻譯、Screenshot Portal 桌面選區 OCR／視覺問答、X11 / Portal 全域快捷鍵，以及 OpenXR/OpenVR VR 字幕、腕部面板、Dashboard 與控制器輸入（VR 場景擷取因上游 OpenXR/Monado API 尚未就緒暫不開放）。分玩家音訊與 Chatbox 網路接收在 Linux 仍屬實驗性功能，需透過 `.deb` / `.rpm` 系統套件（或手動安裝內建 `--network-helper` 的 `/usr/bin/vrcs-desktop` 與 polkit 策略）配合 polkit 認證代理及系統 Opus（`libopus0` / `opus`）使用。詳細限制與實測進度請參閱 [Linux 開發說明](CONTRIBUTING.md#linux-development-initial-adaptation)。
 
 ## 開始使用
 

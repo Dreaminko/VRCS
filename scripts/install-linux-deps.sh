@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Debian 12 (Bookworm, glibc 2.36) is the CI/release build/ABI baseline (compatible with Ubuntu 24.04+ and Debian 13+).
+# Ubuntu 24.04 (glibc 2.39) is the CI/release build/ABI baseline (compatible with Ubuntu 24.04+, Debian 13+, Fedora, and openSUSE Tumbleweed).
 SUDO=""
 if [ "$(id -u)" -ne 0 ]; then
   SUDO="sudo"

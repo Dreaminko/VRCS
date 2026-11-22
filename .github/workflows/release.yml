@@ -125,8 +125,6 @@ jobs:
           - arch: x86_64
             runner: ubuntu-24.04
     runs-on: ${{ matrix.runner }}
-    container:
-      image: public.ecr.aws/docker/library/rust:1-bookworm
     timeout-minutes: 60
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
@@ -139,7 +137,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         id: cache
         with:
-          shared-key: release-linux-bookworm-${{ matrix.arch }}-vulkan
+          shared-key: release-linux-${{ matrix.arch }}-vulkan
           save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: . -> .build
       - name: Install native desktop dependencies
@@ -163,7 +161,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
-        run: node scripts/build-linux-release.mjs --require-signed --max-glibc 2.36
+        run: node scripts/build-linux-release.mjs --require-signed --max-glibc 2.39
       - uses: actions/upload-artifact@v7
         if: startsWith(github.ref, 'refs/tags/')
         with:
@@ -183,17 +181,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - distro: debian-12
-            image: public.ecr.aws/docker/library/debian:12
-            format: deb
           - distro: ubuntu-24.04
             image: public.ecr.aws/docker/library/ubuntu:24.04
             format: deb
           - distro: fedora
             image: quay.io/fedora/fedora:latest
-            format: rpm
-          - distro: opensuse-leap-15.6
-            image: registry.opensuse.org/opensuse/leap:15.6
             format: rpm
           - distro: opensuse-tumbleweed
             image: registry.opensuse.org/opensuse/tumbleweed:latest
@@ -256,7 +248,7 @@ jobs:
 
           - \`VRCS-${GITHUB_REF_NAME}-windows-x64.exe\` supports cloud recognition and managed local Qwen ASR on CPU or Vulkan. A compatible GPU and graphics driver are required for Vulkan.
           - Local recognition models and the Qwen runtime are downloaded through recognition settings. Cloud recognition does not require the Qwen runtime.
-          - Linux packages target Debian 12+ (\`glibc 2.36+\`) x86_64: \`.deb\` covers Debian/Ubuntu derivatives, \`.rpm\` uses standard SONAME/file dependencies for Fedora/Nobara/Bazzite/RHEL-family 10/openSUSE Leap & Tumbleweed/Mageia, and \`.AppImage\` provides portable execution.
+          - Linux packages target Ubuntu 24.04+ (\`glibc 2.39+\`) x86_64: \`.deb\` covers Ubuntu 24.04+ and Debian 13+ derivatives, \`.rpm\` uses standard SONAME/file dependencies for Fedora/Nobara/Bazzite/RHEL-family 10/openSUSE Tumbleweed/Mageia, and \`.AppImage\` provides portable execution.
           - Linux system packages (\`.deb\` and \`.rpm\`) update through the package manager or manual download, not the AppImage updater.
           - \`.deb\` and \`.rpm\` install \`/usr/bin/vrcs-desktop\` with built-in \`--network-helper\` support and the polkit policy; AppImage does not elevate its user-mounted FUSE binary via pkexec.
           - AppImage installations use architecture-specific signed in-app updates.

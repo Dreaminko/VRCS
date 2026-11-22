@@ -171,7 +171,7 @@ export function aggregateRelease({ root, version, publicKey, repository = "Dream
       for (const name of target.targets) platforms[name] = { url: `https://github.com/${repository}/releases/download/${version}/${artifact}`, signature };
     } else if (manifest.signature !== null) throw new Error("System packages (deb/rpm) must use package-manager updates");
   }
-  const latest = { version, notes: `VRCS ${version}. Windows x64 and Linux x86_64 (deb, rpm, AppImage; glibc 2.36+ baseline). System packages (deb/rpm) update through the package manager; signed AppImage packages support in-app updates. Hardware compatibility is documented separately.`, pub_date: now.toISOString(), platforms };
+  const latest = { version, notes: `VRCS ${version}. Windows x64 and Linux x86_64 (deb, rpm, AppImage; Ubuntu 24.04 / glibc 2.39+ baseline). System packages (deb/rpm) update through the package manager; signed AppImage packages support in-app updates. Hardware compatibility is documented separately.`, pub_date: now.toISOString(), platforms };
   const path = join(root, "latest.json");
   writeFileSync(path, `${JSON.stringify(latest, null, 2)}\n`);
   return path;

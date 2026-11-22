@@ -79,7 +79,7 @@ Vulkan runtime; default development builds remain CPU-only. Install the system
 Vulkan loader (`libvulkan1` on Ubuntu) and a compatible GPU driver, not a GPU SDK.
 `npm run build` remains the Windows installer entry point.
 
-For the Debian 12 (`glibc 2.36+`) CI/release ABI baseline (also compatible with
+For the Ubuntu 24.04 (`glibc 2.39+`) CI/release ABI baseline (also compatible with
 Ubuntu 24.04+ and Debian 13+), install Node.js 24+ and the pinned Rust
 toolchain, then run `bash scripts/install-linux-deps.sh`, `npm ci`, and
 `npm run dev` in a graphical user session. Linux network capture additionally
@@ -211,21 +211,20 @@ Implemented boundaries:
   Opus, and the Vulkan loader), which are not all visible in the desktop
   executable's ELF dependency list. `.rpm` packages declare cross-distro
   SONAME and `/usr/bin/pkexec` dependencies so one package covers Fedora,
-  Nobara, Bazzite, RHEL-family 10, openSUSE Leap/Tumbleweed, and Mageia.
+  Nobara, Bazzite, RHEL-family 10, openSUSE Tumbleweed, and Mageia.
   `deb`/`rpm`/development installs cannot install updates in-app (`deb`/`rpm` can
   check for updates and guide manual/package-manager updates); writable AppImages
   support signed in-app updates when configured with the updater signing keys.
   Complete release aggregation verifies every platform's package, architecture,
   hash and signature before writing `latest.json`.
-- CI/Preview/Release Linux jobs run inside `public.ecr.aws/docker/library/rust:1-bookworm`
-  (`x86_64`, `glibc 2.36` baseline); ARM64 (`aarch64` / `ubuntu-24.04-arm`) is
-  temporarily removed until future enablement. Same-commit CI reuse checks
-  `linux (x86_64)` alongside Windows/frontend jobs, and Release runs container
-  install verification (`scripts/verify-linux-package.sh`) on Debian 12,
-  Ubuntu 24.04, Fedora, openSUSE Leap 15.6, and openSUSE Tumbleweed before
-  publishing. Workflow configuration is not evidence that the remote jobs have
-  run successfully. Changes to `packaging/linux/`, including polkit policy and
-  installation scripts, select the native CI checks.
+- CI/Preview/Release Linux jobs run on `ubuntu-24.04` (`x86_64`, `glibc 2.39`
+  baseline); ARM64 (`aarch64` / `ubuntu-24.04-arm`) is temporarily removed until
+  future enablement. Same-commit CI reuse checks `linux (x86_64)` alongside
+  Windows/frontend jobs, and Release runs container install verification
+  (`scripts/verify-linux-package.sh`) on Ubuntu 24.04, Fedora, and openSUSE
+  Tumbleweed before publishing. Workflow configuration is not evidence that the
+  remote jobs have run successfully. Changes to `packaging/linux/`, including
+  polkit policy and installation scripts, select the native CI checks.
 
 Measured evidence (2026-11-10 unless dated otherwise; x86_64 Xeon E3-1245 v6, Arch/niri Wayland unless
 otherwise stated):

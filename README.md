@@ -33,7 +33,7 @@ Download `VRCS-<version>-windows-x64.exe` from [GitHub Releases](https://github.
 - For OCR, download the local PP-OCRv6 models.
 
 Native Linux support targets GNU `x86_64` (ARM64 is deferred for now): PipeWire capture (system, VRChat process, and microphone), Secret Service,
-managed Qwen CPU/Vulkan, Screenshot Portal region selection (for desktop OCR and visual question answering), native X11 / Portal global shortcuts, and native `.deb`/`.rpm`/AppImage packaging (built on a Debian 12 `glibc 2.36+` baseline covering Debian/Ubuntu, Fedora/Nobara/Bazzite/RHEL-family 10, openSUSE Leap & Tumbleweed, and Mageia) are implemented.
+managed Qwen CPU/Vulkan, Screenshot Portal region selection (for desktop OCR and visual question answering), native X11 / Portal global shortcuts, and native `.deb`/`.rpm`/AppImage packaging (built on an Ubuntu 24.04 `glibc 2.39+` baseline covering Ubuntu 24.04+, Debian 13+, Fedora/Nobara/Bazzite/RHEL-family 10, openSUSE Tumbleweed, and Mageia) are implemented.
 Use `npm run dev:vulkan` for GPU recognition; native Linux packages include Vulkan support.
 Linux GNU x86_64 also supports local PLaMo CPU translation, as well as VR subtitles, wrist overlays, dashboard, and controller input (OpenXR/OpenVR). VR scene capture for VR OCR and VR visual question answering remains disabled on Linux pending upstream OpenXR/Monado scene-capture APIs; full desktop/hardware acceptance is still in progress. See [Linux development](CONTRIBUTING.md#linux-development-initial-adaptation)
 for measured results and release gates.

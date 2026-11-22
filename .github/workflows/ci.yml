@@ -168,8 +168,6 @@ jobs:
           - arch: x86_64
             runner: ubuntu-24.04
     runs-on: ${{ matrix.runner }}
-    container:
-      image: public.ecr.aws/docker/library/rust:1-bookworm
     timeout-minutes: 45
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
@@ -188,7 +186,7 @@ jobs:
           cache: npm
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: ci-linux-bookworm-${{ matrix.arch }}-cpu-vulkan
+          shared-key: ci-linux-${{ matrix.arch }}-cpu-vulkan
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           workspaces: . -> .build
       - run: npm ci
@@ -201,7 +199,7 @@ jobs:
           cargo clippy -p vrcs-core -p vrcs-desktop --no-deps --all-targets --locked --features vulkan -- -D warnings
           cargo test -p vrcs-core --locked --features vulkan asr::qwen_runtime::tests::
       - name: Build and load native ONNX runtime and verify packages
-        run: node scripts/build-linux-release.mjs --preview --verify-packages --max-glibc 2.36
+        run: node scripts/build-linux-release.mjs --preview --verify-packages --max-glibc 2.39
       - uses: actions/upload-artifact@v7
         with:
           name: ci-linux-${{ matrix.arch }}-runtime-${{ github.sha }}
