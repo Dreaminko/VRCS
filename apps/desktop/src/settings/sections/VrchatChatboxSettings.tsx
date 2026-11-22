@@ -3,20 +3,18 @@ import { useTranslation } from "react-i18next";
 
 import type { ChatboxStatus } from "../../core-client/types";
 import type { ApiProfileView } from "../../providers/types";
-import type { ApplySettings, SaveState } from "../settings-types";
+import type { ApplySettings } from "../settings-types";
 import type { Settings, TranslationSettings } from "../types";
 import { PreferenceToggle } from "../SettingsControls";
 import { chatboxTranslationReady, DEFAULT_VRCHAT_CHATBOX_CONFIG } from "../vrchat-chatbox-settings";
 
-export function VrchatChatboxSettings({ draft, translation, profiles, status, supported, showUnsupportedNotice = true, saveState, saveMessage, applySettings, onOpenTranslation }: {
+export function VrchatChatboxSettings({ draft, translation, profiles, status, supported, showUnsupportedNotice = true, applySettings, onOpenTranslation }: {
   draft: Settings;
   translation: TranslationSettings;
   profiles: ApiProfileView[];
   status?: ChatboxStatus | null;
   supported?: boolean;
   showUnsupportedNotice?: boolean;
-  saveState: SaveState;
-  saveMessage?: string;
   applySettings: ApplySettings;
   onOpenTranslation: () => void;
 }) {
@@ -25,8 +23,8 @@ export function VrchatChatboxSettings({ draft, translation, profiles, status, su
   const enabled = (draft.vrchat_chatbox ?? DEFAULT_VRCHAT_CHATBOX_CONFIG).enabled;
   const phase = status?.phase ?? "stopped";
   const showTranslationHint = !chatboxTranslationReady(translation, profiles);
-  const showIssue = (showUnsupportedNotice && supported === false) || phase === "failed";
-  const saveError = saveState === "error" ? saveMessage : undefined;
+  const showUnsupported = showUnsupportedNotice && supported === false;
+  const showFailed = phase === "failed";
   return <section className="capture-chatbox-settings" aria-labelledby="vrchat-chatbox-title">
     <div className="device-group-heading">
       <div className="device-group-title">
@@ -41,17 +39,16 @@ export function VrchatChatboxSettings({ draft, translation, profiles, status, su
         disabled={!enabled && (supported === false || !networkEnabled)}
         onChange={(enabled) => applySettings((current) => ({ ...current, vrchat_chatbox: { enabled } }))} />
     </div>
-    {(showTranslationHint || showIssue || saveError) && <div className="device-group-content">
+    {(showTranslationHint || showUnsupported || showFailed) && <div className="device-group-content">
       {showTranslationHint && <div className="capture-chatbox-translation">
         <Info size={15} aria-hidden="true" />
         <p className="settings-field-note">{t("settings.capture.chatbox.translationUnavailable")}</p>
         <button type="button" className="secondary-button" onClick={onOpenTranslation}>{t("settings.capture.openTranslation")}</button>
       </div>}
-      {showIssue && <div className="settings-field-note" role="status" aria-live="polite">
-        <span>{supported === false ? t("settings.capture.unsupported") : t("settings.capture.chatbox.phase.failed")}</span>
-        {status?.detail && <p className="settings-validation-error">{status.detail}</p>}
-      </div>}
-      {saveError && <p className="settings-validation-error" role="alert">{saveError}</p>}
+      {showUnsupported && <p className="settings-field-note" role="status" aria-live="polite">{t("settings.capture.unsupported")}</p>}
+      {showFailed && <p className="settings-validation-error" role="alert">
+        {[t("settings.capture.chatbox.phase.failed"), status?.detail].filter(Boolean).join("\n")}
+      </p>}
     </div>}
   </section>;
 }

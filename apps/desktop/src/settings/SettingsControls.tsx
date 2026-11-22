@@ -398,7 +398,7 @@ export function DeviceGroup({ icon, title, note, beforeList, devices, devicesRea
             floating
             placeholder={devicesReady
               ? t(selectedDeviceKey || selectedDeviceId !== null ? "settings.audio.reselectionRequired" : "common.unavailable")
-              : t(devicesError ? "errors.audio.devices" : "settings.audio.scanning")}
+              : t(devicesError ? "common.unavailable" : "settings.audio.scanning")}
             onChange={(value) => {
               if (value === selectedValue) return;
               const specialRow = specialRows.find((row) => value === `source:${row.key}`);
@@ -417,7 +417,7 @@ export function DeviceGroup({ icon, title, note, beforeList, devices, devicesRea
           {beforeList}
           {!devicesReady
             ? devicesError
-              ? <p className="device-empty" role="alert"><Info size={14} aria-hidden="true" /><span>{t("errors.audio.devices")}</span></p>
+              ? <p className="device-empty" role="status"><Info size={14} aria-hidden="true" /><span>{t("common.unavailable")}</span></p>
               : <p className="device-empty" role="status"><LoaderCircle className="spinning" size={14} aria-hidden="true" /><span>{t("settings.audio.scanning")}</span></p>
             : !devices.length && <p className="device-empty" role="status"><Info size={14} aria-hidden="true" /><span>{t("settings.audio.noDevices")}</span></p>}
         </div>

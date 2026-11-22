@@ -129,6 +129,6 @@ export function ShortcutField({ label, value, disabled = false, onChange }: {
       </span>
       {recording && <span className="shortcut-recorder-action" aria-hidden="true">{t("settings.shortcut.cancel")}</span>}
     </button>
-    {status && <small id={`${id}-hint`} role="status">{t(`settings.shortcut.${status}`)}</small>}
+    {status && <small id={`${id}-hint`} role={error ? "alert" : "status"}>{t(`settings.shortcut.${status}`)}</small>}
   </div>;
 }

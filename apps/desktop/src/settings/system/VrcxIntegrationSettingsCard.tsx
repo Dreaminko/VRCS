@@ -25,7 +25,9 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
   const [testing, setTesting] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
   const [tokenMessage, setTokenMessage] = useState("");
+  const [tokenMessageError, setTokenMessageError] = useState(false);
   const [testMessage, setTestMessage] = useState("");
+  const [testFailed, setTestFailed] = useState(false);
   const [portText, setPortText] = useState(String(config.port));
   const [portError, setPortError] = useState("");
   const runtimeStatusRequestRef = useRef<Promise<VrcxRuntimeStatus> | null>(null);
@@ -141,6 +143,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
     if (!token) return;
     setTokenBusy(true);
     setTokenMessage("");
+    setTokenMessageError(false);
     try {
       setTokenStatus(await integrationsApi.saveVrcxToken(token));
       setTokenStatusError(false);
@@ -148,6 +151,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
       setTokenMessage(t("settings.vrcx.tokenSaved"));
       refreshRuntimeStatus();
     } catch {
+      setTokenMessageError(true);
       setTokenMessage(t("settings.vrcx.tokenSaveFailed"));
     } finally {
       setTokenBusy(false);
@@ -157,12 +161,14 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
   const deleteToken = async () => {
     setTokenBusy(true);
     setTokenMessage("");
+    setTokenMessageError(false);
     try {
       setTokenStatus(await integrationsApi.deleteVrcxToken());
       setTokenStatusError(false);
       setTokenMessage(t("settings.vrcx.tokenDeleted"));
       refreshRuntimeStatus();
     } catch {
+      setTokenMessageError(true);
       setTokenMessage(t("settings.vrcx.tokenDeleteFailed"));
     } finally {
       setTokenBusy(false);
@@ -172,10 +178,12 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
   const testConnection = async () => {
     setTesting(true);
     setTestMessage("");
+    setTestFailed(false);
     try {
       setRuntimeStatus(await integrationsApi.testVrcx());
       setRuntimeStatusError(false);
     } catch {
+      setTestFailed(true);
       setTestMessage(t("settings.vrcx.testFailed"));
     } finally {
       setTesting(false);
@@ -185,7 +193,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
   const runtimeState = runtimeStatusError ? "load_failed" : runtimeStatus?.state ?? "checking";
   const runtimeClass = runtimeState === "connected"
     ? "running"
-    : runtimeState === "error" || runtimeState === "load_failed"
+    : testFailed || runtimeState === "error" || runtimeState === "load_failed"
       ? "failed"
       : runtimeState === "connecting" || runtimeState === "checking"
         ? "checking"
@@ -242,7 +250,13 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
             </button>
           )}
           <PreferenceToggle title={t("settings.vrcx.enabled")} hideLabel checked={config.enabled}
-            disabled={false} onChange={(enabled) => onChange({ enabled })} />
+            disabled={false} onChange={(enabled) => {
+              if (!enabled) {
+                setTestFailed(false);
+                setTestMessage("");
+              }
+              onChange({ enabled });
+            }} />
         </div>
       </div>
 
@@ -346,7 +360,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
                 )}
               </div>
             </div>
-            {tokenMessage && <p className="external-api-feedback" role="status" aria-live="polite">{tokenMessage}</p>}
+            {tokenMessage && <p className={tokenMessageError ? "external-api-feedback is-error" : "external-api-feedback"} role={tokenMessageError ? "alert" : "status"} aria-live="polite">{tokenMessage}</p>}
           </div>
         </div>
       </SettingsDisclosure>

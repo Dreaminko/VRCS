@@ -21,17 +21,23 @@ export function DebugSettingsSection({ rows }: { rows: DebugRow[] }) {
   const [status, setStatus] = useState<DiagnosticStatus | null>(null);
   const [busy, setBusy] = useState<"open" | "export" | null>(null);
   const [feedback, setFeedback] = useState("");
+  const [feedbackError, setFeedbackError] = useState(false);
 
   useEffect(() => {
-    void loadDiagnosticStatus().then(setStatus, () => setStatus(null));
+    void loadDiagnosticStatus().then(setStatus, (reason) => {
+      console.warn("Failed to load diagnostic status", reason);
+      setStatus(null);
+    });
   }, []);
 
   const openLogs = async () => {
     setBusy("open");
     setFeedback("");
+    setFeedbackError(false);
     try {
       await openLogDirectory();
     } catch {
+      setFeedbackError(true);
       setFeedback(t("settings.debug.openFailed"));
     } finally {
       setBusy(null);
@@ -41,6 +47,7 @@ export function DebugSettingsSection({ rows }: { rows: DebugRow[] }) {
   const exportReport = async () => {
     setBusy("export");
     setFeedback("");
+    setFeedbackError(false);
     try {
       const path = await saveDialog({
         defaultPath: reportFileName(),
@@ -50,6 +57,7 @@ export function DebugSettingsSection({ rows }: { rows: DebugRow[] }) {
       await exportErrorReport(path);
       setFeedback(t("settings.debug.exported"));
     } catch {
+      setFeedbackError(true);
       setFeedback(t("settings.debug.exportFailed"));
     } finally {
       setBusy(null);
@@ -81,7 +89,7 @@ export function DebugSettingsSection({ rows }: { rows: DebugRow[] }) {
             {busy === "export" ? t("settings.debug.exporting") : t("settings.debug.export")}
           </button>
         </div>
-        {feedback && <small className="diagnostic-feedback" role="status">{feedback}</small>}
+        {feedback && <small className={feedbackError ? "diagnostic-feedback is-error" : "diagnostic-feedback"} role={feedbackError ? "alert" : "status"}>{feedback}</small>}
       </section>
 
       <div className="debug-list">

@@ -131,8 +131,18 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
               ]}
               disabled={disabled} onChange={(display_mode) => onChange({ display_mode: display_mode as VrOcrSettings["display_mode"] })} />
             {(vrState !== "ready" || gestureUnavailable) && <div className="vr-overlay-runtime-facts" role="status" aria-live="polite">
-              {vrState !== "ready" && <span>{t(`settings.vrOcr.states.${vrState}`)}</span>}
-              {gestureUnavailable && <span>{t("settings.vrOcr.gestureUnavailable")}</span>}
+              {vrState !== "ready" && (
+                <span className={`vr-overlay-fact ${vrState === "error" ? "is-error" : "is-pending"}`} role={vrState === "error" ? "alert" : undefined}>
+                  <i className="vr-overlay-fact-dot" aria-hidden="true" />
+                  {t(`settings.vrOcr.states.${vrState}`)}
+                </span>
+              )}
+              {gestureUnavailable && (
+                <span className="vr-overlay-fact is-error" role="alert">
+                  <i className="vr-overlay-fact-dot" aria-hidden="true" />
+                  {t("settings.vrOcr.gestureUnavailable")}
+                </span>
+              )}
             </div>}
             {(runtime?.last_error_code || runtime?.last_error) && <p className="vr-overlay-native-error" role="alert">
               {t(`settings.vrOcr.errors.${runtime.last_error_code ?? "unavailable"}`, { defaultValue: t("settings.vrOcr.errors.unavailable") })}

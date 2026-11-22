@@ -60,7 +60,7 @@ export function TopStatus({ connection, health, settings, apiProfiles = [], prov
             <strong>{statusLabel}</strong>
           </span>
           <i aria-hidden="true" />
-          <span className={`status-summary-item mute-summary${health?.osc?.send_gate === "open" ? "" : " muted"}`}>
+          <span className={`status-summary-item mute-summary${health?.osc?.status === "error" ? " error" : health?.osc?.send_gate === "open" ? "" : " muted"}`}>
             <span className="status-summary-label">{t("status.vrchat")}</span>
             <strong>{vrchatSendStatusLabel(health, settings, t)}</strong>
           </span>

@@ -36,8 +36,15 @@
 .api-profile-identity > span:last-child { display: grid; min-width: 0; gap: 3px; }
 .api-profile-identity strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 .api-profile-identity small { overflow-wrap: anywhere; color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
+.api-model-catalog-error,
 .api-profile-identity .api-model-catalog-error,
-.field > .api-model-catalog-error { color: var(--error); }
+.field > .api-model-catalog-error {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--error);
+  font-size: var(--settings-text-caption);
+  line-height: var(--settings-leading-copy);
+}
 .api-profile-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
 .api-profile-actions .secondary-button { min-height: var(--settings-control-compact-height); padding: 0 10px; font-size: var(--settings-text-caption); white-space: nowrap; }
 .api-profile-tests { display: grid; gap: 8px; margin-top: 8px; }
@@ -292,6 +299,8 @@
 .api-environment-note,
 .api-credential-message { color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .api-credential-message { display: block; margin-top: 10px; color: var(--primary-ink); }
+.api-credential-message.is-error,
+.api-environment-note.is-error { color: var(--error); }
 .api-add-button,
 .api-profile-actions button,
 .api-row-icon-button,

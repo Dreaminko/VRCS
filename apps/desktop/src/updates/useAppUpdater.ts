@@ -69,7 +69,9 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
     let cancelled = false;
     void loadAppBuildInfo().then((info) => {
       if (!cancelled) setBuildInfo(info);
-    }).catch(() => undefined);
+    }).catch((reason) => {
+      console.warn("Failed to load app build info", reason);
+    });
     return () => {
       cancelled = true;
     };
@@ -81,7 +83,9 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
       if (cancelled) return;
       setAutomaticChecksState(preferences.automaticChecks);
       setReceiveNightlyUpdatesState(preferences.receiveNightlyUpdates);
-    }).catch(() => undefined).finally(() => {
+    }).catch((reason) => {
+      console.warn("Failed to load update preferences", reason);
+    }).finally(() => {
       if (!cancelled) setPreferenceReady(true);
     });
     return () => {
@@ -177,9 +181,9 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
     setAutomaticChecksState(next);
     try {
       await saveAutomaticUpdatePreference(next);
-    } catch {
+    } catch (reason) {
       setAutomaticChecksState(previous);
-      setErrorCode("failed");
+      setErrorCode(updaterErrorCode(reason));
       setPhase("error");
     } finally {
       busyRef.current = false;

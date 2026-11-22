@@ -63,6 +63,8 @@
 .vr-overlay-fact-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--text-quiet); }
 .vr-overlay-fact.is-ok .vr-overlay-fact-dot { background: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
 .vr-overlay-fact.is-pending .vr-overlay-fact-dot { background: var(--warning); box-shadow: 0 0 0 3px var(--warning-soft); }
+.vr-overlay-fact.is-error { color: var(--error); }
+.vr-overlay-fact.is-error .vr-overlay-fact-dot { background: var(--error); box-shadow: 0 0 0 3px var(--error-soft); }
 .vr-overlay-native-error {
   display: flex;
   align-items: flex-start;

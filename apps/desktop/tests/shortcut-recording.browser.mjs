@@ -109,7 +109,7 @@ test("shortcut recording saves released chords, cancels safely and serializes na
         await start();
         event('keydown', 'v', 'KeyV'); event('keyup', 'v', 'KeyV');
         await settle();
-        check(document.querySelector('[role="status"]').textContent.includes('not supported'), 'Plain keys show validation feedback');
+        check(document.querySelector('[role="alert"]').textContent.includes('not supported'), 'Plain keys show validation feedback');
         event('keydown', 'Control', 'ControlLeft', { ctrlKey: true });
         event('keydown', 'F12', 'F12', { ctrlKey: true }); event('keyup', 'F12', 'F12', { ctrlKey: true });
         check(updates.length === 0, 'Reserved keys are not saved');
@@ -151,7 +151,7 @@ test("shortcut recording saves released chords, cancels safely and serializes na
 
         failStart = true;
         button(0).focus(); button(0).click();
-        await wait(() => document.querySelector('[role="status"]')?.textContent.includes('Could not start') && calls.at(-1) === false);
+        await wait(() => document.querySelector('[role="alert"]')?.textContent.includes('Could not start') && calls.at(-1) === false);
         check(button(0).getAttribute('aria-pressed') === 'false', 'Native failure exits recording and restores shortcuts');
         failStart = false;
         await start(); root.unmount(); await wait(() => calls.at(-1) === false);

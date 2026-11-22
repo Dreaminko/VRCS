@@ -1,8 +1,8 @@
 //! User-confirmed UAC relaunch of this exact executable. No arbitrary commands,
 //! credentials, audio or keys are passed through the handoff.
+use std::sync::Mutex;
 #[cfg(windows)]
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 #[cfg(windows)]
@@ -76,19 +76,12 @@ impl Action {
 
 #[tauri::command]
 pub(crate) fn player_audio_pending_action(state: State<'_, ElevationState>) -> Option<Action> {
-    *state
-        .pending
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
+    *state.pending.lock().expect("elevation state lock")
 }
 
 #[tauri::command]
 pub(crate) fn player_audio_consume_action(state: State<'_, ElevationState>) -> Option<Action> {
-    state
-        .pending
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .take()
+    state.pending.lock().expect("elevation state lock").take()
 }
 
 pub(crate) fn elevated() -> Result<bool, String> {

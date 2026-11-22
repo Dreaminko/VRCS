@@ -137,7 +137,7 @@ export function ModelManagerPanel({
           })}
         </div>
       )}
-      {qwen.message && <p className="model-manager-feedback" role="status">{qwen.message}</p>}
+      {qwen.message && <p className="model-manager-feedback" role="alert">{qwen.message}</p>}
       {pendingRemoval && <ConfirmDialog
         title={t("common.delete")}
         message={t("settings.recognition.confirmDelete", { name: pendingRemoval.name })}

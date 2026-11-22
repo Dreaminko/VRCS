@@ -104,7 +104,8 @@ export function useLearningCapture(
       const response = await learningApi.learningCaptureKeys();
       setCapturedKeys(new Set(response.keys));
       setError("");
-    } catch {
+    } catch (reason) {
+      console.warn("Failed to refresh learning capture keys", reason);
       if (item) {
         setCapturedKeys((current) => removeCapturedItemKeys(current, item));
       }

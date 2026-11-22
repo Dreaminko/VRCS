@@ -27,9 +27,9 @@ export function OnboardingEntry({
     <div className="app-shell onboarding-shell">
       <WindowChrome />
       {onboarding.status === "loading" || !settings.value ? (
-        <div className="onboarding-loading" role="status" data-tauri-drag-region>
+        <div className="onboarding-loading" role={runtime.startupFailed ? "alert" : "status"} data-tauri-drag-region>
           <span className="onboarding-loading-mark" data-tauri-drag-region>VRCS</span>
-          <p data-tauri-drag-region>
+          <p className={runtime.startupFailed ? "onboarding-message error" : undefined} data-tauri-drag-region>
             {runtime.startupFailed ? t("errors.core.initialize") : t("common.loading")}
           </p>
           {runtime.startupFailed && (

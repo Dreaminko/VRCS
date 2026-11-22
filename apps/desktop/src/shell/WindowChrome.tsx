@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isTauri } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { Copy, Minus, Square, X } from "lucide-react";
 
@@ -12,6 +13,7 @@ export function WindowChrome() {
     let resizeFrame: number | null = null;
 
     const watchMaximizedState = async () => {
+      if (!isTauri()) return;
       try {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const appWindow = getCurrentWindow();
@@ -25,12 +27,14 @@ export function WindowChrome() {
           if (resizeFrame !== null) return;
           resizeFrame = window.requestAnimationFrame(() => {
             resizeFrame = null;
-            void syncMaximizedState().catch(() => undefined);
+            void syncMaximizedState().catch((reason) => {
+              console.warn("Could not sync window maximized state", reason);
+            });
           });
         });
         if (disposed) stopListening();
-      } catch {
-        // Window state is unavailable in the browser preview.
+      } catch (reason) {
+        console.warn("Could not initialize window state listener", reason);
       }
     };
 
@@ -43,6 +47,7 @@ export function WindowChrome() {
   }, []);
 
   const runWindowAction = async (action: "minimize" | "maximize" | "close") => {
+    if (!isTauri()) return;
     try {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const appWindow = getCurrentWindow();
@@ -52,8 +57,8 @@ export function WindowChrome() {
         setIsMaximized(await appWindow.isMaximized());
       }
       if (action === "close") await appWindow.close();
-    } catch {
-      // Browser preview actions are intentionally inert.
+    } catch (reason) {
+      console.warn(`Window action "${action}" failed`, reason);
     }
   };
 

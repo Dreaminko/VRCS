@@ -36,6 +36,7 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
   const [runtimeStatusError, setRuntimeStatusError] = useState(false);
   const [tokenBusy, setTokenBusy] = useState(false);
   const [tokenMessage, setTokenMessage] = useState("");
+  const [tokenMessageError, setTokenMessageError] = useState(false);
   const [generatedToken, setGeneratedToken] = useState("");
   const [tokenInput, setTokenInput] = useState("");
 
@@ -87,6 +88,7 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
     if (!token.trim()) return;
     setTokenBusy(true);
     setTokenMessage("");
+    setTokenMessageError(false);
     try {
       setTokenStatus(await integrationsApi.saveExternalApiToken(token));
       void integrationsApi.externalApiRuntimeStatus().then(
@@ -100,6 +102,7 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
       setTokenInput("");
       setTokenMessage(t("settings.system.externalApi.tokenSaved"));
     } catch {
+      setTokenMessageError(true);
       setTokenMessage(t("settings.system.externalApi.tokenSaveFailed"));
     } finally {
       setTokenBusy(false);
@@ -112,11 +115,13 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
   const deleteToken = async () => {
     setTokenBusy(true);
     setTokenMessage("");
+    setTokenMessageError(false);
     try {
       setTokenStatus(await integrationsApi.deleteExternalApiToken());
       setGeneratedToken("");
       setTokenMessage(t("settings.system.externalApi.tokenDeleted"));
     } catch {
+      setTokenMessageError(true);
       setTokenMessage(t("settings.system.externalApi.tokenDeleteFailed"));
     } finally {
       setTokenBusy(false);
@@ -246,7 +251,7 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
                 </button>
               </div>
             )}
-            {tokenMessage && <p className="external-api-feedback" role="status" aria-live="polite">{tokenMessage}</p>}
+            {tokenMessage && <p className={tokenMessageError ? "external-api-feedback is-error" : "external-api-feedback"} role={tokenMessageError ? "alert" : "status"} aria-live="polite">{tokenMessage}</p>}
           </div>
         </div>
       </SettingsDisclosure>

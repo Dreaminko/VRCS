@@ -88,7 +88,7 @@ export function RecognitionStep({
           <HardDrive size={23} /><span><strong>{t("onboarding.recognition.local")}</strong><small>{t("onboarding.recognition.localDescription")}</small></span><i>{recognitionMode === "local" && <Check size={14} />}</i>
         </button>
       </div>
-      {!core?.inference.qwen_cpu.supported && <CapabilityNotice capability={core?.inference.qwen_cpu} />}
+      {recognitionMode !== "local" && !core?.inference.qwen_cpu.supported && <CapabilityNotice capability={core?.inference.qwen_cpu} />}
 
       {recognitionMode === "cloud" ? (
         <div className="onboarding-config-panel">
@@ -156,7 +156,14 @@ export function RecognitionStep({
               </div>
             </>
           )}
-          {apiProfiles.message && <p className="onboarding-feedback" role="status">{apiProfiles.message}</p>}
+          {apiProfiles.message && (
+            <p
+              className={apiProfiles.messageIsError ? "onboarding-message error" : "onboarding-feedback"}
+              role={apiProfiles.messageIsError ? "alert" : "status"}
+            >
+              {apiProfiles.message}
+            </p>
+          )}
         </div>
       ) : (
         <div className="onboarding-local-panel">

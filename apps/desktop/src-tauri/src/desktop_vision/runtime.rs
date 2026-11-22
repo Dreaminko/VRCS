@@ -1,13 +1,13 @@
 use super::status::DesktopVisionStatus;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use tauri::{AppHandle, Emitter, Manager as _, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::{oneshot, watch};
 use vrcs_core::{
-    vision::{VisionMode, VisionService, VisionSession},
     VisionConfig, VrOcrConfig, VrOverlayConfig,
+    vision::{VisionMode, VisionService, VisionSession},
 };
 
 const STATUS_EVENT: &str = "desktop-vision-status-changed";
@@ -220,15 +220,13 @@ impl Manager {
             self.hide_window(id);
         }
         #[cfg(windows)]
-        if changed_binding {
-            if let Some(hotkey) = self.hotkey.lock().unwrap().as_ref() {
-                if self.state.lock().unwrap().lifecycle != lifecycle {
-                    return;
-                }
-                let error = conflict.then(|| "desktop_vision.shortcut_conflict".into());
-                if hotkey.update_with_error(binding.0, error).is_err() {
-                    self.shortcut_error_for(lifecycle, Some("desktop_vision.unavailable".into()));
-                }
+        if changed_binding && let Some(hotkey) = self.hotkey.lock().unwrap().as_ref() {
+            if self.state.lock().unwrap().lifecycle != lifecycle {
+                return;
+            }
+            let error = conflict.then(|| "desktop_vision.shortcut_conflict".into());
+            if hotkey.update_with_error(binding.0, error).is_err() {
+                self.shortcut_error_for(lifecycle, Some("desktop_vision.unavailable".into()));
             }
         }
         #[cfg(not(windows))]
@@ -243,12 +241,14 @@ impl Manager {
 
     #[cfg(windows)]
     pub fn set_hotkey_paused(&self, paused: bool) -> Result<(), String> {
-        if let Some(hotkey) = self.hotkey.lock().unwrap().as_ref() {
-            if let Err(error) = hotkey.set_paused(paused) {
+        if let Some(hotkey) = self.hotkey.lock().unwrap().as_ref()
+            && let Err(error) = hotkey.set_paused(paused)
+        {
+            if !paused {
                 let lifecycle = self.state.lock().unwrap().lifecycle;
                 self.shortcut_error_for(lifecycle, Some("desktop_vision.unavailable".into()));
-                return Err(error);
             }
+            return Err(error);
         }
         Ok(())
     }
@@ -278,6 +278,10 @@ impl Manager {
     }
 
     async fn show_window(&self, id: u64) -> Result<(), String> {
+        self.show_window_inner(id, true).await
+    }
+
+    async fn show_window_inner(&self, id: u64, record_error: bool) -> Result<(), String> {
         let result: Result<(), String> = async {
             let app = self.app.clone();
             // WebView2 creation must not block the UI thread or hold the picker permit.
@@ -340,7 +344,9 @@ impl Manager {
             if detail == "desktop_vision.selection_busy" {
                 return detail;
             }
-            self.update(id, |state| state.status.fail("openFailed", Some(detail)));
+            if record_error {
+                self.update(id, |state| state.status.fail("openFailed", Some(detail)));
+            }
             "desktop_vision.openFailed".into()
         })
     }
@@ -348,16 +354,17 @@ impl Manager {
     fn hide_window(&self, id: u64) {
         let app = self.app.clone();
         let _ = self.app.run_on_main_thread(move || {
-            if app.state::<Self>().status().session_id == id {
-                if let Some(window) = app.get_webview_window("vision") {
-                    let _ = window.hide();
-                }
+            if app.state::<Self>().status().session_id == id
+                && let Some(window) = app.get_webview_window("vision")
+            {
+                let _ = window.hide();
             }
         });
     }
 
     pub async fn open(&self) -> Result<(), String> {
-        self.show_window(self.status().session_id).await
+        self.show_window_inner(self.status().session_id, false)
+            .await
     }
 
     pub fn cancel(&self) {

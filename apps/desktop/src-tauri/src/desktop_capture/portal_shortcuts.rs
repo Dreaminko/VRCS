@@ -1,12 +1,12 @@
 //! Global shortcuts are opt-in and independent from the capture button.
 use ashpd::desktop::{
-    global_shortcuts::{GlobalShortcuts, NewShortcut, Shortcut},
     Session,
+    global_shortcuts::{GlobalShortcuts, NewShortcut, Shortcut},
 };
 use futures_util::StreamExt;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use tauri::{AppHandle, Emitter, Manager as _, WebviewWindow};
 use tokio::sync::Notify;
@@ -270,14 +270,18 @@ pub fn sync(app: AppHandle) {
     let config = configured_bindings(&app);
     if crate::platform_capabilities::is_native_x11() {
         let (ocr, mut vision) = config;
-        if let (Some(ocr_sc), Some(vision_sc)) = (ocr.as_deref(), vision.as_deref()) {
-            if super::shortcut::Shortcut::parse(ocr_sc)
-                == super::shortcut::Shortcut::parse(vision_sc)
-            {
-                vision = None;
-            }
+        if let (Some(ocr_sc), Some(vision_sc)) = (ocr.as_deref(), vision.as_deref())
+            && let (Ok(parsed_ocr), Ok(parsed_vision)) = (
+                super::shortcut::Shortcut::parse(ocr_sc),
+                super::shortcut::Shortcut::parse(vision_sc),
+            )
+            && parsed_ocr == parsed_vision
+        {
+            vision = None;
         }
-        let _ = sync_x11(&app, ocr, vision);
+        if let Err(error) = sync_x11(&app, ocr, vision) {
+            tracing::warn!(%error, "Failed to sync X11 global shortcuts");
+        }
         return;
     }
     if config.0.is_none() && config.1.is_none() {

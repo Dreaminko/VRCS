@@ -251,11 +251,15 @@ export function useCompactWindow({
   }, [reportError]);
 
   const closeWindow = useCallback(async () => {
+    if (!NATIVE_APP) {
+      setCompact(false);
+      return;
+    }
     try {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       await getCurrentWindow().close();
-    } catch {
-      setCompact(false);
+    } catch (reason) {
+      console.warn("Could not close compact window", reason);
     }
   }, []);
 

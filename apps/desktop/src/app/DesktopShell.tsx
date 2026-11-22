@@ -355,6 +355,7 @@ export function DesktopShell({
                   onModelsChanged={settings.asr.refresh}
                   onInterfaceScaleChange={settings.setInterfaceScale}
                   onSave={settings.save}
+                  onClearSettingsError={() => runtime.clearErrorFrom("settings")}
                   onTestOsc={settings.testOsc}
                   onStartOnboarding={() => {
                     if (runtime.health?.capture_requested) return;
@@ -444,6 +445,7 @@ export function DesktopShell({
       <UpdateNotice
         updater={integrations.updater}
         transcriptionRunning={runtime.health?.capture_requested ?? false}
+        hideError={page === "settings"}
       />
     </div>
   );

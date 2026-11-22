@@ -16,6 +16,7 @@ export function useDictionaryActions({
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [messageError, setMessageError] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -23,6 +24,7 @@ export function useDictionaryActions({
     if (!file) return;
     setBusy(true);
     setProgress(0);
+    setMessageError(false);
     setMessage(t("settings.dictionary.importing", { file: file.name }));
     try {
       const imported = await onImport(file, setProgress);
@@ -32,6 +34,7 @@ export function useDictionaryActions({
         formatted: new Intl.NumberFormat(locale).format(imported.entry_count),
       }));
     } catch (reason) {
+      setMessageError(true);
       setMessage(localizedError(reason, t, "errors.dictionary.import"));
     } finally {
       setBusy(false);
@@ -42,10 +45,12 @@ export function useDictionaryActions({
 
   const remove = async (dictionary: DictionarySource) => {
     setBusy(true);
+    setMessageError(false);
     try {
       await onDelete(dictionary.id);
       setMessage(t("settings.dictionary.removed", { title: dictionary.title }));
     } catch (reason) {
+      setMessageError(true);
       setMessage(localizedError(reason, t, "errors.dictionary.remove"));
     } finally {
       setBusy(false);
@@ -55,6 +60,7 @@ export function useDictionaryActions({
   return {
     busy,
     message,
+    messageError,
     progress,
     fileInputRef,
     choose,

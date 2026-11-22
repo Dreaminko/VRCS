@@ -85,7 +85,14 @@
   background: var(--primary);
   transition: width 300ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-.model-row-body > .model-error { margin-top: 3px; color: var(--error); }
+.model-error,
+.model-row-body > .model-error {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--error);
+  font-size: var(--settings-text-caption);
+  line-height: var(--settings-leading-copy);
+}
 .model-row-action {
   display: flex;
   min-width: 0;
@@ -123,3 +130,5 @@
 .model-download-state { color: var(--primary-ink); }
 .model-download-state svg { animation: model-spin 900ms linear infinite; }
 .model-manager-feedback { margin: 12px 2px 0; overflow-wrap: anywhere; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
+.model-manager-feedback[role="alert"],
+.model-manager-feedback.is-error { color: var(--error); }

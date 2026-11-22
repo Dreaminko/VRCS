@@ -30,6 +30,7 @@ export function StorageSettingsSection({
   ));
   const [busy, setBusy] = useState<"refresh" | "clear" | null>(null);
   const [message, setMessage] = useState("");
+  const [messageError, setMessageError] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
 
   useEffect(() => {
@@ -46,8 +47,12 @@ export function StorageSettingsSection({
       if (isCancelled()) return;
       setStats(next);
       setMessage("");
+      setMessageError(false);
     } catch (reason) {
-      if (!isCancelled()) setMessage(localizedError(reason, t, "errors.storage.stats_failed"));
+      if (!isCancelled()) {
+        setMessageError(true);
+        setMessage(localizedError(reason, t, "errors.storage.stats_failed"));
+      }
     } finally {
       if (showBusy && !isCancelled()) setBusy(null);
     }
@@ -70,6 +75,7 @@ export function StorageSettingsSection({
   const commitQuota = () => {
     const value = Number.parseInt(quotaText, 10);
     if (!Number.isInteger(value) || value < MIN_QUOTA_MIB || value > MAX_QUOTA_MIB) {
+      setMessageError(true);
       setMessage(t("settings.storage.quotaInvalid", {
         min: MIN_QUOTA_MIB,
         max: new Intl.NumberFormat(locale).format(MAX_QUOTA_MIB),
@@ -95,11 +101,13 @@ export function StorageSettingsSection({
     if (busy === "clear") return;
     setBusy("clear");
     setMessage("");
+    setMessageError(false);
     try {
       setStats(await storageApi.clearSubtitleHistory());
       setMessage(t("settings.storage.clearComplete"));
       window.dispatchEvent(new Event("vrcs:subtitle-history-refresh"));
     } catch (reason) {
+      setMessageError(true);
       setMessage(localizedError(reason, t, "errors.storage.clear_failed"));
     } finally {
       setBusy(null);
@@ -190,7 +198,7 @@ export function StorageSettingsSection({
           onConfirm={clearHistory}
         />
       )}
-      {message && <p className="storage-feedback" role="status">{message}</p>}
+      {message && <p className={messageError ? "storage-feedback is-error" : "storage-feedback"} role={messageError ? "alert" : "status"}>{message}</p>}
     </section>
   );
 }

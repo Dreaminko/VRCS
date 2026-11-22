@@ -106,7 +106,7 @@ export function useMicrophoneCalibration({
       setPhase(suggestion ? "ready" : "failed");
       return suggestion;
     } catch (reason) {
-      if (run === runRef.current) setPhase("failed");
+      if (run === runRef.current) setPhase("idle");
       throw reason;
     } finally {
       if (run === runRef.current) {

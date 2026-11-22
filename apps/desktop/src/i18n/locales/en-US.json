@@ -2150,7 +2150,20 @@
         "model_required": "Enter an LLM model name.",
         "sse_incompatible": "The service streaming response is incompatible.",
         "invalid_request": "The LLM request is invalid.",
-        "model_not_found": "The selected LLM model was not found."
+        "model_not_found": "The selected LLM model was not found.",
+        "output_length_exceeded": "The LLM response exceeded the maximum allowed length."
+      },
+      "http": {
+        "unexpected_response": "VRCS Core returned an unexpected error response ({{status}})."
+      },
+      "vision": {
+        "test_failed": "The visual question answering test failed."
+      },
+      "feature": {
+        "disabled": "This feature is disabled."
+      },
+      "vad": {
+        "init_failed": "Could not initialize voice activity detection."
       },
       "core": {
         "initialize": "Could not initialize VRCS Core.",
@@ -2212,6 +2225,11 @@
         "cloud_disconnected": "The cloud recognition connection was closed.",
         "cloud_error": "The cloud recognition service returned an error.",
         "cloud_reconnect_failed": "Could not reconnect to the cloud recognition service.",
+        "cloud_drain_failed": "Could not flush pending audio to the cloud recognition service.",
+        "live_translation_interrupted": "The live speech translation stream was interrupted.",
+        "live_translation_config": "The live speech translation configuration is invalid.",
+        "cloud_profile_invalid": "The selected recognition API profile is invalid.",
+        "storage_failed": "Could not save the recognition result.",
         "alibaba_workspace_missing": "Configure an Alibaba Cloud Workspace ID first.",
         "models": "Could not load local models.",
         "download": "Could not download the model.",
@@ -2229,11 +2247,13 @@
       "settings": {
         "apply": "Could not apply settings.",
         "invalid": "The settings are invalid.",
+        "stale": "Settings changed concurrently. Refresh and try again.",
         "capture_must_be_stopped": "Stop transcription before changing these settings.",
         "model_directory_migration_failed": "Could not move models to the new directory.",
         "rollback_failed": "Settings failed and could not be restored automatically.",
         "asr_update_task_failed": "Could not start the recognition update.",
         "asr_update_failed": "Could not update the recognition engine.",
+        "asr_preload_failed": "Could not preload the speech recognition model.",
         "recovery": "{{apply}} Previous settings were restored with an additional error: {{recovery}}"
       },
       "window": {
@@ -2278,7 +2298,8 @@
         "selection_busy": "A screenshot selection is already open. Finish or cancel it first.",
         "invalid_sample_rate": "The audio sample rate is invalid.",
         "already_running": "Transcription is already running.",
-        "no_audio_sources": "Enable at least one audio source."
+        "no_audio_sources": "Enable at least one audio source.",
+        "network_start_failed": "Could not start VRChat network capture."
       },
       "subtitles": {
         "invalid_limit": "The history limit is invalid.",

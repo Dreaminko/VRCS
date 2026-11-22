@@ -14,6 +14,7 @@ export function LearningSettingsSection({
   dictionaries,
   dictionaryBusy,
   dictionaryMessage,
+  dictionaryMessageError = false,
   dictionaryProgress,
   dictionaryFileRef,
   onSelectionLookupChange,
@@ -26,6 +27,7 @@ export function LearningSettingsSection({
   dictionaries: DictionarySource[];
   dictionaryBusy: boolean;
   dictionaryMessage: string;
+  dictionaryMessageError?: boolean;
   dictionaryProgress: number | null;
   dictionaryFileRef: RefObject<HTMLInputElement | null>;
   onSelectionLookupChange: (enabled: boolean) => void;
@@ -50,6 +52,7 @@ export function LearningSettingsSection({
           dictionaries={dictionaries}
           busy={dictionaryBusy}
           message={dictionaryMessage}
+          messageError={dictionaryMessageError}
           progress={dictionaryProgress}
           fileInputRef={dictionaryFileRef}
           onSelectionLookupChange={onSelectionLookupChange}

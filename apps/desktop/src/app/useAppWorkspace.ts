@@ -41,6 +41,14 @@ export function useAppWorkspace({
   const updater = useAppUpdater(onboardingFlow.status === "complete");
   const core = useCoreSession(page === "settings" || onboardingFlow.status !== "complete");
   const { runtime, capture: captureRuntime, settings, dictionary, subtitles } = core;
+  const previousOnboardingStatus = useRef(onboardingFlow.status);
+  useEffect(() => {
+    const previous = previousOnboardingStatus.current;
+    previousOnboardingStatus.current = onboardingFlow.status;
+    if (previous !== "complete" && onboardingFlow.status === "complete") {
+      runtime.clearError();
+    }
+  }, [onboardingFlow.status, runtime.clearError]);
   const playerDisplay = usePlayerHistoryPreferences(settings.value?.translation, runtime.health?.language_session);
   const learningAvailable = settings.value?.features.learning ?? false;
   useEffect(() => {
@@ -102,7 +110,7 @@ export function useAppWorkspace({
     resumedPlayerAudio.current = true;
     if (usesVrchatNetwork(settings.value)) void captureControl.setCaptureRunning(true);
   }, [captureRuntime.playerAudioStart.resumeRequested, runtime.ready, settings.value, onboardingFlow.status, captureControl.setCaptureRunning]);
-  const { interfaceScale, setInterfaceScale } = useInterfaceScale(runtime.reportError);
+  const { interfaceScale, setInterfaceScale } = useInterfaceScale();
   const chatboxRoute = settings.value?.translation.microphone_targets[0];
   const providerCatalog = useApiProfileViews(
     `${settings.value?.asr.active_profile_id ?? "local"}:${settings.value?.asr.backend ?? ""}:${chatboxRoute?.profile_id ?? ""}`,

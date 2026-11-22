@@ -53,7 +53,9 @@ export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings
         setDesktopStatus((current) => applyDesktopOcrStatus(current, desktop));
       }
     };
-    void subscribe().catch(() => undefined);
+    void subscribe().catch((reason) => {
+      console.warn("Failed to subscribe to OCR status", reason);
+    });
     return () => { disposed = true; stops.forEach((stop) => stop()); };
   }, [vrAvailable, draft.features.ocr]);
   return <div className="settings-section settings-section-active vr-overlay-section ocr-settings-section"
@@ -81,7 +83,7 @@ export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings
         {bindingError && <p className="vr-overlay-native-error" role="alert">{bindingError}</p>}
       </section>}
       {draft.features.ocr && <div id="vision-ocr"><OcrSettingsCard vrAvailable={vrAvailable} config={draft.ocr} profiles={profiles} disabled={false}
-        defaultModel={draft.model_defaults?.translation}
+        defaultModel={draft.model_defaults.translation}
         runtime={runtime} desktopStatus={desktopStatus}
         onChange={(patch) => applySettings((current) => patchOcr(current, patch))} /></div>}
       {draft.features.visual_question_answering && <VisionSettingsCard config={draft.vision} profiles={profiles}

@@ -1,3 +1,5 @@
 .field { display: grid; min-width: 0; align-content: start; gap: 6px; }
 .field > span { color: var(--text-secondary); font-size: var(--settings-text-label); font-weight: var(--settings-weight-label); line-height: var(--settings-leading-label); }
 .field > small { margin-top: -1px; overflow-wrap: anywhere; color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
+.field > small[role="alert"] { color: var(--error); }
+.field input[aria-invalid="true"] { border-color: var(--error); }

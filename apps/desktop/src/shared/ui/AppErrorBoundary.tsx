@@ -23,7 +23,13 @@ export function FatalErrorScreen({ reportId }: { reportId: string | null }) {
           )}
         </div>
         <div className="fatal-error-actions">
-          <button className="secondary-button" type="button" onClick={() => void openLogDirectory().catch(() => undefined)}>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => void openLogDirectory().catch((reason) => {
+              console.warn("Failed to open log directory", reason);
+            })}
+          >
             <FolderOpen size={16} />
             {i18n.t("diagnostics.openLogs", { defaultValue: "Open logs" })}
           </button>

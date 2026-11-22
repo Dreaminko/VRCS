@@ -2150,7 +2150,20 @@
         "model_required": "請輸入 LLM 模型名稱。",
         "sse_incompatible": "服務的串流回應不相容。",
         "invalid_request": "LLM 請求無效。",
-        "model_not_found": "找不到所選 LLM 模型。"
+        "model_not_found": "找不到所選 LLM 模型。",
+        "output_length_exceeded": "LLM 回應超過允許的最大長度。"
+      },
+      "http": {
+        "unexpected_response": "VRCS Core 傳回了異常錯誤回應（{{status}}）。"
+      },
+      "vision": {
+        "test_failed": "視覺問答測試失敗。"
+      },
+      "feature": {
+        "disabled": "此功能已停用。"
+      },
+      "vad": {
+        "init_failed": "無法初始化語音活動偵測。"
       },
       "core": {
         "initialize": "無法初始化 VRCS Core。",
@@ -2212,6 +2225,11 @@
         "cloud_disconnected": "雲端辨識連線已中斷。",
         "cloud_error": "雲端辨識服務傳回錯誤。",
         "cloud_reconnect_failed": "無法重新連線雲端辨識服務。",
+        "cloud_drain_failed": "無法向雲端辨識服務傳送剩餘音訊。",
+        "live_translation_interrupted": "即時語音翻譯串流已中斷。",
+        "live_translation_config": "即時語音翻譯設定無效。",
+        "cloud_profile_invalid": "所選語音辨識 API 設定無效。",
+        "storage_failed": "無法儲存辨識結果。",
         "alibaba_workspace_missing": "請先為 Alibaba Cloud 設定 Workspace ID。",
         "models": "無法載入本機模型。",
         "download": "無法下載模型。",
@@ -2229,11 +2247,13 @@
       "settings": {
         "apply": "無法套用設定。",
         "invalid": "設定無效。",
+        "stale": "設定已被同時變更，請重新整理後再試。",
         "capture_must_be_stopped": "更改這些設定前請先停止轉錄。",
         "model_directory_migration_failed": "無法將模型移至新的資料夾。",
         "rollback_failed": "設定套用失敗，且無法自動還原。",
         "asr_update_task_failed": "無法啟動辨識更新。",
         "asr_update_failed": "無法更新辨識引擎。",
+        "asr_preload_failed": "無法預載語音辨識模型。",
         "recovery": "{{apply}} 還原先前設定時發生另一個錯誤：{{recovery}}"
       },
       "window": {
@@ -2278,7 +2298,8 @@
         "selection_busy": "截圖選擇介面已開啟，請先完成或取消。",
         "invalid_sample_rate": "音訊取樣率無效。",
         "already_running": "轉錄正在進行中。",
-        "no_audio_sources": "請至少啟用一個音訊來源。"
+        "no_audio_sources": "請至少啟用一個音訊來源。",
+        "network_start_failed": "無法啟動 VRChat 網路擷取。"
       },
       "subtitles": {
         "invalid_limit": "字幕記錄上限無效。",

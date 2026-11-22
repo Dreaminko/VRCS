@@ -6,11 +6,13 @@ import type { Settings } from "../src/settings/types.ts";
 const binding = (model: string, use_default_model = true) => ({ profile_id: "profile", model, use_default_model });
 function settings(): Settings {
   return {
+    asr: { backend: "qwen_realtime" },
     model_defaults: {
       text: binding("text"),
       translation: binding("translation"),
       vision: binding("image"),
     },
+    language_presets: [],
     translation: {
       model_selection: binding("old"),
       speaker_targets: [{ ...binding("old"), target_language: "en" }],

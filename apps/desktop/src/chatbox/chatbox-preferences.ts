@@ -16,13 +16,13 @@ async function persistChatboxPreferences(preferences: ChatboxPreferences): Promi
       await store.save();
       return;
     }
-  } catch {
-    // Keep the browser-backed copy below as a fallback if the native store fails.
+  } catch (error) {
+    console.warn("Failed to save native chatbox preferences", error);
   }
   try {
     globalThis.localStorage?.setItem(WEB_STORAGE_KEY, JSON.stringify(preferences));
-  } catch {
-    // Ignore storage failures after both persistence backends have been attempted.
+  } catch (error) {
+    console.warn("Failed to save browser chatbox preferences", error);
   }
 }
 
@@ -51,7 +51,8 @@ export async function loadChatboxPreferences(
     const store = await load("preferences.json", { autoSave: false });
     const stored = await store.get<unknown>(STORE_KEY);
     return stored == null ? fallback : normalizeChatboxPreferences(stored, fallbackTarget);
-  } catch {
+  } catch (error) {
+    console.warn("Failed to load native chatbox preferences", error);
     return fallback;
   }
 }

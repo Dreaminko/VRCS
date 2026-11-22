@@ -166,7 +166,7 @@ export function useAsrModels({
   const updateModelDirectory = (value: string) => {
     const directory = value.trim();
     if (!directory) {
-      draftController.setFailure(t("settings.recognition.modelDirectoryRequired"));
+      setQwenMessage(t("settings.recognition.modelDirectoryRequired"));
       return;
     }
     setModelDirectoryText(directory);
@@ -192,7 +192,7 @@ export function useAsrModels({
       });
       if (typeof directory === "string") updateModelDirectory(directory);
     } catch (reason) {
-      draftController.setFailure(localizedError(reason, t, "errors.dialog.folder"));
+      setQwenMessage(localizedError(reason, t, "errors.dialog.folder"));
     }
   };
 

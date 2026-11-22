@@ -104,6 +104,9 @@
 .osc-connection p { margin: 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); text-wrap: pretty; }
 .anki-section .anki-connection,
 .osc-section .osc-connection { min-height: 0; margin-bottom: 12px; padding: 10px 14px; border-radius: var(--radius-sm); }
+.osc-connection.error { background: var(--error-soft); }
+.osc-connection.error strong,
+.osc-connection.error p { color: var(--error); }
 .anki-panel,
 .osc-panel {
   display: grid;

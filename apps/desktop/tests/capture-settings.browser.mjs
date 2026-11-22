@@ -54,9 +54,10 @@ for (const width of [1100, 860, 380]) {
           });
           latest=controller.draft;
           saveState=controller.saveState;
-          const shared={draft:controller.draft,saveState:controller.saveState,saveMessage:controller.saveMessage,
+          const shared={draft:controller.draft,saveState:controller.saveState,
             applySettings:controller.applySettings,playerAudioStart:{memory:{status:{supported,elevated:true,enabled:true,restart_required:false}}}};
           return <WindowsCapabilities networkSupported={supported} networkAvailable={supported&&networkAvailable}><SettingsTabBar activeCategory={category} visibleCategories={visibleSettingsCategories(DEFAULT_FEATURE_SETTINGS)} onChange={setCategory}/>
+            {controller.saveMessage && <p role="alert">{controller.saveMessage}</p>}
             {category==='audio'&&<CaptureSettingsSection {...shared} devices={[]} devicesReady={true} deviceErrors={[]}
               outputDevices={[]} microphoneDevices={[]} microphoneRunning={false} transcriptionRunning={false}
               microphoneTestRunning={false} onRefresh={noop} onStartMicrophoneTest={noop} onStopMicrophoneTest={noop}

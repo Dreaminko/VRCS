@@ -55,6 +55,7 @@ export function SettingsPanel({
   onModelsChanged,
   onInterfaceScaleChange,
   onSave,
+  onClearSettingsError,
   onTestOsc,
   onStartOnboarding,
   updater,
@@ -82,6 +83,7 @@ export function SettingsPanel({
   onModelsChanged: () => Promise<void>;
   onInterfaceScaleChange: (value: number) => void;
   onSave: (value: Settings) => Promise<Settings>;
+  onClearSettingsError?: () => void;
   onTestOsc: () => Promise<void>;
   onStartOnboarding: () => void;
   updater: AppUpdaterState;
@@ -144,7 +146,7 @@ export function SettingsPanel({
     onDelete: onDeleteDictionary,
   });
 
-  const { draft, saveState, saveMessage } = draftController;
+  const { draft, saveState } = draftController;
   const applySettings: ApplySettings = (update, afterSave, afterError) => draftController.applySettings(
     (current) => applyModelDefaults(update(current)), afterSave, afterError,
   );
@@ -225,7 +227,6 @@ export function SettingsPanel({
           outputDevices={outputDevices}
           microphoneDevices={microphoneDevices}
           saveState={saveState}
-          saveMessage={saveMessage}
           onRefresh={onRefresh}
           applySettings={applySettings}
           onStartMicrophoneTest={onStartMicrophoneTest}
@@ -245,6 +246,7 @@ export function SettingsPanel({
         <GlossarySettingsSection
           draft={draft}
           applySettings={applySettings}
+          onClearSettingsError={onClearSettingsError}
         />
       )}
 
@@ -271,6 +273,7 @@ export function SettingsPanel({
           dictionaries={dictionaries}
           dictionaryBusy={dictionary.busy}
           dictionaryMessage={dictionary.message}
+          dictionaryMessageError={dictionary.messageError}
           dictionaryProgress={dictionary.progress}
           dictionaryFileRef={dictionary.fileInputRef}
           onSelectionLookupChange={(enabled) => applySettings((current) => ({

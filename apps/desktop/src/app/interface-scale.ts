@@ -101,7 +101,7 @@ export function syncInterfaceViewportProperties(): void {
   window.dispatchEvent(new Event(INTERFACE_LAYOUT_CHANGE_EVENT));
 }
 
-export async function applyInterfaceScale(value: number): Promise<void> {
+export function applyInterfaceScale(value: number): void {
   const { scale, inverse } = interfaceScaleFactors(value);
   document.documentElement.style.setProperty(INTERFACE_SCALE_PROPERTY, String(scale));
   document.documentElement.style.setProperty(

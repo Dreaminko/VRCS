@@ -32,12 +32,20 @@ export function localizedError(
   fallbackKey: string,
 ): string {
   const missing = "__VRCS_UNTRANSLATED_ERROR__";
+  const lookupErrorCode = (code: string, params?: Record<string, unknown>) => {
+    const direct = t(`errors.${code}`, { ...params, defaultValue: missing });
+    if (direct !== missing) return direct;
+    if (code.startsWith("asr.qwen_model.")) {
+      return t(`errors.asr.model.${code.slice("asr.qwen_model.".length)}`, {
+        ...params,
+        defaultValue: missing,
+      });
+    }
+    return missing;
+  };
   if (reason instanceof ApiError) {
     if (reason.code.startsWith("platform.")) return t(reason.code);
-    const localized = t(`errors.${reason.code}`, {
-      ...reason.params,
-      defaultValue: missing,
-    });
+    const localized = lookupErrorCode(reason.code, reason.params);
     if (localized === missing) return reason.detail || t(fallbackKey);
     return formatApiErrorMessage(
       reason,
@@ -52,13 +60,23 @@ export function localizedError(
     && typeof reason.code === "string"
   ) {
     if (reason.code.startsWith("platform.")) return t(reason.code);
-    const localized = t(`errors.${reason.code}`, { defaultValue: missing });
+    const localized = lookupErrorCode(reason.code);
     if (localized !== missing) return localized;
     return "detail" in reason && typeof reason.detail === "string" && reason.detail
       ? reason.detail
       : t(fallbackKey);
   }
-  if (typeof reason === "string" && reason.startsWith("platform.")) return t(reason);
+  if (typeof reason === "string") {
+    if (reason.startsWith("platform.")) return t(reason);
+    if (reason.startsWith("desktop_ocr.")) {
+      const localized = t(`ocrWindow.errors.${reason.slice("desktop_ocr.".length)}`, { defaultValue: missing });
+      if (localized !== missing) return localized;
+    }
+    if (reason.startsWith("desktop_vision.")) {
+      const localized = t(`visionWindow.errors.${reason.slice("desktop_vision.".length)}`, { defaultValue: missing });
+      if (localized !== missing) return localized;
+    }
+  }
   return reason instanceof Error ? reason.message : t(fallbackKey);
 }
 

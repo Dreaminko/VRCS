@@ -71,14 +71,18 @@ export function OcrWindow() {
       </div>}
       {Boolean(status?.blocks.length) && <div className="ocr-result-list">{status?.blocks.map((block) => <article className="ocr-result-block" key={block.source.id}>
         <p className="ocr-result-source" aria-label={t("ocrWindow.source")}>{block.source.text}</p>
-        {block.translations.map((translation) => <div className="ocr-result-target" key={translation.target_language}>
-          {block.translations.length > 1 && <small>{localizedLanguageName(translation.target_language, i18n.resolvedLanguage ?? "en-US")}</small>}
-          <p className={`ocr-result-translation${translation.text === null ? " ocr-result-placeholder" : ""}`}
-            lang={contentLanguageTag(translation.target_language)}>
-            {translation.text ?? t(processing && translation.error_code !== "translation.not_configured"
-              ? "ocrWindow.translationPending" : "ocrWindow.translationFailed")}
-          </p>
-        </div>)}
+        {block.translations.map((translation) => {
+          const pending = translation.text === null && processing && translation.error_code !== "translation.not_configured";
+          const failed = translation.text === null && !pending;
+          return <div className="ocr-result-target" key={translation.target_language}>
+            {block.translations.length > 1 && <small>{localizedLanguageName(translation.target_language, i18n.resolvedLanguage ?? "en-US")}</small>}
+            <p className={`ocr-result-translation${pending ? " ocr-result-placeholder" : failed ? " ocr-result-error" : ""}`}
+              role={failed ? "alert" : undefined}
+              lang={contentLanguageTag(translation.target_language)}>
+              {translation.text ?? t(pending ? "ocrWindow.translationPending" : "ocrWindow.translationFailed")}
+            </p>
+          </div>;
+        })}
       </article>)}</div>}
     </div>
     <footer className="ocr-window-toolbar">

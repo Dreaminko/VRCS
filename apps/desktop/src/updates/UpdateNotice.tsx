@@ -12,9 +12,11 @@ function formatProgress(downloaded: number, total: number | null): number | null
 export function UpdateNotice({
   updater,
   transcriptionRunning,
+  hideError = false,
 }: {
   updater: AppUpdaterState;
   transcriptionRunning: boolean;
+  hideError?: boolean;
 }) {
   const { t } = useTranslation();
   const progress = formatProgress(updater.downloadedBytes, updater.totalBytes);
@@ -22,7 +24,7 @@ export function UpdateNotice({
 
   const checking = updater.phase === "checking";
   const busy = updater.phase === "downloading" || updater.phase === "installing";
-  const canInstall = updater.buildInfo?.canInstall ?? updater.buildInfo?.updaterAvailable ?? false;
+  const canInstall = updater.buildInfo?.canInstall ?? false;
 
   return (
     <aside className="update-notice" aria-labelledby="update-notice-title">
@@ -43,7 +45,7 @@ export function UpdateNotice({
         {canInstall && transcriptionRunning && !busy && (
           <small>{t("updates.stopTranscriptionFirst")}</small>
         )}
-        {updater.phase === "error" && (
+        {!hideError && updater.phase === "error" && (
           <small className="error">{t(`updates.errors.${updater.errorCode ?? "failed"}`)}</small>
         )}
         <div className="update-notice-actions">

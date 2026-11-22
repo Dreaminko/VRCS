@@ -62,6 +62,7 @@
 .storage-clear-button { justify-self: end; }
 .storage-clear-button:hover:not(:disabled) { border-color: var(--error); color: var(--error); background: var(--error-soft); }
 .storage-feedback { padding-top: 12px; color: var(--text-secondary); }
+.storage-feedback.is-error { color: var(--error); }
 @keyframes storage-spin { to { transform: rotate(360deg); } }
 @media (max-width: 680px) {
   .storage-setting-row, .storage-clear-row { grid-template-columns: 1fr; gap: 8px; padding-block: 9px; }

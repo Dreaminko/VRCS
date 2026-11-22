@@ -127,7 +127,10 @@ export function usePlayerAudioStart(options?: { os?: string; beforeMemoryChange:
     if (!isTauri()) return true;
     // Linux has no Windows pagefile/MMAgent prerequisite; Core requests the
     // network helper through polkit only after a VRChat process is found.
-    const os = optionsRef.current?.os ?? (await runtimeApi.platformCapabilities().catch(() => null))?.os;
+    const os = optionsRef.current?.os ?? (await runtimeApi.platformCapabilities().catch((reason) => {
+      console.warn("Failed to read platform capabilities before player audio start", reason);
+      return null;
+    }))?.os;
     if (os === "linux") return true;
     setPreparation({ stage: "memory", detail: null });
     try {

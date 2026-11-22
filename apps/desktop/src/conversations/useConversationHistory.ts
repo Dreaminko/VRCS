@@ -231,8 +231,11 @@ export function useConversationHistory({
         paginationInitializedRef.current = true;
       }
       clearErrorFrom("subtitle-history");
-    } catch {
+    } catch (reason) {
       // A reconnect refresh must not replace or clear the current pool.
+      if (!isAbortError(reason)) {
+        console.warn("Failed to refresh open conversation history", reason);
+      }
     } finally {
       if (openRequestControllerRef.current === controller) {
         openRequestControllerRef.current = null;
@@ -316,6 +319,7 @@ export function useConversationHistory({
   }, []);
 
   const translateSubtitle = useCallback(async (subtitleId: number) => {
+    clearErrorFrom(`translation:${subtitleId}`);
     setTranslatingSubtitleIds((current) => current.includes(subtitleId)
       ? current
       : [...current, subtitleId]);
@@ -323,7 +327,7 @@ export function useConversationHistory({
       const translation = await subtitlesApi.translateSubtitle(subtitleId);
       clearTranslationPartial(subtitleId);
       setSubtitles((current) => withTranslation(current, subtitleId, translation, true));
-      clearErrorFrom(`translation:${subtitleId}`);
+
     } catch (reason) {
       clearTranslationPartial(subtitleId);
       setSubtitles((current) => withoutTranslationPartial(current, subtitleId));

@@ -99,7 +99,8 @@ export function useCoreRuntime({
       if (isCancelled?.()) return true;
       setCapabilities((current) => mergeCapabilities(current, { core }));
       return true;
-    } catch {
+    } catch (reason) {
+      console.warn("Failed to refresh core capabilities", reason);
       return false;
     }
   }, []);
@@ -110,7 +111,8 @@ export function useCoreRuntime({
       if (isCancelled?.()) return true;
       setCapabilities((current) => mergeCapabilities(current, { desktop }));
       return true;
-    } catch {
+    } catch (reason) {
+      console.warn("Failed to refresh desktop capabilities", reason);
       return false;
     }
   }, []);

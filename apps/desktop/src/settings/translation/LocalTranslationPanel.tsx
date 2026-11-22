@@ -32,7 +32,7 @@ export function LocalTranslationPanel({
       setStatus(next);
       setStatusError("");
     } catch (reason) {
-      setStatusError(localizedError(reason, t, "errors.apiStatus.translation.failed"));
+      setStatusError(localizedError(reason, t, "errors.translation.failed"));
     }
   }, [t]);
 
@@ -60,7 +60,7 @@ export function LocalTranslationPanel({
       await action();
       await load();
     } catch (reason) {
-      setActionMessage(localizedError(reason, t, "errors.apiStatus.translation.failed"));
+      setActionMessage(localizedError(reason, t, "errors.translation.failed"));
     } finally {
       setBusy(false);
     }
@@ -95,7 +95,7 @@ export function LocalTranslationPanel({
             {runtime.error && <p className="model-error" role="alert">{localizedError({
               code: "translation.local_runtime_unavailable",
               detail: runtime.error,
-            }, t, "errors.apiStatus.translation.failed")}</p>}
+            }, t, "errors.translation.failed")}</p>}
           </div>
           <div className="model-row-action">
             {!runtime.runtime_available
@@ -127,7 +127,7 @@ export function LocalTranslationPanel({
             {model.error && <p className="model-error" role="alert">{localizedError({
               code: "translation.local_download_failed",
               detail: model.error,
-            }, t, "errors.apiStatus.translation.failed")}</p>}
+            }, t, "errors.translation.failed")}</p>}
           </div>
           <div className="model-row-action">
             {downloading

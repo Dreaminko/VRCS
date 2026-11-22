@@ -49,6 +49,8 @@
 .about-link-row a:hover strong { color: var(--primary-ink); }
 .about-link-row a > span { overflow-wrap: anywhere; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .about-feedback { margin: 14px 0 0; }
+.about-contributor-status .is-error,
+.about-feedback.is-error { color: var(--error); }
 @media (max-width: 680px) {
   .about-links { grid-template-columns: 1fr; }
 }

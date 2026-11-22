@@ -48,8 +48,15 @@ export function ConnectionSettingsSection({
   const [portError, setPortError] = useState("");
   const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState("");
+  const [testFailed, setTestFailed] = useState(false);
 
   useEffect(() => setPortText(String(draft.osc.port)), [draft.osc.port]);
+  useEffect(() => {
+    if (!draft.osc.enabled) {
+      setTestFailed(false);
+      setMessage("");
+    }
+  }, [draft.osc.enabled]);
 
   const commitPort = () => {
     const port = Number(portText);
@@ -67,10 +74,12 @@ export function ConnectionSettingsSection({
   const test = async () => {
     setTesting(true);
     setMessage("");
+    setTestFailed(false);
     try {
       await onTest();
       setMessage(t("settings.osc.testQueued"));
     } catch {
+      setTestFailed(true);
       setMessage(t("settings.osc.testFailed"));
     } finally {
       setTesting(false);
@@ -80,7 +89,7 @@ export function ConnectionSettingsSection({
   const runtime = health?.osc;
   const state = !draft.osc.enabled
     ? "disabled"
-    : runtime?.status === "error"
+    : testFailed || runtime?.status === "error"
       ? "error"
       : "ready";
   const statusKey = state === "error"

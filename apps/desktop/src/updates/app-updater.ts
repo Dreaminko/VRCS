@@ -9,7 +9,7 @@ export interface AppBuildInfo {
   arch?: string;
   packageChannel?: "development" | "installer" | "manual" | "system" | "deb" | "rpm" | "appimage";
   updaterAvailable: boolean;
-  canInstall?: boolean;
+  canInstall: boolean;
 }
 
 export interface AppUpdateMetadata {

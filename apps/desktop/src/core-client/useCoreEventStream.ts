@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { coreWebSocketUrl } from "./transport";
+import { ApiError } from "./api-error";
 import { clearSpeakerIdentities, publishSpeakerIdentity } from "../subtitles/speaker-state";
 import {
   clearAudioLevels,
@@ -89,7 +90,13 @@ export function useCoreEventStream({
       };
       socket.onmessage = (event) => {
         const message = parseSubtitleStreamMessage(event.data);
-        if (message === null) return;
+        if (message === null) {
+          console.warn(
+            "Dropped invalid core stream message",
+            typeof event.data === "string" ? event.data.slice(0, 200) : event.data,
+          );
+          return;
+        }
         switch (message.type) {
           case "speaker_updated":
             publishSpeakerIdentity(message.speaker);
@@ -150,8 +157,12 @@ export function useCoreEventStream({
               }
             }
             reportErrorRef.current(
-              { code: message.code ?? "asr.cloud_connect_failed" },
-              "errors.core.connect",
+              new ApiError({
+                code: message.code ?? "asr.cloud_connect_failed",
+                detail: message.detail ?? "",
+                status: 0,
+              }),
+              "errors.asr.cloud_error",
               `stream:${message.source ?? "unknown"}`,
             );
             break;
@@ -179,7 +190,11 @@ export function useCoreEventStream({
             clearTranslationPartial(message.subtitle_id, message.target_language);
             handlersRef.current.onTranslationFailed(message.subtitle_id);
             reportErrorRef.current(
-              { code: message.code ?? "translation.request_failed" },
+              new ApiError({
+                code: message.code ?? "translation.request_failed",
+                detail: message.detail ?? "",
+                status: 0,
+              }),
               "errors.translation.failed",
               `translation:${message.subtitle_id}`,
             );

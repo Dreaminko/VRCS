@@ -40,6 +40,7 @@ export function AudioStep({
         <div><p>{t("onboarding.audio.description")}</p></div>
         <button className="secondary-button" type="button" disabled={audioBusy} onClick={onRefreshDevices}><RefreshCw size={15} />{t("settings.audio.rescan")}</button>
       </div>
+      {devicesError && <p className="settings-validation-error" role="alert">{t("errors.audio.devices")}</p>}
       {deviceErrors.map((error) => <p className="settings-validation-error" role="alert" key={error}>{error}</p>)}
       {devicesReady && !hasAudioSource && (
         <p className="settings-validation-error" role="alert">{t("onboarding.audio.sourceRequired")}</p>

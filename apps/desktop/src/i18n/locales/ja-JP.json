@@ -2150,7 +2150,20 @@
         "model_required": "LLM モデル名を入力してください。",
         "sse_incompatible": "サービスのストリーミング応答に互換性がありません。",
         "invalid_request": "LLM リクエストが無効です。",
-        "model_not_found": "選択した LLM モデルが見つかりません。"
+        "model_not_found": "選択した LLM モデルが見つかりません。",
+        "output_length_exceeded": "LLM の応答が許可された最大長を超えました。"
+      },
+      "http": {
+        "unexpected_response": "VRCS Core から予期しないエラー応答（{{status}}）が返されました。"
+      },
+      "vision": {
+        "test_failed": "画像質問応答のテストに失敗しました。"
+      },
+      "feature": {
+        "disabled": "この機能は無効です。"
+      },
+      "vad": {
+        "init_failed": "音声区間検出（VAD）を初期化できませんでした。"
       },
       "core": {
         "initialize": "VRCS Core を初期化できませんでした。",
@@ -2212,6 +2225,11 @@
         "cloud_disconnected": "クラウド音声認識の接続が切断されました。",
         "cloud_error": "クラウド音声認識サービスからエラーが返されました。",
         "cloud_reconnect_failed": "クラウド音声認識サービスへの再接続に失敗しました。",
+        "cloud_drain_failed": "クラウド音声認識サービスへ残りの音声を送信できませんでした。",
+        "live_translation_interrupted": "リアルタイム音声翻訳ストリームが中断されました。",
+        "live_translation_config": "リアルタイム音声翻訳の設定が無効です。",
+        "cloud_profile_invalid": "選択した音声認識 API プロファイルが無効です。",
+        "storage_failed": "音声認識結果を保存できませんでした。",
         "alibaba_workspace_missing": "先に Alibaba Cloud の Workspace ID を設定してください。",
         "models": "ローカルモデルを読み込めませんでした。",
         "download": "モデルをダウンロードできませんでした。",
@@ -2229,11 +2247,13 @@
       "settings": {
         "apply": "設定を適用できませんでした。",
         "invalid": "設定が無効です。",
+        "stale": "設定が同時に変更されました。更新してから再試行してください。",
         "capture_must_be_stopped": "この設定を変更する前に文字起こしを停止してください。",
         "model_directory_migration_failed": "モデルを新しいフォルダーに移動できませんでした。",
         "rollback_failed": "設定に失敗し、自動復元もできませんでした。",
         "asr_update_task_failed": "音声認識の更新を開始できませんでした。",
         "asr_update_failed": "音声認識エンジンを更新できませんでした。",
+        "asr_preload_failed": "音声認識モデルを事前読み込みできませんでした。",
         "recovery": "{{apply}} 以前の設定を復元する際にもエラーが発生しました：{{recovery}}"
       },
       "window": {
@@ -2278,7 +2298,8 @@
         "selection_busy": "スクリーンショットの選択画面はすでに開いています。先に完了またはキャンセルしてください。",
         "invalid_sample_rate": "音声のサンプルレートが無効です。",
         "already_running": "文字起こしはすでに実行中です。",
-        "no_audio_sources": "音声ソースを1つ以上有効にしてください。"
+        "no_audio_sources": "音声ソースを1つ以上有効にしてください。",
+        "network_start_failed": "VRChat のネットワークキャプチャを開始できませんでした。"
       },
       "subtitles": {
         "invalid_limit": "履歴の上限が無効です。",

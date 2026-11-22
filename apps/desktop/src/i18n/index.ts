@@ -63,7 +63,11 @@ export async function initializeI18n({ nativePreferences = true }: { nativePrefe
     });
 
   applyDocumentLocale(locale);
-  if (nativePreferences) void syncNativeLabels().catch(() => undefined);
+  if (nativePreferences) {
+    void syncNativeLabels().catch((reason) => {
+      console.warn("Failed to sync native UI labels", reason);
+    });
+  }
 }
 
 export function currentUiLanguagePreference(): UiLanguagePreference {
@@ -83,23 +87,31 @@ export async function changeUiLanguage(
     }
     await i18n.changeLanguage(locale);
     applyDocumentLocale(locale);
-    await syncNativeLabels().catch(() => undefined);
+    await syncNativeLabels().catch((reason) => {
+      console.warn("Failed to sync native UI labels", reason);
+    });
     await saveUiLanguagePreference(preference);
   } catch (error) {
     selectedPreference = previous;
     const previousLocale = resolveUiLocale(previous, catalog.supportedUiLocales);
     if (!i18n.hasResourceBundle(previousLocale, "translation")) {
-      i18n.addResourceBundle(
-        previousLocale,
-        "translation",
-        await loadLocaleTranslation(previousLocale).catch(() => ({})),
-        true,
-        true,
-      );
+      try {
+        i18n.addResourceBundle(
+          previousLocale,
+          "translation",
+          await loadLocaleTranslation(previousLocale),
+          true,
+          true,
+        );
+      } catch (rollbackError) {
+        console.warn(`Failed to reload previous locale "${previousLocale}"`, rollbackError);
+      }
     }
     await i18n.changeLanguage(previousLocale);
     applyDocumentLocale(previousLocale);
-    await syncNativeLabels().catch(() => undefined);
+    await syncNativeLabels().catch((reason) => {
+      console.warn("Failed to sync native UI labels", reason);
+    });
     throw error;
   }
 }

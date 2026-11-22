@@ -74,10 +74,10 @@ pub fn set_shortcut_recording(
 
 pub fn finish_shortcut_recording(app: &tauri::AppHandle) {
     use tauri::Manager as _;
-    if let Some(state) = app.try_state::<ShortcutRecording>() {
-        if let Err(error) = state.set(app, false) {
-            tracing::warn!(%error, "Desktop shortcut recording cleanup failed");
-        }
+    if let Some(state) = app.try_state::<ShortcutRecording>()
+        && let Err(error) = state.set(app, false)
+    {
+        tracing::warn!(%error, "Desktop shortcut recording cleanup failed");
     }
 }
 
@@ -146,10 +146,12 @@ pub fn selection_hint(app: &tauri::AppHandle, window: &str) -> String {
         _ => "en-US",
     };
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Ok(guard) = cache.lock() {
-        if let Some(cached) = guard.get(&(locale_key, window.to_owned())) {
-            return cached.clone();
-        }
+    if let Some(cached) = cache
+        .lock()
+        .expect("selection hint cache lock")
+        .get(&(locale_key, window.to_owned()))
+    {
+        return cached.clone();
     }
     let messages = match locale_key {
         "zh-CN" => include_str!("../../../src/i18n/locales/zh-CN.json"),
@@ -158,16 +160,14 @@ pub fn selection_hint(app: &tauri::AppHandle, window: &str) -> String {
         _ => include_str!("../../../src/i18n/locales/en-US.json"),
     };
     let hint = serde_json::from_str::<serde_json::Value>(messages)
-        .ok()
-        .and_then(|value| {
-            value
-                .pointer(&format!("/translation/{window}/selectionHint"))
-                .and_then(|text| text.as_str())
-                .map(str::to_owned)
-        })
+        .expect("embedded locale JSON is valid")
+        .pointer(&format!("/translation/{window}/selectionHint"))
+        .and_then(|text| text.as_str())
+        .map(str::to_owned)
         .unwrap_or_else(|| "Drag to select an area. Esc / right-click to cancel.".into());
-    if let Ok(mut guard) = cache.lock() {
-        guard.insert((locale_key, window.to_owned()), hint.clone());
-    }
+    cache
+        .lock()
+        .expect("selection hint cache lock")
+        .insert((locale_key, window.to_owned()), hint.clone());
     hint
 }

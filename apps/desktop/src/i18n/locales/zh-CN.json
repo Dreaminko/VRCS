@@ -2150,7 +2150,20 @@
         "model_required": "请填写 LLM 模型名。",
         "sse_incompatible": "服务的流式响应不兼容。",
         "invalid_request": "LLM 请求参数无效。",
-        "model_not_found": "找不到所选 LLM 模型。"
+        "model_not_found": "找不到所选 LLM 模型。",
+        "output_length_exceeded": "LLM 响应超出了允许的最大长度。"
+      },
+      "http": {
+        "unexpected_response": "VRCS Core 返回了异常错误响应（{{status}}）。"
+      },
+      "vision": {
+        "test_failed": "视觉问答测试失败。"
+      },
+      "feature": {
+        "disabled": "此功能已关闭。"
+      },
+      "vad": {
+        "init_failed": "无法初始化语音活动检测。"
       },
       "core": {
         "initialize": "无法初始化 VRCS Core。",
@@ -2212,6 +2225,11 @@
         "cloud_disconnected": "云端识别连接已断开。",
         "cloud_error": "云端识别服务返回错误。",
         "cloud_reconnect_failed": "云端识别服务重连失败。",
+        "cloud_drain_failed": "无法向云端识别服务发送剩余音频。",
+        "live_translation_interrupted": "实时语音翻译流已中断。",
+        "live_translation_config": "实时语音翻译配置无效。",
+        "cloud_profile_invalid": "所选语音识别 API 配置无效。",
+        "storage_failed": "无法保存识别结果。",
         "alibaba_workspace_missing": "请先为 Alibaba Cloud 配置 Workspace ID。",
         "models": "无法加载本地模型。",
         "download": "无法下载模型。",
@@ -2229,11 +2247,13 @@
       "settings": {
         "apply": "无法应用设置。",
         "invalid": "设置无效。",
+        "stale": "设置已被同时修改，请刷新后重试。",
         "capture_must_be_stopped": "更改这些设置前请先停止转写。",
         "model_directory_migration_failed": "无法将模型迁移到新目录。",
         "rollback_failed": "设置失败，且无法自动恢复。",
         "asr_update_task_failed": "无法启动识别更新。",
         "asr_update_failed": "无法更新识别引擎。",
+        "asr_preload_failed": "无法预加载语音识别模型。",
         "recovery": "{{apply}} 恢复此前设置时又发生错误：{{recovery}}"
       },
       "window": {
@@ -2278,7 +2298,8 @@
         "selection_busy": "截图选择界面已打开，请先完成或取消。",
         "invalid_sample_rate": "音频采样率无效。",
         "already_running": "转写已在运行。",
-        "no_audio_sources": "请至少启用一个声音来源。"
+        "no_audio_sources": "请至少启用一个声音来源。",
+        "network_start_failed": "无法启动 VRChat 网络采集。"
       },
       "subtitles": {
         "invalid_limit": "历史记录上限无效。",

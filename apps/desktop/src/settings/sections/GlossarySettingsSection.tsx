@@ -9,9 +9,11 @@ import { PreferenceToggle } from "../SettingsControls";
 export function GlossarySettingsSection({
   draft,
   applySettings,
+  onClearSettingsError,
 }: {
   draft: Settings;
   applySettings: ApplySettings;
+  onClearSettingsError?: () => void;
 }) {
   const { t } = useTranslation();
   const updateGlossary = (patch: Partial<Settings["glossary"]>) => applySettings((current) => ({
@@ -48,6 +50,7 @@ export function GlossarySettingsSection({
       <GlossaryEditor
         sources={draft.glossary.sources}
         disabled={false}
+        onClearSettingsError={onClearSettingsError}
         onChange={(sources, afterSave, afterError) => applySettings((current) => ({
           ...current,
           glossary: { ...current.glossary, sources },

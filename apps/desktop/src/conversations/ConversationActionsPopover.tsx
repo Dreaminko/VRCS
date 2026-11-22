@@ -155,7 +155,7 @@ export function ConversationActionsPopover({
                 ? "conversations.titleRegenerate" : "conversations.titleGenerate")}
             </button>
             {conversation.hasCustomTitle && <p className="conversation-action-note">{t("conversations.titleClearCustom")}</p>}
-            {conversation.titleStatus === "failed" && <p className="conversation-action-note" role="status">
+            {conversation.titleStatus === "failed" && <p className="conversation-action-note error" role="alert">
               {t(`errors.${conversation.titleError ?? "conversations.title_service_failed"}`)}
             </p>}
             {(!titleConfigured || conversation.titleStatus === "failed") && <button type="button" role="menuitem" onClick={onOpenTitleSettings}>

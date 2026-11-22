@@ -46,7 +46,7 @@ export function AboutSettingsSection({ version }: { version?: string }) {
         )}
         <div className="about-contributor-status" role="status">
           {loading && <span>{t("common.loading")}</span>}
-          {!loading && error && <span>{t(`settings.about.${error}`)}{cache && ` ${t("settings.about.cached")}`}</span>}
+          {!loading && error && <span className="is-error" role="alert">{t(`settings.about.${error}`)}{cache && ` ${t("settings.about.cached")}`}</span>}
           {!loading && !error && cache?.contributors.length === 0 && <span>{t("settings.about.empty")}</span>}
         </div>
       </section>
@@ -63,7 +63,7 @@ export function AboutSettingsSection({ version }: { version?: string }) {
             </div>
           ))}
         </div>
-        {message && <p className="about-feedback" role="status">{message}</p>}
+        {message && <p className="about-feedback is-error" role="alert">{message}</p>}
       </section>
     </div>
   );

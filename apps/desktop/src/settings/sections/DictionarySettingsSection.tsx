@@ -12,6 +12,7 @@ export function DictionarySettingsSection({
   dictionaries,
   busy,
   message,
+  messageError = false,
   progress,
   fileInputRef,
   onSelectionLookupChange,
@@ -23,6 +24,7 @@ export function DictionarySettingsSection({
   dictionaries: DictionarySource[];
   busy: boolean;
   message: string;
+  messageError?: boolean;
   progress: number | null;
   fileInputRef: RefObject<HTMLInputElement | null>;
   onSelectionLookupChange: (enabled: boolean) => void;
@@ -112,7 +114,7 @@ export function DictionarySettingsSection({
               onConfirm={confirmRemoval}
             />
           )}
-          {dictionaryMessage && <p className="dictionary-feedback" role="status">{dictionaryMessage}</p>}
+          {dictionaryMessage && <p className={messageError ? "dictionary-feedback is-error" : "dictionary-feedback"} role={messageError ? "alert" : "status"}>{dictionaryMessage}</p>}
           {dictionaryBusy && dictionaryProgress !== null && progressPercentage !== null && (
             <div className="dictionary-import-progress">
               <div

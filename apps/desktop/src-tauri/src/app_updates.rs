@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use semver::Version;
@@ -175,14 +175,23 @@ pub(crate) fn can_install_updates() -> bool {
     supported && has_public_key()
 }
 
-pub(crate) fn updater_available() -> bool {
+fn updater_supported() -> bool {
     #[cfg(windows)]
-    let supported = true;
+    {
+        true
+    }
     #[cfg(target_os = "linux")]
-    let supported = package_channel() != "development";
+    {
+        package_channel() != "development"
+    }
     #[cfg(not(any(windows, target_os = "linux")))]
-    let supported = false;
-    supported && has_public_key()
+    {
+        false
+    }
+}
+
+pub(crate) fn updater_available() -> bool {
+    updater_supported() && has_public_key()
 }
 
 fn nightly_supported() -> bool {
@@ -241,7 +250,7 @@ fn acquire_busy(state: &UpdateState) -> Result<BusyGuard<'_>, UpdateError> {
 }
 
 pub(crate) fn register_plugin(app: &tauri::App) -> tauri::Result<()> {
-    if !updater_available() {
+    if !updater_supported() {
         return Ok(());
     }
     let Some(public_key) = UPDATER_PUBLIC_KEY.filter(|key| !key.trim().is_empty()) else {
@@ -435,7 +444,7 @@ pub(crate) async fn download_and_install_update(
 
 #[cfg(test)]
 mod tests {
-    use super::{target, variant, DownloadEvent};
+    use super::{DownloadEvent, target, variant};
     use serde_json::json;
 
     #[test]

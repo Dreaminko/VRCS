@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Eye, FlaskConical, Monitor, RectangleGoggles, RefreshCw } from "lucide-react";
 import { request } from "../../core-client/transport";
+import { localizedError } from "../../app/app-utils";
 import { useTranslation } from "react-i18next";
 import type { ApiProfileView } from "../../providers/types";
 import type { VrOcrWristSettings } from "../../integrations/types";
@@ -62,7 +63,9 @@ export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, hi
       });
       if (testController.current === controller && !controller.signal.aborted) setTestResult(result.answer);
     } catch (error) {
-      if (testController.current === controller && !controller.signal.aborted) setTestError(error instanceof Error ? error.message : t("settings.vision.testFailed"));
+      if (testController.current === controller && !controller.signal.aborted) {
+        setTestError(localizedError(error, t, "settings.vision.testFailed"));
+      }
     } finally {
       if (testController.current === controller) {
         testController.current = null;
@@ -136,7 +139,7 @@ export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, hi
           {desktopStatus?.shortcut_error && <p className="vr-overlay-native-error" role="alert" data-tooltip={desktopStatus.shortcut_error}>
             {t(`visionWindow.errors.${desktopStatus.shortcut_error.replace("desktop_vision.", "")}`, { defaultValue: t("visionWindow.errors.shortcutFailed") })}
           </p>}
-          {config.enabled && config.desktop_enabled && desktopStatus?.available === false && <p className="vision-settings-note">{t("visionWindow.errors.unavailable")}</p>}
+          {config.enabled && config.desktop_enabled && desktopStatus?.available === false && <p className="vr-overlay-native-error" role="alert">{t("visionWindow.errors.unavailable")}</p>}
           {(statusError || openError) && <p className="vr-overlay-native-error" role="alert">{t(statusError ? "visionWindow.errors.statusFailed" : "visionWindow.errors.openFailed")}</p>}
           <div className="vr-overlay-card-actions">
             <button className="secondary-button" type="button" disabled={disabled || !config.enabled || !config.desktop_enabled}

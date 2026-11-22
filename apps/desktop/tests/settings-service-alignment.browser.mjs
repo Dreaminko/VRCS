@@ -119,7 +119,11 @@ test("settings follow the configured translation, recognition, network and VR se
         target_language: language, profile_id: id, model, thinking_enabled: false,
       });
       const initial = {
-        model_defaults: { text: { profile_id: 'deepseek', model: 'deepseek-v4-flash' }, vision: { profile_id: null, model: '' } },
+        model_defaults: {
+          text: { profile_id: 'deepseek', model: 'deepseek-v4-flash' },
+          translation: { profile_id: 'deepseek', model: 'deepseek-v4-flash' },
+          vision: { profile_id: null, model: '' },
+        },
         asr: { backend: 'qwen_realtime', active_profile_id: 'asr', service_settings: {}, managed_qwen: {} },
         vad: { silence_seconds: 0.1, max_speech_seconds: 10, endpointing: 'silence' },
         storage: { model_directory: 'models' }, language_presets: [],

@@ -9,9 +9,7 @@ import type { ApiProfileView } from "../../providers/types";
 import { DefaultModelEditor, ModelSelectionField } from "../api/ModelSelectionField";
 import {
   applyModelDefaults,
-  DEFAULT_LEARNING_AI,
   DEFAULT_MODEL_SELECTION,
-  EMPTY_MODEL_BINDING,
   translationSelectionReady,
 } from "../model-selection";
 import type { ApplySettings } from "../settings-types";
@@ -26,11 +24,7 @@ export function ModelAssignmentsSection({ settings, profiles, applySettings }: {
   const locale = i18n.resolvedLanguage ?? "en-US";
   const [confirmBatch, setConfirmBatch] = useState(false);
   const batchRef = useRef<HTMLButtonElement>(null);
-  const defaults = {
-    text: settings.model_defaults?.text ?? EMPTY_MODEL_BINDING,
-    translation: settings.model_defaults?.translation ?? settings.model_defaults?.text ?? EMPTY_MODEL_BINDING,
-    vision: settings.model_defaults?.vision ?? EMPTY_MODEL_BINDING,
-  };
+  const defaults = settings.model_defaults;
   const update: ApplySettings = (change) => applySettings((current) => applyModelDefaults(change(current)));
   const textProfile = profiles.find((profile) => profile.id === defaults.text.profile_id);
   const visionProfile = profiles.find((profile) => profile.id === defaults.vision.profile_id);
@@ -52,7 +46,7 @@ export function ModelAssignmentsSection({ settings, profiles, applySettings }: {
     ocr: translationDefaultReady ? { ...current.ocr, model_selection: { ...DEFAULT_MODEL_SELECTION } } : current.ocr,
     conversation_titles: textReady ? { ...current.conversation_titles, use_default_model: true } : current.conversation_titles,
     vision: visionReady ? { ...current.vision, use_default_model: true } : current.vision,
-    learning_ai: textReady ? { ...(current.learning_ai ?? DEFAULT_LEARNING_AI), use_default_model: true } : current.learning_ai,
+    learning_ai: textReady ? { ...current.learning_ai, use_default_model: true } : current.learning_ai,
   }));
   return <div className="model-assignments-section settings-section-active">
     <div className="model-defaults-grid">
@@ -100,9 +94,9 @@ export function ModelAssignmentsSection({ settings, profiles, applySettings }: {
         </div>
         <div className="model-assignment-item">
           <ModelSelectionField icon={<Sparkles size={16} />} label={t("settings.modelAssignments.learningAi")}
-            value={settings.learning_ai ?? DEFAULT_LEARNING_AI}
+            value={settings.learning_ai}
             fallback={defaults.text} profiles={profiles} capability="text_generation"
-            onChange={(value) => update((current) => ({ ...current, learning_ai: { ...(current.learning_ai ?? DEFAULT_LEARNING_AI), ...value } }))} />
+            onChange={(value) => update((current) => ({ ...current, learning_ai: { ...current.learning_ai, ...value } }))} />
         </div>
         <div className="model-assignment-item">
           <ModelSelectionField icon={<Eye size={16} />} label={t("settings.modelAssignments.visionQuestions")}

@@ -64,6 +64,7 @@
 .ocr-result-source { color: var(--text); font-size: 16px; line-height: 1.7; }
 .ocr-result-translation { color: var(--text-secondary); font-size: 13px; line-height: 1.65; }
 .ocr-result-block .ocr-result-placeholder { color: var(--text-quiet); }
+.ocr-result-block .ocr-result-error { color: var(--error); }
 @media (max-width: 420px) {
   .ocr-window-header { padding-left: 16px; }
   .ocr-window-toolbar { padding-inline: 16px; }

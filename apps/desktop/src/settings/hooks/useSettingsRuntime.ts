@@ -60,7 +60,6 @@ export function useSettingsRuntime({
       setDevices([]);
       setDevicesReady(true);
       setDevicesError(false);
-      clearErrorFrom("devices");
       return;
     }
     setDevicesError(false);
@@ -68,11 +67,9 @@ export function useSettingsRuntime({
       setDevices(await captureApi.devices());
       setDevicesReady(true);
       setDevicesError(false);
-      clearErrorFrom("devices");
-    } catch (reason) {
+    } catch {
       setDevicesReady(false);
       setDevicesError(true);
-      reportError(reason, "errors.audio.devices", "devices");
     }
   }, [audioSupported, clearErrorFrom, coreConfigured, reportError]);
 
@@ -133,7 +130,12 @@ export function useSettingsRuntime({
       || previous.audio.microphone.device_key !== next.audio.microphone.device_key
     );
     if (health.getCurrent()?.microphone_test_running && microphoneRouteChanged) {
-      await stopMicrophoneTest();
+      try {
+        await stopMicrophoneTest();
+      } catch (reason) {
+        clearErrorFrom("microphone-test");
+        throw reason;
+      }
     }
     let saved: Settings;
     try { saved = await settingsApi.saveSettings(next); }
@@ -184,6 +186,7 @@ export function useSettingsRuntime({
       },
     });
   }
+  const settingsAutosave = settingsAutosaveRef.current;
 
   const migratingLearningBinding = useRef(false);
   useEffect(() => {
@@ -234,13 +237,13 @@ export function useSettingsRuntime({
   return {
     value: settings,
     getCurrent: () => persistedSettingsRef.current,
-    getOptimistic: () => settingsAutosaveRef.current?.getDesired() ?? persistedSettingsRef.current ?? null,
+    getOptimistic: () => settingsAutosave.getDesired(),
     devices: { items: devices, ready: devicesReady, error: devicesError, refresh: refreshDevices },
     asr: { refresh: refreshModels },
     refresh: loadSettings,
     reload: async () => { await loadSettings(); return persistedSettingsRef.current ?? undefined; },
-    save: settingsAutosaveRef.current,
-    update: settingsAutosaveRef.current.update,
+    save: settingsAutosave,
+    update: settingsAutosave.update,
     testOsc,
   };
 }

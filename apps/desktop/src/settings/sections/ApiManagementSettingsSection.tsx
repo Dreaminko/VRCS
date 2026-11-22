@@ -262,19 +262,17 @@ export function ApiManagementSettingsSection({
           const definition = providerDefinition(profiles.providerDefinitions, profile.provider);
           const locked = profiles.isBusy(profile.id);
           const unavailable = Boolean(profile.status && profile.status !== "ready");
-          const recognitionServices = recognitionServicesForProfile(profile, profiles.providerDefinitions);
           const supportsModels = supportsLlmModels(profile);
           const profileSupportLevel = supportLevel(profile);
           const modelCatalog = profiles.modelCatalogs[profile.id];
           const credentialReady = !profile.capabilities.requires_api_key
             || profile.credential.configured;
-          const transcriptionActive = profile.active ?? (settings.asr.active_profile_id === profile.id
-            && recognitionServices.some((service) => service.id === settings.asr.backend));
+          const transcriptionActive = profile.active;
           const translationActive = profile.translation_active
             && settings.translation.mode !== "disabled";
           const detail = providerDetail(profile, definition);
           const Logo = providerIcon(profile);
-          const initial = (definition?.display_name ?? profile.provider_display_name ?? profile.provider)
+          const initial = (definition?.display_name ?? profile.provider_display_name)
             .trim()
             .charAt(0)
             .toUpperCase();
@@ -293,9 +291,16 @@ export function ApiManagementSettingsSection({
                   </span>
                   <span>
                     <strong>{profile.name}</strong>
-                    <small>{definition?.display_name ?? profile.provider_display_name ?? profile.provider} · {capabilityLabels}{profileSupportLevel ? ` · ${t(`settings.apiManagement.supportLevels.${profileSupportLevel}`)}` : ""}{detail ? ` · ${detail}` : ""}</small>
+                    <small>{definition?.display_name ?? profile.provider_display_name} · {capabilityLabels}{profileSupportLevel ? ` · ${t(`settings.apiManagement.supportLevels.${profileSupportLevel}`)}` : ""}{detail ? ` · ${detail}` : ""}</small>
                     {unavailable && <small className="api-model-catalog-error">{t(`settings.apiManagement.profileStatus.${profile.status}`)}</small>}
-                    {profiles.rowMessages[profile.id] && <small role="status">{profiles.rowMessages[profile.id]}</small>}
+                    {profiles.rowMessages[profile.id] && (
+                      <small
+                        className={profiles.rowMessageErrors[profile.id] ? "api-model-catalog-error" : undefined}
+                        role={profiles.rowMessageErrors[profile.id] ? "alert" : "status"}
+                      >
+                        {profiles.rowMessages[profile.id]}
+                      </small>
+                    )}
                     {modelCatalog?.error && <small className="api-model-catalog-error">{modelCatalog.error}</small>}
                   </span>
                 </div>
@@ -348,7 +353,14 @@ export function ApiManagementSettingsSection({
           capabilityFeedback={editingProfile && (
             <div className="api-profile-tests">
               {testRequiresSave && <small className="api-environment-note">{t("settings.apiManagement.saveBeforeTest")}</small>}
-              {profiles.rowMessages[editingProfile.id] && <small className="api-environment-note" role="status">{profiles.rowMessages[editingProfile.id]}</small>}
+              {profiles.rowMessages[editingProfile.id] && (
+                <small
+                  className={profiles.rowMessageErrors[editingProfile.id] ? "api-model-catalog-error" : "api-environment-note"}
+                  role={profiles.rowMessageErrors[editingProfile.id] ? "alert" : "status"}
+                >
+                  {profiles.rowMessages[editingProfile.id]}
+                </small>
+              )}
               {editorModels?.error && <small className="api-model-catalog-error">{editorModels.error}</small>}
             </div>
           )}
@@ -385,7 +397,14 @@ export function ApiManagementSettingsSection({
           onConfirm={confirmUpdate}
         />
       )}
-      {profiles.message && <small className="api-credential-message" role="status">{profiles.message}</small>}
+      {profiles.message && (
+        <small
+          className={profiles.messageIsError ? "api-credential-message is-error" : "api-credential-message"}
+          role={profiles.messageIsError ? "alert" : "status"}
+        >
+          {profiles.message}
+        </small>
+      )}
     </div>
   );
 }

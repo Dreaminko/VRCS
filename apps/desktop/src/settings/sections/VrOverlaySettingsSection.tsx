@@ -48,28 +48,6 @@ import {
   VR_OVERLAY_POSITION_RANGES,
 } from "../vr-overlay-settings";
 
-const runtimeStates: VrOverlayRuntimeState[] = [
-  "unsupported",
-  "disabled",
-  "waiting_runtime",
-  "initializing",
-  "ready",
-  "reconnecting",
-  "error",
-  "shutting_down",
-];
-
-const resourceStates: VrOverlayResourceState[] = [
-  "disabled",
-  "creating",
-  "ready_hidden",
-  "visible",
-  "fading",
-  "device_unavailable",
-  "recreating",
-  "error",
-];
-
 function statusTone(state: VrOverlayRuntimeState | VrOverlayResourceState): string {
   if (state === "ready" || state === "visible") return "ready";
   if (state === "error" || state === "unsupported" || state === "device_unavailable") return "error";
@@ -228,7 +206,9 @@ export function VrOverlaySettingsSection({
     }).then((stop) => {
       if (disposed) stop();
       else unlisten = stop;
-    }, () => undefined);
+    }, (reason) => {
+      console.warn("Failed to subscribe to VR overlay status", reason);
+    });
     return () => {
       disposed = true;
       unlisten();
@@ -264,13 +244,11 @@ export function VrOverlaySettingsSection({
   const wristStatus = status?.wrist;
 
   const runtimeState = status?.state ?? "initializing";
-  const runtimeStateKey = runtimeStates.includes(runtimeState)
-    ? runtimeState
-    : "error";
+  const runtimeStateKey = runtimeState;
   const headsetState = headsetStatus?.state ?? "disabled";
-  const headsetStateKey = resourceStates.includes(headsetState) ? headsetState : "error";
+  const headsetStateKey = headsetState;
   const wristState = wristStatus?.state ?? "disabled";
-  const wristStateKey = resourceStates.includes(wristState) ? wristState : "error";
+  const wristStateKey = wristState;
 
   const updateHeadset = <K extends keyof VrOverlayHeadsetSettings>(
     key: K,

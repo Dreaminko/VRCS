@@ -17,6 +17,7 @@ export function VisionWindow() {
   useAppTheme();
   const { status, draft, setDraft, statusError } = useDesktopVisionSession();
   const [commandError, setCommandError] = useState("");
+  const [copyError, setCopyError] = useState(false);
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
   const commandRevision = useRef(0);
@@ -51,7 +52,10 @@ export function VisionWindow() {
     };
   }, [imageId]);
 
-  useEffect(() => setCopied(false), [status?.answer, imageId]);
+  useEffect(() => {
+    setCopied(false);
+    setCopyError(false);
+  }, [status?.answer, imageId]);
 
   useEffect(() => {
     if (editable && status?.state === "editing") input.current?.focus();
@@ -95,8 +99,9 @@ export function VisionWindow() {
   }, true);
   const copy = async () => {
     if (!status?.answer) return;
+    setCopyError(false);
     try { await navigator.clipboard.writeText(status.answer); setCopied(true); }
-    catch { setCommandError(t("visionWindow.copyFailed")); }
+    catch { setCopyError(true); }
   };
   const nativeError = status?.error;
   const errorCode = commandError || nativeError;
@@ -111,18 +116,20 @@ export function VisionWindow() {
     </header>
     <div className="vision-window-content" aria-busy={!status || busy || pending}>
 
-      {(statusError || errorCode) && <div className="error-banner vision-window-error" role="alert">
+      {(statusError || errorCode || copyError) && <div className="error-banner vision-window-error" role="alert">
         <TriangleAlert size={15} aria-hidden="true" />
         <div>
-          <span>{t(errorCode?.startsWith("capture.") ? `errors.${errorCode}` : `visionWindow.errors.${errorCode?.replace("desktop_vision.", "") ?? "statusFailed"}`, { defaultValue: t("visionWindow.errors.failed") })}</span>
+          <span>{copyError && !statusError && !errorCode
+            ? t("visionWindow.copyFailed")
+            : t(errorCode?.startsWith("capture.") ? `errors.${errorCode}` : `visionWindow.errors.${errorCode?.replace("desktop_vision.", "") ?? "statusFailed"}`, { defaultValue: t("visionWindow.errors.failed") })}</span>
           {errorCode && <details><summary>{t("visionWindow.errorDetail")}</summary><p>{errorCode}{status?.error_detail ? `\n${status.error_detail}` : ""}</p></details>}
         </div>
       </div>}
-      {shortcutError && <p className="vision-window-notice" role="alert" data-tooltip={shortcutError}>
+      {shortcutError && shortcutError !== errorCode && <p className="vision-window-notice" role="alert" data-tooltip={shortcutError}>
         <TriangleAlert size={15} aria-hidden="true" />
         {t(shortcutError.startsWith("capture.") ? `errors.${shortcutError}` : `visionWindow.errors.${shortcutError.replace("desktop_vision.", "")}`, { defaultValue: t("visionWindow.errors.shortcutFailed") })}
       </p>}
-      {imageId === null && <div className="empty-state vision-window-empty">
+      {imageId === null && !statusError && !errorCode && <div className="empty-state vision-window-empty">
         <span className="vision-window-empty-icon" aria-hidden="true"><ScanEye size={32} strokeWidth={1.5} /></span>
         <h2>{t("visionWindow.title")}</h2>
         <p>{enabled

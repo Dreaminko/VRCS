@@ -53,10 +53,12 @@ function statusLabel(status: GlossarySourceStatus | undefined, enabled: boolean,
 export function GlossaryEditor({
   sources,
   disabled,
+  onClearSettingsError,
   onChange,
 }: {
   sources: GlossarySource[];
   disabled: boolean;
+  onClearSettingsError?: () => void;
   onChange: (
     sources: GlossarySource[],
     afterSave?: () => void,
@@ -176,6 +178,7 @@ export function GlossaryEditor({
       setLocalDraft(null);
     }, () => {
       setEditorSaving(false);
+      onClearSettingsError?.();
       setEditorError(t("settings.glossary.glossarySaveFailed"));
     });
   };
@@ -206,6 +209,7 @@ export function GlossaryEditor({
       setSubscriptionDraft(null);
     }, () => {
       setEditorSaving(false);
+      onClearSettingsError?.();
       setEditorError(t("settings.glossary.glossarySaveFailed"));
     });
   };

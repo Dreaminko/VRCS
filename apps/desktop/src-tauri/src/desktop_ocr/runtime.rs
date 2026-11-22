@@ -2,14 +2,14 @@ use super::status::DesktopOcrStatus;
 use std::sync::Mutex;
 #[cfg(any(windows, target_os = "linux"))]
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use tauri::{AppHandle, Emitter, Manager as _, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::watch;
 use vrcs_core::{
-    ocr::{BlockUpdate, Phase, ScanOutcome, TranslatedBlock, VrOcrService},
     VrOcrConfig, VrOverlayConfig,
+    ocr::{BlockUpdate, Phase, ScanOutcome, TranslatedBlock, VrOcrService},
 };
 
 const STATUS_EVENT: &str = "desktop-ocr-status-changed";
@@ -145,13 +145,12 @@ impl Manager {
             self.close();
         }
         #[cfg(windows)]
-        if let Some(hotkey) = self.hotkey.lock().unwrap().as_ref() {
-            if let Err(error) =
+        if let Some(hotkey) = self.hotkey.lock().unwrap().as_ref()
+            && let Err(error) =
                 hotkey.update(config.desktop_enabled.then(|| config.shortcut.clone()))
-            {
-                tracing::warn!(%error, "Desktop OCR shortcut update failed");
-                self.shortcut_error(Some("desktop_ocr.unavailable".into()));
-            }
+        {
+            tracing::warn!(%error, "Desktop OCR shortcut update failed");
+            self.shortcut_error(Some("desktop_ocr.unavailable".into()));
         }
         #[cfg(target_os = "linux")]
         crate::desktop_capture::portal_shortcuts::sync(self.app.clone());
@@ -159,11 +158,13 @@ impl Manager {
 
     #[cfg(windows)]
     pub fn set_hotkey_paused(&self, paused: bool) -> Result<(), String> {
-        if let Some(hotkey) = self.hotkey.lock().unwrap().as_ref() {
-            if let Err(error) = hotkey.set_paused(paused) {
+        if let Some(hotkey) = self.hotkey.lock().unwrap().as_ref()
+            && let Err(error) = hotkey.set_paused(paused)
+        {
+            if !paused {
                 self.shortcut_error(Some("desktop_ocr.unavailable".into()));
-                return Err(error);
             }
+            return Err(error);
         }
         Ok(())
     }
@@ -536,7 +537,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn local_desktop_ocr_keeps_original_pixels_for_recognition() {
-        use vrcs_core::ocr::{desktop_capture::DesktopCapture, OcrImageData};
+        use vrcs_core::ocr::{OcrImageData, desktop_capture::DesktopCapture};
         let pixels = vec![42; 3840 * 2 * 4];
         let image = prepare_image(DesktopCapture {
             origin: (0, 0),

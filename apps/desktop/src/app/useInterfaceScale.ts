@@ -9,21 +9,13 @@ import {
   writeInterfaceScale,
 } from "./interface-scale";
 
-type ReportError = (
-  reason: unknown,
-  fallbackKey: string,
-  source?: string,
-) => void;
-
-export function useInterfaceScale(reportError: ReportError) {
+export function useInterfaceScale() {
   const [interfaceScale, setInterfaceScale] = useState(readInterfaceScale);
 
   useEffect(() => {
     writeInterfaceScale(interfaceScale);
-    void applyInterfaceScale(interfaceScale).catch((reason) => {
-      reportError(reason, "errors.window.interfaceScale", "window");
-    });
-  }, [interfaceScale, reportError]);
+    applyInterfaceScale(interfaceScale);
+  }, [interfaceScale]);
 
   useEffect(() => {
     let resizeFrame: number | null = null;

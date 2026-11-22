@@ -39,7 +39,7 @@ export function resolveModelSelection<T extends ModelSelection>(selection: T, fa
 export function translationModelSelection(settings: Settings, ocr = false): ModelSelection {
   return resolveModelSelection(
     (ocr ? settings.ocr.model_selection : settings.translation.model_selection) ?? DEFAULT_MODEL_SELECTION,
-    settings.model_defaults?.translation ?? settings.model_defaults?.text ?? EMPTY_MODEL_BINDING,
+    settings.model_defaults.translation,
   );
 }
 
@@ -73,10 +73,7 @@ function withoutBackend<T extends object>(selection: T): T {
 
 // Keep optimistic settings aligned with the Core's inherited selections.
 export function applyModelDefaults(settings: Settings): Settings {
-  const text = settings.model_defaults?.text ?? EMPTY_MODEL_BINDING;
-  const translationDefault = settings.model_defaults?.translation
-    ?? settings.model_defaults?.text ?? EMPTY_MODEL_BINDING;
-  const vision = settings.model_defaults?.vision ?? EMPTY_MODEL_BINDING;
+  const { text, translation: translationDefault, vision } = settings.model_defaults;
   const translation = resolveModelSelection(
     settings.translation.model_selection ?? DEFAULT_MODEL_SELECTION,
     translationDefault,
@@ -87,7 +84,7 @@ export function applyModelDefaults(settings: Settings): Settings {
     fallback: ModelBinding,
     liveFirst = false,
   ): T[] => {
-    const preserveFirst = liveFirst && Boolean(liveTranslationServiceName(settings.asr?.backend));
+    const preserveFirst = liveFirst && Boolean(liveTranslationServiceName(settings.asr.backend));
     const hasSharedBinding = fallback.backend === "plamo_local"
       || Boolean(fallback.profile_id || fallback.model.trim());
     const resolved = items.map((item, index) => preserveFirst && index === 0
@@ -128,7 +125,7 @@ export function applyModelDefaults(settings: Settings): Settings {
       ...resolveModelSelection(settings.vision, vision),
     }),
     learning_ai: withoutBackend(learningModelSelection(settings)),
-    language_presets: (settings.language_presets ?? []).map((preset) => ({ ...preset,
+    language_presets: settings.language_presets.map((preset) => ({ ...preset,
       speaker_targets: targets(preset.speaker_targets, translation, true),
       microphone_targets: targets(preset.microphone_targets, translation, true),
     })),

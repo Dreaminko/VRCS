@@ -29,6 +29,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
   const [editorError, setEditorError] = useState("");
   const [editorErrorField, setEditorErrorField] = useState<string>();
   const [rowMessages, setRowMessages] = useState<Record<string, string>>({});
+  const [rowMessageErrors, setRowMessageErrors] = useState<Record<string, boolean>>({});
   const [modelCatalogs, setModelCatalogs] = useState<Record<string, ApiModelCatalogState>>({});
   const profileVersions = useRef(new Map<string, number>());
   const testControllers = useRef(new Map<string, AbortController>());
@@ -102,6 +103,12 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
     setMessage("");
     if (editorOperation) { setEditorError(""); setEditorErrorField(undefined); }
     setRowMessages((current) => ({ ...current, [busyKey]: "" }));
+    setRowMessageErrors((current) => {
+      if (!(busyKey in current)) return current;
+      const next = { ...current };
+      delete next[busyKey];
+      return next;
+    });
     try {
       const result = await action();
       if (!successKey) return result;
@@ -120,17 +127,23 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
         + (features ? ` ${t("settings.apiManagement.appliedEffects", { features })}` : "")
         + (refreshed.some((refresh) => refresh.status === "rejected") ? ` ${t("settings.apiManagement.refreshFailed")}` : "");
       if (busyKey === "create" || successKey === "settings.apiManagement.profileDeleted") setMessage(success);
-      else setRowMessages((current) => ({ ...current, [busyKey]: success }));
+      else {
+        setRowMessages((current) => ({ ...current, [busyKey]: success }));
+        setRowMessageErrors((current) => ({ ...current, [busyKey]: false }));
+      }
       return result;
     } catch (reason) {
-      const error = reason instanceof DOMException && reason.name === "AbortError"
+      const aborted = reason instanceof DOMException && reason.name === "AbortError";
+      const error = aborted
         ? t("settings.apiManagement.testCancelled")
         : localizedError(reason, t, "errors.apiProfiles.operation");
       if (editorOperation) {
         setEditorError(error);
         setEditorErrorField(reason instanceof ApiError ? reason.field : undefined);
+      } else {
+        setRowMessages((current) => ({ ...current, [busyKey]: error }));
+        setRowMessageErrors((current) => ({ ...current, [busyKey]: !aborted }));
       }
-      else setRowMessages((current) => ({ ...current, [busyKey]: error }));
       return null;
     } finally {
       operations.current.delete(busyKey);
@@ -147,10 +160,12 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
     isTesting: (profileId: string) => testing.has(profileId),
     cancelTest: (profileId: string) => testControllers.current.get(profileId)?.abort(),
     message: message || (catalog.error ? localizedError(catalog.error, t, "errors.apiProfiles.operation") : ""),
+    messageIsError: !message && Boolean(catalog.error),
     editorError,
     editorErrorField,
     clearEditorError: () => { setEditorError(""); setEditorErrorField(undefined); },
     rowMessages,
+    rowMessageErrors,
     modelCatalogs,
     refreshModels: (profileId: string) => refreshModels(profileId),
     previewUpdate: (profile: ApiProfile, apiKey: string) => run(
@@ -224,6 +239,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
             }), t, "settings.apiManagement.connectionFailed")
             : t("settings.apiManagement.connectionFailed");
           setRowMessages((current) => ({ ...current, [profileId]: message }));
+          setRowMessageErrors((current) => ({ ...current, [profileId]: true }));
         }
         return result;
       } finally {

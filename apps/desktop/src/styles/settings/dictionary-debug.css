@@ -33,6 +33,7 @@
 .dictionary-empty strong { color: var(--text-secondary); font-size: var(--settings-text-body); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 .dictionary-empty small { max-width: 44ch; font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .dictionary-feedback { margin: 12px 2px 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
+.dictionary-feedback.is-error { color: var(--error); }
 .dictionary-import-progress { margin: 7px 2px 0; }
 .debug-section { interpolate-size: allow-keywords; }
 .debug-section > .section-heading { margin-bottom: 0; list-style: none; cursor: pointer; }
@@ -79,6 +80,7 @@
 }
 .diagnostic-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .diagnostic-feedback { grid-column: 1 / -1; }
+.diagnostic-feedback.is-error { color: var(--error); }
 .debug-list {
   display: grid;
   overflow: hidden;
