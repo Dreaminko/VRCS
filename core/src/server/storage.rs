@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::db::conversations::publish_latest_catalog;
 
-use super::{api_error, db_call, ApiResult, ContentState};
+use super::{ApiResult, ContentState, api_error, db_call};
 
 pub(super) async fn database_stats(State(state): State<ContentState>) -> ApiResult<Json<Value>> {
     let stats = db_call(Arc::clone(&state.db), |db| db.storage_stats())

@@ -538,10 +538,12 @@ mod tests {
         writer.write_all(b"[]").unwrap();
         let bytes = writer.finish().unwrap().into_inner();
 
-        assert!(YomitanImporter::new(&bytes)
-            .err()
-            .unwrap()
-            .contains("index.json"));
+        assert!(
+            YomitanImporter::new(&bytes)
+                .err()
+                .unwrap()
+                .contains("index.json")
+        );
     }
 
     #[test]
@@ -566,10 +568,12 @@ mod tests {
         let bytes = writer.finish().unwrap().into_inner();
         let importer = YomitanImporter::new(&bytes).unwrap();
 
-        assert!(importer
-            .for_each_entry(|_| Ok(()))
-            .unwrap_err()
-            .to_string()
-            .contains("text that is too long"));
+        assert!(
+            importer
+                .for_each_entry(|_| Ok(()))
+                .unwrap_err()
+                .to_string()
+                .contains("text that is too long")
+        );
     }
 }

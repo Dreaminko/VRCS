@@ -141,12 +141,14 @@ mod tests {
         ))
         .await
         .unwrap();
-        assert!(tokio::time::timeout(
-            std::time::Duration::from_millis(20),
-            buffer.wait_for_speech(&mut rx)
-        )
-        .await
-        .is_err());
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(20),
+                buffer.wait_for_speech(&mut rx)
+            )
+            .await
+            .is_err()
+        );
         tx.send(StreamingInput::AudioActivity(
             Arc::new(vec![0.1; 512]),
             true,

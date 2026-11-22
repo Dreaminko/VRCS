@@ -7,7 +7,7 @@ pub const REQUEST_EVENT: &str = "vr-overlay-control-request";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[allow(
+#[expect(
     clippy::enum_variant_names,
     reason = "Wire actions are explicit, idempotent setters."
 )]
@@ -484,9 +484,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(hub.snapshot().revision, original.revision);
-        assert!(hub
-            .begin(ControlSource::WristMenu, ControlAction::SetOscEnabled(true))
-            .is_some());
+        assert!(
+            hub.begin(ControlSource::WristMenu, ControlAction::SetOscEnabled(true))
+                .is_some()
+        );
         assert!(!hub.update_player_display(original.owner_epoch, 1, view.clone()));
         assert!(hub.finish_player_display(&request, Some("Save failed".into())));
         assert!(hub.player_display().busy);
@@ -568,8 +569,8 @@ mod tests {
             ..Default::default()
         };
         assert!(hub.update_player_display(epoch, 1, view.clone()));
-        assert!(hub
-            .begin_player_display(
+        assert!(
+            hub.begin_player_display(
                 ControlSource::WristMenu,
                 (epoch, 1),
                 Action::SetUserSourceDisabled {
@@ -578,7 +579,8 @@ mod tests {
                     disabled: true,
                 }
             )
-            .is_none());
+            .is_none()
+        );
         let hide = hub
             .begin_player_display(
                 ControlSource::WristMenu,
@@ -590,8 +592,8 @@ mod tests {
             )
             .unwrap();
         assert!(hub.finish_player_display(&hide, None));
-        assert!(hub
-            .begin_player_display(
+        assert!(
+            hub.begin_player_display(
                 ControlSource::WristMenu,
                 (epoch, 1),
                 Action::SetTrackHidden {
@@ -599,9 +601,10 @@ mod tests {
                     hidden: true
                 },
             )
-            .is_none());
-        assert!(hub
-            .begin_player_display(
+            .is_none()
+        );
+        assert!(
+            hub.begin_player_display(
                 ControlSource::WristMenu,
                 (epoch, 1),
                 Action::SetSourceLanguageHidden {
@@ -609,7 +612,8 @@ mod tests {
                     hidden: true
                 },
             )
-            .is_none());
+            .is_none()
+        );
 
         view.processing_available = true;
         view.player_mode = true;
@@ -626,9 +630,10 @@ mod tests {
                 hidden: true,
             },
         ] {
-            assert!(hub
-                .begin_player_display(ControlSource::WristMenu, (epoch, 2), action)
-                .is_none());
+            assert!(
+                hub.begin_player_display(ControlSource::WristMenu, (epoch, 2), action)
+                    .is_none()
+            );
         }
         let select = hub
             .begin_player_display(
@@ -644,8 +649,8 @@ mod tests {
         assert!(hub.finish_player_display(&select, None));
         view.available = false;
         assert!(hub.update_player_display(epoch, 3, view));
-        assert!(hub
-            .begin_player_display(
+        assert!(
+            hub.begin_player_display(
                 ControlSource::WristMenu,
                 (epoch, 3),
                 Action::SetUserSourceDisabled {
@@ -654,7 +659,8 @@ mod tests {
                     disabled: false,
                 }
             )
-            .is_none());
+            .is_none()
+        );
     }
 
     #[test]
@@ -718,12 +724,13 @@ mod tests {
         let view = hub.snapshot();
         assert!(view.items[4].busy);
         assert!(view.items[..4].iter().all(|item| !item.busy));
-        assert!(hub
-            .begin(
+        assert!(
+            hub.begin(
                 ControlSource::WristMenu,
                 ControlAction::SetOcrGestureEnabled(true)
             )
-            .is_none());
+            .is_none()
+        );
         assert!(hub.finish(&request, Some("Save failed".into())));
         let view = hub.snapshot();
         assert!(!view.items[4].busy);
@@ -761,24 +768,26 @@ mod tests {
         assert_eq!(updated.items[4].reason, None);
         assert_eq!(updated.revision, revision_before + 1);
         assert_ne!(hub.ui_version(), version_before);
-        assert!(hub
-            .begin(
+        assert!(
+            hub.begin(
                 ControlSource::WristMenu,
                 ControlAction::SetOcrGestureEnabled(false),
             )
-            .is_none());
+            .is_none()
+        );
 
         let mut shown_view = updated;
         shown_view.items[4].hidden = false;
         let restored = hub.update(epoch, shown_view).unwrap();
         assert!(!restored.items[4].hidden);
         assert_eq!(restored.items[4].reason, None);
-        assert!(hub
-            .begin(
+        assert!(
+            hub.begin(
                 ControlSource::WristMenu,
                 ControlAction::SetOcrGestureEnabled(false),
             )
-            .is_some());
+            .is_some()
+        );
     }
 
     #[test]
@@ -810,18 +819,20 @@ mod tests {
             )
             .unwrap();
         assert!(hub.snapshot().items[3].busy);
-        assert!(hub
-            .begin(
+        assert!(
+            hub.begin(
                 ControlSource::WristMenu,
                 ControlAction::SetCaptureRunning(true)
             )
-            .is_none());
-        assert!(hub
-            .begin(
+            .is_none()
+        );
+        assert!(
+            hub.begin(
                 ControlSource::WristMenu,
                 ControlAction::SetWristEnabled(true)
             )
-            .is_some());
+            .is_some()
+        );
         assert!(hub.finish(&request, Some("Failed".into())));
         assert!(!hub.snapshot().items[3].busy);
         assert_eq!(hub.snapshot().items[3].reason.as_deref(), Some("Failed"));
@@ -835,13 +846,15 @@ mod tests {
         assert!(hub.owns_epoch(observed_epoch));
         hub.revoke();
         assert!(!hub.owns_epoch(observed_epoch));
-        assert!(hub
-            .begin(ControlSource::WristMenu, ControlAction::SetOscEnabled(true))
-            .is_none());
-        assert!(hub
-            .snapshot()
-            .items
-            .iter()
-            .all(|item| !item.available && !item.busy));
+        assert!(
+            hub.begin(ControlSource::WristMenu, ControlAction::SetOscEnabled(true))
+                .is_none()
+        );
+        assert!(
+            hub.snapshot()
+                .items
+                .iter()
+                .all(|item| !item.available && !item.busy)
+        );
     }
 }

@@ -6,7 +6,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
-use super::{api_error_with_params, ApiResult, AppState};
+use super::{ApiResult, AppState, api_error_with_params};
 use crate::config::{AppConfig, FeatureKey};
 
 pub(super) fn require_feature(config: &AppConfig, feature: FeatureKey) -> ApiResult<()> {
@@ -111,7 +111,7 @@ pub(super) async fn enforce(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{middleware, routing::post, Router};
+    use axum::{Router, middleware, routing::post};
     use std::sync::atomic::{AtomicBool, Ordering};
 
     struct Dropped(Arc<AtomicBool>);

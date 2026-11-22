@@ -126,15 +126,15 @@ impl Registry {
         if !newer(self.players.get(id), scope, position.tick) {
             return;
         }
-        if self.players.len() >= 512 && !self.players.contains_key(id) {
-            if let Some(oldest) = self
+        if self.players.len() >= 512
+            && !self.players.contains_key(id)
+            && let Some(oldest) = self
                 .players
                 .iter()
                 .min_by_key(|(_, value)| value.observed)
                 .map(|(id, _)| id.clone())
-            {
-                self.players.remove(&oldest);
-            }
+        {
+            self.players.remove(&oldest);
         }
         self.players.insert(
             id.into(),
@@ -532,10 +532,12 @@ mod tests {
             registry.visibility(true, 60.0, later).3,
             Some(now + POSITION_TTL)
         );
-        assert!(registry
-            .visibility(true, 60.0, now + POSITION_TTL)
-            .2
-            .is_empty());
+        assert!(
+            registry
+                .visibility(true, 60.0, now + POSITION_TTL)
+                .2
+                .is_empty()
+        );
         registry.observe_player(
             "front",
             1,
@@ -549,10 +551,12 @@ mod tests {
         );
         registry.observe_local(1, 2, Position { tick: 2, ..origin }, now + POSITION_TTL);
         registry.observe_local_yaw(1, 2, 2, 0.0, now + POSITION_TTL);
-        assert!(registry
-            .visibility(true, 60.0, now + POSITION_TTL)
-            .2
-            .contains("front"));
+        assert!(
+            registry
+                .visibility(true, 60.0, now + POSITION_TTL)
+                .2
+                .contains("front")
+        );
         registry.clear();
         assert!(!registry.visibility(true, 60.0, now + POSITION_TTL).1);
     }

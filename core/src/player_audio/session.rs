@@ -122,13 +122,12 @@ impl Outputs {
     #[cfg(any(windows, target_os = "linux", test))]
     pub(super) fn speaker(&mut self, speaker: SpeakerIdentity) {
         self.audio(AudioEvent::Speaker(speaker.clone()));
-        if let Some(tx) = &self.chatbox {
-            if tx.try_send(ChatboxEvent::Speaker(speaker.clone())).is_err()
-                && (self.pending_speakers.len() < 512
-                    || self.pending_speakers.contains_key(&speaker.id))
-            {
-                self.pending_speakers.insert(speaker.id.clone(), speaker);
-            }
+        if let Some(tx) = &self.chatbox
+            && tx.try_send(ChatboxEvent::Speaker(speaker.clone())).is_err()
+            && (self.pending_speakers.len() < 512
+                || self.pending_speakers.contains_key(&speaker.id))
+        {
+            self.pending_speakers.insert(speaker.id.clone(), speaker);
         }
     }
 
@@ -156,15 +155,15 @@ impl Outputs {
 
     #[cfg(any(windows, target_os = "linux", test))]
     pub(super) fn validity(&mut self, id: &str, now: Instant) -> TaskValidity {
-        if self.scopes.len() >= 512 && !self.scopes.contains_key(id) {
-            if let Some(oldest) = self
+        if self.scopes.len() >= 512
+            && !self.scopes.contains_key(id)
+            && let Some(oldest) = self
                 .scopes
                 .iter()
                 .min_by_key(|(_, (_, at))| *at)
                 .map(|(id, _)| id.clone())
-            {
-                self.invalidate_scope(&oldest);
-            }
+        {
+            self.invalidate_scope(&oldest);
         }
         let (validity, at) = self
             .scopes
@@ -423,13 +422,15 @@ mod tests {
             chatbox: true,
         });
         assert!(first.voice.is_some() && first.chatbox.is_some());
-        assert!(session
-            .attach(NetworkConsumers {
-                voice: true,
-                chatbox: true
-            })
-            .voice
-            .is_none());
+        assert!(
+            session
+                .attach(NetworkConsumers {
+                    voice: true,
+                    chatbox: true
+                })
+                .voice
+                .is_none()
+        );
         let validity = session
             .outputs
             .lock()
@@ -622,8 +623,7 @@ mod tests {
         outputs.flush_speakers();
         let event = rx.try_recv().unwrap();
         #[cfg(any(windows, target_os = "linux"))]
-        let ChatboxEvent::Speaker(speaker) = event
-        else {
+        let ChatboxEvent::Speaker(speaker) = event else {
             panic!("metadata")
         };
         #[cfg(not(any(windows, target_os = "linux")))]
@@ -631,8 +631,7 @@ mod tests {
         assert_eq!(speaker.display_name.as_deref(), Some("After"));
         let event = voice_rx.try_recv().unwrap();
         #[cfg(any(windows, target_os = "linux"))]
-        let AudioEvent::Speaker(first) = event
-        else {
+        let AudioEvent::Speaker(first) = event else {
             panic!("voice metadata")
         };
         #[cfg(not(any(windows, target_os = "linux")))]

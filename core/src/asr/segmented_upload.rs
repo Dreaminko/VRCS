@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 
 use crate::config::{ApiProfile, AsrConfig, RecognitionServiceSettings};
 
+use super::SharedAudio;
 use super::qwen_runtime::{QwenConnection, QwenRuntime};
 use super::runtime_context::AsrContextSource;
 use super::streaming::{CloudEvent, SegmentationMode};
-use super::SharedAudio;
 use super::{mimo, openai_audio_transcriptions};
 
 const MAX_AUDIO_SECONDS: usize = 300;
@@ -441,22 +441,21 @@ mod tests {
             let read = stream.read(&mut buffer).await.unwrap();
             assert!(read > 0);
             request.extend_from_slice(&buffer[..read]);
-            if expected.is_none() {
-                if let Some(header_end) = request.windows(4).position(|value| value == b"\r\n\r\n")
-                {
-                    let headers = String::from_utf8_lossy(&request[..header_end]);
-                    let content_length = headers
-                        .lines()
-                        .find_map(|line| {
-                            line.to_ascii_lowercase()
-                                .strip_prefix("content-length:")
-                                .map(str::trim)
-                                .map(str::to_owned)
-                        })
-                        .and_then(|value| value.parse::<usize>().ok())
-                        .unwrap();
-                    expected = Some(header_end + 4 + content_length);
-                }
+            if expected.is_none()
+                && let Some(header_end) = request.windows(4).position(|value| value == b"\r\n\r\n")
+            {
+                let headers = String::from_utf8_lossy(&request[..header_end]);
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(str::trim)
+                            .map(str::to_owned)
+                    })
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap();
+                expected = Some(header_end + 4 + content_length);
             }
             if expected.is_some_and(|length| request.len() >= length) {
                 return;
@@ -727,10 +726,12 @@ mod tests {
             ))
             .await
             .unwrap();
-        assert!(session
-            .send(super::super::share_audio(vec![0.0]))
-            .await
-            .is_err());
+        assert!(
+            session
+                .send(super::super::share_audio(vec![0.0]))
+                .await
+                .is_err()
+        );
         session.discard_pending().await;
         session
             .send(super::super::share_audio(vec![0.1; 320]))
@@ -747,10 +748,12 @@ mod tests {
             RecognitionServiceSettings::default(),
             "auto".into(),
         );
-        assert!(session
-            .send(super::super::share_audio(vec![0.0; MAX_AUDIO_SAMPLES + 1]))
-            .await
-            .is_err());
+        assert!(
+            session
+                .send(super::super::share_audio(vec![0.0; MAX_AUDIO_SAMPLES + 1]))
+                .await
+                .is_err()
+        );
         session.stop().await;
     }
 }

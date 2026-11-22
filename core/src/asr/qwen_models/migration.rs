@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
+use super::PackageSpec;
 use super::package::{
     check_owned_directory, is_installed, managed_parent, package_dir, verify_asset,
 };
-use super::PackageSpec;
 
 struct Transfer {
     spec: PackageSpec,

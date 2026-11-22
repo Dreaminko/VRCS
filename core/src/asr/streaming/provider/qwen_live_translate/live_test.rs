@@ -88,7 +88,11 @@ fn recorded_stream_previews_and_final_text() {
         assert_eq!(originals.len(), saved.len());
         assert!(previews > 0 && source_previews > 0 && row_updates > 0);
         assert!(state.finish(&config).is_none());
-        println!("{}: {source_previews} original and {previews} translation delta previews, {row_updates} row updates, {} saved results, {longest} preview characters", path.file_name().unwrap().to_string_lossy(), saved.len());
+        println!(
+            "{}: {source_previews} original and {previews} translation delta previews, {row_updates} row updates, {} saved results, {longest} preview characters",
+            path.file_name().unwrap().to_string_lossy(),
+            saved.len()
+        );
         sessions += 1;
         final_count += saved.len();
     }
@@ -271,9 +275,11 @@ async fn actual_speech_translation_and_speakers() {
     assert!(finished, "session.finish was not acknowledged");
     assert!(!sources.is_empty(), "no final source transcription");
     assert_eq!(sources.len(), translations.len(), "unpaired final items");
-    assert!(translations
-        .iter()
-        .all(|item| !item.translation.trim().is_empty()));
+    assert!(
+        translations
+            .iter()
+            .all(|item| !item.translation.trim().is_empty())
+    );
     if let Ok(expected) = std::env::var("QWEN_LIVE_EXPECT_TERM") {
         assert!(
             translations

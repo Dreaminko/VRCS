@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -93,48 +93,48 @@ impl ModelDetails {
                 self.field_sources
                     .insert("reasoning".into(), "models_dev".into());
             }
-        } else if let (Some(target), Some(source)) = (&mut self.reasoning, &fallback.reasoning) {
-            if target.supported != Some(false) {
-                if target.supported.is_none() {
-                    target.supported = source.supported;
-                }
-                if target.supported_efforts.is_none() && source.supported_efforts.is_some() {
-                    target.supported_efforts = source.supported_efforts.clone();
-                    self.field_sources
-                        .insert("reasoning.supported_efforts".into(), "models_dev".into());
-                }
-                if target.controls.is_empty() && !source.controls.is_empty() {
-                    target.controls = source.controls.clone();
-                    self.field_sources
-                        .insert("reasoning.controls".into(), "models_dev".into());
-                }
-                for (name, target, source) in [
-                    (
-                        "reasoning.can_disable",
-                        &mut target.can_disable,
-                        source.can_disable,
-                    ),
-                    (
-                        "reasoning.supports_max_tokens",
-                        &mut target.supports_max_tokens,
-                        source.supports_max_tokens,
-                    ),
-                    (
-                        "reasoning.supports_dynamic_budget",
-                        &mut target.supports_dynamic_budget,
-                        source.supports_dynamic_budget,
-                    ),
-                ] {
-                    if target.is_none()
-                        && source.is_some()
-                        && self
-                            .field_sources
-                            .get(name)
-                            .is_none_or(|source| source != "provider_api")
-                    {
-                        *target = source;
-                        self.field_sources.insert(name.into(), "models_dev".into());
-                    }
+        } else if let (Some(target), Some(source)) = (&mut self.reasoning, &fallback.reasoning)
+            && target.supported != Some(false)
+        {
+            if target.supported.is_none() {
+                target.supported = source.supported;
+            }
+            if target.supported_efforts.is_none() && source.supported_efforts.is_some() {
+                target.supported_efforts = source.supported_efforts.clone();
+                self.field_sources
+                    .insert("reasoning.supported_efforts".into(), "models_dev".into());
+            }
+            if target.controls.is_empty() && !source.controls.is_empty() {
+                target.controls = source.controls.clone();
+                self.field_sources
+                    .insert("reasoning.controls".into(), "models_dev".into());
+            }
+            for (name, target, source) in [
+                (
+                    "reasoning.can_disable",
+                    &mut target.can_disable,
+                    source.can_disable,
+                ),
+                (
+                    "reasoning.supports_max_tokens",
+                    &mut target.supports_max_tokens,
+                    source.supports_max_tokens,
+                ),
+                (
+                    "reasoning.supports_dynamic_budget",
+                    &mut target.supports_dynamic_budget,
+                    source.supports_dynamic_budget,
+                ),
+            ] {
+                if target.is_none()
+                    && source.is_some()
+                    && self
+                        .field_sources
+                        .get(name)
+                        .is_none_or(|source| source != "provider_api")
+                {
+                    *target = source;
+                    self.field_sources.insert(name.into(), "models_dev".into());
                 }
             }
         }
@@ -264,19 +264,16 @@ impl ModelDetails {
             "mimo" => "/max_completion_tokens",
             _ => "/max_tokens",
         };
-        if !self.stale
+        if (!self.stale
             || self
                 .field_sources
                 .get("max_output_tokens")
-                .is_some_and(|s| s == "provider_api")
-        {
-            if let (Some(limit), Some(value)) =
+                .is_some_and(|s| s == "provider_api"))
+            && let (Some(limit), Some(value)) =
                 (self.max_output_tokens, body.pointer_mut(output_key))
-            {
-                if let Some(current) = value.as_u64() {
-                    *value = json!(current.min(limit as u64));
-                }
-            }
+            && let Some(current) = value.as_u64()
+        {
+            *value = json!(current.min(limit as u64));
         }
         if self.temperature == Some(false)
             && (!self.stale

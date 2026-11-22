@@ -5,8 +5,8 @@
 
 use std::ffi::{c_int, c_uint, c_void};
 use std::ptr;
-use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::OnceLock;
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -144,8 +144,10 @@ struct XcbApi {
 }
 
 unsafe fn sym<T: Copy>(handle: *mut c_void, name: &std::ffi::CStr) -> Option<T> {
-    let ptr = libc::dlsym(handle, name.as_ptr());
-    (!ptr.is_null()).then(|| std::mem::transmute_copy(&ptr))
+    unsafe {
+        let ptr = libc::dlsym(handle, name.as_ptr());
+        (!ptr.is_null()).then(|| std::mem::transmute_copy(&ptr))
+    }
 }
 
 impl XcbApi {
@@ -202,20 +204,23 @@ impl KeyboardMap {
         max_keycode: u8,
     ) -> Option<Self> {
         let count = max_keycode.checked_sub(min_keycode)?.saturating_add(1);
-        let cookie = (api.get_keyboard_mapping)(conn, min_keycode, count);
-        let reply = (api.get_keyboard_mapping_reply)(conn, cookie, ptr::null_mut());
-        if reply.is_null() {
-            return None;
-        }
-        let per = usize::from((*reply).keysyms_per_keycode);
-        let len = (api.get_keyboard_mapping_keysyms_len)(reply);
-        let syms_ptr = (api.get_keyboard_mapping_keysyms)(reply);
-        let syms = if per > 0 && len > 0 && !syms_ptr.is_null() {
-            std::slice::from_raw_parts(syms_ptr, len as usize).to_vec()
-        } else {
-            Vec::new()
+        let (per, syms) = unsafe {
+            let cookie = (api.get_keyboard_mapping)(conn, min_keycode, count);
+            let reply = (api.get_keyboard_mapping_reply)(conn, cookie, ptr::null_mut());
+            if reply.is_null() {
+                return None;
+            }
+            let per = usize::from((*reply).keysyms_per_keycode);
+            let len = (api.get_keyboard_mapping_keysyms_len)(reply);
+            let syms_ptr = (api.get_keyboard_mapping_keysyms)(reply);
+            let syms = if per > 0 && len > 0 && !syms_ptr.is_null() {
+                std::slice::from_raw_parts(syms_ptr, len as usize).to_vec()
+            } else {
+                Vec::new()
+            };
+            libc::free(reply.cast());
+            (per, syms)
         };
-        libc::free(reply.cast());
         (per > 0 && !syms.is_empty()).then_some(Self {
             min_keycode,
             per,
@@ -286,22 +291,29 @@ struct X11Worker {
 
 impl X11Worker {
     unsafe fn ungrab_all(&mut self) {
-        for grab in self.grabbed.drain(..) {
-            for mask in LOCK_MASKS {
-                (self.api.ungrab_key)(self.conn, grab.keycode, self.root, grab.modifiers | mask);
+        unsafe {
+            for grab in self.grabbed.drain(..) {
+                for mask in LOCK_MASKS {
+                    (self.api.ungrab_key)(
+                        self.conn,
+                        grab.keycode,
+                        self.root,
+                        grab.modifiers | mask,
+                    );
+                }
             }
+            (self.api.flush)(self.conn);
         }
-        (self.api.flush)(self.conn);
     }
 
     unsafe fn apply_grabs(&mut self) -> Result<Vec<String>, String> {
-        self.ungrab_all();
+        unsafe { self.ungrab_all() };
         if self.paused || self.desired.is_empty() {
             return Ok(self.desired.iter().map(|(_, _, raw)| raw.clone()).collect());
         }
         let mut labels = Vec::with_capacity(self.desired.len());
         let mut applied: Vec<Grab> = Vec::with_capacity(self.desired.len());
-        let ungrab = |grabbed: &[Grab]| {
+        let ungrab = |grabbed: &[Grab]| unsafe {
             for grab in grabbed {
                 for mask in LOCK_MASKS {
                     (self.api.ungrab_key)(
@@ -321,25 +333,29 @@ impl X11Worker {
                 return Err("capture.shortcuts_unavailable".into());
             };
             for mask in LOCK_MASKS {
-                let cookie = (self.api.grab_key_checked)(
-                    self.conn,
-                    0,
-                    self.root,
-                    modifiers | mask,
-                    keycode,
-                    XCB_GRAB_MODE_ASYNC,
-                    XCB_GRAB_MODE_ASYNC,
-                );
-                let error = (self.api.request_check)(self.conn, cookie);
+                let error = unsafe {
+                    let cookie = (self.api.grab_key_checked)(
+                        self.conn,
+                        0,
+                        self.root,
+                        modifiers | mask,
+                        keycode,
+                        XCB_GRAB_MODE_ASYNC,
+                        XCB_GRAB_MODE_ASYNC,
+                    );
+                    (self.api.request_check)(self.conn, cookie)
+                };
                 if !error.is_null() {
-                    libc::free(error);
-                    for rollback_mask in LOCK_MASKS {
-                        (self.api.ungrab_key)(
-                            self.conn,
-                            keycode,
-                            self.root,
-                            modifiers | rollback_mask,
-                        );
+                    unsafe {
+                        libc::free(error);
+                        for rollback_mask in LOCK_MASKS {
+                            (self.api.ungrab_key)(
+                                self.conn,
+                                keycode,
+                                self.root,
+                                modifiers | rollback_mask,
+                            );
+                        }
                     }
                     ungrab(&applied);
                     return Err("desktop_vision.shortcut_conflict".into());
@@ -353,23 +369,23 @@ impl X11Worker {
             labels.push(raw.clone());
         }
         self.grabbed = applied;
-        (self.api.flush)(self.conn);
+        unsafe { (self.api.flush)(self.conn) };
         Ok(labels)
     }
 
     unsafe fn drain_events(&mut self, app: &AppHandle) {
         let mut mapping_changed = false;
         loop {
-            let event = (self.api.poll_for_event)(self.conn);
+            let event = unsafe { (self.api.poll_for_event)(self.conn) };
             if event.is_null() {
                 break;
             }
-            let event_type = (*event).response_type & 0x7f;
+            let event_type = unsafe { (*event).response_type } & 0x7f;
             if event_type == XCB_KEY_PRESS
                 && !self.paused
                 && !app.state::<super::ShortcutRecording>().is_active()
             {
-                let kp = &*(event as *const XcbKeyPressEvent);
+                let kp = unsafe { &*(event as *const XcbKeyPressEvent) };
                 let state = kp.state & TRACKED_MOD_MASK;
                 if let Some(grab) = self
                     .grabbed
@@ -396,14 +412,16 @@ impl X11Worker {
             } else if event_type == XCB_MAPPING_NOTIFY {
                 mapping_changed = true;
             }
-            libc::free(event.cast());
+            unsafe { libc::free(event.cast()) };
         }
-        if mapping_changed {
-            if let Some(keymap) =
+        if mapping_changed
+            && let Some(keymap) = unsafe {
                 KeyboardMap::query(self.api, self.conn, self.min_keycode, self.max_keycode)
-            {
-                self.keymap = keymap;
-                let _ = self.apply_grabs();
+            }
+        {
+            self.keymap = keymap;
+            if let Err(error) = unsafe { self.apply_grabs() } {
+                tracing::warn!(%error, "Failed to reapply X11 global shortcuts");
             }
         }
     }
@@ -430,10 +448,10 @@ impl X11Worker {
             )),
             None => None,
         };
-        if let (Some((ocr_sc, _)), Some((vision_sc, _))) = (&ocr_parsed, &vision_parsed) {
-            if ocr_sc == vision_sc {
-                return Err("desktop_vision.shortcut_conflict".into());
-            }
+        if let (Some((ocr_sc, _)), Some((vision_sc, _))) = (&ocr_parsed, &vision_parsed)
+            && ocr_sc == vision_sc
+        {
+            return Err("desktop_vision.shortcut_conflict".into());
         }
         if let Some((shortcut, raw)) = ocr_parsed {
             desired.push((Action::Ocr, shortcut, raw));
@@ -442,7 +460,7 @@ impl X11Worker {
             desired.push((Action::Vision, shortcut, raw));
         }
         self.desired = desired;
-        self.apply_grabs()
+        unsafe { self.apply_grabs() }
     }
 }
 
@@ -559,46 +577,49 @@ unsafe fn run_worker(
     wake_read: c_int,
     ready: SyncSender<Result<(), String>>,
 ) {
-    let conn = (api.connect)(ptr::null(), ptr::null_mut());
-    if conn.is_null() {
-        let _ = ready.send(Err("capture.shortcuts_unavailable".into()));
-        return;
-    }
-    if (api.connection_has_error)(conn) != 0 {
-        (api.disconnect)(conn);
-        let _ = ready.send(Err("capture.shortcuts_unavailable".into()));
-        return;
-    }
-
-    let setup = (api.get_setup)(conn);
-    let roots = if setup.is_null() {
-        XcbScreenIterator {
-            data: ptr::null_mut(),
-            rem: 0,
-            index: 0,
+    let (conn, root, min_keycode, max_keycode, keymap, xcb_fd) = unsafe {
+        let conn = (api.connect)(ptr::null(), ptr::null_mut());
+        if conn.is_null() {
+            let _ = ready.send(Err("capture.shortcuts_unavailable".into()));
+            return;
         }
-    } else {
-        (api.setup_roots_iterator)(setup)
+        if (api.connection_has_error)(conn) != 0 {
+            (api.disconnect)(conn);
+            let _ = ready.send(Err("capture.shortcuts_unavailable".into()));
+            return;
+        }
+
+        let setup = (api.get_setup)(conn);
+        let roots = if setup.is_null() {
+            XcbScreenIterator {
+                data: ptr::null_mut(),
+                rem: 0,
+                index: 0,
+            }
+        } else {
+            (api.setup_roots_iterator)(setup)
+        };
+        if setup.is_null() || roots.rem <= 0 || roots.data.is_null() {
+            (api.disconnect)(conn);
+            let _ = ready.send(Err("capture.shortcuts_unavailable".into()));
+            return;
+        }
+        let root = (*roots.data).root;
+        let min_keycode = (*setup).min_keycode;
+        let max_keycode = (*setup).max_keycode;
+        let Some(keymap) = KeyboardMap::query(api, conn, min_keycode, max_keycode) else {
+            (api.disconnect)(conn);
+            let _ = ready.send(Err("capture.shortcuts_unavailable".into()));
+            return;
+        };
+        let xcb_fd = (api.get_file_descriptor)(conn);
+        if xcb_fd < 0 {
+            (api.disconnect)(conn);
+            let _ = ready.send(Err("capture.shortcuts_unavailable".into()));
+            return;
+        }
+        (conn, root, min_keycode, max_keycode, keymap, xcb_fd)
     };
-    if setup.is_null() || roots.rem <= 0 || roots.data.is_null() {
-        (api.disconnect)(conn);
-        let _ = ready.send(Err("capture.shortcuts_unavailable".into()));
-        return;
-    }
-    let root = (*roots.data).root;
-    let min_keycode = (*setup).min_keycode;
-    let max_keycode = (*setup).max_keycode;
-    let Some(keymap) = KeyboardMap::query(api, conn, min_keycode, max_keycode) else {
-        (api.disconnect)(conn);
-        let _ = ready.send(Err("capture.shortcuts_unavailable".into()));
-        return;
-    };
-    let xcb_fd = (api.get_file_descriptor)(conn);
-    if xcb_fd < 0 {
-        (api.disconnect)(conn);
-        let _ = ready.send(Err("capture.shortcuts_unavailable".into()));
-        return;
-    }
 
     let mut worker = X11Worker {
         api,
@@ -627,14 +648,14 @@ unsafe fn run_worker(
     ];
 
     loop {
-        if (api.connection_has_error)(conn) != 0 {
+        if unsafe { (api.connection_has_error)(conn) } != 0 {
             break;
         }
         fds[0].revents = 0;
         fds[1].revents = 0;
-        let ret = libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1);
+        let ret = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
         if ret < 0 {
-            if *libc::__errno_location() == libc::EINTR {
+            if unsafe { *libc::__errno_location() } == libc::EINTR {
                 continue;
             }
             break;
@@ -642,22 +663,27 @@ unsafe fn run_worker(
 
         if (fds[0].revents & libc::POLLIN) != 0 {
             let mut buf = [0u8; 64];
-            while libc::read(wake_read, buf.as_mut_ptr().cast(), buf.len()) > 0 {}
+            while unsafe { libc::read(wake_read, buf.as_mut_ptr().cast(), buf.len()) } > 0 {}
             let mut stop = false;
             for cmd in receiver.try_iter() {
                 match cmd {
                     Command::Update { ocr, vision, reply } => {
-                        let _ = reply.send(worker.update(ocr, vision));
+                        let _ = reply.send(unsafe { worker.update(ocr, vision) });
                     }
                     Command::Pause(paused) => {
                         if worker.paused != paused {
                             worker.paused = paused;
-                            if paused {
-                                worker.ungrab_all();
-                            } else {
-                                let _ = worker.apply_grabs();
+                            unsafe {
+                                if paused {
+                                    worker.ungrab_all();
+                                } else if let Err(error) = worker.apply_grabs() {
+                                    tracing::warn!(
+                                        %error,
+                                        "Failed to reapply X11 global shortcuts"
+                                    );
+                                }
+                                worker.drain_events(&app);
                             }
-                            worker.drain_events(&app);
                         }
                     }
                     Command::Shutdown => {
@@ -671,13 +697,15 @@ unsafe fn run_worker(
             }
         }
         if (fds[1].revents & (libc::POLLIN | libc::POLLERR | libc::POLLHUP)) != 0 {
-            worker.drain_events(&app);
+            unsafe { worker.drain_events(&app) };
         }
         if (fds[0].revents & libc::POLLHUP) != 0 {
             break;
         }
     }
 
-    worker.ungrab_all();
-    (api.disconnect)(conn);
+    unsafe {
+        worker.ungrab_all();
+        (api.disconnect)(conn);
+    }
 }

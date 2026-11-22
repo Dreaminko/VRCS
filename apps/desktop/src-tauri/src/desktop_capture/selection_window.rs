@@ -3,8 +3,8 @@ use std::{
     mem::{size_of, zeroed},
     ptr::{null, null_mut},
     sync::{
-        atomic::{AtomicBool, Ordering},
         OnceLock,
+        atomic::{AtomicBool, Ordering},
     },
 };
 use vrcs_core::ocr::desktop_capture::DesktopCapture;
@@ -14,8 +14,8 @@ use windows_sys::Win32::{
     System::LibraryLoader::GetModuleHandleW,
     UI::{
         HiDpi::{
-            GetDpiForWindow, SetThreadDpiAwarenessContext,
-            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow,
+            SetThreadDpiAwarenessContext,
         },
         Input::KeyboardAndMouse::{ReleaseCapture, SetCapture, VK_ESCAPE},
         WindowsAndMessaging::*,
@@ -48,51 +48,53 @@ struct CachedSurface {
 
 impl CachedSurface {
     unsafe fn new(screen_dc: HDC, width: i32, height: i32, pixels: Option<&[u8]>) -> Option<Self> {
-        let dc = CreateCompatibleDC(screen_dc);
-        let bitmap = CreateCompatibleBitmap(screen_dc, width, height);
-        if dc.is_null() || bitmap.is_null() {
-            if !bitmap.is_null() {
-                DeleteObject(bitmap);
-            }
-            if !dc.is_null() {
-                DeleteDC(dc);
-            }
-            return None;
-        }
-        if let Some(pixels) = pixels {
-            let info = BITMAPINFO {
-                bmiHeader: BITMAPINFOHEADER {
-                    biSize: size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: width,
-                    biHeight: -height,
-                    biPlanes: 1,
-                    biBitCount: 32,
-                    biCompression: BI_RGB,
-                    ..zeroed()
-                },
-                ..zeroed()
-            };
-            let copied = SetDIBits(
-                dc,
-                bitmap,
-                0,
-                height as u32,
-                pixels.as_ptr().cast(),
-                &info,
-                DIB_RGB_COLORS,
-            );
-            if copied == 0 {
-                DeleteObject(bitmap);
-                DeleteDC(dc);
+        unsafe {
+            let dc = CreateCompatibleDC(screen_dc);
+            let bitmap = CreateCompatibleBitmap(screen_dc, width, height);
+            if dc.is_null() || bitmap.is_null() {
+                if !bitmap.is_null() {
+                    DeleteObject(bitmap);
+                }
+                if !dc.is_null() {
+                    DeleteDC(dc);
+                }
                 return None;
             }
+            if let Some(pixels) = pixels {
+                let info = BITMAPINFO {
+                    bmiHeader: BITMAPINFOHEADER {
+                        biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                        biWidth: width,
+                        biHeight: -height,
+                        biPlanes: 1,
+                        biBitCount: 32,
+                        biCompression: BI_RGB,
+                        ..zeroed()
+                    },
+                    ..zeroed()
+                };
+                let copied = SetDIBits(
+                    dc,
+                    bitmap,
+                    0,
+                    height as u32,
+                    pixels.as_ptr().cast(),
+                    &info,
+                    DIB_RGB_COLORS,
+                );
+                if copied == 0 {
+                    DeleteObject(bitmap);
+                    DeleteDC(dc);
+                    return None;
+                }
+            }
+            let previous = SelectObject(dc, bitmap);
+            Some(Self {
+                dc,
+                bitmap,
+                previous,
+            })
         }
-        let previous = SelectObject(dc, bitmap);
-        Some(Self {
-            dc,
-            bitmap,
-            previous,
-        })
     }
 }
 
@@ -122,10 +124,12 @@ struct PaintCache {
 impl PaintCache {
     unsafe fn font_for_dpi(&mut self, dpi: u32) -> HFONT {
         if self.font_dpi != dpi {
-            if !self.font.is_null() {
-                DeleteObject(self.font);
+            unsafe {
+                if !self.font.is_null() {
+                    DeleteObject(self.font);
+                }
+                self.font = create_hint_font(dpi);
             }
-            self.font = create_hint_font(dpi);
             self.font_dpi = dpi;
         }
         self.font
@@ -185,15 +189,9 @@ pub fn select_region_reserved(
         if previous_dpi.is_null() {
             return Err("desktop_ocr.unavailable".into());
         }
-        struct DpiGuard(isize);
-        impl Drop for DpiGuard {
-            fn drop(&mut self) {
-                unsafe {
-                    SetThreadDpiAwarenessContext(self.0 as _);
-                }
-            }
-        }
-        let _dpi = DpiGuard(previous_dpi as isize);
+        let _dpi = std::mem::DropGuard::new(previous_dpi, |previous| {
+            SetThreadDpiAwarenessContext(previous);
+        });
         if capture.origin
             != (
                 GetSystemMetrics(SM_XVIRTUALSCREEN),
@@ -381,321 +379,8 @@ fn hint_rect_for(picker: &Picker) -> RECT {
 
 unsafe fn create_hint_font(dpi: u32) -> HFONT {
     let scale = |value: i32| value * dpi as i32 / 96;
-    CreateFontW(
-        -scale(18),
-        0,
-        0,
-        0,
-        FW_NORMAL as i32,
-        0,
-        0,
-        0,
-        DEFAULT_CHARSET as u32,
-        OUT_DEFAULT_PRECIS as u32,
-        CLIP_DEFAULT_PRECIS as u32,
-        CLEARTYPE_QUALITY as u32,
-        DEFAULT_PITCH as u32,
-        windows_sys::core::w!("Segoe UI"),
-    )
-}
-
-unsafe extern "system" fn window_proc(
-    window: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    if message == WM_NCCREATE {
-        let create = &*(lparam as *const CREATESTRUCTW);
-        SetWindowLongPtrW(window, GWLP_USERDATA, create.lpCreateParams as isize);
-        return 1;
-    }
-    let picker = GetWindowLongPtrW(window, GWLP_USERDATA) as *mut Picker;
-    if picker.is_null() {
-        return DefWindowProcW(window, message, wparam, lparam);
-    }
-    // Keep accesses short: focus and mouse-capture calls can re-enter this procedure.
-    match message {
-        WM_LBUTTONDOWN => {
-            (*picker).start = Some(mouse_point(lparam));
-            (*picker).end = mouse_point(lparam);
-            (*picker).last_rect = None;
-            SetCapture(window);
-            InvalidateRect(window, null(), 0);
-            0
-        }
-        WM_MOUSEMOVE => {
-            if (*picker).start.is_some() {
-                let prev = (*picker).last_rect;
-                (*picker).end = mouse_point(lparam);
-                let curr = selection_rect(&*picker);
-                (*picker).last_rect = curr;
-                if let Some(dirty) = dirty_union_inflated(
-                    prev,
-                    curr,
-                    2,
-                    (*picker).width as i32,
-                    (*picker).height as i32,
-                ) {
-                    InvalidateRect(window, &dirty, 0);
-                }
-            }
-            0
-        }
-        WM_LBUTTONUP => {
-            if let Some(start) = (*picker).start.take() {
-                (*picker).selected = Region::from_drag(
-                    start,
-                    mouse_point(lparam),
-                    (*picker).width,
-                    (*picker).height,
-                );
-                (*picker).finished = (*picker).selected.is_some();
-                (*picker).last_rect = None;
-                ReleaseCapture();
-                InvalidateRect(window, null(), 0);
-            }
-            0
-        }
-        WM_CAPTURECHANGED => {
-            (*picker).start = None;
-            (*picker).last_rect = None;
-            InvalidateRect(window, null(), 0);
-            0
-        }
-        WM_KEYDOWN if wparam == VK_ESCAPE as usize => {
-            (*picker).finished = true;
-            0
-        }
-        WM_DISPLAYCHANGE => {
-            (*picker).finished = true;
-            (*picker).selected = None;
-            0
-        }
-        WM_DPICHANGED => {
-            (*picker).dpi = GetDpiForWindow(window).max(96);
-            InvalidateRect(window, null(), 0);
-            0
-        }
-        WM_RBUTTONDOWN | WM_CLOSE | WM_KILLFOCUS => {
-            // Window teardown can lose focus after a drag has already committed.
-            if !(*picker).finished {
-                (*picker).finished = true;
-                (*picker).selected = None;
-            }
-            0
-        }
-        WM_ERASEBKGND => 1,
-        WM_PAINT => {
-            paint(window, &mut *picker);
-            0
-        }
-        WM_NCDESTROY => {
-            SetWindowLongPtrW(window, GWLP_USERDATA, 0);
-            DefWindowProcW(window, message, wparam, lparam)
-        }
-        _ => DefWindowProcW(window, message, wparam, lparam),
-    }
-}
-
-unsafe fn ensure_paint_cache(dc: HDC, picker: &mut Picker) -> Option<&mut PaintCache> {
-    if picker.cache.is_none() {
-        let (width, height) = (picker.width as i32, picker.height as i32);
-        let buffer = CachedSurface::new(dc, width, height, None)?;
-        let dimmed = CachedSurface::new(dc, width, height, Some(&picker.dimmed))?;
-        let bgra = CachedSurface::new(dc, width, height, Some(&picker.bgra))?;
-        let border_brush = CreateSolidBrush(0x00f0bf80);
-        if border_brush.is_null() {
-            return None;
-        }
-        let font = create_hint_font(picker.dpi);
-        picker.cache = Some(PaintCache {
-            buffer,
-            dimmed,
-            bgra,
-            border_brush,
-            font,
-            font_dpi: picker.dpi,
-        });
-        picker.bgra = Vec::new();
-        picker.dimmed = Vec::new();
-    }
-    picker.cache.as_mut()
-}
-
-unsafe fn paint_cached_dirty(dc: HDC, picker: &mut Picker, dirty: RECT) -> bool {
-    let selection = selection_rect(picker);
-    let hint_empty = picker.hint.is_empty();
-    let hint_box = hint_rect_for(picker);
-    let dpi = picker.dpi;
-    let Some(cache) = ensure_paint_cache(dc, picker) else {
-        return false;
-    };
-    let buf_dc = cache.buffer.dc;
-    let dirty_w = dirty.right - dirty.left;
-    let dirty_h = dirty.bottom - dirty.top;
-    BitBlt(
-        buf_dc,
-        dirty.left,
-        dirty.top,
-        dirty_w,
-        dirty_h,
-        cache.dimmed.dc,
-        dirty.left,
-        dirty.top,
-        SRCCOPY,
-    );
-    if let Some(rect) = selection {
-        let saved = SaveDC(buf_dc);
-        IntersectClipRect(buf_dc, dirty.left, dirty.top, dirty.right, dirty.bottom);
-        if let Some(hit) = rect_intersect(rect, dirty) {
-            BitBlt(
-                buf_dc,
-                hit.left,
-                hit.top,
-                hit.right - hit.left,
-                hit.bottom - hit.top,
-                cache.bgra.dc,
-                hit.left,
-                hit.top,
-                SRCCOPY,
-            );
-        }
-        FrameRect(buf_dc, &rect, cache.border_brush);
-        RestoreDC(buf_dc, saved);
-    }
-    if !hint_empty && rect_intersect(hint_box, dirty).is_some() {
-        let saved = SaveDC(buf_dc);
-        IntersectClipRect(buf_dc, dirty.left, dirty.top, dirty.right, dirty.bottom);
-        let font = cache.font_for_dpi(dpi);
-        let previous = SelectObject(
-            buf_dc,
-            if font.is_null() {
-                GetStockObject(DEFAULT_GUI_FONT)
-            } else {
-                font
-            },
-        );
-        SetBkMode(buf_dc, TRANSPARENT as i32);
-        SetTextColor(buf_dc, 0x00ffffff);
-        let mut text_rect = hint_box;
-        DrawTextW(
-            buf_dc,
-            picker.hint.as_ptr(),
-            picker.hint.len() as i32,
-            &mut text_rect,
-            DT_CENTER | DT_WORDBREAK | DT_NOPREFIX,
-        );
-        SelectObject(buf_dc, previous);
-        RestoreDC(buf_dc, saved);
-    }
-    BitBlt(
-        dc, dirty.left, dirty.top, dirty_w, dirty_h, buf_dc, dirty.left, dirty.top, SRCCOPY,
-    );
-    true
-}
-
-unsafe fn paint(window: HWND, picker: &mut Picker) {
-    let mut paint: PAINTSTRUCT = zeroed();
-    let dc = BeginPaint(window, &mut paint);
-    if let Some(dirty) = rect_intersect(
-        paint.rcPaint,
-        RECT {
-            left: 0,
-            top: 0,
-            right: picker.width as i32,
-            bottom: picker.height as i32,
-        },
-    ) {
-        if !paint_cached_dirty(dc, picker, dirty) {
-            paint_buffered_frame(dc, picker);
-        }
-    }
-    EndPaint(window, &paint);
-}
-
-unsafe fn paint_buffered_frame(dc: HDC, picker: &Picker) {
-    let buffer = CreateCompatibleDC(dc);
-    let bitmap = CreateCompatibleBitmap(dc, picker.width as i32, picker.height as i32);
-    if buffer.is_null() || bitmap.is_null() {
-        paint_frame(dc, picker);
-    } else {
-        let previous = SelectObject(buffer, bitmap);
-        // Present only the completed frame, including the selection and hint.
-        paint_frame(buffer, picker);
-        BitBlt(
-            dc,
-            0,
-            0,
-            picker.width as i32,
-            picker.height as i32,
-            buffer,
-            0,
-            0,
-            SRCCOPY,
-        );
-        SelectObject(buffer, previous);
-    }
-    if !bitmap.is_null() {
-        DeleteObject(bitmap);
-    }
-    if !buffer.is_null() {
-        DeleteDC(buffer);
-    }
-}
-
-unsafe fn paint_frame(dc: HDC, picker: &Picker) {
-    let info = BITMAPINFO {
-        bmiHeader: BITMAPINFOHEADER {
-            biSize: size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: picker.width as i32,
-            biHeight: -(picker.height as i32),
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: BI_RGB,
-            ..zeroed()
-        },
-        ..zeroed()
-    };
-    let draw = |pixels: &[u8]| {
-        StretchDIBits(
-            dc,
-            0,
-            0,
-            picker.width as i32,
-            picker.height as i32,
-            0,
-            0,
-            picker.width as i32,
-            picker.height as i32,
-            pixels.as_ptr().cast(),
-            &info,
-            DIB_RGB_COLORS,
-            SRCCOPY,
-        );
-    };
-    draw(&picker.dimmed);
-    if let Some(region) = picker
-        .start
-        .and_then(|start| Region::from_drag(start, picker.end, picker.width, picker.height))
-    {
-        let rect = RECT {
-            left: region.left as i32,
-            top: region.top as i32,
-            right: (region.left + region.width) as i32,
-            bottom: (region.top + region.height) as i32,
-        };
-        let saved = SaveDC(dc);
-        IntersectClipRect(dc, rect.left, rect.top, rect.right, rect.bottom);
-        draw(&picker.bgra);
-        RestoreDC(dc, saved);
-        let brush = CreateSolidBrush(0x00f0bf80);
-        FrameRect(dc, &rect, brush);
-        DeleteObject(brush);
-    }
-    if !picker.hint.is_empty() {
-        let scale = |value: i32| value * picker.dpi as i32 / 96;
-        let font = CreateFontW(
+    unsafe {
+        CreateFontW(
             -scale(18),
             0,
             0,
@@ -710,33 +395,327 @@ unsafe fn paint_frame(dc: HDC, picker: &Picker) {
             CLEARTYPE_QUALITY as u32,
             DEFAULT_PITCH as u32,
             windows_sys::core::w!("Segoe UI"),
-        );
-        let previous = SelectObject(
-            dc,
-            if font.is_null() {
-                GetStockObject(DEFAULT_GUI_FONT)
-            } else {
-                font
-            },
-        );
-        SetBkMode(dc, TRANSPARENT as i32);
-        SetTextColor(dc, 0x00ffffff);
-        let mut text_rect = RECT {
-            left: scale(16),
-            top: scale(16),
-            right: picker.width as i32 - scale(16),
-            bottom: scale(80),
+        )
+    }
+}
+
+unsafe extern "system" fn window_proc(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    unsafe {
+        if message == WM_NCCREATE {
+            let create = &*(lparam as *const CREATESTRUCTW);
+            SetWindowLongPtrW(window, GWLP_USERDATA, create.lpCreateParams as isize);
+            return 1;
+        }
+        let picker = GetWindowLongPtrW(window, GWLP_USERDATA) as *mut Picker;
+        if picker.is_null() {
+            return DefWindowProcW(window, message, wparam, lparam);
+        }
+        // Keep accesses short: focus and mouse-capture calls can re-enter this procedure.
+        match message {
+            WM_LBUTTONDOWN => {
+                (*picker).start = Some(mouse_point(lparam));
+                (*picker).end = mouse_point(lparam);
+                (*picker).last_rect = None;
+                SetCapture(window);
+                InvalidateRect(window, null(), 0);
+                0
+            }
+            WM_MOUSEMOVE => {
+                if (*picker).start.is_some() {
+                    let prev = (*picker).last_rect;
+                    (*picker).end = mouse_point(lparam);
+                    let curr = selection_rect(&*picker);
+                    (*picker).last_rect = curr;
+                    if let Some(dirty) = dirty_union_inflated(
+                        prev,
+                        curr,
+                        2,
+                        (*picker).width as i32,
+                        (*picker).height as i32,
+                    ) {
+                        InvalidateRect(window, &dirty, 0);
+                    }
+                }
+                0
+            }
+            WM_LBUTTONUP => {
+                if let Some(start) = (*picker).start.take() {
+                    (*picker).selected = Region::from_drag(
+                        start,
+                        mouse_point(lparam),
+                        (*picker).width,
+                        (*picker).height,
+                    );
+                    (*picker).finished = (*picker).selected.is_some();
+                    (*picker).last_rect = None;
+                    ReleaseCapture();
+                    InvalidateRect(window, null(), 0);
+                }
+                0
+            }
+            WM_CAPTURECHANGED => {
+                (*picker).start = None;
+                (*picker).last_rect = None;
+                InvalidateRect(window, null(), 0);
+                0
+            }
+            WM_KEYDOWN if wparam == VK_ESCAPE as usize => {
+                (*picker).finished = true;
+                0
+            }
+            WM_DISPLAYCHANGE => {
+                (*picker).finished = true;
+                (*picker).selected = None;
+                0
+            }
+            WM_DPICHANGED => {
+                (*picker).dpi = GetDpiForWindow(window).max(96);
+                InvalidateRect(window, null(), 0);
+                0
+            }
+            WM_RBUTTONDOWN | WM_CLOSE | WM_KILLFOCUS => {
+                // Window teardown can lose focus after a drag has already committed.
+                if !(*picker).finished {
+                    (*picker).finished = true;
+                    (*picker).selected = None;
+                }
+                0
+            }
+            WM_ERASEBKGND => 1,
+            WM_PAINT => {
+                paint(window, &mut *picker);
+                0
+            }
+            WM_NCDESTROY => {
+                SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+                DefWindowProcW(window, message, wparam, lparam)
+            }
+            _ => DefWindowProcW(window, message, wparam, lparam),
+        }
+    }
+}
+
+unsafe fn ensure_paint_cache(dc: HDC, picker: &mut Picker) -> Option<&mut PaintCache> {
+    if picker.cache.is_none() {
+        let (width, height) = (picker.width as i32, picker.height as i32);
+        unsafe {
+            let buffer = CachedSurface::new(dc, width, height, None)?;
+            let dimmed = CachedSurface::new(dc, width, height, Some(&picker.dimmed))?;
+            let bgra = CachedSurface::new(dc, width, height, Some(&picker.bgra))?;
+            let border_brush = CreateSolidBrush(0x00f0bf80);
+            if border_brush.is_null() {
+                return None;
+            }
+            let font = create_hint_font(picker.dpi);
+            picker.cache = Some(PaintCache {
+                buffer,
+                dimmed,
+                bgra,
+                border_brush,
+                font,
+                font_dpi: picker.dpi,
+            });
+        }
+        picker.bgra = Vec::new();
+        picker.dimmed = Vec::new();
+    }
+    picker.cache.as_mut()
+}
+
+unsafe fn paint_cached_dirty(dc: HDC, picker: &mut Picker, dirty: RECT) -> bool {
+    let selection = selection_rect(picker);
+    let hint_empty = picker.hint.is_empty();
+    let hint_box = hint_rect_for(picker);
+    let dpi = picker.dpi;
+    unsafe {
+        let Some(cache) = ensure_paint_cache(dc, picker) else {
+            return false;
         };
-        DrawTextW(
-            dc,
-            picker.hint.as_ptr(),
-            picker.hint.len() as i32,
-            &mut text_rect,
-            DT_CENTER | DT_WORDBREAK | DT_NOPREFIX,
+        let buf_dc = cache.buffer.dc;
+        let dirty_w = dirty.right - dirty.left;
+        let dirty_h = dirty.bottom - dirty.top;
+        BitBlt(
+            buf_dc,
+            dirty.left,
+            dirty.top,
+            dirty_w,
+            dirty_h,
+            cache.dimmed.dc,
+            dirty.left,
+            dirty.top,
+            SRCCOPY,
         );
-        SelectObject(dc, previous);
-        if !font.is_null() {
-            DeleteObject(font);
+        if let Some(rect) = selection {
+            let saved = SaveDC(buf_dc);
+            IntersectClipRect(buf_dc, dirty.left, dirty.top, dirty.right, dirty.bottom);
+            if let Some(hit) = rect_intersect(rect, dirty) {
+                BitBlt(
+                    buf_dc,
+                    hit.left,
+                    hit.top,
+                    hit.right - hit.left,
+                    hit.bottom - hit.top,
+                    cache.bgra.dc,
+                    hit.left,
+                    hit.top,
+                    SRCCOPY,
+                );
+            }
+            FrameRect(buf_dc, &rect, cache.border_brush);
+            RestoreDC(buf_dc, saved);
+        }
+        if !hint_empty && rect_intersect(hint_box, dirty).is_some() {
+            let saved = SaveDC(buf_dc);
+            IntersectClipRect(buf_dc, dirty.left, dirty.top, dirty.right, dirty.bottom);
+            let font = cache.font_for_dpi(dpi);
+            let previous = SelectObject(
+                buf_dc,
+                if font.is_null() {
+                    GetStockObject(DEFAULT_GUI_FONT)
+                } else {
+                    font
+                },
+            );
+            SetBkMode(buf_dc, TRANSPARENT as i32);
+            SetTextColor(buf_dc, 0x00ffffff);
+            let mut text_rect = hint_box;
+            DrawTextW(
+                buf_dc,
+                picker.hint.as_ptr(),
+                picker.hint.len() as i32,
+                &mut text_rect,
+                DT_CENTER | DT_WORDBREAK | DT_NOPREFIX,
+            );
+            SelectObject(buf_dc, previous);
+            RestoreDC(buf_dc, saved);
+        }
+        BitBlt(
+            dc, dirty.left, dirty.top, dirty_w, dirty_h, buf_dc, dirty.left, dirty.top, SRCCOPY,
+        );
+    }
+    true
+}
+
+unsafe fn paint(window: HWND, picker: &mut Picker) {
+    unsafe {
+        let mut paint: PAINTSTRUCT = zeroed();
+        let dc = BeginPaint(window, &mut paint);
+        if let Some(dirty) = rect_intersect(
+            paint.rcPaint,
+            RECT {
+                left: 0,
+                top: 0,
+                right: picker.width as i32,
+                bottom: picker.height as i32,
+            },
+        ) && !paint_cached_dirty(dc, picker, dirty)
+        {
+            paint_frame(dc, picker);
+        }
+        EndPaint(window, &paint);
+    }
+}
+
+unsafe fn paint_frame(dc: HDC, picker: &Picker) {
+    unsafe {
+        let info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: picker.width as i32,
+                biHeight: -(picker.height as i32),
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB,
+                ..zeroed()
+            },
+            ..zeroed()
+        };
+        let draw = |pixels: &[u8]| {
+            StretchDIBits(
+                dc,
+                0,
+                0,
+                picker.width as i32,
+                picker.height as i32,
+                0,
+                0,
+                picker.width as i32,
+                picker.height as i32,
+                pixels.as_ptr().cast(),
+                &info,
+                DIB_RGB_COLORS,
+                SRCCOPY,
+            );
+        };
+        draw(&picker.dimmed);
+        if let Some(region) = picker
+            .start
+            .and_then(|start| Region::from_drag(start, picker.end, picker.width, picker.height))
+        {
+            let rect = RECT {
+                left: region.left as i32,
+                top: region.top as i32,
+                right: (region.left + region.width) as i32,
+                bottom: (region.top + region.height) as i32,
+            };
+            let saved = SaveDC(dc);
+            IntersectClipRect(dc, rect.left, rect.top, rect.right, rect.bottom);
+            draw(&picker.bgra);
+            RestoreDC(dc, saved);
+            let brush = CreateSolidBrush(0x00f0bf80);
+            FrameRect(dc, &rect, brush);
+            DeleteObject(brush);
+        }
+        if !picker.hint.is_empty() {
+            let scale = |value: i32| value * picker.dpi as i32 / 96;
+            let font = CreateFontW(
+                -scale(18),
+                0,
+                0,
+                0,
+                FW_NORMAL as i32,
+                0,
+                0,
+                0,
+                DEFAULT_CHARSET as u32,
+                OUT_DEFAULT_PRECIS as u32,
+                CLIP_DEFAULT_PRECIS as u32,
+                CLEARTYPE_QUALITY as u32,
+                DEFAULT_PITCH as u32,
+                windows_sys::core::w!("Segoe UI"),
+            );
+            let previous = SelectObject(
+                dc,
+                if font.is_null() {
+                    GetStockObject(DEFAULT_GUI_FONT)
+                } else {
+                    font
+                },
+            );
+            SetBkMode(dc, TRANSPARENT as i32);
+            SetTextColor(dc, 0x00ffffff);
+            let mut text_rect = RECT {
+                left: scale(16),
+                top: scale(16),
+                right: picker.width as i32 - scale(16),
+                bottom: scale(80),
+            };
+            DrawTextW(
+                dc,
+                picker.hint.as_ptr(),
+                picker.hint.len() as i32,
+                &mut text_rect,
+                DT_CENTER | DT_WORDBREAK | DT_NOPREFIX,
+            );
+            SelectObject(dc, previous);
+            if !font.is_null() {
+                DeleteObject(font);
+            }
         }
     }
 }
@@ -935,7 +914,13 @@ mod tests {
             let bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &mut pixels, null_mut(), 0);
             assert!(!bitmap.is_null());
             let previous = SelectObject(dc, bitmap);
-            paint_buffered_frame(dc, &picker);
+            let full = RECT {
+                left: 0,
+                top: 0,
+                right: 100,
+                bottom: 100,
+            };
+            assert!(paint_cached_dirty(dc, &mut picker, full));
             GdiFlush();
             let rendered = std::slice::from_raw_parts(pixels as *const u8, 100 * 100 * 4);
             let inside = (80 * 100 + 50) * 4;
@@ -943,15 +928,16 @@ mod tests {
             assert_eq!(&rendered[inside..inside + 3], &[80, 80, 160]);
             assert_eq!(&rendered[outside..outside + 3], &[40, 40, 80]);
             picker.hint = "Drag to select".encode_utf16().collect();
-            paint_buffered_frame(dc, &picker);
+            assert!(paint_cached_dirty(dc, &mut picker, full));
             GdiFlush();
             assert_eq!(&rendered[inside..inside + 3], &[80, 80, 160]);
             picker.end = (40, 90);
-            paint_buffered_frame(dc, &picker);
+            assert!(paint_cached_dirty(dc, &mut picker, full));
             GdiFlush();
             assert_eq!(&rendered[inside..inside + 3], &[40, 40, 80]);
             let remaining = (80 * 100 + 30) * 4;
             assert_eq!(&rendered[remaining..remaining + 3], &[80, 80, 160]);
+            picker.cache = None;
             SelectObject(dc, previous);
             DeleteObject(bitmap);
             DeleteDC(dc);

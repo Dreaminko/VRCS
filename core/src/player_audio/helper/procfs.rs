@@ -767,11 +767,13 @@ mod tests {
     fn finds_the_udp_socket_owned_by_the_target_process() {
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let port = socket.local_addr().unwrap().port();
-        assert!(super::udp_endpoints(std::process::id())
-            .iter()
-            .any(|endpoint| endpoint.owned
-                && endpoint.local_ip == [127, 0, 0, 1]
-                && endpoint.local_port == port));
+        assert!(
+            super::udp_endpoints(std::process::id())
+                .iter()
+                .any(|endpoint| endpoint.owned
+                    && endpoint.local_ip == [127, 0, 0, 1]
+                    && endpoint.local_port == port)
+        );
     }
 
     #[test]
@@ -790,15 +792,17 @@ mod tests {
             .unwrap();
         assert!(flow.owned);
         assert_eq!(flow.local_port, port);
-        assert!(cache
-            .verify_flow(
-                std::process::id(),
-                [127, 0, 0, 1],
-                port,
-                [192, 0, 2, 1],
-                27002
-            )
-            .is_some());
+        assert!(
+            cache
+                .verify_flow(
+                    std::process::id(),
+                    [127, 0, 0, 1],
+                    port,
+                    [192, 0, 2, 1],
+                    27002
+                )
+                .is_some()
+        );
     }
 
     #[test]
@@ -838,7 +842,7 @@ mod tests {
 
     #[test]
     fn attribution_requires_addresses_remote_and_an_unambiguous_inode() {
-        use super::{flow_inode, Endpoint};
+        use super::{Endpoint, flow_inode};
         let game = Endpoint {
             local_ip: [127, 0, 0, 1],
             local_port: 53000,

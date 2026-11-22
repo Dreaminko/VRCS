@@ -83,10 +83,10 @@ pub fn activate(
             }
         }
     };
-    if let Some(decision) = decision {
-        if let Err(error) = app.emit_to("main", "vr-overlay-player-audio-decision", decision) {
-            tracing::warn!(%error, "VR consent decision unavailable");
-        }
+    if let Some(decision) = decision
+        && let Err(error) = app.emit_to("main", "vr-overlay-player-audio-decision", decision)
+    {
+        tracing::warn!(%error, "VR consent decision unavailable");
     }
 }
 

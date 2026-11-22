@@ -1,11 +1,11 @@
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
 use serde::Deserialize;
 
 use crate::credentials;
 
-use super::{api_error, ApiResult, ServiceContext};
+use super::{ApiResult, ServiceContext, api_error};
 
 #[derive(Deserialize)]
 pub(super) struct TokenInput {

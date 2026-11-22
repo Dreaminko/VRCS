@@ -251,10 +251,12 @@ mod tests {
     fn held_trigger_entering_surface_requires_release_and_new_press() {
         let mut router = Router::default();
         let keys = [key(Surface::Menu)];
-        assert!(router
-            .step(&[sample(true, false, Surface::Menu)], &keys)
-            .events
-            .is_empty());
+        assert!(
+            router
+                .step(&[sample(true, false, Surface::Menu)], &keys)
+                .events
+                .is_empty()
+        );
         router.step(&[sample(false, false, Surface::Menu)], &keys);
         assert_eq!(
             router
@@ -306,10 +308,12 @@ mod tests {
         router.step(&[sample(false, false, Surface::Dialogue)], &keys);
         router.step(&[sample(false, true, Surface::Dialogue)], &keys);
         assert_eq!(router.step(&[], &keys).events[0].kind, Kind::Cancel);
-        assert!(router
-            .step(&[sample(false, false, Surface::Dialogue)], &[])
-            .events
-            .is_empty());
+        assert!(
+            router
+                .step(&[sample(false, false, Surface::Dialogue)], &[])
+                .events
+                .is_empty()
+        );
     }
 
     #[test]

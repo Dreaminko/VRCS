@@ -1,12 +1,12 @@
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::anki as anki_service;
 use crate::models::CardRequest;
 
-use super::{api_error, api_error_with_params, ApiResult, ServiceContext};
+use super::{ApiResult, ServiceContext, api_error, api_error_with_params};
 
 pub(super) async fn anki_status(State(state): State<ServiceContext>) -> Json<Value> {
     let config = state

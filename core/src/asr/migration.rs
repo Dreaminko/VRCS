@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::qwen_models::{prepare_migration, PackageSpec, PACKAGES};
+use super::qwen_models::{PACKAGES, PackageSpec, prepare_migration};
 
 pub(super) fn move_model_dir(source: PathBuf, destination: PathBuf) -> Result<(), String> {
     move_model_dir_with_specs(source, destination, &PACKAGES)

@@ -4,13 +4,13 @@ use std::time::Duration;
 use crate::config::{ApiProfile, AsrConfig};
 use crate::providers::{self, RecognitionTransport, ServiceAdapter};
 
+use super::ModelManager;
+use super::SharedAudio;
 use super::qwen_models::{is_installed, package_dir, package_spec};
 use super::qwen_runtime::{QwenConnection, QwenRuntime};
 use super::read_credential;
 use super::segmented_upload::SegmentedUploadSession;
 use super::streaming::{self, CloudEvent, SegmentationMode, StreamingSession};
-use super::ModelManager;
-use super::SharedAudio;
 use super::{mimo, openai_audio_transcriptions};
 
 pub enum CloudRecognitionSession {
@@ -31,10 +31,10 @@ impl CloudRecognitionSession {
         samples: SharedAudio,
         speech: bool,
     ) -> Result<(), String> {
-        if let Self::Realtime(session) = self {
-            if session.segmentation_mode() == SegmentationMode::Continuous {
-                return session.send_with_activity(samples, speech).await;
-            }
+        if let Self::Realtime(session) = self
+            && session.segmentation_mode() == SegmentationMode::Continuous
+        {
+            return session.send_with_activity(samples, speech).await;
         }
         self.send(samples).await
     }
@@ -355,14 +355,18 @@ mod tests {
             ..ApiProfile::default()
         });
         super::super::question::validate_backend(&config).unwrap();
-        assert!(validate_cloud_connection(&config)
-            .unwrap_err()
-            .contains("language"));
-        assert!(spawn_cloud_recognition_session(config.clone(), 0.5)
-            .await
-            .err()
-            .unwrap()
-            .contains("language"));
+        assert!(
+            validate_cloud_connection(&config)
+                .unwrap_err()
+                .contains("language")
+        );
+        assert!(
+            spawn_cloud_recognition_session(config.clone(), 0.5)
+                .await
+                .err()
+                .unwrap()
+                .contains("language")
+        );
         assert!(
             test_cloud_service(&config, "mimo", providers::SERVICE_MIMO_TRANSCRIPTION)
                 .await
@@ -383,11 +387,13 @@ mod tests {
         config.backend = crate::config::QWEN_MANAGED_BACKEND.into();
         config.active_profile_id = None;
 
-        assert!(spawn_managed_qwen_session(config, runtime, manager)
-            .await
-            .err()
-            .unwrap()
-            .contains("not installed"));
+        assert!(
+            spawn_managed_qwen_session(config, runtime, manager)
+                .await
+                .err()
+                .unwrap()
+                .contains("not installed")
+        );
     }
 
     #[test]

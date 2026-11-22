@@ -1,5 +1,5 @@
-use super::{api_error, ApiResult, ServiceContext};
-use axum::{extract::State, http::StatusCode, Json};
+use super::{ApiResult, ServiceContext, api_error};
+use axum::{Json, extract::State, http::StatusCode};
 pub(super) async fn runtime_status(
     State(state): State<ServiceContext>,
 ) -> Json<crate::ocr::OcrExecutionStatus> {

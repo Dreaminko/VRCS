@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::config::ReasoningSetting;
 use crate::providers::OpenAiProtocolBehavior;
@@ -230,10 +230,11 @@ pub(super) fn apply_explicit_control(
     add_builtin_options(&mut details, provider, request.model);
     if matches!(provider, "alibaba_cloud" | "alibaba_token_plan") {
         let control = alibaba_thinking_control(request.model);
-        if let Some(options) = &mut details.reasoning {
-            if options.mandatory.is_none() && control == ThinkingControl::HideOnly {
-                options.mandatory = Some(true);
-            }
+        if let Some(options) = &mut details.reasoning
+            && options.mandatory.is_none()
+            && control == ThinkingControl::HideOnly
+        {
+            options.mandatory = Some(true);
         }
     }
     let options = details.reasoning.as_ref().ok_or_else(|| {
@@ -264,12 +265,11 @@ pub(super) fn apply_explicit_control(
     if !request.thinking_enabled && options.mandatory != Some(true) && (can_disable || has_toggle) {
         return Ok(false);
     }
-    if provider == "gemini" {
-        if let Some(limit) = body.pointer_mut("/generationConfig/maxOutputTokens") {
-            if let Some(current) = limit.as_u64() {
-                *limit = json!(current.min(u64::from(request.max_output_tokens)));
-            }
-        }
+    if provider == "gemini"
+        && let Some(limit) = body.pointer_mut("/generationConfig/maxOutputTokens")
+        && let Some(current) = limit.as_u64()
+    {
+        *limit = json!(current.min(u64::from(request.max_output_tokens)));
     }
     setting.validate().map_err(|detail| {
         control_error(
@@ -692,7 +692,7 @@ impl InlineReasoningFilter {
                     visible.push_str(&self.pending[..position]);
                 }
                 self.pending.drain(..position + tag.len());
-                self.inside_think = !self.inside_think;
+                self.inside_think.toggle();
                 continue;
             }
 

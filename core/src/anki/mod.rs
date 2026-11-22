@@ -2,7 +2,7 @@
 //! The HTTP protocol and note rendering live in focused child modules while
 //! this module keeps the public API stable.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::config::AnkiConfig;
 use crate::models::CardRequest;
@@ -283,10 +283,10 @@ mod tests {
     }
     #[tokio::test]
     async fn feature_switches_stop_anki_preparation_but_keep_a_sent_note_receipt() {
-        use axum::{routing::post, Json, Router};
+        use axum::{Json, Router, routing::post};
         use std::sync::{
-            atomic::{AtomicUsize, Ordering},
             Arc,
+            atomic::{AtomicUsize, Ordering},
         };
         for stop_at in ["canAddNotes", "addNote"] {
             let reached = Arc::new(tokio::sync::Notify::new());
@@ -371,7 +371,7 @@ mod tests {
 
     #[tokio::test]
     async fn update_card_validates_existing_fields_before_writing() {
-        use axum::{routing::post, Json, Router};
+        use axum::{Json, Router, routing::post};
         use std::sync::{Arc, Mutex};
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::{
-    capture, procfs, read_command, scan, write_event, Command, Event, ScanProgress, ScanResult,
-    VERSION,
+    Command, Event, ScanProgress, ScanResult, VERSION, capture, procfs, read_command, scan,
+    write_event,
 };
 
 struct FsUidGuard;

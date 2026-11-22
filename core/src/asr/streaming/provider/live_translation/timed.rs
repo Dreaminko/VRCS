@@ -26,18 +26,18 @@ pub(in crate::asr::streaming) fn append_delta(
         return Ok(None);
     }
     let timing = state.timing.get_or_insert_with(Timing::default);
-    if text.is_empty() && !translation.is_empty() && state.input.trim().is_empty() {
-        if let Some(previous) = &timing.last_committed {
-            let continuation_bytes = state.output.len() + translation.len();
-            if previous.translation.len() + continuation_bytes > MAX_TRANSCRIPT_BYTES {
-                return Err(
-                    "Live translation transcript limit reached; restart recognition".into(),
-                );
-            }
-            // Bind the continuation when it arrives. A new source can arrive
-            // before the output settles, but must never consume this prefix.
-            timing.continuation_bytes = continuation_bytes;
+    if text.is_empty()
+        && !translation.is_empty()
+        && state.input.trim().is_empty()
+        && let Some(previous) = &timing.last_committed
+    {
+        let continuation_bytes = state.output.len() + translation.len();
+        if previous.translation.len() + continuation_bytes > MAX_TRANSCRIPT_BYTES {
+            return Err("Live translation transcript limit reached; restart recognition".into());
         }
+        // Bind the continuation when it arrives. A new source can arrive
+        // before the output settles, but must never consume this prefix.
+        timing.continuation_bytes = continuation_bytes;
     }
     if !text.is_empty() {
         timing.last_input = Some(Instant::now());

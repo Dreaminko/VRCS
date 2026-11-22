@@ -56,37 +56,34 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 if let Some(error) = &entry.error {
                     return Err(format!("{} layout: {error}", surface.name()));
                 }
-                if entry.ready {
-                    if let (Some(endpoint), Some(layout)) = (&entry.endpoint, &entry.layout) {
-                        if entry
-                            .state
-                            .as_ref()
-                            .is_some_and(|state| state.key == layout.key)
-                            && previous.is_none_or(|key| key.generation != layout.key.generation)
-                        {
-                            if unsafe {
-                                windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible(
-                                    endpoint.parent as _,
-                                )
-                            } != 0
-                            {
-                                return Err(format!("{} parent is visible", surface.name()));
-                            }
-                            use windows_sys::Win32::UI::WindowsAndMessaging::{
-                                GetWindowLongPtrW, GWL_EXSTYLE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
-                            };
-                            let style =
-                                unsafe { GetWindowLongPtrW(endpoint.parent as _, GWL_EXSTYLE) }
-                                    as u32;
-                            if style & (WS_EX_APPWINDOW | WS_EX_TOOLWINDOW) != WS_EX_TOOLWINDOW {
-                                return Err(format!(
-                                    "{} host lost its tool window style",
-                                    surface.name()
-                                ));
-                            }
-                            return Ok((endpoint.clone(), layout.key));
-                        }
+                if entry.ready
+                    && let (Some(endpoint), Some(layout)) = (&entry.endpoint, &entry.layout)
+                    && entry
+                        .state
+                        .as_ref()
+                        .is_some_and(|state| state.key == layout.key)
+                    && previous.is_none_or(|key| key.generation != layout.key.generation)
+                {
+                    if unsafe {
+                        windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible(
+                            endpoint.parent as _,
+                        )
+                    } != 0
+                    {
+                        return Err(format!("{} parent is visible", surface.name()));
                     }
+                    use windows_sys::Win32::UI::WindowsAndMessaging::{
+                        GWL_EXSTYLE, GetWindowLongPtrW, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+                    };
+                    let style =
+                        unsafe { GetWindowLongPtrW(endpoint.parent as _, GWL_EXSTYLE) } as u32;
+                    if style & (WS_EX_APPWINDOW | WS_EX_TOOLWINDOW) != WS_EX_TOOLWINDOW {
+                        return Err(format!(
+                            "{} host lost its tool window style",
+                            surface.name()
+                        ));
+                    }
+                    return Ok((endpoint.clone(), layout.key));
                 }
             }
             if started.elapsed() >= Duration::from_secs(20) {
@@ -94,7 +91,13 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 let entry = &entries[surface.index()];
                 return Err(format!(
                     "{} host did not report a new layout (epoch={}, generation={}, ready={}, awake={}, endpoint={}, layout={}, previous={previous:?})",
-                    surface.name(), entry.host_epoch, entry.generation, entry.ready, entry.host_awake, entry.endpoint.is_some(), entry.layout.is_some()
+                    surface.name(),
+                    entry.host_epoch,
+                    entry.generation,
+                    entry.ready,
+                    entry.host_awake,
+                    entry.endpoint.is_some(),
+                    entry.layout.is_some()
                 ));
             }
             std::thread::sleep(Duration::from_millis(15));
@@ -314,9 +317,15 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                             let entry = &entries[surface.index()];
                             return Err(format!(
                                 "{} hover {hover:?} did not update its captured texture: paint={paint_before_hover:?}->{:?}, feedback={:?}, last_frame={last_frame:?}, copies={}, frames={}",
-                                surface.name(), entry.paint, entry.state.as_ref().and_then(|state| state.hovered),
-                                counters.copies.load(std::sync::atomic::Ordering::Relaxed) - copies_before_hover,
-                                counters.source_frames.load(std::sync::atomic::Ordering::Relaxed) - frames_before_hover
+                                surface.name(),
+                                entry.paint,
+                                entry.state.as_ref().and_then(|state| state.hovered),
+                                counters.copies.load(std::sync::atomic::Ordering::Relaxed)
+                                    - copies_before_hover,
+                                counters
+                                    .source_frames
+                                    .load(std::sync::atomic::Ordering::Relaxed)
+                                    - frames_before_hover
                             ));
                         }
                         std::thread::sleep(std::time::Duration::from_millis(15));
@@ -595,19 +604,17 @@ fn ocr_idle(
                         )?)));
                     renderer.identity = Some((endpoint.host.host_epoch, 0, generation));
                 }
-                if submitted.is_none() {
-                    if let Some((frame, pixels)) = previous {
-                        if renderer
-                            .capture
-                            .as_ref()
-                            .unwrap()
-                            .borrow()
-                            .snapshot(frame)?
-                            != pixels
-                        {
-                            return Err("Idle wake overwrote the submitted texture".into());
-                        }
-                    }
+                if submitted.is_none()
+                    && let Some((frame, pixels)) = previous
+                    && renderer
+                        .capture
+                        .as_ref()
+                        .unwrap()
+                        .borrow()
+                        .snapshot(frame)?
+                        != pixels
+                {
+                    return Err("Idle wake overwrote the submitted texture".into());
                 }
                 renderer.capture_frame(&hub, false, |frame| {
                     submitted = Some(*frame);
@@ -931,10 +938,11 @@ fn native_reader(app: &AppHandle, mut view: SurfaceView) -> Result<serde_json::V
             if let Some(error) = &entry.error {
                 return Err(error.clone());
             }
-            if entry.ready && entry.layout.is_some() {
-                if let Some(endpoint) = &entry.endpoint {
-                    break endpoint.clone();
-                }
+            if entry.ready
+                && entry.layout.is_some()
+                && let Some(endpoint) = &entry.endpoint
+            {
+                break endpoint.clone();
             }
             if started.elapsed() >= Duration::from_secs(20) {
                 return Err("Native reader did not report a layout".into());

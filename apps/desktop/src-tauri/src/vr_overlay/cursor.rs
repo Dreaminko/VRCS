@@ -198,11 +198,11 @@ impl CursorOverlay {
     }
 
     pub fn destroy(&mut self, api: &VR_IVROverlay_FnTable) {
-        if let Some(handle) = self.handle.take() {
-            if let Some(destroy) = api.DestroyOverlay {
-                unsafe {
-                    let _ = destroy(handle);
-                }
+        if let Some(handle) = self.handle.take()
+            && let Some(destroy) = api.DestroyOverlay
+        {
+            unsafe {
+                let _ = destroy(handle);
             }
         }
         self.target = None;
@@ -257,11 +257,7 @@ mod tests {
 
     fn call(name: &'static str) -> i32 {
         CALLS.with_borrow_mut(|calls| calls.push(name));
-        if FAIL.get() == name {
-            10
-        } else {
-            0
-        }
+        if FAIL.get() == name { 10 } else { 0 }
     }
 
     fn api() -> VR_IVROverlay_FnTable {

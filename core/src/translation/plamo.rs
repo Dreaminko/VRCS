@@ -491,7 +491,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use axum::body::{Body, Bytes};
-    use axum::http::{header, StatusCode};
+    use axum::http::{StatusCode, header};
     use axum::response::Response;
     use axum::routing::post;
     use axum::{Json, Router};

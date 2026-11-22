@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use crate::config::{AppConfig, ExternalApiConfig};
 use crate::credentials;
 
-use super::super::super::{api_error, ApiResult, SettingsContext};
+use super::super::super::{ApiResult, SettingsContext, api_error};
 
 pub(super) struct ExternalApiChange {
     reload: bool,

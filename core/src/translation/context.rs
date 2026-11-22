@@ -6,8 +6,8 @@ use crate::models::SpeakerIdentity;
 use crate::room_context::{RoomContextAvailability, RoomContextSnapshot};
 use crate::vrcx::VrcxIntegration;
 
-use super::prompt::{RoomSpeakerRef, RoomTranslationContext};
 use super::TranslationContextEntry;
+use super::prompt::{RoomSpeakerRef, RoomTranslationContext};
 
 const MAX_PROMPT_PARTICIPANTS: usize = 16;
 
@@ -90,10 +90,11 @@ pub(crate) fn load_translation_context(
             Vec::new()
         });
     let room_context = room_translation_context(snapshot, vrchat_context, current_speaker);
-    if include_vrcx && !native_active {
-        if let Some(entry) = vrcx.translation_context_entry() {
-            entries.push(entry);
-        }
+    if include_vrcx
+        && !native_active
+        && let Some(entry) = vrcx.translation_context_entry()
+    {
+        entries.push(entry);
     }
     (entries, room_context)
 }

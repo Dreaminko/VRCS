@@ -1,5 +1,5 @@
 use reqwest::StatusCode;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::LlmError;
 
@@ -103,7 +103,7 @@ pub(super) fn max_serialized_body(
                 bytes.len()
             ),
             retryable: false,
-        retry_after: None,
+            retry_after: None,
         });
     }
     Ok(())
@@ -290,7 +290,7 @@ mod tests {
 
     #[tokio::test]
     async fn mimo_id_only_catalog_adds_only_verified_native_capabilities() {
-        use axum::{routing::get, Json, Router};
+        use axum::{Json, Router, routing::get};
         let app = Router::new().route(
             "/models",
             get(|| async {
@@ -328,7 +328,7 @@ mod tests {
 
     #[tokio::test]
     async fn catalogs_preserve_native_facts_and_legacy_id_only_responses() {
-        use axum::{routing::get, Json, Router};
+        use axum::{Json, Router, routing::get};
         let app = Router::new().route("/models", get(|| async { Json(json!({"data": [
             {"id": "shared", "context_window": 32000, "max_output_tokens": 2048,
              "max_completion_tokens": 1024, "input_modalities": ["text", "image"], "output_modalities": ["text"],

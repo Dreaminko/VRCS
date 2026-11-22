@@ -29,22 +29,22 @@ mod platform {
     use vrcs_core::VrOcrWristConfig;
     use vrcs_core::{VrOverlayHeadsetConfig, VrOverlayWristConfig};
 
-    use super::{menu_config, ControllerBinding, CursorTarget, OverlayKind, RayHit};
+    use super::{ControllerBinding, CursorTarget, OverlayKind, RayHit, menu_config};
     #[cfg(windows)]
     use crate::vr_overlay::d3d11_texture::{Device, Readback};
     use crate::vr_overlay::dashboard::{
-        pointer_from_openvr, DashboardPointerEvent, DASHBOARD_HEIGHT, DASHBOARD_WIDTH,
+        DASHBOARD_HEIGHT, DASHBOARD_WIDTH, DashboardPointerEvent, pointer_from_openvr,
     };
     #[cfg(windows)]
     use crate::vr_overlay::ocr_capture::{
-        center_bounds, crop_projection, pose_within_translation_limit_m, projection_from_openvr,
-        EyeCapture, StereoCapture, OCR_MOVEMENT_LIMIT_M,
+        EyeCapture, OCR_MOVEMENT_LIMIT_M, StereoCapture, center_bounds, crop_projection,
+        pose_within_translation_limit_m, projection_from_openvr,
     };
     #[cfg(windows)]
     use crate::vr_overlay::pose::SpaceId;
-    use crate::vr_overlay::renderer::dashboard_placeholder;
     #[cfg(windows)]
     use crate::vr_overlay::renderer::Texture;
+    use crate::vr_overlay::renderer::dashboard_placeholder;
     use crate::vr_overlay::surface_protocol::SurfaceId;
     use crate::vr_overlay::{cursor, ocr_input, transform};
     use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
@@ -738,7 +738,7 @@ mod platform {
                 {
                     return Some(std::path::PathBuf::from(override_dir));
                 }
-                extern "C" {
+                unsafe extern "C" {
                     fn VR_GetRuntimePath(
                         pch_path_buffer: *mut std::ffi::c_char,
                         un_buffer_size: u32,
@@ -1395,27 +1395,26 @@ mod platform {
 
         pub fn update_cursor(&mut self, target: Option<CursorTarget>) -> Result<(), String> {
             let api = unsafe { &*self.raw_overlay };
-            if let Some(target) = target {
-                if self.visible(target.kind) {
-                    if let Some(handle) = self.handle(target.kind) {
-                        let diameter_px = if target.kind == OverlayKind::WristMenu {
-                            30
-                        } else {
-                            24
-                        };
-                        self.cursor.update_with_panel(
-                            api,
-                            handle.0,
-                            target.position,
-                            target.origin.0 as i32,
-                            target.panel,
-                            target.panel_width,
-                            target.texture_width,
-                            diameter_px,
-                        )?;
-                        return Ok(());
-                    }
-                }
+            if let Some(target) = target
+                && self.visible(target.kind)
+                && let Some(handle) = self.handle(target.kind)
+            {
+                let diameter_px = if target.kind == OverlayKind::WristMenu {
+                    30
+                } else {
+                    24
+                };
+                self.cursor.update_with_panel(
+                    api,
+                    handle.0,
+                    target.position,
+                    target.origin.0 as i32,
+                    target.panel,
+                    target.panel_width,
+                    target.texture_width,
+                    diameter_px,
+                )?;
+                return Ok(());
             }
             self.cursor.hide(api)
         }
@@ -1566,10 +1565,10 @@ mod platform {
             if !self.state(kind).visible {
                 return;
             }
-            if let Some(handle) = self.handle(kind) {
-                if self.overlay.set_visibility(handle, false).is_ok() {
-                    self.state_mut(kind).visible = false;
-                }
+            if let Some(handle) = self.handle(kind)
+                && self.overlay.set_visibility(handle, false).is_ok()
+            {
+                self.state_mut(kind).visible = false;
             }
         }
 
@@ -1949,11 +1948,7 @@ mod platform {
             thread_local! { static FAIL: Cell<bool> = const { Cell::new(true) }; }
             unsafe extern "C" fn clear(handle: u64) -> i32 {
                 assert_eq!(handle, 73);
-                if FAIL.get() {
-                    10
-                } else {
-                    0
-                }
+                if FAIL.get() { 10 } else { 0 }
             }
             struct Texture(Rc<Cell<bool>>);
             impl Drop for Texture {
@@ -1967,12 +1962,14 @@ mod platform {
             drop(renderer);
             let mut api: openvr_sys::VR_IVROverlay_FnTable = unsafe { std::mem::zeroed() };
             api.ClearOverlayTexture = Some(clear);
-            assert!(super::clear_surface_reference(
-                &api,
-                Some(openvr::overlay::OverlayHandle(73)),
-                &mut submitted
-            )
-            .is_err());
+            assert!(
+                super::clear_surface_reference(
+                    &api,
+                    Some(openvr::overlay::OverlayHandle(73)),
+                    &mut submitted
+                )
+                .is_err()
+            );
             assert!(!dropped.get());
             assert!(submitted.is_some());
             FAIL.set(false);
@@ -1997,11 +1994,7 @@ mod platform {
 
             fn call(name: &'static str, handle: u64) -> i32 {
                 CALLS.with_borrow_mut(|calls| calls.push((name, handle)));
-                if FAIL.get() == name {
-                    10
-                } else {
-                    0
-                }
+                if FAIL.get() == name { 10 } else { 0 }
             }
 
             fn api() -> openvr_sys::VR_IVROverlay_FnTable {
@@ -2457,7 +2450,7 @@ mod platform {
         #[test]
         fn mirrors_remain_owned_until_reacquisition_or_shutdown() {
             unsafe extern "C" fn release(view: *mut std::ffi::c_void) {
-                let count = &*view.cast::<AtomicUsize>();
+                let count = unsafe { &*view.cast::<AtomicUsize>() };
                 count.fetch_add(1, Ordering::Relaxed);
             }
             let released = AtomicUsize::new(0);
@@ -2482,7 +2475,7 @@ mod platform {
             let acquired = AtomicUsize::new(0);
             let released = AtomicUsize::new(0);
             unsafe extern "C" fn release(view: *mut std::ffi::c_void) {
-                (&*view.cast::<AtomicUsize>()).fetch_add(1, Ordering::Relaxed);
+                unsafe { &*view.cast::<AtomicUsize>() }.fetch_add(1, Ordering::Relaxed);
             }
             let mut slot = None;
             for _ in 0..3 {
@@ -2506,7 +2499,7 @@ mod platform {
         fn failed_capture_discards_mirrors_before_reacquisition() {
             let released = AtomicUsize::new(0);
             unsafe extern "C" fn release(view: *mut std::ffi::c_void) {
-                (&*view.cast::<AtomicUsize>()).fetch_add(1, Ordering::Relaxed);
+                unsafe { &*view.cast::<AtomicUsize>() }.fetch_add(1, Ordering::Relaxed);
             }
             let mirror = || Mirror {
                 view: std::ptr::from_ref(&released).cast_mut().cast(),
@@ -2516,9 +2509,11 @@ mod platform {
             resources.mirrors[0] = Some(mirror());
             assert!(resources.checked(Ok(())).is_ok());
             assert_eq!(released.load(Ordering::Relaxed), 0);
-            assert!(resources
-                .checked(Err::<(), _>("device removed".into()))
-                .is_err());
+            assert!(
+                resources
+                    .checked(Err::<(), _>("device removed".into()))
+                    .is_err()
+            );
             assert_eq!(released.load(Ordering::Relaxed), 1);
             assert!(resources.mirrors.iter().all(Option::is_none));
             Mirror::get_or_create(&mut resources.mirrors[0], || Ok(mirror())).unwrap();

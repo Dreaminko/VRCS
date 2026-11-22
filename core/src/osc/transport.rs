@@ -1,6 +1,6 @@
 use std::net::{Ipv4Addr, SocketAddrV4};
 
-use rosc::{encoder, OscMessage, OscPacket, OscType};
+use rosc::{OscMessage, OscPacket, OscType, encoder};
 use tokio::net::UdpSocket;
 
 pub(super) const CHATBOX_ADDRESS: &str = "/chatbox/input";

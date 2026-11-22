@@ -1,4 +1,4 @@
-use ::wasapi::{deinitialize, initialize_mta, Device, DeviceEnumerator, Direction};
+use ::wasapi::{Device, DeviceEnumerator, Direction, deinitialize, initialize_mta};
 
 use crate::models::AudioDevice;
 
@@ -9,7 +9,7 @@ pub(super) fn err(error: ::wasapi::WasapiError) -> AudioError {
         ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_OUTOFMEMORY,
     };
     use windows::Win32::Media::Audio::{
-        AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_DEVICE_IN_USE, AUDCLNT_E_ENDPOINT_CREATE_FAILED,
+        AUDCLNT_E_DEVICE_IN_USE, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_ENDPOINT_CREATE_FAILED,
         AUDCLNT_E_RESOURCES_INVALIDATED, AUDCLNT_E_SERVICE_NOT_RUNNING,
         AUDCLNT_E_UNSUPPORTED_FORMAT,
     };
@@ -225,7 +225,7 @@ pub(crate) fn resolve_device_id(
 pub(crate) fn find_process_id(process_name: &str) -> Result<Option<u32>, AudioError> {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
         TH32CS_SNAPPROCESS,
     };
 
@@ -335,7 +335,7 @@ mod tests {
         ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_OUTOFMEMORY,
     };
     use windows::Win32::Media::Audio::{
-        AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_DEVICE_IN_USE, AUDCLNT_E_RESOURCES_INVALIDATED,
+        AUDCLNT_E_DEVICE_IN_USE, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_RESOURCES_INVALIDATED,
         AUDCLNT_E_SERVICE_NOT_RUNNING, AUDCLNT_E_UNSUPPORTED_FORMAT,
     };
 

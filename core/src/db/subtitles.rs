@@ -1,8 +1,8 @@
 use rusqlite::params;
 use serde::Serialize;
 
-use super::conversations::{active_conversation_title_state, automatic_title};
 use super::Database;
+use super::conversations::{active_conversation_title_state, automatic_title};
 use crate::error::AppResult;
 use crate::models::{Subtitle, SubtitleTranslation};
 

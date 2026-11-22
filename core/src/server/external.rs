@@ -1,11 +1,11 @@
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
 use serde::Deserialize;
 
 use crate::credentials;
 
-use super::{api_error, ApiResult, SettingsContext};
+use super::{ApiResult, SettingsContext, api_error};
 
 #[derive(Deserialize)]
 pub(super) struct TokenInput {
@@ -87,23 +87,23 @@ pub(super) async fn token_write(
         let config =
             crate::config::apply_feature_gates(&state.config.config.read().expect("config lock"))
                 .external_api;
-        if config.enabled && config.require_token {
-            if let Err(error) =
+        if config.enabled
+            && config.require_token
+            && let Err(error) =
                 super::settings::reload_external_api_runtime(&state, &config, Some(token)).await
-            {
-                if let Err(recovery) = restore_token(previous).await {
-                    return Err(api_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "settings.rollback_failed",
-                        format!("{error}; token rollback failed: {recovery}"),
-                    ));
-                }
+        {
+            if let Err(recovery) = restore_token(previous).await {
                 return Err(api_error(
-                    StatusCode::CONFLICT,
-                    "external_api.token_reload_failed",
-                    error,
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "settings.rollback_failed",
+                    format!("{error}; token rollback failed: {recovery}"),
                 ));
             }
+            return Err(api_error(
+                StatusCode::CONFLICT,
+                "external_api.token_reload_failed",
+                error,
+            ));
         }
         token_status().await
     })

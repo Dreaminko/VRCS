@@ -11,9 +11,9 @@ use tokio::sync::watch;
 #[cfg(any(windows, target_os = "linux", test))]
 use crate::config::AppConfig;
 #[cfg(any(windows, target_os = "linux", test))]
-use crate::db::conversations::{CatalogRefresh, ConversationCatalog};
-#[cfg(any(windows, target_os = "linux", test))]
 use crate::db::Database;
+#[cfg(any(windows, target_os = "linux", test))]
+use crate::db::conversations::{CatalogRefresh, ConversationCatalog};
 #[cfg(any(windows, target_os = "linux", test))]
 use crate::language_session::ActiveLanguageSession;
 #[cfg(any(windows, target_os = "linux", test))]
@@ -384,13 +384,15 @@ mod tests {
         tokio::time::timeout(Duration::from_millis(100), validity.cancelled())
             .await
             .unwrap();
-        assert!(fixture
-            .database
-            .lock()
-            .unwrap()
-            .subtitle_history(10)
-            .unwrap()
-            .is_empty());
+        assert!(
+            fixture
+                .database
+                .lock()
+                .unwrap()
+                .subtitle_history(10)
+                .unwrap()
+                .is_empty()
+        );
         assert!(subtitles.try_recv().is_err());
         fixture
             .consumer
@@ -418,8 +420,8 @@ mod tests {
 
     #[tokio::test]
     async fn active_language_session_selects_other_player_targets_and_translates_each_once() {
-        use axum::{routing::post, Json, Router};
-        use serde_json::{json, Value};
+        use axum::{Json, Router, routing::post};
+        use serde_json::{Value, json};
         use std::sync::atomic::{AtomicUsize, Ordering};
         let calls = Arc::new(AtomicUsize::new(0));
         let observed = Arc::clone(&calls);
@@ -515,7 +517,7 @@ mod tests {
 
     #[tokio::test]
     async fn invalidating_in_flight_http_translation_prevents_late_storage_and_publication() {
-        use axum::{routing::post, Router};
+        use axum::{Router, routing::post};
         use serde_json::json;
         let entered = Arc::new(tokio::sync::Notify::new());
         let release = Arc::new(tokio::sync::Notify::new());

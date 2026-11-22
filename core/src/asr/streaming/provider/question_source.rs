@@ -5,7 +5,7 @@ use serde_json::Value;
 use crate::asr::streaming::CloudEvent;
 use crate::config::AsrConfig;
 
-use super::{Provider, MAX_TRANSCRIPT_BYTES};
+use super::{MAX_TRANSCRIPT_BYTES, Provider};
 
 #[derive(Default)]
 struct Utterance {
@@ -192,10 +192,10 @@ fn normalize_openai(
     if kind != "session.input_transcript.delta" {
         return Ok(None);
     }
-    if let Some(id) = value["event_id"].as_str() {
-        if !state.event_ids.insert(id.to_owned()) {
-            return Ok(None);
-        }
+    if let Some(id) = value["event_id"].as_str()
+        && !state.event_ids.insert(id.to_owned())
+    {
+        return Ok(None);
     }
     let text = value["delta"].as_str().unwrap_or_default();
     state.update("openai-question", text, false, None)
@@ -228,9 +228,11 @@ mod tests {
         ] {
             normalize_event(Provider::QwenLiveTranslate, &config, &event, &mut state).unwrap();
         }
-        assert!(finish(Provider::QwenLiveTranslate, &mut state)
-            .unwrap()
-            .is_empty());
+        assert!(
+            finish(Provider::QwenLiveTranslate, &mut state)
+                .unwrap()
+                .is_empty()
+        );
         assert_eq!(state.utterances[0].text, "What");
         assert_eq!(state.utterances[1].text, "is this?");
     }

@@ -425,19 +425,19 @@ fn checked_model(path: &Path) -> Result<PathBuf, TranslationError> {
 }
 
 fn check_child(state: &mut RuntimeState) -> Result<(), TranslationError> {
-    if let Some(child) = &mut state.child {
-        if let Some(exit) = child.try_wait().map_err(|error| {
+    if let Some(child) = &mut state.child
+        && let Some(exit) = child.try_wait().map_err(|error| {
             local_error(
                 "translation.local_runtime_unavailable",
                 error.to_string(),
                 true,
             )
-        })? {
-            state.child = None;
-            state.connection = None;
-            state.status = "error";
-            state.error = Some(format!("Local PLaMo runtime exited: {exit}"));
-        }
+        })?
+    {
+        state.child = None;
+        state.connection = None;
+        state.status = "error";
+        state.error = Some(format!("Local PLaMo runtime exited: {exit}"));
     }
     Ok(())
 }
@@ -532,9 +532,11 @@ mod tests {
                 "missing arguments {pair:?}"
             );
         }
-        assert!(!arguments
-            .iter()
-            .any(|argument| argument == "--api-key" || argument == "secret"));
+        assert!(
+            !arguments
+                .iter()
+                .any(|argument| argument == "--api-key" || argument == "secret")
+        );
         assert!(arguments.contains(&"--no-webui".into()));
         assert!(arguments.contains(&"--no-op-offload".into()));
         assert!(!arguments.iter().any(|argument| argument.contains("mmproj")));
@@ -570,7 +572,7 @@ mod tests {
 
     #[tokio::test]
     async fn request_queue_rejects_excess_waiters_and_times_out() {
-        use std::future::{poll_fn, Future};
+        use std::future::{Future, poll_fn};
         use std::task::Poll;
 
         let runtime = PlamoRuntime::new(PathBuf::new());
@@ -645,10 +647,12 @@ mod tests {
 
         assert_eq!(state.status, "error");
         assert!(state.connection.is_none());
-        assert!(state
-            .error
-            .as_deref()
-            .is_some_and(|error| error.contains('7')));
+        assert!(
+            state
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains('7'))
+        );
     }
 
     #[tokio::test]
@@ -687,8 +691,8 @@ mod tests {
 
     #[tokio::test]
     async fn readiness_requires_the_local_token_and_model_alias() {
-        use axum::http::{header::AUTHORIZATION, HeaderMap, StatusCode};
-        use axum::{routing::get, Json, Router};
+        use axum::http::{HeaderMap, StatusCode, header::AUTHORIZATION};
+        use axum::{Json, Router, routing::get};
         use serde_json::json;
 
         let app = Router::new()

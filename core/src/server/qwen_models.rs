@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::asr;
 use crate::error::AppError;
 
 use super::{
-    api_domain_error_with_params, api_error_with_params, ApiResult, ModelContext, SettingsContext,
+    ApiResult, ModelContext, SettingsContext, api_domain_error_with_params, api_error_with_params,
 };
 
 fn ensure_package(id: &str) -> ApiResult<()> {
@@ -47,10 +47,12 @@ pub(super) async fn runtime_status(State(state): State<ModelContext>) -> Json<Va
     status["available"] = json!(available);
     status["running"] = json!(snapshot.status == "ready");
     status["gpu_devices"] = json!(devices);
-    status["installation"] = json!(state
-        .capture
-        .model_manager
-        .qwen_runtime_installation(&state.capture.qwen_runtime));
+    status["installation"] = json!(
+        state
+            .capture
+            .model_manager
+            .qwen_runtime_installation(&state.capture.qwen_runtime)
+    );
     Json(status)
 }
 

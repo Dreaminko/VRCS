@@ -29,7 +29,8 @@ fn configure_openvr_env() {
         .is_none()
     {
         if let Some(config_dir) = config_root.as_ref().map(|root| root.join("openvr")) {
-            std::env::set_var("VR_CONFIG_PATH", config_dir);
+            // SAFETY: Called once at the start of `main` before spawning background threads.
+            unsafe { std::env::set_var("VR_CONFIG_PATH", config_dir) };
         }
     }
     if std::env::var_os("VR_LOG_PATH")
@@ -46,7 +47,8 @@ fn configure_openvr_env() {
             })
             .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
             .join("openvr");
-        std::env::set_var("VR_LOG_PATH", log_dir);
+        // SAFETY: Called once at the start of `main` before spawning background threads.
+        unsafe { std::env::set_var("VR_LOG_PATH", log_dir) };
     }
 }
 

@@ -1,8 +1,8 @@
 //! Opt-in, bounded diagnostics. Counts describe application work, not GPU duration.
 use std::collections::BTreeMap;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc, OnceLock,
+    atomic::{AtomicU64, Ordering},
 };
 use std::time::{Duration, Instant};
 

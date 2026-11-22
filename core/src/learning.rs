@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::time::Instant;
 
 use crate::config::{ApiProfile, ReasoningSetting};
@@ -952,10 +952,10 @@ fn select_dictionary_entry<'a>(
         if let Some(entry) = tier.clone().find(|entry| entry.term.trim() == selected) {
             return Some(entry);
         }
-        if let Some(base) = base_form {
-            if let Some(entry) = tier.clone().find(|entry| entry.term.trim() == base) {
-                return Some(entry);
-            }
+        if let Some(base) = base_form
+            && let Some(entry) = tier.clone().find(|entry| entry.term.trim() == base)
+        {
+            return Some(entry);
         }
         if let Some(entry) = tier.next() {
             return Some(entry);
@@ -1168,15 +1168,16 @@ fn parse_analysis_response(
 
 fn strip_markdown_fence(output: &str) -> &str {
     let trimmed = output.trim();
-    if trimmed.starts_with("```") && trimmed.ends_with("```") {
-        if let Some(first_newline) = trimmed.find('\n') {
-            return trimmed[first_newline + 1..trimmed.len() - 3].trim();
-        }
+    if trimmed.starts_with("```")
+        && trimmed.ends_with("```")
+        && let Some(first_newline) = trimmed.find('\n')
+    {
+        return trimmed[first_newline + 1..trimmed.len() - 3].trim();
     }
-    if let (Some(start), Some(end)) = (trimmed.find('{'), trimmed.rfind('}')) {
-        if start < end {
-            return &trimmed[start..=end];
-        }
+    if let (Some(start), Some(end)) = (trimmed.find('{'), trimmed.rfind('}'))
+        && start < end
+    {
+        return &trimmed[start..=end];
     }
     trimmed
 }
@@ -1355,10 +1356,10 @@ mod tests {
 
     #[tokio::test]
     async fn analysis_and_format_repair_share_one_timeout_budget() {
-        use axum::{routing::post, Json, Router};
+        use axum::{Json, Router, routing::post};
         use std::sync::{
-            atomic::{AtomicUsize, Ordering},
             Arc,
+            atomic::{AtomicUsize, Ordering},
         };
 
         for (delay_ms, should_timeout) in [(1_200, true), (20, false)] {

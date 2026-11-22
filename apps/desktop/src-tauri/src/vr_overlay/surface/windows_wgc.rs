@@ -1,17 +1,16 @@
 //! Captures an undecorated WebView host directly into SteamVR-compatible textures.
 
-use crate::vr_overlay::frame_receipt::{decode_marker, FrameReceipt};
+use crate::vr_overlay::frame_receipt::{FrameReceipt, decode_marker};
 use std::{
     cell::RefCell,
     marker::PhantomData,
     rc::{Rc, Weak},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, OnceLock,
+        atomic::{AtomicBool, Ordering},
     },
 };
 use windows::{
-    core::{IInspectable, Interface, BOOL},
     Foundation::{TimeSpan, TypedEventHandler},
     Graphics::{
         Capture::{
@@ -26,25 +25,26 @@ use windows::{
         Graphics::{
             Direct3D::D3D_DRIVER_TYPE_UNKNOWN,
             Direct3D11::{
-                D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Query, ID3D11Texture2D,
                 D3D11_ASYNC_GETDATA_DONOTFLUSH, D3D11_BIND_RENDER_TARGET,
                 D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_CPU_ACCESS_READ,
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE,
-                D3D11_MAP_FLAG_DO_NOT_WAIT, D3D11_MAP_READ, D3D11_QUERY_DESC, D3D11_QUERY_EVENT,
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAP_FLAG_DO_NOT_WAIT, D3D11_MAP_READ,
+                D3D11_MAPPED_SUBRESOURCE, D3D11_QUERY_DESC, D3D11_QUERY_EVENT,
                 D3D11_RESOURCE_MISC_SHARED, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
-                D3D11_USAGE_DEFAULT, D3D11_USAGE_STAGING,
+                D3D11_USAGE_DEFAULT, D3D11_USAGE_STAGING, D3D11CreateDevice, ID3D11Device,
+                ID3D11DeviceContext, ID3D11Query, ID3D11Texture2D,
             },
             Dxgi::{
                 Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC},
-                CreateDXGIFactory1, IDXGIDevice, IDXGIFactory1, IDXGIResource,
-                DXGI_ERROR_WAS_STILL_DRAWING,
+                CreateDXGIFactory1, DXGI_ERROR_WAS_STILL_DRAWING, IDXGIDevice, IDXGIFactory1,
+                IDXGIResource,
             },
         },
         System::WinRT::{
             Direct3D11::{CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess},
-            RoInitialize, RoUninitialize, RO_INIT_MULTITHREADED,
+            RO_INIT_MULTITHREADED, RoInitialize, RoUninitialize,
         },
     },
+    core::{BOOL, IInspectable, Interface},
 };
 
 const MARKER_WIDTH: u32 = 256;
@@ -92,12 +92,10 @@ impl CaptureDevice {
     fn acquire(adapter_index: u32) -> Result<Rc<Self>, CaptureError> {
         if let Some(shared) =
             SHARED_DEVICE.with_borrow(|slot| slot.as_ref().and_then(Weak::upgrade))
+            && shared.adapter_index == adapter_index
+            && unsafe { shared.device.GetDeviceRemovedReason() }.is_ok()
         {
-            if shared.adapter_index == adapter_index
-                && unsafe { shared.device.GetDeviceRemovedReason() }.is_ok()
-            {
-                return Ok(shared);
-            }
+            return Ok(shared);
         }
         unsafe { RoInitialize(RO_INIT_MULTITHREADED) }
             .map_err(|e| failure("Initialize WinRT", e))?;
@@ -620,9 +618,12 @@ pub(super) fn ensure_capture_supported() -> Result<(), CaptureError> {
         .clone()
         .map_err(|error| CaptureError::new(super::recovery::Fault::Unsupported, error))?;
     if build < MIN_CAPTURE_BUILD {
-        return Err(CaptureError::new(super::recovery::Fault::Unsupported, format!(
-            "Windows build {build} is too old for VR overlay capture; build {MIN_CAPTURE_BUILD} (Windows 10 1903) or newer is required"
-        )));
+        return Err(CaptureError::new(
+            super::recovery::Fault::Unsupported,
+            format!(
+                "Windows build {build} is too old for VR overlay capture; build {MIN_CAPTURE_BUILD} (Windows 10 1903) or newer is required"
+            ),
+        ));
     }
     Ok(())
 }

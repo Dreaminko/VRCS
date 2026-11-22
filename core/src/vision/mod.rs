@@ -9,7 +9,7 @@ pub(crate) use audio::{AudioReader as QuestionAudioReader, MicrophoneTap};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::config::{apply_feature_gates, ApiProfile, AppConfig, VisionConfig};
+use crate::config::{ApiProfile, AppConfig, VisionConfig, apply_feature_gates};
 use crate::llm::{LlmClient, LlmRequest};
 use crate::providers::{self, CAPABILITY_IMAGE_UNDERSTANDING};
 use crate::server::AppState;
@@ -696,8 +696,8 @@ mod tests {
     }
 
     async fn check_isolated_question() {
-        use axum::{routing::post, Json, Router};
-        use serde_json::{json, Value};
+        use axum::{Json, Router, routing::post};
+        use serde_json::{Value, json};
         use std::sync::atomic::{AtomicUsize, Ordering};
         use std::time::Instant;
 
@@ -777,18 +777,22 @@ mod tests {
         .await
         .unwrap();
         let service = handle.vision_service();
-        assert!(!handle
-            .state
-            .capture
-            .capture_requested
-            .load(Ordering::SeqCst));
-        assert!(!handle
-            .state
-            .capture
-            .microphone_pipeline
-            .lock()
-            .await
-            .running());
+        assert!(
+            !handle
+                .state
+                .capture
+                .capture_requested
+                .load(Ordering::SeqCst)
+        );
+        assert!(
+            !handle
+                .state
+                .capture
+                .microphone_pipeline
+                .lock()
+                .await
+                .running()
+        );
         handle
             .state
             .integrations
@@ -889,11 +893,13 @@ mod tests {
             |_, _, _, _, _| Err("test startup failure".into()),
         );
         assert_eq!(startup_failure.err().unwrap(), "test startup failure");
-        assert!(!handle
-            .state
-            .config
-            .question_microphone
-            .load(Ordering::SeqCst));
+        assert!(
+            !handle
+                .state
+                .config
+                .question_microphone
+                .load(Ordering::SeqCst)
+        );
         let failed =
             begin_with_test_capture(&service, &tap, &tokio::runtime::Handle::current()).unwrap();
         tap.discontinuity("test capture gap");
@@ -935,11 +941,13 @@ mod tests {
         assert_eq!(question, "What is this button?");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert!(subtitles.try_recv().is_err());
-        assert!(!handle
-            .state
-            .config
-            .question_microphone
-            .load(Ordering::SeqCst));
+        assert!(
+            !handle
+                .state
+                .config
+                .question_microphone
+                .load(Ordering::SeqCst)
+        );
         let mut stale =
             begin_with_test_capture(&service, &tap, &tokio::runtime::Handle::current()).unwrap();
         stale.release();

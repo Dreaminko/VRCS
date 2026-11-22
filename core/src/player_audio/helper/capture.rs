@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use super::packet::{self, PHOTON_PORT};
 use super::procfs;
-use super::{write_event, Event, Packet};
+use super::{Event, Packet, write_event};
 
 pub(super) struct Capture {
     fd: libc::c_int,

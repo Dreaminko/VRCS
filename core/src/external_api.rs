@@ -4,18 +4,18 @@ use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{State, WebSocketUpgrade};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 
 use crate::config::ExternalApiConfig;
-use crate::domain_events::{DomainEvent, DomainEventHub, API_VERSION, EVENT_TYPES};
+use crate::domain_events::{API_VERSION, DomainEvent, DomainEventHub, EVENT_TYPES};
 
 const SUBSCRIBE_TIMEOUT: Duration = Duration::from_secs(5);
 const EVENT_PROTOCOL: &str = "vrcs.events.v1";
@@ -119,7 +119,7 @@ pub async fn start(
     let mut server_stop = stop_rx;
     let connection_stop = stop.clone();
     let task = tokio::spawn(async move {
-        let result = axum::serve(listener, router)
+        axum::serve(listener, router)
             .with_graceful_shutdown(async move {
                 if !*core_shutdown.borrow() && !*server_stop.borrow() {
                     tokio::select! {
@@ -130,8 +130,7 @@ pub async fn start(
                 let _ = connection_stop.send(true);
             })
             .await
-            .map_err(|error| format!("External API server failed: {error}"));
-        result
+            .map_err(|error| format!("External API server failed: {error}"))
     });
     tracing::info!(%address, api_version = API_VERSION, "External API listening");
     Ok(Some(ExternalApiServer {
@@ -394,11 +393,13 @@ fn parse_subscription(text: &str) -> Result<HashSet<String>, (&'static str, Stri
                 .filter(|event| event.starts_with(&format!("{prefix}.")))
                 .collect()
         } else if EVENT_TYPES.contains(&pattern.as_str()) {
-            vec![EVENT_TYPES
-                .iter()
-                .copied()
-                .find(|event| *event == pattern)
-                .expect("event type exists")]
+            vec![
+                EVENT_TYPES
+                    .iter()
+                    .copied()
+                    .find(|event| *event == pattern)
+                    .expect("event type exists"),
+            ]
         } else {
             Vec::new()
         };
@@ -455,8 +456,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
     use tokio_tungstenite::tungstenite::Message as ClientMessage;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
     #[test]
     fn subscriptions_expand_supported_patterns() {
@@ -602,9 +603,11 @@ mod tests {
             header::AUTHORIZATION,
             "Bearer internal-token".parse().unwrap(),
         );
-        assert!(tokio_tungstenite::connect_async(wrong_request)
-            .await
-            .is_err());
+        assert!(
+            tokio_tungstenite::connect_async(wrong_request)
+                .await
+                .is_err()
+        );
 
         let mut request = url.into_client_request().unwrap();
         request

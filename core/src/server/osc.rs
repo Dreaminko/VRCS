@@ -1,9 +1,9 @@
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::{api_error, ApiResult, IntegrationState};
+use super::{ApiResult, IntegrationState, api_error};
 
 pub(super) async fn test_message(State(state): State<IntegrationState>) -> ApiResult<Json<Value>> {
     state.osc.queue_test().map_err(|code| {

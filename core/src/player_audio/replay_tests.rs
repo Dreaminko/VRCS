@@ -102,12 +102,14 @@ fn replay_local_capture_authenticates_and_decodes_players() {
     // local packets, using an in-memory object rather than an actual pagefile.
     let mut object = Zeroizing::new(32u64.to_le_bytes().to_vec());
     object.extend_from_slice(&key_bytes);
-    assert!(super::key::scan_bytes(
-        &object,
-        &scan_samples,
-        &std::sync::atomic::AtomicBool::new(false)
-    )
-    .is_some());
+    assert!(
+        super::key::scan_bytes(
+            &object,
+            &scan_samples,
+            &std::sync::atomic::AtomicBool::new(false)
+        )
+        .is_some()
+    );
     if std::env::var_os("VRCS_TEST_REQUIRE_VOICE").is_some() {
         assert!(!players.is_empty(), "capture must contain inbound voice");
     }

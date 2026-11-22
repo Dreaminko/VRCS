@@ -116,7 +116,7 @@ impl Ui {
             Command::PlayerPage(page) => self.player_page = *page,
             Command::LanguagePage(page) => self.language_page = *page,
             Command::Control(_) | Command::Display(_) | Command::Slider(_) | Command::Dashboard => {
-                return false
+                return false;
             }
         }
         self.clamp(view);

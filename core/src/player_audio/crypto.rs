@@ -1,5 +1,5 @@
 //! Authenticated Photon v5 datagrams. Keys and plaintext are never logged.
-use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
+use ring::aead::{AES_256_GCM, Aad, LessSafeKey, Nonce, UnboundKey};
 use zeroize::Zeroizing;
 
 pub(super) struct SessionKey(LessSafeKey);

@@ -1,4 +1,4 @@
-use crate::config::{save_config, AppConfig};
+use crate::config::{AppConfig, save_config};
 
 use super::super::super::SettingsContext;
 

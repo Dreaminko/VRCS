@@ -48,12 +48,12 @@ pub(crate) fn is_alive(owner: ProcessIdentity) -> bool {
 pub(crate) fn game() -> Result<Option<(ProcessIdentity, PathBuf)>, String> {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
         TH32CS_SNAPPROCESS,
     };
     use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-        PROCESS_QUERY_LIMITED_INFORMATION,
+        OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+        QueryFullProcessImageNameW,
     };
 
     unsafe {
@@ -71,11 +71,11 @@ pub(crate) fn game() -> Result<Option<(ProcessIdentity, PathBuf)>, String> {
                 .iter()
                 .position(|c| *c == 0)
                 .unwrap_or(entry.szExeFile.len());
-            if matches_exe_name(&entry.szExeFile[..length], b"VRChat.exe") {
-                if let Ok(owner) = identity(entry.th32ProcessID) {
-                    found = Some(owner);
-                    break;
-                }
+            if matches_exe_name(&entry.szExeFile[..length], b"VRChat.exe")
+                && let Ok(owner) = identity(entry.th32ProcessID)
+            {
+                found = Some(owner);
+                break;
             }
             ok = Process32NextW(snapshot, &mut entry).is_ok();
         }

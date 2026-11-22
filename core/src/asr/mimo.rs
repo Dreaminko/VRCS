@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use base64::{engine::general_purpose::STANDARD, Engine};
-use serde_json::{json, Value};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use serde_json::{Value, json};
 
 use crate::config::{ApiProfile, RecognitionServiceSettings};
 use crate::providers;
@@ -104,12 +104,11 @@ fn parse_transcription(
     if let Some(reason) = value
         .pointer("/choices/0/finish_reason")
         .and_then(Value::as_str)
+        && reason != "stop"
     {
-        if reason != "stop" {
-            return Err(format!(
-                "MiMo transcription was incomplete (finish_reason={reason})"
-            ));
-        }
+        return Err(format!(
+            "MiMo transcription was incomplete (finish_reason={reason})"
+        ));
     }
     let text = value
         .pointer("/choices/0/message/content")
@@ -129,8 +128,8 @@ fn parse_transcription(
 mod tests {
     use super::*;
     use crate::config::{ApiProfile, RecognitionServiceSettings};
-    use base64::{engine::general_purpose::STANDARD, Engine};
-    use serde_json::{json, Value};
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use serde_json::{Value, json};
 
     fn settings() -> RecognitionServiceSettings {
         RecognitionServiceSettings {
@@ -141,7 +140,7 @@ mod tests {
 
     #[tokio::test]
     async fn mimo_uploads_wav_to_chat_completions_with_bearer_auth() {
-        use axum::{http::HeaderMap, routing::post, Json, Router};
+        use axum::{Json, Router, http::HeaderMap, routing::post};
         let app = Router::new().route("/v1/chat/completions", post(|headers: HeaderMap, Json(body): Json<Value>| async move {
             assert_eq!(headers["authorization"], "Bearer test-key");
             assert_eq!(headers["x-test-header"], "test-value");
@@ -216,18 +215,22 @@ mod tests {
         assert!(parse_transcription(truncated, "auto", false).is_err());
         let silent = json!({"choices": [{"message": {"content": ""}, "finish_reason": "stop"}]});
         assert!(parse_transcription(silent.clone(), "auto", false).is_err());
-        assert!(parse_transcription(silent, "auto", true)
-            .unwrap()
-            .text
-            .is_empty());
+        assert!(
+            parse_transcription(silent, "auto", true)
+                .unwrap()
+                .text
+                .is_empty()
+        );
         assert!(
             parse_transcription(json!({"error": {"message": "rate limit"}}), "auto", true).is_err()
         );
-        assert!(parse_transcription(
-            json!({"choices": [{"message": {"reasoning_content": "private"}}]}),
-            "auto",
-            true
-        )
-        .is_err());
+        assert!(
+            parse_transcription(
+                json!({"choices": [{"message": {"reasoning_content": "private"}}]}),
+                "auto",
+                true
+            )
+            .is_err()
+        );
     }
 }

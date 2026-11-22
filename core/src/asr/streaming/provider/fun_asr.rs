@@ -1,11 +1,11 @@
-use serde_json::{json, Value};
-use tokio_tungstenite::tungstenite::http::Request;
+use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::http::Request;
 
 use crate::config::{ApiProfile, AsrConfig};
 use crate::providers::SERVICE_FUN_ASR_REALTIME;
 
-use super::{authenticated_request, pcm16_bytes, service_settings, CloudEvent, NormalizationState};
+use super::{CloudEvent, NormalizationState, authenticated_request, pcm16_bytes, service_settings};
 
 pub(super) fn build_request(profile: &ApiProfile, key: &str) -> Result<Request<()>, String> {
     let platform_host = match profile.provider.as_str() {

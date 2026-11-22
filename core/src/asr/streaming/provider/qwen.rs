@@ -1,15 +1,15 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::fmt::Write as _;
-use tokio_tungstenite::tungstenite::http::Request;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::http::Request;
 
 use crate::config::{ApiProfile, AsrConfig};
 use crate::providers::SERVICE_QWEN_REALTIME;
 use crate::providers::SERVICE_TOKEN_PLAN_REALTIME;
 
 use super::{
-    append_pcm16_base64, authenticated_request, event_language, service_settings, CloudEvent,
-    NormalizationState,
+    CloudEvent, NormalizationState, append_pcm16_base64, authenticated_request, event_language,
+    service_settings,
 };
 
 pub(super) fn build_request(

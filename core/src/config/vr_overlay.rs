@@ -387,10 +387,10 @@ mod tests {
         let saved = serde_json::to_value(config).unwrap();
         assert_eq!(saved["display_mode"], "wrist");
         assert_eq!(saved["background_opacity"], 0.75);
-        assert!(serde_json::from_value::<VrOcrConfig>(
-            serde_json::json!({"display_mode": "unknown"})
-        )
-        .is_err());
+        assert!(
+            serde_json::from_value::<VrOcrConfig>(serde_json::json!({"display_mode": "unknown"}))
+                .is_err()
+        );
     }
 
     #[test]

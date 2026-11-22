@@ -1,12 +1,12 @@
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::config::GlossaryConfig;
 use crate::glossary::GlossaryRefreshError;
 
-use super::{api_error, ApiResult, CaptureContext};
+use super::{ApiResult, CaptureContext, api_error};
 
 pub(super) async fn statuses(State(state): State<CaptureContext>) -> Json<Value> {
     let config = current_config(&state);

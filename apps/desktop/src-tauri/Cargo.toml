@@ -2,10 +2,13 @@
 name = "vrcs-desktop"
 version = "0.3.12"
 description = "VRCS desktop subtitle client"
-authors = ["VRCS contributors"]
-license = "AGPL-3.0-only"
-edition = "2021"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
 default-run = "vrcs-desktop"
+
+[lints]
+workspace = true
 
 [features]
 default = []
@@ -32,22 +35,22 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 semver = "1"
-serde = { version = "1", features = ["derive", "rc"] }
-serde_json = "1"
-tracing = "0.1"
+serde = { workspace = true, features = ["derive", "rc"] }
+serde_json.workspace = true
+tracing.workspace = true
 tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-store = "2"
 tauri-plugin-updater = "2"
-tokio = { version = "1", features = ["sync"] }
-uuid = { version = "1", features = ["v4"] }
+tokio = { workspace = true, features = ["sync"] }
+uuid = { workspace = true, features = ["v4"] }
 vrcs-core = { path = "../../../core", default-features = false }
 png = "0.17"
-futures-util = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
+futures-util.workspace = true
+libc.workspace = true
 ashpd = { version = "0.11", default-features = false, features = ["tokio"] }
 webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
 soup3 = "=0.5.0"
@@ -64,7 +67,7 @@ ash = "=0.38.0"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "=0.39.1"
-windows = { version = "0.62.2", features = [
+windows = { workspace = true, features = [
     "Foundation",
     "Graphics_Capture",
     "Graphics_DirectX",

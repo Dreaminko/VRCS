@@ -1,6 +1,6 @@
 //! In-memory login key and room identity caches. Neither is serialized. The key
 //! survives world changes; actor identities require unchanged room membership.
-use super::crypto::{encrypted, SessionKey};
+use super::crypto::{SessionKey, encrypted};
 use crate::vrchat_process::ProcessIdentity;
 use std::collections::HashSet;
 use std::sync::Mutex;

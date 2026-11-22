@@ -259,10 +259,12 @@ mod tests {
         assert!(session.update(input, false, false, now).frame.is_none());
         input[source] = Some(tracking(true));
         assert!(session.update(input, false, false, now).frame.is_none());
-        assert!(session
-            .update(input, false, false, now + Duration::from_millis(650))
-            .frame
-            .is_some());
+        assert!(
+            session
+                .update(input, false, false, now + Duration::from_millis(650))
+                .frame
+                .is_some()
+        );
         session
     }
 
@@ -311,10 +313,12 @@ mod tests {
             let mut input = [None; 2];
             input[source] = Some(tracking(true));
             assert!(session.update(input, false, false, now).frame.is_none());
-            assert!(session
-                .update(input, false, false, now + Duration::from_secs(2))
-                .frame
-                .is_none());
+            assert!(
+                session
+                    .update(input, false, false, now + Duration::from_secs(2))
+                    .frame
+                    .is_none()
+            );
             activate(source, now);
         }
     }

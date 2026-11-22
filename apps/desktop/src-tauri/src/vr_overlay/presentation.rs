@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
 
 use vrcs_core::{
-    same_translation_language, PresentationEvent, Subtitle, SubtitleTranslation,
-    VrOverlayHeadsetConfig, VrOverlayWristConfig,
+    PresentationEvent, Subtitle, SubtitleTranslation, VrOverlayHeadsetConfig, VrOverlayWristConfig,
+    same_translation_language,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -284,10 +284,9 @@ impl HeadsetPresentation {
                     .recent
                     .iter_mut()
                     .find(|item| item.subtitle_id == Some(subtitle_id))
+                    && update_translation(item, target_language, text, preferred)
                 {
-                    if update_translation(item, target_language, text, preferred) {
-                        self.revision = self.revision.wrapping_add(1);
-                    }
+                    self.revision = self.revision.wrapping_add(1);
                 }
             }
             PresentationEvent::TranslationCompleted {
@@ -668,13 +667,12 @@ impl WristPresentation {
                     .entries
                     .iter_mut()
                     .find(|item| item.subtitle_id == Some(subtitle_id))
+                    && update_translation(item, target_language, text, preferred)
                 {
-                    if update_translation(item, target_language, text, preferred) {
-                        self.revision = self.revision.wrapping_add(1);
-                        #[cfg(any(windows, linux_vr, test))]
-                        if source_enabled(&item.source, config) {
-                            self.last_activity = Some(now);
-                        }
+                    self.revision = self.revision.wrapping_add(1);
+                    #[cfg(any(windows, linux_vr, test))]
+                    if source_enabled(&item.source, config) {
+                        self.last_activity = Some(now);
                     }
                 }
             }

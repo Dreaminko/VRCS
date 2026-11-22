@@ -1,7 +1,7 @@
 use super::conversations::TitleRequestError;
-use super::dictionary::{like_prefix, INSERT_BATCH_SIZE};
+use super::dictionary::{INSERT_BATCH_SIZE, like_prefix};
 use super::*;
-use crate::models::{now_iso8601, DictionarySource, Subtitle, SubtitleTranslation};
+use crate::models::{DictionarySource, Subtitle, SubtitleTranslation, now_iso8601};
 use std::io::{Cursor, Write};
 
 fn open_temp_db(name: &str) -> (std::path::PathBuf, Database) {
@@ -314,10 +314,12 @@ fn world_markers_are_stored_without_seeding_titles_or_title_input() {
         .conversation_subtitles(&conversation.id, 10, None)
         .unwrap()
         .unwrap();
-    assert!(history
-        .items
-        .iter()
-        .any(|subtitle| subtitle.source == "world" && subtitle.text == "Cozy Cafe"));
+    assert!(
+        history
+            .items
+            .iter()
+            .any(|subtitle| subtitle.source == "world" && subtitle.text == "Cozy Cafe")
+    );
 }
 
 #[test]
@@ -358,32 +360,38 @@ fn creating_a_conversation_switches_subsequent_subtitle_ownership() {
 #[test]
 fn conversation_titles_are_deduplicated_and_preserve_custom_titles_and_previous_results() {
     let (_path, mut database) = open_temp_db("conversation-titles");
-    assert!(database
-        .create_conversation_with_title(true)
-        .unwrap()
-        .1
-        .is_none());
+    assert!(
+        database
+            .create_conversation_with_title(true)
+            .unwrap()
+            .1
+            .is_none()
+    );
     database
         .add_subtitle(&subtitle("Japanese interview practice"))
         .unwrap();
     let (_, job) = database.create_conversation_with_title(true).unwrap();
     let job = job.unwrap();
     let id = &job.conversation_id;
-    assert!(database
-        .request_conversation_title(id, true, true)
-        .unwrap()
-        .unwrap()
-        .unwrap()
-        .1
-        .is_none());
+    assert!(
+        database
+            .request_conversation_title(id, true, true)
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .1
+            .is_none()
+    );
     assert!(database.start_conversation_title(&job).unwrap());
     assert!(!database.start_conversation_title(&job).unwrap());
     database
         .update_conversation(id, Some(Some("My title")), Some(Some("star")))
         .unwrap();
-    assert!(database
-        .finish_conversation_title(&job, Ok("Interview practice"))
-        .unwrap());
+    assert!(
+        database
+            .finish_conversation_title(&job, Ok("Interview practice"))
+            .unwrap()
+    );
     let catalog = database.conversation_catalog().unwrap();
     let saved = catalog
         .conversations
@@ -398,13 +406,15 @@ fn conversation_titles_are_deduplicated_and_preserve_custom_titles_and_previous_
         Err(crate::error::AppError::Conflict(_))
     ));
     database.update_conversation(id, Some(None), None).unwrap();
-    assert!(database
-        .request_conversation_title(id, false, false)
-        .unwrap()
-        .unwrap()
-        .unwrap()
-        .1
-        .is_none());
+    assert!(
+        database
+            .request_conversation_title(id, false, false)
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .1
+            .is_none()
+    );
     let retry = database
         .request_conversation_title(id, true, true)
         .unwrap()
@@ -413,12 +423,16 @@ fn conversation_titles_are_deduplicated_and_preserve_custom_titles_and_previous_
         .1
         .unwrap();
     assert!(database.start_conversation_title(&retry).unwrap());
-    assert!(!database
-        .finish_conversation_title(&job, Ok("Stale result"))
-        .unwrap());
-    assert!(database
-        .finish_conversation_title(&retry, Err("conversations.title_timeout"))
-        .unwrap());
+    assert!(
+        !database
+            .finish_conversation_title(&job, Ok("Stale result"))
+            .unwrap()
+    );
+    assert!(
+        database
+            .finish_conversation_title(&retry, Err("conversations.title_timeout"))
+            .unwrap()
+    );
     let catalog = database.conversation_catalog().unwrap();
     let saved = catalog
         .conversations
@@ -436,9 +450,11 @@ fn conversation_titles_are_deduplicated_and_preserve_custom_titles_and_previous_
         .unwrap()
         .1
         .unwrap();
-    assert!(database
-        .finish_conversation_title(&queued, Err("conversations.title_service_failed"))
-        .unwrap());
+    assert!(
+        database
+            .finish_conversation_title(&queued, Err("conversations.title_service_failed"))
+            .unwrap()
+    );
     let catalog = database.conversation_catalog().unwrap();
     let saved = catalog
         .conversations
@@ -446,13 +462,15 @@ fn conversation_titles_are_deduplicated_and_preserve_custom_titles_and_previous_
         .find(|item| &item.id == id)
         .unwrap();
     assert_eq!(saved.title_generation_status, "failed");
-    assert!(database
-        .request_conversation_title(id, true, true)
-        .unwrap()
-        .unwrap()
-        .unwrap()
-        .1
-        .is_some());
+    assert!(
+        database
+            .request_conversation_title(id, true, true)
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .1
+            .is_some()
+    );
 }
 
 #[test]
@@ -571,10 +589,12 @@ fn empty_transcripts_never_register_title_requests() {
         .iter()
         .find(|item| !item.active)
         .unwrap();
-    assert!(database
-        .conversation_title_input(&ended.id)
-        .unwrap()
-        .is_empty());
+    assert!(
+        database
+            .conversation_title_input(&ended.id)
+            .unwrap()
+            .is_empty()
+    );
     assert!(matches!(
         database.request_conversation_title(&ended.id, false, true),
         Ok(Some(Err(TitleRequestError::Empty)))
@@ -844,11 +864,13 @@ fn subtitle_search_index_tracks_updates_and_deletes() {
             [subtitle_id],
         )
         .unwrap();
-    assert!(database
-        .search_subtitles("searchable", 10, 0)
-        .unwrap()
-        .items
-        .is_empty());
+    assert!(
+        database
+            .search_subtitles("searchable", 10, 0)
+            .unwrap()
+            .items
+            .is_empty()
+    );
     assert_eq!(
         database
             .search_subtitles("replacement", 10, 0)
@@ -862,11 +884,13 @@ fn subtitle_search_index_tracks_updates_and_deletes() {
         .conn
         .execute("DELETE FROM subtitles WHERE id = ?1", [subtitle_id])
         .unwrap();
-    assert!(database
-        .search_subtitles("replacement", 10, 0)
-        .unwrap()
-        .items
-        .is_empty());
+    assert!(
+        database
+            .search_subtitles("replacement", 10, 0)
+            .unwrap()
+            .items
+            .is_empty()
+    );
 }
 
 #[test]
@@ -900,10 +924,12 @@ fn conversation_context_centers_the_target_and_reports_both_directions() {
     );
     assert!(context.has_older);
     assert_eq!(context.target_id, target_id);
-    assert!(database
-        .conversation_subtitle_context(conversation_id, saved[6].id.unwrap() + 100, 2)
-        .unwrap()
-        .is_none());
+    assert!(
+        database
+            .conversation_subtitle_context(conversation_id, saved[6].id.unwrap() + 100, 2)
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -1280,12 +1306,13 @@ fn version_5_preserves_history_and_round_trips_session_scoped_speakers() {
         .unwrap();
     drop(db);
     let db = Database::open(&path).unwrap();
-    assert!(db
-        .subtitle(legacy.id.unwrap())
-        .unwrap()
-        .unwrap()
-        .speaker
-        .is_none());
+    assert!(
+        db.subtitle(legacy.id.unwrap())
+            .unwrap()
+            .unwrap()
+            .speaker
+            .is_none()
+    );
     let mut item = subtitle("Two speakers");
     item.speaker = Some(crate::models::SpeakerIdentity {
         id: "qwen-session-1".into(),
@@ -1302,12 +1329,13 @@ fn version_5_preserves_history_and_round_trips_session_scoped_speakers() {
         Some("usr_00000000-0000-4000-8000-000000000007".into());
     db.update_speaker_identity(item.speaker.as_ref().unwrap())
         .unwrap();
-    assert!(db
-        .subtitle(legacy.id.unwrap())
-        .unwrap()
-        .unwrap()
-        .speaker
-        .is_none());
+    assert!(
+        db.subtitle(legacy.id.unwrap())
+            .unwrap()
+            .unwrap()
+            .speaker
+            .is_none()
+    );
     assert_eq!(db.subtitle(id).unwrap().unwrap().speaker, item.speaker);
     assert_eq!(db.subtitle_history(10).unwrap()[0].speaker, item.speaker);
     assert_eq!(

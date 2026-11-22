@@ -1,20 +1,20 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::chatbox::{
-    preview_chatbox, ChatboxComposeInput, ChatboxMessage, ChatboxTranslationOrigin,
-    NewChatboxMessage,
+    ChatboxComposeInput, ChatboxMessage, ChatboxTranslationOrigin, NewChatboxMessage,
+    preview_chatbox,
 };
 use crate::db::conversations::publish_latest_catalog;
-use crate::models::{now_iso8601, Subtitle, SubtitleTranslation};
+use crate::models::{Subtitle, SubtitleTranslation, now_iso8601};
 use crate::osc::ManualSendError;
 
 use super::{
-    api_domain_error, api_error, api_error_with_params, db_call, ApiResult, OutputContext,
+    ApiResult, OutputContext, api_domain_error, api_error, api_error_with_params, db_call,
 };
 
 pub(super) async fn preview(Json(input): Json<ChatboxComposeInput>) -> ApiResult<Json<Value>> {
@@ -133,23 +133,23 @@ fn conversation_subtitle(
 ) -> Subtitle {
     let mut translations = Vec::new();
 
-    if matches!(message.send_mode.as_str(), "translation" | "bilingual") {
-        if let Some(translation) = message.translation.as_deref() {
-            translations.push(SubtitleTranslation {
-                source_group: None,
-                text: translation.trim().to_owned(),
-                source_language: message.source_language.clone(),
-                target_language: message
-                    .target_language
-                    .clone()
-                    .unwrap_or_else(|| "und".into()),
-                provider: translation_origin
-                    .map(|origin| origin.provider.clone())
-                    .unwrap_or_else(|| "local".into()),
-                model: translation_origin.and_then(|origin| origin.model.clone()),
-                created_at: message.created_at.clone(),
-            });
-        }
+    if matches!(message.send_mode.as_str(), "translation" | "bilingual")
+        && let Some(translation) = message.translation.as_deref()
+    {
+        translations.push(SubtitleTranslation {
+            source_group: None,
+            text: translation.trim().to_owned(),
+            source_language: message.source_language.clone(),
+            target_language: message
+                .target_language
+                .clone()
+                .unwrap_or_else(|| "und".into()),
+            provider: translation_origin
+                .map(|origin| origin.provider.clone())
+                .unwrap_or_else(|| "local".into()),
+            model: translation_origin.and_then(|origin| origin.model.clone()),
+            created_at: message.created_at.clone(),
+        });
     }
 
     Subtitle {

@@ -3,16 +3,16 @@ use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{Query, State, WebSocketUpgrade};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use futures_util::{SinkExt, StreamExt};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
 use crate::domain_events::DomainEvent;
 use crate::models::LiveTranscription;
 
-use super::{api_error, token_eq, RealtimeContext, ALLOWED_ORIGINS};
+use super::{ALLOWED_ORIGINS, RealtimeContext, api_error, token_eq};
 
 pub(super) async fn ws_handler(
     State(state): State<RealtimeContext>,
@@ -237,7 +237,7 @@ fn recognition_payload(event: DomainEvent) -> Option<Value> {
 mod tests {
     use super::*;
     use crate::domain_events::DomainEventHub;
-    use crate::models::{now_iso8601, Subtitle};
+    use crate::models::{Subtitle, now_iso8601};
 
     #[tokio::test]
     async fn player_partial_keeps_identity_over_the_ui_websocket() {

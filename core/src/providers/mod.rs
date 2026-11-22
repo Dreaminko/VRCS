@@ -4,7 +4,7 @@ use crate::config::{ApiAuthMode, ApiProfile};
 
 mod validation;
 
-pub(crate) use validation::{validate_profile, validate_profile_fields, ProfileValidationError};
+pub(crate) use validation::{ProfileValidationError, validate_profile, validate_profile_fields};
 
 pub const ALIBABA_PROVIDER: &str = "alibaba_cloud";
 pub const QWEN_AI_PROVIDER: &str = "qwen_ai";
@@ -1687,11 +1687,13 @@ mod tests {
             resolved.service,
             "new-provider/new-asr"
         ));
-        assert!(resolve_profile_service(
-            &profile(OPENROUTER_PROVIDER, TEXT_CAPABILITIES),
-            "openrouter_transcription"
-        )
-        .is_err());
+        assert!(
+            resolve_profile_service(
+                &profile(OPENROUTER_PROVIDER, TEXT_CAPABILITIES),
+                "openrouter_transcription"
+            )
+            .is_err()
+        );
     }
 
     fn profile(provider: &str, capabilities: &[&str]) -> ApiProfile {
@@ -1937,9 +1939,11 @@ mod tests {
         );
 
         assert_eq!(provider.services.len(), 2);
-        assert!(provider.services[0]
-            .capabilities
-            .contains(&CAPABILITY_TEXT_GENERATION));
+        assert!(
+            provider.services[0]
+                .capabilities
+                .contains(&CAPABILITY_TEXT_GENERATION)
+        );
         let realtime = provider
             .services
             .iter()

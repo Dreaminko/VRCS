@@ -332,9 +332,11 @@ mod tests {
         assert!(parser.messages(&fragment(1, 3, b"def"), now).is_empty());
         assert_eq!(parser.messages(&fragment(0, 0, b"abc"), now), [b"abcdef"]);
         assert!(parser.messages(&fragment(0, 0, b"abc"), now).is_empty());
-        assert!(parser
-            .messages(&fragment(1, 3, b"def"), now + FRAGMENT_TTL)
-            .is_empty());
+        assert!(
+            parser
+                .messages(&fragment(1, 3, b"def"), now + FRAGMENT_TTL)
+                .is_empty()
+        );
         parser = Parser::default();
         parser.messages(&fragment(0, 0, b"abcd"), now);
         assert!(parser.messages(&fragment(1, 3, b"def"), now).is_empty());

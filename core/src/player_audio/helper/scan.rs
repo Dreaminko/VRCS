@@ -1,8 +1,8 @@
 use std::fs::{self, File};
 use std::io;
 use std::os::unix::fs::FileExt;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use zeroize::{Zeroize, Zeroizing};
 
@@ -376,11 +376,7 @@ fn regions(pid: u32) -> io::Result<Vec<Region>> {
     regions.sort_by_key(|region| {
         let size = region.end - region.start;
         let tier = if region.anonymous {
-            if size <= SMALL_ANON_LIMIT {
-                0u8
-            } else {
-                1
-            }
+            if size <= SMALL_ANON_LIMIT { 0u8 } else { 1 }
         } else {
             2
         };
@@ -452,11 +448,7 @@ mod tests {
         list.sort_by_key(|r| {
             let size = r.end - r.start;
             let tier = if r.anonymous {
-                if size <= SMALL_ANON_LIMIT {
-                    0u8
-                } else {
-                    1
-                }
+                if size <= SMALL_ANON_LIMIT { 0u8 } else { 1 }
             } else {
                 2
             };

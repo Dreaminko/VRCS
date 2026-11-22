@@ -12,7 +12,6 @@ impl TranscriptionPipeline {
         threshold: f32,
         vad: &VadConfig,
         asr: AsrConfig,
-        echo: AsrEchoGuard,
         dependencies: PipelineDependencies,
     ) -> Result<AudioDevice, AudioError> {
         if self.running() {
@@ -39,7 +38,6 @@ impl TranscriptionPipeline {
         let input = PlayerRun {
             vad: vad.clone(),
             asr,
-            echo,
             dependencies,
             threshold,
             vad_path: self.vad_model_path.clone(),
@@ -74,7 +72,6 @@ impl TranscriptionPipeline {
 struct PlayerRun {
     vad: VadConfig,
     asr: AsrConfig,
-    echo: AsrEchoGuard,
     dependencies: PipelineDependencies,
     threshold: f32,
     vad_path: PathBuf,
@@ -109,7 +106,15 @@ fn retire_player(
     *retiring.entry(id.clone()).or_default() += 1;
     retired.spawn(async move {
         let _ = task.stop.send(true);
-        let _ = task.task.await;
+        match task.task.await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                tracing::warn!(player = %id, %error, "Retired player pipeline failed")
+            }
+            Err(error) => {
+                tracing::error!(player = %id, %error, "Retired player pipeline panicked")
+            }
+        }
         id
     });
 }
@@ -163,12 +168,11 @@ async fn run_players(
                 continue;
             }
             result = retired.join_next(), if !retired.is_empty() => {
-                if let Some(Ok(id)) = result {
-                    if let Some(count) = retiring.get_mut(&id) {
+                if let Some(Ok(id)) = result
+                    && let Some(count) = retiring.get_mut(&id) {
                         *count -= 1;
                         if *count == 0 { retiring.remove(&id); }
                     }
-                }
                 continue;
             }
             event = events.recv() => match event { Some(event) => event, None => break },
@@ -249,10 +253,10 @@ async fn run_players(
                 if !input.dependencies.player_selected(&speaker) {
                     continue;
                 }
-                if let Some(task) = tasks.get(&id) {
-                    if task.dependencies.update_player(&speaker) {
-                        input.dependencies.publish_speaker(speaker.clone()).await;
-                    }
+                if let Some(task) = tasks.get(&id)
+                    && task.dependencies.update_player(&speaker)
+                {
+                    input.dependencies.publish_speaker(speaker.clone()).await;
                 }
                 if retry_after
                     .get(&id)
@@ -302,7 +306,6 @@ async fn run_players(
                     let mut asr = input.asr.clone();
                     asr.single_speaker = true;
                     let vad = input.vad.clone();
-                    let echo = input.echo.clone();
                     let vad_path = input.vad_path.clone();
                     let vad_runtime = input.vad_runtime.clone();
                     let shutdown = input.shutdown.clone();
@@ -322,7 +325,6 @@ async fn run_players(
                                 dependencies.clone(),
                                 asr,
                                 vad,
-                                echo,
                                 vad_path,
                                 vad_runtime,
                                 threshold,
@@ -398,7 +400,6 @@ async fn run_player(
     dependencies: PipelineDependencies,
     asr: AsrConfig,
     vad: VadConfig,
-    echo: AsrEchoGuard,
     vad_path: PathBuf,
     vad_runtime: VadRuntimeState,
     threshold: f32,
@@ -423,7 +424,13 @@ async fn run_player(
         // Defer model preparation until there is actual player audio. While it
         // connects, the priming loop below bounds retained speech to a short tail.
         let smart_turn = if let Some(runtime) = smart_turn {
-            runtime.prepare().await.ok().map(|()| runtime)
+            match runtime.prepare().await {
+                Ok(()) => Some(runtime),
+                Err(error) => {
+                    tracing::warn!(%error, "Smart Turn preparation failed; using silence VAD");
+                    None
+                }
+            }
         } else {
             None
         };
@@ -486,8 +493,7 @@ async fn run_player(
         PipelineRunContext {
             dependencies,
             source: "speaker",
-            cloud: Some(session),
-            echo_guard: echo,
+            cloud: session,
             sample_rate: 16_000,
             trigger_threshold_dbfs: Some(threshold),
             discard_on_stop: discard,

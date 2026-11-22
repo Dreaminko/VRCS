@@ -80,18 +80,27 @@ fn is_versioned_runtime_so(name: &str) -> bool {
 }
 
 pub(in crate::asr) const WINDOWS: RuntimeAsset = RuntimeAsset {
-    os: "windows", arch: "x86_64", backend: "vulkan", version: VERSION,
+    os: "windows",
+    arch: "x86_64",
+    backend: "vulkan",
+    version: VERSION,
     url: "https://github.com/ggml-org/llama.cpp/releases/download/b11501/llama-b11501-bin-win-vulkan-x64.zip",
     format: ArchiveFormat::Zip,
     archive: AssetSpec {
-        name: "runtime.zip", bytes: 33_425_118,
+        name: "runtime.zip",
+        bytes: 33_425_118,
         sha256: "6bf677025ae9ccdf5ca5e1ee1961ecaf25759f8cf63e875925a83bfaf00b7475",
     },
-    executable: "llama-server.exe", required_files: WINDOWS_FILES,
-    licenses: &[LICENSE, AssetSpec {
-        name: "LICENSE-LLVM-OpenMP", bytes: 19_741,
-        sha256: "fdad1758a9e1f9d5a81e18879b3406772115edc92c24bfa36b70c654f325e8e4",
-    }],
+    executable: "llama-server.exe",
+    required_files: WINDOWS_FILES,
+    licenses: &[
+        LICENSE,
+        AssetSpec {
+            name: "LICENSE-LLVM-OpenMP",
+            bytes: 19_741,
+            sha256: "fdad1758a9e1f9d5a81e18879b3406772115edc92c24bfa36b70c654f325e8e4",
+        },
+    ],
 };
 
 // Downloaded and inspected at this fixed revision. Linux CPU/Vulkan archives
@@ -100,31 +109,44 @@ pub(in crate::asr) const WINDOWS: RuntimeAsset = RuntimeAsset {
 // x64: GLIBC_2.34 / GLIBCXX_3.4.30; ARM64: GLIBC_2.38 / GLIBCXX_3.4.32.
 // These fit Ubuntu 24.04; model/hardware acceptance is a separate gate.
 pub(in crate::asr) const LINUX_X64: RuntimeAsset = RuntimeAsset {
-    os: "linux", arch: "x86_64", backend: "cpu", version: VERSION,
+    os: "linux",
+    arch: "x86_64",
+    backend: "cpu",
+    version: VERSION,
     url: "https://github.com/ggml-org/llama.cpp/releases/download/b11501/llama-b11501-bin-ubuntu-x64.tar.gz",
     format: ArchiveFormat::TarGz,
     archive: AssetSpec {
-        name: "runtime.tar.gz", bytes: 17_789_324,
+        name: "runtime.tar.gz",
+        bytes: 17_789_324,
         sha256: "45bbf2fb33275e5652f027326f2fffd0e32df5a41a64e7b86f7da9e0dc0879c5",
     },
-    executable: "llama-server", required_files: LINUX_FILES, licenses: &[LICENSE],
+    executable: "llama-server",
+    required_files: LINUX_FILES,
+    licenses: &[LICENSE],
 };
 pub(in crate::asr) const LINUX_ARM64: RuntimeAsset = RuntimeAsset {
-    os: "linux", arch: "aarch64", backend: "cpu", version: VERSION,
+    os: "linux",
+    arch: "aarch64",
+    backend: "cpu",
+    version: VERSION,
     url: "https://github.com/ggml-org/llama.cpp/releases/download/b11501/llama-b11501-bin-ubuntu-arm64.tar.gz",
     format: ArchiveFormat::TarGz,
     archive: AssetSpec {
-        name: "runtime.tar.gz", bytes: 13_785_721,
+        name: "runtime.tar.gz",
+        bytes: 13_785_721,
         sha256: "6e4d58453b74e29190293730076f8226ff8cdb7c1e2fd29f51dcc89e873dc701",
     },
-    executable: "llama-server", required_files: LINUX_FILES, licenses: &[LICENSE],
+    executable: "llama-server",
+    required_files: LINUX_FILES,
+    licenses: &[LICENSE],
 };
 
 pub(in crate::asr) const LINUX_VULKAN_X64: RuntimeAsset = RuntimeAsset {
     backend: "vulkan",
     url: "https://github.com/ggml-org/llama.cpp/releases/download/b11501/llama-b11501-bin-ubuntu-vulkan-x64.tar.gz",
     archive: AssetSpec {
-        name: "runtime.tar.gz", bytes: 31_737_331,
+        name: "runtime.tar.gz",
+        bytes: 31_737_331,
         sha256: "f766be93272cd57afa3b4234aa34797bc2bbff02dadccb184d9b64f64e8a5e10",
     },
     ..LINUX_X64
@@ -133,7 +155,8 @@ pub(in crate::asr) const LINUX_VULKAN_ARM64: RuntimeAsset = RuntimeAsset {
     backend: "vulkan",
     url: "https://github.com/ggml-org/llama.cpp/releases/download/b11501/llama-b11501-bin-ubuntu-vulkan-arm64.tar.gz",
     archive: AssetSpec {
-        name: "runtime.tar.gz", bytes: 24_949_039,
+        name: "runtime.tar.gz",
+        bytes: 24_949_039,
         sha256: "1c3065bca5fe9b2a4cae6805989ddd65fda200f2756ed6ff43e396a260570f83",
     },
     ..LINUX_ARM64

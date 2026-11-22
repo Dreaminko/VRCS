@@ -4,7 +4,7 @@ use super::{CloudEvent, MAX_ACTIVE_TRANSCRIPTS, MAX_TRANSCRIPT_BYTES};
 use crate::config::AsrConfig;
 use crate::models::{LiveTranslation, LiveTranslationPreview, SpeakerIdentity};
 use crate::providers::SERVICE_QWEN_LIVE_TRANSLATE;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub(super) fn session_update(config: &AsrConfig) -> Result<Value, String> {
@@ -297,7 +297,7 @@ pub(super) fn normalize_event(
                 .pointer("/error/message")
                 .and_then(Value::as_str)
                 .unwrap_or("Qwen Live Translate failed")
-                .into())
+                .into());
         }
         "input_audio_buffer.speech_started" => {
             if id.is_empty() {
@@ -679,7 +679,10 @@ mod tests {
             ..Default::default()
         };
         let request = super::super::qwen::build_request(&config(), &profile, "test-key").unwrap();
-        assert_eq!(request.uri().to_string(), "wss://maas.qianwenaiapi.com/api-ws/v1/realtime?model=qwen3.8-livetranslate-flash-realtime");
+        assert_eq!(
+            request.uri().to_string(),
+            "wss://maas.qianwenaiapi.com/api-ws/v1/realtime?model=qwen3.8-livetranslate-flash-realtime"
+        );
         profile.provider = crate::providers::ALIBABA_PROVIDER.into();
         profile.workspace_id = Some("ws-example".into());
         for (region, host) in [
@@ -689,7 +692,12 @@ mod tests {
             profile.region = Some(region.into());
             let request =
                 super::super::qwen::build_request(&config(), &profile, "test-key").unwrap();
-            assert_eq!(request.uri().to_string(), format!("wss://ws-example.{host}.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen3.8-livetranslate-flash-realtime"));
+            assert_eq!(
+                request.uri().to_string(),
+                format!(
+                    "wss://ws-example.{host}.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen3.8-livetranslate-flash-realtime"
+                )
+            );
         }
     }
 
@@ -710,7 +718,12 @@ mod tests {
             };
             let request =
                 super::super::qwen::build_request(&config(), &profile, "test-key").unwrap();
-            assert_eq!(request.uri().to_string(), format!("wss://{region}.maas.qwencloudapi.com/api-ws/v1/realtime?model=qwen3.8-livetranslate-flash-realtime"));
+            assert_eq!(
+                request.uri().to_string(),
+                format!(
+                    "wss://{region}.maas.qwencloudapi.com/api-ws/v1/realtime?model=qwen3.8-livetranslate-flash-realtime"
+                )
+            );
             assert_eq!(request.headers()["authorization"], "Bearer test-key");
             let request = super::super::fun_asr::build_request(&profile, "test-key").unwrap();
             assert_eq!(
@@ -724,10 +737,12 @@ mod tests {
     #[test]
     fn glossary_mapping_is_native_runtime_only_and_keeps_text_only_output() {
         let mut config = config();
-        assert!(session_update(&config)
-            .unwrap()
-            .pointer("/session/translation/corpus")
-            .is_none());
+        assert!(
+            session_update(&config)
+                .unwrap()
+                .pointer("/session/translation/corpus")
+                .is_none()
+        );
         config.live_translation_phrases = std::collections::BTreeMap::from([
             ("VRChat".into(), "VRChat".into()),
             ("report".into(), "星河档案".into()),
@@ -780,10 +795,12 @@ mod tests {
             update.pointer("/session/audio/input/turn_detection/type"),
             Some(&json!("server_vad"))
         );
-        assert!(serde_json::to_value(&config)
-            .unwrap()
-            .get("single_speaker")
-            .is_none());
+        assert!(
+            serde_json::to_value(&config)
+                .unwrap()
+                .get("single_speaker")
+                .is_none()
+        );
         let mut state = State::default();
         for (id, provider_speaker) in [("track-first", 1), ("track-next", 8)] {
             normalize_event(&config, &json!({"type":"input_audio_buffer.speech_started","item_id":id,"speaker_id":provider_speaker}), &mut state).unwrap();
@@ -817,11 +834,13 @@ mod tests {
             assert!(snapshot.translation.ends_with(delta));
             assert!(completed.is_empty() && translations.is_empty());
         }
-        assert!(event(
-            &mut state,
-            json!({"type":"response.audio.delta","item_id":"t1","delta":"AA=="})
-        )
-        .is_none());
+        assert!(
+            event(
+                &mut state,
+                json!({"type":"response.audio.delta","item_id":"t1","delta":"AA=="})
+            )
+            .is_none()
+        );
         let Some(CloudEvent::LiveTranslation {
             completed,
             translations,
@@ -945,9 +964,11 @@ mod tests {
             assert!(!snapshot.text.contains("corrected"));
             assert!(!snapshot.translation.contains("corrected"));
             assert!(completed.is_empty());
-            assert!(translations
-                .iter()
-                .all(|r| r.pending && !r.transcript.translation.contains("corrected")));
+            assert!(
+                translations
+                    .iter()
+                    .all(|r| r.pending && !r.transcript.translation.contains("corrected"))
+            );
             if !source_first {
                 source(&mut state, "s1", "corrected original final");
             }

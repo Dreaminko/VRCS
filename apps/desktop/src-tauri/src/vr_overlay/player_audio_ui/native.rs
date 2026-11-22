@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::{AppHandle, Manager};
 
-use super::{activate, Action, Prompt};
+use super::{Action, Prompt, activate};
 use crate::vr_overlay::backend::{Backend, CursorTarget, OverlayKind};
 use crate::vr_overlay::control_protocol::ControlHub;
 use crate::vr_overlay::interaction::{Hit, Key, Kind, Router, Sample, Surface};

@@ -117,10 +117,10 @@ pub fn external_api_token_status() -> Result<CredentialStatus, String> {
 }
 
 pub fn read_external_api_token() -> Result<Option<String>, String> {
-    if let Ok(value) = std::env::var(EXTERNAL_API_ENV) {
-        if !value.trim().is_empty() {
-            return Ok(Some(value));
-        }
+    if let Ok(value) = std::env::var(EXTERNAL_API_ENV)
+        && !value.trim().is_empty()
+    {
+        return Ok(Some(value));
     }
     read_stored_external_api_token()
 }
@@ -154,10 +154,10 @@ pub fn vrcx_token_status() -> Result<CredentialStatus, String> {
 }
 
 pub fn read_vrcx_token() -> Result<Option<String>, String> {
-    if let Ok(value) = std::env::var(VRCX_ENV) {
-        if !value.trim().is_empty() {
-            return Ok(Some(value));
-        }
+    if let Ok(value) = std::env::var(VRCX_ENV)
+        && !value.trim().is_empty()
+    {
+        return Ok(Some(value));
     }
     read_stored_vrcx_token()
 }
@@ -213,10 +213,10 @@ pub fn credential_status(profile_id: &str, provider: &str) -> Result<CredentialS
 pub fn read_credential(profile_id: &str, provider: &str) -> Result<Option<String>, String> {
     let (primary, legacy) = environment_variables(provider)?;
     for name in primary.iter().chain(legacy) {
-        if let Ok(value) = std::env::var(name) {
-            if !value.trim().is_empty() {
-                return Ok(Some(value));
-            }
+        if let Ok(value) = std::env::var(name)
+            && !value.trim().is_empty()
+        {
+            return Ok(Some(value));
         }
     }
     read_stored_credential(profile_id, provider)
@@ -233,10 +233,10 @@ pub(crate) fn read_stored_credential(
 pub fn read_credential_for_use(profile_id: &str, provider: &str) -> Result<Option<String>, String> {
     let (primary, legacy) = environment_variables(provider)?;
     for name in primary.iter().chain(legacy) {
-        if let Ok(value) = std::env::var(name) {
-            if !value.trim().is_empty() {
-                return Ok(Some(value));
-            }
+        if let Ok(value) = std::env::var(name)
+            && !value.trim().is_empty()
+        {
+            return Ok(Some(value));
         }
     }
     read_profile_stored_for_use(profile_id, provider)
@@ -256,10 +256,10 @@ pub(crate) fn read_profile_stored_for_use(
 }
 
 pub fn read_external_api_token_for_use() -> Result<Option<String>, String> {
-    if let Ok(value) = std::env::var(EXTERNAL_API_ENV) {
-        if !value.trim().is_empty() {
-            return Ok(Some(value));
-        }
+    if let Ok(value) = std::env::var(EXTERNAL_API_ENV)
+        && !value.trim().is_empty()
+    {
+        return Ok(Some(value));
     }
     read_stored_for_use(EXTERNAL_API_TARGET)
 }
@@ -269,10 +269,10 @@ pub(crate) fn read_stored_external_api_token_for_use() -> Result<Option<String>,
 }
 
 pub fn read_vrcx_token_for_use() -> Result<Option<String>, String> {
-    if let Ok(value) = std::env::var(VRCX_ENV) {
-        if !value.trim().is_empty() {
-            return Ok(Some(value));
-        }
+    if let Ok(value) = std::env::var(VRCX_ENV)
+        && !value.trim().is_empty()
+    {
+        return Ok(Some(value));
     }
     read_stored_for_use(VRCX_TARGET)
 }
@@ -401,7 +401,7 @@ fn stored_status(targets: &[String]) -> StoredStatus {
                         configured: true,
                         available,
                         reason_code,
-                    }
+                    };
                 }
                 Ok(None) => (),
                 Err(_) => {
@@ -409,7 +409,7 @@ fn stored_status(targets: &[String]) -> StoredStatus {
                         configured: false,
                         available: false,
                         reason_code: Some("credentials.read_failed"),
-                    }
+                    };
                 }
             }
         }
@@ -453,15 +453,17 @@ fn stored_cache() -> &'static Mutex<HashMap<String, Option<String>>> {
 
 #[cfg(windows)]
 fn read_stored(target_name: &str) -> Result<Option<String>, String> {
-    use windows::core::PCWSTR;
     use windows::Win32::Security::Credentials::{
-        CredFree, CredReadW, CREDENTIALW, CRED_TYPE_GENERIC,
+        CRED_TYPE_GENERIC, CREDENTIALW, CredFree, CredReadW,
     };
+    use windows::core::PCWSTR;
 
-    if let Ok(cache) = stored_cache().lock() {
-        if let Some(cached) = cache.get(target_name) {
-            return Ok(cached.clone());
-        }
+    if let Some(cached) = stored_cache()
+        .lock()
+        .expect("credential cache lock")
+        .get(target_name)
+    {
+        return Ok(cached.clone());
     }
 
     let target = wide(target_name);
@@ -475,17 +477,19 @@ fn read_stored(target_name: &str) -> Result<Option<String>, String> {
         )
     } {
         if error.code().0 == 0x80070490u32 as i32 {
-            if let Ok(mut cache) = stored_cache().lock() {
-                cache.insert(target_name.to_owned(), None);
-            }
+            stored_cache()
+                .lock()
+                .expect("credential cache lock")
+                .insert(target_name.to_owned(), None);
             return Ok(None);
         }
         return Err(format!("Failed to read Windows credential: {error}"));
     }
     if credential.is_null() {
-        if let Ok(mut cache) = stored_cache().lock() {
-            cache.insert(target_name.to_owned(), None);
-        }
+        stored_cache()
+            .lock()
+            .expect("credential cache lock")
+            .insert(target_name.to_owned(), None);
         return Ok(None);
     }
     let result = unsafe {
@@ -499,18 +503,19 @@ fn read_stored(target_name: &str) -> Result<Option<String>, String> {
     };
     unsafe { CredFree(credential.cast()) };
     let value = result?;
-    if let Ok(mut cache) = stored_cache().lock() {
-        cache.insert(target_name.to_owned(), Some(value.clone()));
-    }
+    stored_cache()
+        .lock()
+        .expect("credential cache lock")
+        .insert(target_name.to_owned(), Some(value.clone()));
     Ok(Some(value))
 }
 
 #[cfg(windows)]
 fn write_stored(target_name: &str, value: &str) -> Result<(), String> {
-    use windows::core::PWSTR;
     use windows::Win32::Security::Credentials::{
-        CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
+        CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredWriteW,
     };
+    use windows::core::PWSTR;
 
     let mut target = wide(target_name);
     let mut username = wide("VRCS");
@@ -526,29 +531,32 @@ fn write_stored(target_name: &str, value: &str) -> Result<(), String> {
     };
     unsafe { CredWriteW(&credential, 0) }
         .map_err(|error| format!("Failed to write Windows credential: {error}"))?;
-    if let Ok(mut cache) = stored_cache().lock() {
-        cache.insert(target_name.to_owned(), Some(value.to_owned()));
-    }
+    stored_cache()
+        .lock()
+        .expect("credential cache lock")
+        .insert(target_name.to_owned(), Some(value.to_owned()));
     Ok(())
 }
 
 #[cfg(windows)]
 fn delete_stored(target_name: &str) -> Result<(), String> {
+    use windows::Win32::Security::Credentials::{CRED_TYPE_GENERIC, CredDeleteW};
     use windows::core::PCWSTR;
-    use windows::Win32::Security::Credentials::{CredDeleteW, CRED_TYPE_GENERIC};
 
     let target = wide(target_name);
     match unsafe { CredDeleteW(PCWSTR(target.as_ptr()), CRED_TYPE_GENERIC, None) } {
         Ok(()) => {
-            if let Ok(mut cache) = stored_cache().lock() {
-                cache.insert(target_name.to_owned(), None);
-            }
+            stored_cache()
+                .lock()
+                .expect("credential cache lock")
+                .insert(target_name.to_owned(), None);
             Ok(())
         }
         Err(error) if error.code().0 == 0x80070490u32 as i32 => {
-            if let Ok(mut cache) = stored_cache().lock() {
-                cache.insert(target_name.to_owned(), None);
-            }
+            stored_cache()
+                .lock()
+                .expect("credential cache lock")
+                .insert(target_name.to_owned(), None);
             Ok(())
         }
         Err(error) => Err(format!("Failed to delete Windows credential: {error}")),

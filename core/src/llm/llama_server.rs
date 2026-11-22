@@ -40,15 +40,15 @@ pub(crate) fn runtime_command(executable: &Path) -> Command {
         use std::os::windows::process::CommandExt;
         command.as_std_mut().creation_flags(0x0800_0000);
         // The installer keeps its Vulkan loader beside the desktop executable.
-        if let Ok(current) = std::env::current_exe() {
-            if let Some(parent) = current.parent() {
-                let mut paths = vec![parent.to_path_buf()];
-                if let Some(path) = std::env::var_os("PATH") {
-                    paths.extend(std::env::split_paths(&path));
-                }
-                if let Ok(path) = std::env::join_paths(paths) {
-                    command.env("PATH", path);
-                }
+        if let Ok(current) = std::env::current_exe()
+            && let Some(parent) = current.parent()
+        {
+            let mut paths = vec![parent.to_path_buf()];
+            if let Some(path) = std::env::var_os("PATH") {
+                paths.extend(std::env::split_paths(&path));
+            }
+            if let Ok(path) = std::env::join_paths(paths) {
+                command.env("PATH", path);
             }
         }
     }
@@ -120,31 +120,29 @@ pub(crate) async fn probe_ready(
 
 /// Stop a managed child gracefully first on Unix, then escalate to SIGKILL on timeout.
 pub(crate) async fn stop_child(child: &mut Option<Child>, label: &str) -> Result<(), String> {
-    if let Some(mut child) = child.take() {
-        if child
+    if let Some(mut child) = child.take()
+        && child
             .try_wait()
             .map_err(|error| error.to_string())?
             .is_none()
+    {
+        #[cfg(unix)]
         {
-            #[cfg(unix)]
-            {
-                if let Some(pid) = child.id() {
-                    if let Ok(pid) = libc::pid_t::try_from(pid) {
-                        unsafe { libc::kill(pid, libc::SIGTERM) };
-                    }
-                }
-                let exited =
-                    tokio::time::timeout(std::time::Duration::from_millis(1500), child.wait())
-                        .await;
-                if matches!(exited, Ok(Ok(_))) {
-                    return Ok(());
+            if let Some(pid) = child.id() {
+                if let Ok(pid) = libc::pid_t::try_from(pid) {
+                    unsafe { libc::kill(pid, libc::SIGTERM) };
                 }
             }
-            child
-                .kill()
-                .await
-                .map_err(|error| format!("Could not stop {label} runtime: {error}"))?;
+            let exited =
+                tokio::time::timeout(std::time::Duration::from_millis(1500), child.wait()).await;
+            if matches!(exited, Ok(Ok(_))) {
+                return Ok(());
+            }
         }
+        child
+            .kill()
+            .await
+            .map_err(|error| format!("Could not stop {label} runtime: {error}"))?;
     }
     Ok(())
 }

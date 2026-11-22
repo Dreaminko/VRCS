@@ -1,13 +1,13 @@
-use serde_json::{json, Value};
-use tokio_tungstenite::tungstenite::http::Request;
+use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::http::Request;
 
 use crate::config::AsrConfig;
 use crate::providers::SERVICE_OPENAI_REALTIME;
 
 use super::{
-    append_pcm16_base64, authenticated_request, event_language, resample_16k_to_24k,
-    service_settings, CloudEvent, NormalizationState,
+    CloudEvent, NormalizationState, append_pcm16_base64, authenticated_request, event_language,
+    resample_16k_to_24k, service_settings,
 };
 
 const REALTIME_SESSION_URL: &str = "wss://api.openai.com/v1/realtime?intent=transcription";

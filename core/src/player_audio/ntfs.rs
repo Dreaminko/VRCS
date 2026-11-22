@@ -571,9 +571,10 @@ mod tests {
         );
         assert_eq!((output.len(), scratch.len()), (4096, 4096));
         assert_eq!(fs.read_at_into(513, 513, &mut scratch).unwrap().len(), 513);
-        assert!(fs
-            .read_runs_into(&runs, 1535, 2, &mut output, &mut scratch)
-            .is_err());
+        assert!(
+            fs.read_runs_into(&runs, 1535, 2, &mut output, &mut scratch)
+                .is_err()
+        );
     }
 
     fn record(attrs: &[Vec<u8>]) -> Vec<u8> {

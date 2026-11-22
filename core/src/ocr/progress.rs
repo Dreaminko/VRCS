@@ -1,4 +1,4 @@
-use super::{tasks::TranslationProgress, Phase};
+use super::{Phase, tasks::TranslationProgress};
 use serde::Serialize;
 
 /// Counts scan-owned requests, rather than translated result slots or elapsed time.

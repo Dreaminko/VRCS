@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 
 use crate::config::AppConfig;
 
-use super::super::super::{capture, ApiResult, SettingsContext};
+use super::super::super::{ApiResult, SettingsContext, capture};
 
 #[derive(Clone, Copy)]
 pub(super) struct CaptureChange {

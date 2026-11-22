@@ -62,10 +62,10 @@ impl RecognitionLifecycle {
             return;
         }
         self.termination_order.push_back(utterance_id.to_owned());
-        if self.termination_order.len() > MAX_RECENT_TERMINATIONS {
-            if let Some(expired) = self.termination_order.pop_front() {
-                self.terminated.remove(&expired);
-            }
+        if self.termination_order.len() > MAX_RECENT_TERMINATIONS
+            && let Some(expired) = self.termination_order.pop_front()
+        {
+            self.terminated.remove(&expired);
         }
     }
 }

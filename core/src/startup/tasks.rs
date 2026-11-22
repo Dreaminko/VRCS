@@ -4,8 +4,8 @@ use std::sync::Arc;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use crate::models::{now_iso8601, Subtitle};
-use crate::server::{self, AppState, CaptureContext, CORE_VERSION};
+use crate::models::{Subtitle, now_iso8601};
+use crate::server::{self, AppState, CORE_VERSION, CaptureContext};
 
 pub(crate) struct RuntimeTasks {
     address: SocketAddr,
@@ -114,11 +114,10 @@ fn spawn_glossary_refresh(
                         _ = shutdown.changed() => break,
                         refreshed = capture.content.glossary.refresh_all() => refreshed,
                     };
-                    if refreshed {
-                        if let Err((_, body)) = server::capture::reload_glossary_asr_context(&capture).await {
+                    if refreshed
+                        && let Err((_, body)) = server::capture::reload_glossary_asr_context(&capture).await {
                             tracing::warn!(detail = ?body, "ASR glossary context could not be reloaded");
                         }
-                    }
                 }
                 changed = shutdown.changed() => {
                     if changed.is_err() || *shutdown.borrow() {
@@ -211,12 +210,13 @@ fn spawn_room_marker_recorder(
             let recording = *recording_rx.borrow_and_update();
             let name = log_rx.borrow_and_update().world_name.clone();
             let switched = name != last_name;
-            if recording && name.is_some() && (switched || !was_recording) {
-                if let Err(error) =
+            if recording
+                && name.is_some()
+                && (switched || !was_recording)
+                && let Err(error) =
                     record_room_marker(&state, name.as_deref().unwrap_or_default()).await
-                {
-                    tracing::warn!(%error, "VRChat room marker could not be stored");
-                }
+            {
+                tracing::warn!(%error, "VRChat room marker could not be stored");
             }
             last_name = name;
             was_recording = recording;

@@ -10,7 +10,7 @@ use ash::vk::{self, Handle as _};
 use openxr as xr;
 use openxr::sys::Handle as _;
 
-use super::pose::{pose_from_quaternion, DeviceId, PointerId, PointerInput, SpaceId, TrackedPose};
+use super::pose::{DeviceId, PointerId, PointerInput, SpaceId, TrackedPose, pose_from_quaternion};
 
 const VIEW_TYPE: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
 const WIDTH: u32 = 1024;

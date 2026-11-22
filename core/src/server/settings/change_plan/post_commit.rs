@@ -1,11 +1,11 @@
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use crate::config::AppConfig;
 use crate::credentials;
 use crate::db::conversations::publish_latest_catalog;
 
-use super::super::super::{capture, db_call, SettingsContext};
+use super::super::super::{SettingsContext, capture, db_call};
 
 pub(super) struct PostCommitUpdates {
     storage_quota_changed: bool,
@@ -144,10 +144,8 @@ fn refresh_glossaries(state: &SettingsContext, glossary_refresh_ids: Vec<String>
                 }
             }
         }
-        if refreshed {
-            if let Err((_, body)) = capture::reload_glossary_asr_context(&state).await {
-                tracing::warn!(detail = ?body, "ASR glossary context could not be reloaded");
-            }
+        if refreshed && let Err((_, body)) = capture::reload_glossary_asr_context(&state).await {
+            tracing::warn!(detail = ?body, "ASR glossary context could not be reloaded");
         }
     });
 }

@@ -1,20 +1,20 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::db::conversations::publish_latest_catalog;
 use crate::subtitle_output::TranslationFailure;
 use crate::translation::TranslationError;
 use crate::{
-    config::{validate_translation_prompt, TranslationBackend, TranslationPromptConfig},
+    config::{TranslationBackend, TranslationPromptConfig, validate_translation_prompt},
     translation::TranslationPromptBuilder,
 };
 
-use super::{api_error, api_error_with_params, db_call, ApiResult, ServiceContext};
+use super::{ApiResult, ServiceContext, api_error, api_error_with_params, db_call};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -123,10 +123,8 @@ fn append_vrcx_context(
         let config = state.config.config.read().expect("config lock");
         config.features.vrcx && config.vrcx.enabled && config.vrcx.include_in_llm_context
     };
-    if enabled {
-        if let Some(entry) = state.integrations.vrcx.translation_context_entry() {
-            context.push(entry);
-        }
+    if enabled && let Some(entry) = state.integrations.vrcx.translation_context_entry() {
+        context.push(entry);
     }
 }
 

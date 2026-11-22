@@ -1,7 +1,7 @@
 //! Native key acquisition; no key logging, files, or process-memory reads.
-use super::ntfs::{Ntfs, Run};
 use super::KeyScanProgress;
-use player_audio_scan::{scan_candidates, ScanAbort, ScanBuffer, ScanControl};
+use super::ntfs::{Ntfs, Run};
+use player_audio_scan::{ScanAbort, ScanBuffer, ScanControl, scan_candidates};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
@@ -487,8 +487,13 @@ mod tests {
         assert_eq!(*found, key);
         let progress = progress.unwrap();
         assert_eq!(progress.scanned_bytes, length);
-        println!("Synthetic volume: {} MiB, {} workers, {:.3}s including reads/copies and cleanup, {} candidate authentications; excludes physical I/O and paging",
-            length / MIB, progress.workers, started.elapsed().as_secs_f64(), progress.candidates_tested);
+        println!(
+            "Synthetic volume: {} MiB, {} workers, {:.3}s including reads/copies and cleanup, {} candidate authentications; excludes physical I/O and paging",
+            length / MIB,
+            progress.workers,
+            started.elapsed().as_secs_f64(),
+            progress.candidates_tested
+        );
     }
 
     #[test]

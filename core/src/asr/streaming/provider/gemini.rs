@@ -1,14 +1,14 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
+use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::Request;
-use tokio_tungstenite::tungstenite::Message;
 
 use crate::config::AsrConfig;
 use crate::providers::SERVICE_GEMINI_TRANSCRIBE;
 
 use super::{
-    append_pcm16_base64, event_language, service_settings, CloudEvent, InitializationEvent,
-    NormalizationState,
+    CloudEvent, InitializationEvent, NormalizationState, append_pcm16_base64, event_language,
+    service_settings,
 };
 
 const LIVE_API_URL: &str = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";

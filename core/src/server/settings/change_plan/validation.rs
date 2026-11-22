@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use crate::config::AppConfig;
 use crate::{audio, credentials};
 
-use super::super::super::{api_error, ApiResult, SettingsContext};
+use super::super::super::{ApiResult, SettingsContext, api_error};
 
 pub(super) async fn validate_candidate(
     state: &SettingsContext,
@@ -130,26 +130,22 @@ async fn validate_audio_devices(
         if config.output.mode == "system"
             && (config.output.mode != current.output.mode
                 || config.output.device_id != current.output.device_id)
-        {
-            if let Some(device_id) = config
+            && let Some(device_id) = config
                 .output
                 .device_id
                 .filter(|_| config.output.device_key.is_none())
-            {
-                audio::validate_device_id(device_id, audio::CaptureSource::Speaker)?;
-            }
+        {
+            audio::validate_device_id(device_id, audio::CaptureSource::Speaker)?;
         }
         if config.microphone.mode == "device"
             && (config.microphone.mode != current.microphone.mode
                 || config.microphone.device_id != current.microphone.device_id)
-        {
-            if let Some(device_id) = config
+            && let Some(device_id) = config
                 .microphone
                 .device_id
                 .filter(|_| config.microphone.device_key.is_none())
-            {
-                audio::validate_device_id(device_id, audio::CaptureSource::Microphone)?;
-            }
+        {
+            audio::validate_device_id(device_id, audio::CaptureSource::Microphone)?;
         }
         Ok::<_, audio::AudioError>(())
     })

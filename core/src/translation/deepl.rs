@@ -1,9 +1,9 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::config::ApiProfile;
 
 use super::{
-    http_error, invalid, invalid_response, network_error, TranslationError, TranslationResult,
+    TranslationError, TranslationResult, http_error, invalid, invalid_response, network_error,
 };
 
 pub(super) async fn translate(
@@ -26,10 +26,10 @@ pub(super) async fn translate(
         "target_lang": target_code,
         "preserve_formatting": true
     });
-    if let Some(source) = source.filter(|value| *value != "auto") {
-        if let Some(source_code) = language_code(source) {
-            body["source_lang"] = json!(source_code);
-        }
+    if let Some(source) = source.filter(|value| *value != "auto")
+        && let Some(source_code) = language_code(source)
+    {
+        body["source_lang"] = json!(source_code);
     }
     let response = http
         .post(endpoint)

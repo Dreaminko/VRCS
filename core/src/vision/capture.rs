@@ -1,7 +1,7 @@
 //! Microphone capture owned by one visual question, not by transcription.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crate::audio::{AudioCapture, CaptureSource};

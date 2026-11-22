@@ -526,10 +526,12 @@ mod tests {
             }],
             ..Default::default()
         };
-        assert!(serde_json::to_value(prompt)
-            .unwrap()
-            .get("glossary")
-            .is_none());
+        assert!(
+            serde_json::to_value(prompt)
+                .unwrap()
+                .get("glossary")
+                .is_none()
+        );
     }
 
     fn assert_keys<const N: usize>(value: &serde_json::Value, expected: [&str; N]) {

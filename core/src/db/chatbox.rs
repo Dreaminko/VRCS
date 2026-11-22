@@ -1,4 +1,4 @@
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 
 use super::Database;
 use crate::chatbox::{ChatboxMessage, NewChatboxMessage};

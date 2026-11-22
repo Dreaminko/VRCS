@@ -104,12 +104,11 @@ impl Database {
         if used_pages.saturating_mul(page_size) <= self.subtitle_history_max_bytes {
             return Ok(false);
         }
-        if let Some(cached) = self.cached_subtitle_bytes.get() {
-            if cached.saturating_add(self.pending_subtitle_bytes.get())
+        if let Some(cached) = self.cached_subtitle_bytes.get()
+            && cached.saturating_add(self.pending_subtitle_bytes.get())
                 <= self.subtitle_history_max_bytes
-            {
-                return Ok(false);
-            }
+        {
+            return Ok(false);
         }
         let actual = self.subtitle_history_bytes()?;
         self.cached_subtitle_bytes.set(Some(actual));

@@ -1,22 +1,22 @@
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::asr;
 use crate::config::ApiProfile;
 use crate::llm::model_catalog::ModelCatalog;
 use crate::providers::{
-    self, ProviderServiceDefinition, ServiceAdapter, CAPABILITY_IMAGE_UNDERSTANDING,
-    CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION, CAPABILITY_TEXT_TRANSLATION,
-    GROQ_PROVIDER, OPENROUTER_PROVIDER,
+    self, CAPABILITY_IMAGE_UNDERSTANDING, CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION,
+    CAPABILITY_TEXT_TRANSLATION, GROQ_PROVIDER, OPENROUTER_PROVIDER, ProviderServiceDefinition,
+    ServiceAdapter,
 };
 
 const DIAGNOSTIC_MAX_OUTPUT_TOKENS: u32 = 1_024;
 
 use super::cloud::{ensure_asr_profile_ready, profile_api_key, profile_not_found};
-use super::{api_error, ApiResult, ServiceContext};
+use super::{ApiResult, ServiceContext, api_error};
 
 #[derive(Default, Deserialize)]
 pub(super) struct TestProfileQuery {
@@ -461,13 +461,12 @@ async fn compatible_diagnostic(
         reasoning_control: None,
     };
     if let Err(error) = client.generate(profile, &api_key, request(), None).await {
-        if error.code == "llm.authentication_failed" {
-            if let Some(check) = checks
+        if error.code == "llm.authentication_failed"
+            && let Some(check) = checks
                 .iter_mut()
                 .find(|check| check.name == "authentication")
-            {
-                *check = failed("authentication", error.code, error.detail.clone());
-            }
+        {
+            *check = failed("authentication", error.code, error.detail.clone());
         }
         checks.push(failed("completion", error.code, error.detail));
         checks.push(skipped("streaming"));
@@ -521,7 +520,7 @@ async fn test_model(
         Err(error) => {
             return requested
                 .map(str::to_owned)
-                .ok_or_else(|| api_error(StatusCode::BAD_GATEWAY, error.code, error.detail))
+                .ok_or_else(|| api_error(StatusCode::BAD_GATEWAY, error.code, error.detail));
         }
     };
     select_test_model(profile, &catalog, capability, requested)
@@ -841,13 +840,15 @@ mod tests {
             );
         }
         catalog.models.clear();
-        assert!(select_test_model(
-            &profile,
-            &catalog,
-            CAPABILITY_IMAGE_UNDERSTANDING,
-            Some("deepseek-flash")
-        )
-        .is_none());
+        assert!(
+            select_test_model(
+                &profile,
+                &catalog,
+                CAPABILITY_IMAGE_UNDERSTANDING,
+                Some("deepseek-flash")
+            )
+            .is_none()
+        );
         let (status, Json(error)) = test_model_unavailable(CAPABILITY_IMAGE_UNDERSTANDING);
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(error["code"], "llm.test_model_unavailable");
@@ -996,11 +997,13 @@ mod tests {
             .as_deref(),
             Some("mimo-v2.6-flash")
         );
-        assert!(select_listed_model(
-            "mimo",
-            vec!["mimo-v2.5-asr".into(), "mimo-v2.6-pro-ultraspeed".into()]
-        )
-        .is_none());
+        assert!(
+            select_listed_model(
+                "mimo",
+                vec!["mimo-v2.5-asr".into(), "mimo-v2.6-pro-ultraspeed".into()]
+            )
+            .is_none()
+        );
     }
     #[test]
     fn explicit_service_must_match_requested_capability() {
@@ -1017,14 +1020,18 @@ mod tests {
         let resolved =
             providers::resolve_profile_service(&profile, SERVICE_GROQ_TRANSCRIPTION).unwrap();
 
-        assert!(resolved
-            .service
-            .capabilities
-            .contains(&CAPABILITY_SPEECH_TO_TEXT));
-        assert!(!resolved
-            .service
-            .capabilities
-            .contains(&CAPABILITY_TEXT_GENERATION));
+        assert!(
+            resolved
+                .service
+                .capabilities
+                .contains(&CAPABILITY_SPEECH_TO_TEXT)
+        );
+        assert!(
+            !resolved
+                .service
+                .capabilities
+                .contains(&CAPABILITY_TEXT_GENERATION)
+        );
     }
 
     #[test]

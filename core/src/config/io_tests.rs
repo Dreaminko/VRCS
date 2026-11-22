@@ -1,6 +1,6 @@
 use std::fs;
 
-use super::{load_config, AppConfig};
+use super::{AppConfig, load_config};
 
 #[cfg(target_os = "linux")]
 #[test]
@@ -130,9 +130,11 @@ fn v42_upgrade_preserves_stable_audio_devices_and_backs_up_retired_selection() {
     assert!(saved["audio"]["output"]["player_audio"]["selected_tracks"].is_null());
     assert_eq!(load_config(&path).unwrap(), migrated);
     assert_eq!(fs::read(backup).unwrap(), original);
-    assert!(!path
-        .with_extension(format!("v{}.backup.json", super::SCHEMA_VERSION))
-        .exists());
+    assert!(
+        !path
+            .with_extension(format!("v{}.backup.json", super::SCHEMA_VERSION))
+            .exists()
+    );
 }
 
 #[test]

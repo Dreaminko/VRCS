@@ -252,7 +252,7 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::language_session::{select_session, CaptureStartInput};
+    use crate::language_session::{CaptureStartInput, select_session};
 
     #[test]
     fn model_assignment_refreshes_followers_and_language_snapshots_only() {
@@ -333,9 +333,11 @@ mod tests {
         assert_eq!(config.learning_ai.model, "text-two");
         assert!(config.learning_ai.use_default_model && config.learning_ai.thinking_enabled);
         assert!(config.learning_ai.reasoning_control.is_none());
-        assert!(config.translation.speaker_targets[0]
-            .reasoning_control
-            .is_none());
+        assert!(
+            config.translation.speaker_targets[0]
+                .reasoning_control
+                .is_none()
+        );
         assert_eq!(config.translation.mode, "automatic");
         assert_eq!(config.features, previous.features);
         assert_eq!(config.asr, previous.asr);

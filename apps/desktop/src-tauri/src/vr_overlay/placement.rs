@@ -120,13 +120,14 @@ impl Placement {
                 .or_else(|| self.world.map(|pose| compose(inverse(head), pose)));
             self.world = self.relative.map(|relative| compose(head, relative));
         }
-        if let Some(pending) = &mut self.pending {
-            if pending.request.mode == Mode::World && pending.request.follow_view {
-                pending.relative = pending
-                    .relative
-                    .or_else(|| pending.pose.map(|pose| compose(inverse(head), pose)));
-                pending.pose = pending.relative.map(|relative| compose(head, relative));
-            }
+        if let Some(pending) = &mut self.pending
+            && pending.request.mode == Mode::World
+            && pending.request.follow_view
+        {
+            pending.relative = pending
+                .relative
+                .or_else(|| pending.pose.map(|pose| compose(inverse(head), pose)));
+            pending.pose = pending.relative.map(|relative| compose(head, relative));
         }
     }
     #[cfg(any(windows, linux_vr, test))]

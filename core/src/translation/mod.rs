@@ -10,8 +10,8 @@ use crate::config::{
 };
 use crate::credentials;
 use crate::llm::{LlmClient, LlmProgress, LlmRequest};
-use crate::models::{now_iso8601, SubtitleTranslation};
-use crate::providers::{self, ServiceAdapter, CAPABILITY_TEXT_TRANSLATION, OPENAI_PROVIDER};
+use crate::models::{SubtitleTranslation, now_iso8601};
+use crate::providers::{self, CAPABILITY_TEXT_TRANSLATION, OPENAI_PROVIDER, ServiceAdapter};
 
 pub(crate) mod context;
 mod deepl;
@@ -25,9 +25,9 @@ mod prompt;
 pub use dispatcher::TranslationDispatcher;
 pub(crate) use local_models::LocalTranslationModels;
 pub(crate) use plamo::{
+    MODEL_ID, MODEL_REVISION, PROMPT_VERSION, SUPPORTED_LANGUAGE_CODES,
     build_prompt_with_room_context as build_plamo_prompt_with_room_context,
-    supports_language as plamo_supports_language, MODEL_ID, MODEL_REVISION, PROMPT_VERSION,
-    SUPPORTED_LANGUAGE_CODES,
+    supports_language as plamo_supports_language,
 };
 pub(crate) use plamo_runtime::PlamoRuntime;
 pub(crate) use prompt::RoomTranslationContext;

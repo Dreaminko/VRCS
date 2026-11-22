@@ -149,25 +149,25 @@ impl Gate {
             let deadline = {
                 let mut state = self.0.state.lock().expect("work admission");
                 let now = Instant::now();
-                if state.available > 0 && state.next_start <= now {
-                    if let Some(index) = next_waiter(&state, now) {
-                        if state.waiting[index].id == id {
-                            let waiter = state.waiting.remove(index);
-                            state.priority_burst = if waiter.context.is_priority() {
-                                (state.priority_burst + 1).min(3)
-                            } else {
-                                0
-                            };
-                            state.last_player = waiter.context.player;
-                            state.available -= 1;
-                            if let Some(interval) = self.0.interval {
-                                state.next_start = now + interval;
-                            }
-                            drop(state);
-                            self.0.changed.send_replace(());
-                            return Ok(Permit(Arc::clone(&self.0)));
-                        }
+                if state.available > 0
+                    && state.next_start <= now
+                    && let Some(index) = next_waiter(&state, now)
+                    && state.waiting[index].id == id
+                {
+                    let waiter = state.waiting.remove(index);
+                    state.priority_burst = if waiter.context.is_priority() {
+                        (state.priority_burst + 1).min(3)
+                    } else {
+                        0
+                    };
+                    state.last_player = waiter.context.player;
+                    state.available -= 1;
+                    if let Some(interval) = self.0.interval {
+                        state.next_start = now + interval;
                     }
+                    drop(state);
+                    self.0.changed.send_replace(());
+                    return Ok(Permit(Arc::clone(&self.0)));
                 }
                 (state.available > 0).then_some(if state.next_start > now {
                     state.next_start

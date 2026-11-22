@@ -687,7 +687,7 @@ impl DashboardState {
         use DashboardAction::*;
         let page = match action {
             ToggleMaster | ToggleCapture => {
-                return !matches!(action, ToggleCapture) || view.capture.available
+                return !matches!(action, ToggleCapture) || view.capture.available;
             }
             SetRecognitionLanguage(_)
             | SetTranslationMode(_)

@@ -9,10 +9,10 @@ use std::time::{Duration, Instant};
 use openxr as xr;
 use vrcs_core::{VrOverlayHeadsetConfig, VrOverlayWristConfig};
 
-use super::backend::{menu_config, ControllerBinding, CursorTarget, OverlayKind, RayHit};
-use super::dashboard::{DashboardPointerEvent, DASHBOARD_HEIGHT, DASHBOARD_WIDTH};
+use super::backend::{ControllerBinding, CursorTarget, OverlayKind, RayHit, menu_config};
+use super::dashboard::{DASHBOARD_HEIGHT, DASHBOARD_WIDTH, DashboardPointerEvent};
 use super::pose::{
-    pose_from_quaternion, DeviceId, PointerId, PointerInput, Pose, SpaceId, TrackedPose,
+    DeviceId, PointerId, PointerInput, Pose, SpaceId, TrackedPose, pose_from_quaternion,
 };
 use super::transform;
 use super::xr::{PanelId, PanelInfo, PanelSpace, XrRuntime};
@@ -231,11 +231,7 @@ fn hand_index(config: &VrOverlayWristConfig) -> usize {
 }
 
 fn hand_name(index: usize) -> &'static str {
-    if index == 0 {
-        "left"
-    } else {
-        "right"
-    }
+    if index == 0 { "left" } else { "right" }
 }
 
 /// The Linux WebKit host returns straight-alpha RGBA; OpenXR layer blending
@@ -797,12 +793,16 @@ mod tests {
         };
         let hit = Some([0.5, 0.5]);
         let opened = pointer.events([hit, None], [true, false], Some(0));
-        assert!(!opened
-            .iter()
-            .any(|event| matches!(event, DashboardPointerEvent::Down { .. })));
-        assert!(pointer
-            .events([hit, None], [false, false], Some(0))
-            .is_empty());
+        assert!(
+            !opened
+                .iter()
+                .any(|event| matches!(event, DashboardPointerEvent::Down { .. }))
+        );
+        assert!(
+            pointer
+                .events([hit, None], [false, false], Some(0))
+                .is_empty()
+        );
         assert!(matches!(
             pointer
                 .events([hit, None], [true, false], Some(0))
@@ -821,17 +821,21 @@ mod tests {
     fn dashboard_pointer_releases_outside_without_activating() {
         let mut pointer = DashboardPointer::default();
         let hit = Some([0.5, 0.5]);
-        assert!(pointer
-            .events([hit, None], [true, false], Some(0))
-            .iter()
-            .any(|event| matches!(event, DashboardPointerEvent::Down { .. })));
+        assert!(
+            pointer
+                .events([hit, None], [true, false], Some(0))
+                .iter()
+                .any(|event| matches!(event, DashboardPointerEvent::Down { .. }))
+        );
         assert!(matches!(
             pointer.events([None, None], [true, false], None).as_slice(),
             [DashboardPointerEvent::Up { x: -1.0, y: -1.0 }]
         ));
-        assert!(pointer
-            .events([None, None], [false, false], None)
-            .is_empty());
+        assert!(
+            pointer
+                .events([None, None], [false, false], None)
+                .is_empty()
+        );
         assert!(pointer.pressed.is_none());
     }
 

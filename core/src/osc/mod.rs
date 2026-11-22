@@ -13,17 +13,17 @@ use crate::chatbox::{ChatboxTranslationOrigin, NewChatboxMessage};
 use crate::config::OscConfig;
 use crate::db::Database;
 use crate::domain_events::DomainEventHub;
-use crate::models::{now_iso8601, Subtitle, SubtitleTranslation};
+use crate::models::{Subtitle, SubtitleTranslation, now_iso8601};
 
 mod message;
 mod transport;
 
-use message::format_chatbox;
 #[cfg(test)]
 use message::CHATBOX_LIMIT;
-use transport::send_chatbox;
+use message::format_chatbox;
 #[cfg(test)]
 use transport::CHATBOX_ADDRESS;
+use transport::send_chatbox;
 const TRANSLATION_GRACE: Duration = Duration::from_millis(1_200);
 const SEND_INTERVAL: Duration = Duration::from_millis(1_500);
 const LATE_TRANSLATION_TTL: Duration = Duration::from_secs(30);
@@ -654,32 +654,32 @@ fn reduce_translation_completed(
         provider: translation.provider.clone(),
         model: translation.model.clone(),
     };
-    if let Some(group) = &translation.source_group {
-        if group.subtitle_ids.last().copied() != Some(subtitle_id) {
-            state.queue.retain_mut(|message| {
-                if message.subtitle_id != Some(subtitle_id) {
-                    return true;
-                }
-                let target = &translation.target_language;
-                message
-                    .expected_targets
-                    .retain(|language| language != target);
-                if message.expected_targets.is_empty() {
-                    return false;
-                }
-                if message.desired_target.as_ref() == Some(target) {
-                    message.desired_target = message.expected_targets.first().cloned();
-                }
-                if message.preferred_target.as_ref() == Some(target) {
-                    message.preferred_target = message.expected_targets.first().cloned();
-                }
-                if all_targets_resolved(message) {
-                    message.ready_at = now;
-                }
-                true
-            });
-            return Vec::new();
-        }
+    if let Some(group) = &translation.source_group
+        && group.subtitle_ids.last().copied() != Some(subtitle_id)
+    {
+        state.queue.retain_mut(|message| {
+            if message.subtitle_id != Some(subtitle_id) {
+                return true;
+            }
+            let target = &translation.target_language;
+            message
+                .expected_targets
+                .retain(|language| language != target);
+            if message.expected_targets.is_empty() {
+                return false;
+            }
+            if message.desired_target.as_ref() == Some(target) {
+                message.desired_target = message.expected_targets.first().cloned();
+            }
+            if message.preferred_target.as_ref() == Some(target) {
+                message.preferred_target = message.expected_targets.first().cloned();
+            }
+            if all_targets_resolved(message) {
+                message.ready_at = now;
+            }
+            true
+        });
+        return Vec::new();
     }
     let mut effects = Vec::new();
     if !state
@@ -797,12 +797,12 @@ fn reduce_send_completed(
 ) -> Vec<OscEffect> {
     if matches!(outcome, OscSendOutcome::Sent { .. }) {
         state.last_send = Some(completed_at);
-        if let Some(sent) = &state.current_sent {
-            if sent.message.message_id != request.message.message_id {
-                state
-                    .queue
-                    .retain(|message| message.message_id != sent.message.message_id);
-            }
+        if let Some(sent) = &state.current_sent
+            && sent.message.message_id != request.message.message_id
+        {
+            state
+                .queue
+                .retain(|message| message.message_id != sent.message.message_id);
         }
         state.current_sent = request.message.subtitle_id.map(|_| SentMessage {
             message: request.message.automatic_snapshot(),
@@ -1401,11 +1401,13 @@ mod tests {
                 first_send + Duration::from_millis(offset),
             );
         }
-        assert!(reduce_tick(
-            &mut state,
-            first_send + SEND_INTERVAL - Duration::from_millis(1),
-        )
-        .is_empty());
+        assert!(
+            reduce_tick(
+                &mut state,
+                first_send + SEND_INTERVAL - Duration::from_millis(1),
+            )
+            .is_empty()
+        );
         let refresh = first_send + SEND_INTERVAL;
         assert_eq!(send_next(&mut state, refresh), "こんにちは\n你好 / Hello");
 
@@ -1548,10 +1550,12 @@ mod tests {
             effects.as_slice(),
             [OscEffect::RejectPending { .. }, OscEffect::RecordDrop]
         ));
-        assert!(state
-            .queue
-            .iter()
-            .all(|message| message.responder.is_some()));
+        assert!(
+            state
+                .queue
+                .iter()
+                .all(|message| message.responder.is_some())
+        );
         for index in 0..DISPLAY_QUEUE_CAPACITY {
             assert_eq!(
                 send_next(&mut state, first_send + SEND_INTERVAL * (index as u32 + 1)),
@@ -1619,9 +1623,11 @@ mod tests {
         let effects = reduce_osc_event(&mut state, OscWorkerInput::ConfigChanged(next));
 
         assert_eq!(effects.len(), 2);
-        assert!(effects
-            .iter()
-            .all(|effect| matches!(effect, OscEffect::DiscardPending(_))));
+        assert!(
+            effects
+                .iter()
+                .all(|effect| matches!(effect, OscEffect::DiscardPending(_)))
+        );
         assert!(state.queue.is_empty());
         assert!(state.current_sent.is_none());
         assert!(state.last_send.is_none());
@@ -2079,12 +2085,14 @@ mod tests {
             translation_strategy: "preferred_only".into(),
         });
         dispatcher.publish_subtitle(subtitle(1, "speaker", "ignored"), false);
-        assert!(tokio::time::timeout(Duration::from_millis(150), async {
-            let mut buffer = [0u8; 512];
-            receiver.recv_from(&mut buffer).await
-        })
-        .await
-        .is_err());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(150), async {
+                let mut buffer = [0u8; 512];
+                receiver.recv_from(&mut buffer).await
+            })
+            .await
+            .is_err()
+        );
 
         dispatcher.publish_subtitle(subtitle(2, "microphone", "こんにちは"), true);
         dispatcher.translation_completed(

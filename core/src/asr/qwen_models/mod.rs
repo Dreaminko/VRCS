@@ -14,7 +14,7 @@ pub(crate) fn verify_file_forced(path: &std::path::Path, spec: AssetSpec) -> Res
 
 pub(crate) use manifest::AssetSpec;
 pub(super) use manifest::PackageSpec;
-pub(super) use manifest::{package_spec, PACKAGES};
+pub(super) use manifest::{PACKAGES, package_spec};
 pub(super) use migration::prepare_migration;
 pub(super) use package::{activate_staging, is_installed, package_dir, staging_dir};
 

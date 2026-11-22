@@ -39,14 +39,13 @@ impl ModelCatalogCache {
     ) {
         let mut entries = self.0.lock().expect("model catalog cache lock");
         entries.retain(|_, entry| entry.created.elapsed() < TTL);
-        if entries.len() >= MAX_ENTRIES {
-            if let Some(oldest) = entries
+        if entries.len() >= MAX_ENTRIES
+            && let Some(oldest) = entries
                 .iter()
                 .min_by_key(|(_, entry)| entry.created)
                 .map(|(key, _)| key.clone())
-            {
-                entries.remove(&oldest);
-            }
+        {
+            entries.remove(&oldest);
         }
         entries.insert(
             (profile.id.clone(), service.to_owned()),

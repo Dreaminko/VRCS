@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use crate::config::{ApiAuthMode, ApiProfile};
 
 use super::{
-    definition, provider_capability_ids, qwen_cloud_host, BaseUrlPolicy, ProviderCategory,
-    ALIBABA_PROVIDER, MICROSOFT_PROVIDER, QWEN_CLOUD_PROVIDER, QWEN_LOCAL_PROVIDER,
+    ALIBABA_PROVIDER, BaseUrlPolicy, MICROSOFT_PROVIDER, ProviderCategory, QWEN_CLOUD_PROVIDER,
+    QWEN_LOCAL_PROVIDER, definition, provider_capability_ids, qwen_cloud_host,
 };
 
 pub(crate) fn validate_profile(profile: &ApiProfile) -> Result<(), String> {
@@ -380,9 +380,9 @@ mod tests {
     #[test]
     fn image_capability_is_explicit_and_uses_existing_profile_validation() {
         use crate::providers::{
-            catalog, profile_capabilities, supports_llm_models, CAPABILITY_IMAGE_UNDERSTANDING,
-            GEMINI_PROVIDER, GROQ_PROVIDER, LM_STUDIO_PROVIDER, MIMO_PROVIDER, OPENAI_PROVIDER,
-            OPENROUTER_PROVIDER, QWEN_AI_PROVIDER,
+            CAPABILITY_IMAGE_UNDERSTANDING, GEMINI_PROVIDER, GROQ_PROVIDER, LM_STUDIO_PROVIDER,
+            MIMO_PROVIDER, OPENAI_PROVIDER, OPENROUTER_PROVIDER, QWEN_AI_PROVIDER, catalog,
+            profile_capabilities, supports_llm_models,
         };
         let supported = [
             ALIBABA_PROVIDER,
@@ -406,8 +406,7 @@ mod tests {
                 provider.id
             );
             assert_eq!(
-                serde_json::to_value(provider.capabilities).unwrap()
-                    ["supports_image_understanding"],
+                serde_json::to_value(provider.capabilities).unwrap()["supports_image_understanding"],
                 expected
             );
             let mut profile = profile(provider.id);

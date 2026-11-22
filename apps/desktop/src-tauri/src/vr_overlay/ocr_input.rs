@@ -1,5 +1,5 @@
 #[cfg(windows)]
-use super::ocr_gesture::{camera_frame, gesture_frame, point_in_head, FrameCorners, HandSample};
+use super::ocr_gesture::{FrameCorners, HandSample, camera_frame, gesture_frame, point_in_head};
 #[cfg(windows)]
 use super::ocr_input_state::{FrameSession, FrameTracking, HoldAction, TriggerEdge, TriggerUpdate};
 #[cfg(windows)]
@@ -927,11 +927,13 @@ mod tests {
         CONTROLLER_BUTTONS.set([false, false, true, true]);
         input.poll_with_vision(tracking, false, true).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(700));
-        assert!(input
-            .poll_with_vision(tracking, false, true)
-            .unwrap()
-            .frame
-            .is_some());
+        assert!(
+            input
+                .poll_with_vision(tracking, false, true)
+                .unwrap()
+                .frame
+                .is_some()
+        );
         input.poll_with_vision(tracking, false, true).unwrap();
         CONTROLLER_BUTTONS.set([false, true, false, true]);
         let cancelled = input.poll_with_vision(tracking, false, true).unwrap();
@@ -1174,27 +1176,33 @@ mod tests {
         assert_eq!((samples[0].scroll_y, samples[1].scroll_y), (1.0, -1.0));
         for value in [0.0, 0.1, -0.2, f32::NAN, f32::INFINITY] {
             AXIS.set((0, true, 0, value));
-            assert!(input(&api)
-                .ui_samples()
-                .iter()
-                .all(|sample| sample.scroll_y == 0.0));
+            assert!(
+                input(&api)
+                    .ui_samples()
+                    .iter()
+                    .all(|sample| sample.scroll_y == 0.0)
+            );
         }
         for (error, active) in [(1, true), (0, false)] {
             AXIS.set((error, active, 0, 1.0));
             let samples = input(&api).ui_samples();
             assert_eq!(samples.len(), 2);
-            assert!(samples
-                .iter()
-                .all(|sample| sample.scroll_y == 0.0 && sample.trigger == Some(true)));
+            assert!(
+                samples
+                    .iter()
+                    .all(|sample| sample.scroll_y == 0.0 && sample.trigger == Some(true))
+            );
         }
         AXIS.set((0, true, 2, 1.0));
         let samples = input(&api).ui_samples();
         assert_eq!((samples[0].scroll_y, samples[1].scroll_y), (0.0, -1.0));
         api.GetAnalogActionData = None;
-        assert!(input(&api)
-            .ui_samples()
-            .iter()
-            .all(|sample| sample.scroll_y == 0.0 && sample.trigger == Some(true)));
+        assert!(
+            input(&api)
+                .ui_samples()
+                .iter()
+                .all(|sample| sample.scroll_y == 0.0 && sample.trigger == Some(true))
+        );
         api.GetAnalogActionData = Some(analog);
         api.GetDigitalActionData = None;
         AXIS.set((0, true, 0, 0.6));
@@ -1450,11 +1458,13 @@ mod tests {
                 Action::NextPage
             ]
         );
-        assert!(input
-            .poll_with_vision(None, false, false)
-            .unwrap()
-            .navigation
-            .is_empty());
+        assert!(
+            input
+                .poll_with_vision(None, false, false)
+                .unwrap()
+                .navigation
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1464,12 +1474,14 @@ mod tests {
         let manifest = install_manifest(&directory).unwrap();
         let manifest: serde_json::Value =
             serde_json::from_slice(&std::fs::read(manifest).unwrap()).unwrap();
-        assert!(manifest["actions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|action| action["name"] == "/actions/ocr/in/cancel"
-                && action["requirement"] == "optional"));
+        assert!(
+            manifest["actions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|action| action["name"] == "/actions/ocr/in/cancel"
+                    && action["requirement"] == "optional")
+        );
         for controller in [
             "knuckles",
             "oculus_touch",
@@ -1483,9 +1495,11 @@ mod tests {
                 &std::fs::read(directory.join(format!("{controller}.json"))).unwrap(),
             )
             .unwrap();
-            assert!(!serde_json::to_string(&binding)
-                .unwrap()
-                .contains("/actions/ocr/in/cancel"));
+            assert!(
+                !serde_json::to_string(&binding)
+                    .unwrap()
+                    .contains("/actions/ocr/in/cancel")
+            );
             let binding = &binding["bindings"]["/actions/ocr"];
             for side in ["left", "right"] {
                 let pose = binding["poses"]

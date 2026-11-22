@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{launch_args, probe_ready, QwenRuntime};
+use super::{QwenRuntime, launch_args, probe_ready};
 
 #[cfg(not(feature = "vulkan"))]
 #[tokio::test]
@@ -14,10 +14,12 @@ async fn managed_qwen_explicit_gpu_is_rejected_without_the_vulkan_feature() {
         alias: "vrcs-qwen".into(),
         device: "gpu".into(),
     };
-    assert!(runtime
-        .start_selection(selection, 0, std::time::Duration::from_secs(1))
-        .await
-        .is_err());
+    assert!(
+        runtime
+            .start_selection(selection, 0, std::time::Duration::from_secs(1))
+            .await
+            .is_err()
+    );
     assert!(runtime.state.lock().await.child.is_none());
     assert_eq!(runtime.snapshot().await.status, "error");
 }
@@ -35,9 +37,11 @@ fn managed_qwen_gpu_arguments_respect_the_vulkan_feature() {
     .map(|argument| argument.to_string_lossy().into_owned())
     .collect::<Vec<_>>();
     let layers = if cfg!(feature = "vulkan") { "all" } else { "0" };
-    assert!(arguments
-        .windows(2)
-        .any(|pair| pair == ["--gpu-layers", layers]));
+    assert!(
+        arguments
+            .windows(2)
+            .any(|pair| pair == ["--gpu-layers", layers])
+    );
     assert_eq!(
         arguments.contains(&"--no-mmproj-offload".into()),
         !cfg!(feature = "vulkan")
@@ -74,11 +78,13 @@ async fn explicit_stop_prevents_reconnecting_an_old_session() {
         session: 0,
     };
     runtime.stop().await.unwrap();
-    assert!(runtime
-        .reconnect(&previous)
-        .await
-        .unwrap_err()
-        .contains("stopped or replaced"));
+    assert!(
+        runtime
+            .reconnect(&previous)
+            .await
+            .unwrap_err()
+            .contains("stopped or replaced")
+    );
 }
 
 #[tokio::test]
@@ -131,11 +137,13 @@ async fn real_managed_qwen_transcribes_both_channels_and_recovers_after_exit() {
         .unwrap();
     assert_eq!(snapshot.status, "loading");
     runtime.cancel_loading().await.unwrap();
-    assert!(tokio::time::timeout(Duration::from_secs(3), startup)
-        .await
-        .unwrap()
-        .unwrap()
-        .is_err());
+    assert!(
+        tokio::time::timeout(Duration::from_secs(3), startup)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err()
+    );
     assert_eq!(runtime.snapshot().await.status, "not_loaded");
     for device in devices {
         let mut config = crate::config::AsrConfig::default();
@@ -238,33 +246,45 @@ fn managed_qwen_command_binds_loopback_and_uses_both_assets() {
     .iter()
     .map(|argument| argument.to_string_lossy().into_owned())
     .collect::<Vec<_>>();
-    assert!(arguments
-        .windows(2)
-        .any(|pair| pair == ["--model", "C:/models/main.gguf"]));
-    assert!(arguments
-        .windows(2)
-        .any(|pair| pair == ["--mmproj", "C:/models/mmproj.gguf"]));
-    assert!(arguments
-        .windows(2)
-        .any(|pair| pair == ["--host", "127.0.0.1"]));
+    assert!(
+        arguments
+            .windows(2)
+            .any(|pair| pair == ["--model", "C:/models/main.gguf"])
+    );
+    assert!(
+        arguments
+            .windows(2)
+            .any(|pair| pair == ["--mmproj", "C:/models/mmproj.gguf"])
+    );
+    assert!(
+        arguments
+            .windows(2)
+            .any(|pair| pair == ["--host", "127.0.0.1"])
+    );
     assert!(arguments.windows(2).any(|pair| pair == ["--port", "43210"]));
-    assert!(!arguments
-        .iter()
-        .any(|argument| argument == "--api-key" || argument == "session-token"));
+    assert!(
+        !arguments
+            .iter()
+            .any(|argument| argument == "--api-key" || argument == "session-token")
+    );
     assert!(arguments.contains(&"--no-webui".into()));
-    assert!(arguments
-        .windows(2)
-        .any(|pair| pair == ["--gpu-layers", "0"]));
-    assert!(arguments
-        .windows(2)
-        .any(|pair| pair == ["--device", "none"]));
+    assert!(
+        arguments
+            .windows(2)
+            .any(|pair| pair == ["--gpu-layers", "0"])
+    );
+    assert!(
+        arguments
+            .windows(2)
+            .any(|pair| pair == ["--device", "none"])
+    );
     assert!(arguments.contains(&"--no-mmproj-offload".into()));
     assert!(arguments.contains(&"--no-op-offload".into()));
 }
 
 #[tokio::test]
 async fn managed_qwen_readiness_requires_the_expected_model_alias() {
-    use axum::{routing::get, Json, Router};
+    use axum::{Json, Router, routing::get};
     use serde_json::json;
 
     let app = Router::new()
@@ -293,8 +313,8 @@ async fn managed_qwen_readiness_requires_the_expected_model_alias() {
 
 #[tokio::test]
 async fn managed_qwen_readiness_checks_the_session_token() {
-    use axum::http::{header::AUTHORIZATION, HeaderMap, StatusCode};
-    use axum::{routing::get, Json, Router};
+    use axum::http::{HeaderMap, StatusCode, header::AUTHORIZATION};
+    use axum::{Json, Router, routing::get};
     use serde_json::json;
 
     let app = Router::new()
@@ -338,16 +358,18 @@ async fn managed_qwen_rejects_missing_assets_before_starting_a_process() {
     let runtime = QwenRuntime::new(std::path::PathBuf::new());
     let root = tempfile::tempdir().unwrap();
     let missing = root.path().join("missing.gguf");
-    assert!(runtime
-        .ensure_started(
-            &missing,
-            &missing,
-            &missing,
-            "vrcs-qwen",
-            "auto",
-            std::time::Duration::from_secs(1),
-        )
-        .await
-        .is_err());
+    assert!(
+        runtime
+            .ensure_started(
+                &missing,
+                &missing,
+                &missing,
+                "vrcs-qwen",
+                "auto",
+                std::time::Duration::from_secs(1),
+            )
+            .await
+            .is_err()
+    );
     assert!(runtime.connection().await.unwrap().is_none());
 }

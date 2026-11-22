@@ -1,10 +1,10 @@
 //! Desktop screenshot capture via `org.freedesktop.portal.Screenshot`.
-use super::image::{decode_png, Image};
+use super::image::{Image, decode_png};
 use ashpd::desktop::screenshot::Screenshot;
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };

@@ -105,45 +105,55 @@ mod tests {
 
     #[test]
     fn crop_rejects_invalid_bounds_and_pixel_buffers() {
-        assert!(Region {
-            left: 3,
-            top: 0,
-            width: 2,
-            height: 1
-        }
-        .crop(4, 3, &[0; 48])
-        .is_err());
-        assert!(Region {
-            left: 0,
-            top: 2,
-            width: 1,
-            height: 2
-        }
-        .crop(4, 3, &[0; 48])
-        .is_err());
-        assert!(Region {
-            left: u32::MAX,
-            top: 0,
-            width: 2,
-            height: 1
-        }
-        .crop(4, 3, &[0; 48])
-        .is_err());
-        assert!(Region {
-            left: 0,
-            top: 0,
-            width: 1,
-            height: 1
-        }
-        .crop(4, 3, &[0; 4])
-        .is_err());
-        assert!(Region {
-            left: 0,
-            top: 0,
-            width: 0,
-            height: 1
-        }
-        .crop(4, 3, &[0; 48])
-        .is_err());
+        assert!(
+            Region {
+                left: 3,
+                top: 0,
+                width: 2,
+                height: 1
+            }
+            .crop(4, 3, &[0; 48])
+            .is_err()
+        );
+        assert!(
+            Region {
+                left: 0,
+                top: 2,
+                width: 1,
+                height: 2
+            }
+            .crop(4, 3, &[0; 48])
+            .is_err()
+        );
+        assert!(
+            Region {
+                left: u32::MAX,
+                top: 0,
+                width: 2,
+                height: 1
+            }
+            .crop(4, 3, &[0; 48])
+            .is_err()
+        );
+        assert!(
+            Region {
+                left: 0,
+                top: 0,
+                width: 1,
+                height: 1
+            }
+            .crop(4, 3, &[0; 4])
+            .is_err()
+        );
+        assert!(
+            Region {
+                left: 0,
+                top: 0,
+                width: 0,
+                height: 1
+            }
+            .crop(4, 3, &[0; 48])
+            .is_err()
+        );
     }
 }

@@ -13,8 +13,8 @@ use crate::{vision_image::resize, vr_overlay::renderer::Texture};
 use std::{sync::mpsc, time::Instant};
 use tauri::{AppHandle, Manager as _};
 use vrcs_core::{
-    vision::{VisionAnswer, VisionMode, VisionProgress, VisionService, VisionSession},
     VisionConfig, VrOcrConfig, VrOcrDisplayMode,
+    vision::{VisionAnswer, VisionMode, VisionProgress, VisionService, VisionSession},
 };
 
 enum Update {

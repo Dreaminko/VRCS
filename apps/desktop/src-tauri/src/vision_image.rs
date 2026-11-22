@@ -1,4 +1,4 @@
-use crate::desktop_capture::image::{encode_png, Image};
+use crate::desktop_capture::image::{Image, encode_png};
 
 pub(crate) trait ImageSource {
     fn dimensions(&self) -> (u32, u32);
@@ -135,15 +135,17 @@ mod tests {
         assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 8);
         assert_eq!(u32::from_be_bytes(png[20..24].try_into().unwrap()), 4);
         assert!(png.len() <= config.image_max_bytes);
-        assert!(prepare_image(
-            Texture {
-                width: 16,
-                height: 8,
-                pixels: vec![0; 4]
-            },
-            &config
-        )
-        .is_err());
+        assert!(
+            prepare_image(
+                Texture {
+                    width: 16,
+                    height: 8,
+                    pixels: vec![0; 4]
+                },
+                &config
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -152,15 +154,17 @@ mod tests {
             image_max_bytes: 1,
             ..Default::default()
         };
-        assert!(prepare_image(
-            Texture {
-                width: 4,
-                height: 4,
-                pixels: vec![255; 64]
-            },
-            &config
-        )
-        .is_err());
+        assert!(
+            prepare_image(
+                Texture {
+                    width: 4,
+                    height: 4,
+                    pixels: vec![255; 64]
+                },
+                &config
+            )
+            .is_err()
+        );
     }
 
     #[test]

@@ -49,12 +49,16 @@ fn remote_chatbox_uses_independent_other_player_lanes_and_late_metadata() {
             let (PresentationContent::Headset(messages) | PresentationContent::Wrist(messages)) =
                 content;
             assert_eq!(messages.len(), 2);
-            assert!(messages
-                .iter()
-                .all(|message| message.side == MessageSide::Left));
-            assert!(messages
-                .iter()
-                .all(|message| message.speaker.as_deref() == Some("#3")));
+            assert!(
+                messages
+                    .iter()
+                    .all(|message| message.side == MessageSide::Left)
+            );
+            assert!(
+                messages
+                    .iter()
+                    .all(|message| message.speaker.as_deref() == Some("#3"))
+            );
             assert_eq!(messages[0].original.as_ref().unwrap().source, "speaker");
             assert_eq!(
                 messages[1].original.as_ref().unwrap().source,
@@ -85,9 +89,11 @@ fn remote_chatbox_uses_independent_other_player_lanes_and_late_metadata() {
                 content;
             assert_eq!(messages[0].text, "Spoken words");
             assert_eq!(messages[1].text, "Typed words\nTranslated remote text");
-            assert!(messages
-                .iter()
-                .all(|message| message.speaker.as_deref() == Some("Late name")));
+            assert!(
+                messages
+                    .iter()
+                    .all(|message| message.speaker.as_deref() == Some("Late name"))
+            );
         }
     }
 }
@@ -428,9 +434,11 @@ fn wrist_idle_query_and_retention_invalidation_preserve_history() {
     assert_eq!(wrist.entries.len(), 1);
     config.idle_hide_seconds = 0;
     assert!(!wrist.idle_expired(now + Duration::from_secs(100), &config));
-    assert!(wrist
-        .frame(now + Duration::from_secs(100), &config)
-        .is_some());
+    assert!(
+        wrist
+            .frame(now + Duration::from_secs(100), &config)
+            .is_some()
+    );
 }
 
 #[test]
@@ -442,15 +450,21 @@ fn wrist_idle_deadline_preserves_history_and_new_activity_restores_visibility() 
     };
     let mut wrist = WristPresentation::default();
     wrist.apply(final_event(subtitle(1, "hello")), now, &config);
-    assert!(wrist
-        .frame(now + Duration::from_millis(14999), &config)
-        .is_some());
-    assert!(wrist
-        .frame(now + Duration::from_secs(15), &config)
-        .is_none());
-    assert!(wrist
-        .frame(now + Duration::from_secs(60), &config)
-        .is_none());
+    assert!(
+        wrist
+            .frame(now + Duration::from_millis(14999), &config)
+            .is_some()
+    );
+    assert!(
+        wrist
+            .frame(now + Duration::from_secs(15), &config)
+            .is_none()
+    );
+    assert!(
+        wrist
+            .frame(now + Duration::from_secs(60), &config)
+            .is_none()
+    );
     assert_eq!(wrist.entries.len(), 1);
 
     wrist.apply(
@@ -476,9 +490,11 @@ fn wrist_idle_deadline_preserves_history_and_new_activity_restores_visibility() 
             },
         ])
     );
-    assert!(wrist
-        .frame(now + Duration::from_secs(75), &config)
-        .is_none());
+    assert!(
+        wrist
+            .frame(now + Duration::from_secs(75), &config)
+            .is_none()
+    );
 }
 
 #[test]
@@ -496,12 +512,16 @@ fn wrist_partials_and_late_translation_restart_idle_deadline() {
         now + Duration::from_secs(10),
         &config,
     );
-    assert!(wrist
-        .frame(now + Duration::from_secs(15), &config)
-        .is_some());
-    assert!(wrist
-        .frame(now + Duration::from_secs(25), &config)
-        .is_none());
+    assert!(
+        wrist
+            .frame(now + Duration::from_secs(15), &config)
+            .is_some()
+    );
+    assert!(
+        wrist
+            .frame(now + Duration::from_secs(25), &config)
+            .is_none()
+    );
     wrist.apply(
         PresentationEvent::TranslationCompleted {
             subtitle_id: 1,
@@ -511,12 +531,16 @@ fn wrist_partials_and_late_translation_restart_idle_deadline() {
         now + Duration::from_secs(30),
         &config,
     );
-    assert!(wrist
-        .frame(now + Duration::from_secs(30), &config)
-        .is_some());
-    assert!(wrist
-        .frame(now + Duration::from_secs(45), &config)
-        .is_none());
+    assert!(
+        wrist
+            .frame(now + Duration::from_secs(30), &config)
+            .is_some()
+    );
+    assert!(
+        wrist
+            .frame(now + Duration::from_secs(45), &config)
+            .is_none()
+    );
 }
 
 #[test]
@@ -600,9 +624,11 @@ fn wrist_empty_live_preview_does_not_extend_idle_deadline() {
         now + Duration::from_secs(10),
         &config,
     );
-    assert!(wrist
-        .frame(now + Duration::from_secs(15), &config)
-        .is_none());
+    assert!(
+        wrist
+            .frame(now + Duration::from_secs(15), &config)
+            .is_none()
+    );
 }
 
 #[test]
@@ -636,9 +662,11 @@ fn wrist_translation_from_disabled_source_does_not_extend_idle_deadline() {
             }
         };
         wrist.apply(event, now + Duration::from_secs(10), &config);
-        assert!(wrist
-            .frame(now + Duration::from_secs(15), &config)
-            .is_none());
+        assert!(
+            wrist
+                .frame(now + Duration::from_secs(15), &config)
+                .is_none()
+        );
     }
 }
 
@@ -652,9 +680,11 @@ fn wrist_zero_timeout_only_disables_idle_hiding() {
     };
     let mut wrist = WristPresentation::default();
     wrist.apply(partial_event("u1", "speaker", "hello"), now, &config);
-    assert!(wrist
-        .frame(now + Duration::from_secs(3600), &config)
-        .is_some());
+    assert!(
+        wrist
+            .frame(now + Duration::from_secs(3600), &config)
+            .is_some()
+    );
     wrist.apply(
         PresentationEvent::RecognitionCancelled {
             utterance_id: "u1".into(),
@@ -665,13 +695,17 @@ fn wrist_zero_timeout_only_disables_idle_hiding() {
     );
     assert!(wrist.frame(now, &config).is_none());
     wrist.apply(final_event(subtitle(1, "hello")), now, &config);
-    assert!(wrist
-        .frame(now + Duration::from_secs(3600), &config)
-        .is_some());
+    assert!(
+        wrist
+            .frame(now + Duration::from_secs(3600), &config)
+            .is_some()
+    );
     config.idle_hide_seconds = 15;
-    assert!(wrist
-        .frame(now + Duration::from_secs(3600), &config)
-        .is_none());
+    assert!(
+        wrist
+            .frame(now + Duration::from_secs(3600), &config)
+            .is_none()
+    );
 }
 
 fn translation_in(target_language: &str, text: &str) -> vrcs_core::SubtitleTranslation {
@@ -1312,10 +1346,12 @@ fn native_translation_can_arrive_before_the_original() {
     };
     let mut headset = HeadsetPresentation::default();
     headset.apply(event.clone(), now, &config);
-    assert!(headset
-        .partials
-        .back()
-        .is_some_and(|item| item.original.is_empty() && item.translations[0].text == "hello"));
+    assert!(
+        headset
+            .partials
+            .back()
+            .is_some_and(|item| item.original.is_empty() && item.translations[0].text == "hello")
+    );
     headset.apply(
         PresentationEvent::RecognitionCancelled {
             source: "speaker".into(),

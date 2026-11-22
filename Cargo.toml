@@ -1,10 +1,30 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "core",
     "apps/desktop/src-tauri",
     "crates/player-audio-scan",
 ]
+
+[workspace.package]
+edition = "2024"
+license = "AGPL-3.0-only"
+authors = ["VRCS contributors"]
+
+[workspace.dependencies]
+tokio = "1"
+serde = "1"
+serde_json = "1"
+tracing = "0.1"
+uuid = "1"
+futures-util = "0.3"
+libc = "0.2"
+ring = "0.17"
+zeroize = "1"
+windows = "0.62"
+
+[workspace.lints.cargo]
+unused_dependencies = "warn"
 
 # Match ONNX Runtime's C++ runtime while retaining application debug builds.
 [profile.dev.package.openvr_sys]

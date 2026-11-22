@@ -6,15 +6,15 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use super::helper::{
-    procfs, read_event, write_command, Command as HelperCommand, Event, ScanResult, VERSION,
+    Command as HelperCommand, Event, ScanResult, VERSION, procfs, read_event, write_command,
 };
 
-use super::connection::{Connection, Datagram};
 use super::SharedStatus;
+use super::connection::{Connection, Datagram};
 use crate::vrchat_process::ProcessIdentity;
 
 const HELPER_PATHS: [&str; 2] = ["/usr/bin/vrcs-desktop", "/usr/local/bin/vrcs-desktop"];
@@ -494,7 +494,7 @@ impl Network {
                 Ok(packet) => callback(packet),
                 Err(mpsc::TryRecvError::Empty) => return Ok(()),
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    return Err("The network helper connection closed".into())
+                    return Err("The network helper connection closed".into());
                 }
             }
         }

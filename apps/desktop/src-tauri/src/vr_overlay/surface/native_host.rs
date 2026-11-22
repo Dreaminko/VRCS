@@ -3,8 +3,9 @@ use std::{
     collections::VecDeque,
     rc::Rc,
     sync::{
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU32, Ordering},
-        mpsc, Arc, Mutex,
+        mpsc,
     },
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -20,27 +21,27 @@ use webview2_com::{
     WebResourceRequestedEventHandler,
 };
 use windows::{
-    core::{w, Interface, BOOL, PCWSTR, PWSTR},
     Graphics::Capture::GraphicsCaptureItem,
+    UI::Composition::{Compositor, ContainerVisual},
     Win32::{
         Foundation::{HWND, LPARAM, RECT, WPARAM},
         System::{
             Threading::GetCurrentThreadId,
             WinRT::{
-                CreateDispatcherQueueController, DispatcherQueueOptions, RoInitialize,
-                RoUninitialize, DQTAT_COM_NONE, DQTYPE_THREAD_CURRENT, RO_INIT_SINGLETHREADED,
+                CreateDispatcherQueueController, DQTAT_COM_NONE, DQTYPE_THREAD_CURRENT,
+                DispatcherQueueOptions, RO_INIT_SINGLETHREADED, RoInitialize, RoUninitialize,
             },
         },
         UI::{Shell::SHCreateMemStream, WindowsAndMessaging::*},
     },
-    UI::Composition::{Compositor, ContainerVisual},
+    core::{BOOL, Interface, PCWSTR, PWSTR, w},
 };
 
 use super::SurfaceHub;
 use crate::vr_overlay::surface_protocol::SurfaceActivity;
 use crate::vr_overlay::surface_protocol::{
-    decode_request, BridgeError, DocumentSession, HostId, Operation, PageReply, PageRequest,
-    ResourcePolicy, ResourceRoute, SurfaceEvent,
+    BridgeError, DocumentSession, HostId, Operation, PageReply, PageRequest, ResourcePolicy,
+    ResourceRoute, SurfaceEvent, decode_request,
 };
 
 const WAKE: u32 = WM_APP + 41;
@@ -101,7 +102,7 @@ impl Shared {
     fn current(&self, id: HostId) -> Option<SurfaceActivity> {
         self.control
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .expect("native host state lock")
             .current(id)
     }
 }
@@ -137,7 +138,7 @@ impl NativeHostManager {
     pub(super) fn ensure(&self, id: HostId) -> Result<(), String> {
         let activity = {
             let hub = self.app.state::<SurfaceHub>();
-            let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+            let entries = hub.0.lock().expect("surface hub lock");
             let entry = &entries[id.surface.index()];
             if entry.host_epoch != id.host_epoch || !entry.active {
                 return Ok(());
@@ -148,7 +149,7 @@ impl NativeHostManager {
             .shared
             .error
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .expect("native host state lock")
             .clone()
         {
             return Err(error);
@@ -157,12 +158,12 @@ impl NativeHostManager {
             .shared
             .control
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .expect("native host state lock")
             .ensure(DesiredHost { id, activity })
         {
             return Err("Native surface host is closed or stale".into());
         }
-        let mut thread = self.thread.lock().unwrap_or_else(|e| e.into_inner());
+        let mut thread = self.thread.lock().expect("native host state lock");
         if thread.is_none() {
             let shared = self.shared.clone();
             let app = self.app.clone();
@@ -172,8 +173,7 @@ impl NativeHostManager {
                 .spawn(move || {
                     let result = run(app, shared.clone());
                     if let Err(error) = &result {
-                        *shared.error.lock().unwrap_or_else(|e| e.into_inner()) =
-                            Some(error.clone());
+                        *shared.error.lock().expect("native host state lock") = Some(error.clone());
                     }
                     shared.thread_id.store(0, Ordering::Release);
                     let _ = done.send(result);
@@ -198,7 +198,7 @@ impl NativeHostManager {
             .state::<SurfaceHub>()
             .0
             .lock()
-            .unwrap_or_else(|e| e.into_inner())[id.surface.index()]
+            .expect("surface hub lock")[id.surface.index()]
         .document
         .clone();
         let Some(session) = session.filter(|session| session.host == id) else {
@@ -210,7 +210,7 @@ impl NativeHostManager {
         self.shared
             .events
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .expect("native host events lock")
             .push(QueuedEvent { session, event })?;
         self.shared.wake();
         Ok(())
@@ -220,7 +220,7 @@ impl NativeHostManager {
         self.shared
             .control
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .expect("native host control lock")
             .activity(id, activity);
         self.shared.wake();
         Ok(())
@@ -230,7 +230,7 @@ impl NativeHostManager {
         self.shared
             .control
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .expect("native host control lock")
             .close(id);
         self.shared.wake();
         Ok(())
@@ -242,7 +242,7 @@ impl NativeHostManager {
                 .shared
                 .control
                 .lock()
-                .unwrap_or_else(|e| e.into_inner());
+                .expect("native host control lock");
             control.closing = true;
             control.revision = control.revision.wrapping_add(1);
         }
@@ -251,7 +251,7 @@ impl NativeHostManager {
             .state::<SurfaceHub>()
             .0
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .expect("surface hub lock")
             .iter_mut()
         {
             entry.recovery.phase = super::recovery::Phase::Closing;
@@ -262,11 +262,7 @@ impl NativeHostManager {
 
     #[cfg(all(debug_assertions, feature = "vr-preview"))]
     pub(super) fn reload(&self, id: HostId) {
-        let mut control = self
-            .shared
-            .control
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut control = self.shared.control.lock().expect("native host state lock");
         control.reload[id.surface.index()] = Some(id);
         control.revision = control.revision.wrapping_add(1);
         drop(control);
@@ -275,16 +271,12 @@ impl NativeHostManager {
 
     #[cfg(all(debug_assertions, feature = "vr-preview"))]
     pub(super) fn counts(&self) -> (usize, usize) {
-        *self.shared.counts.lock().unwrap_or_else(|e| e.into_inner())
+        *self.shared.counts.lock().expect("native host state lock")
     }
 
     #[cfg(all(debug_assertions, feature = "vr-preview"))]
     pub(super) fn crash_browser(&self) {
-        let mut control = self
-            .shared
-            .control
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut control = self.shared.control.lock().expect("native host state lock");
         control.crash_browser = true;
         control.revision = control.revision.wrapping_add(1);
         drop(control);
@@ -295,10 +287,10 @@ impl NativeHostManager {
         self.shared
             .control
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .expect("native host state lock")
             .shutdown();
         self.shared.wake();
-        let mut thread = self.thread.lock().unwrap_or_else(|e| e.into_inner());
+        let mut thread = self.thread.lock().expect("native host state lock");
         let Some(running) = thread.as_ref() else {
             return Ok(());
         };
@@ -504,7 +496,7 @@ fn post_event(
 
 fn host_error(app: &AppHandle, id: HostId, error: String) {
     let hub = app.state::<SurfaceHub>();
-    let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+    let mut entries = hub.0.lock().expect("surface hub lock");
     let entry = &mut entries[id.surface.index()];
     if entry.host_epoch == id.host_epoch {
         if entry.error.as_ref() == Some(&error) {
@@ -578,16 +570,12 @@ fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
         shared.notified.store(false, Ordering::Release);
         let retry_environment = if state.borrow().failure.is_some() {
             let state = state.borrow();
-            let control = state
-                .shared
-                .control
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let control = state.shared.control.lock().expect("native host state lock");
             let desired = control.hosts;
             let closing = control.closing;
             drop(control);
             let hub = state.app.state::<SurfaceHub>();
-            let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+            let entries = hub.0.lock().expect("surface hub lock");
             !closing
                 && state.inflight == 0
                 && state.hosts.iter().all(Option::is_none)
@@ -613,7 +601,7 @@ fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
         #[cfg(all(debug_assertions, feature = "vr-preview"))]
         {
             let state = state.borrow();
-            *shared.counts.lock().unwrap_or_else(|e| e.into_inner()) = (
+            *shared.counts.lock().expect("native host state lock") = (
                 state.hosts.iter().filter(|host| host.is_some()).count(),
                 state.inflight,
             );
@@ -621,7 +609,7 @@ fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
         let closing = shared
             .control
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .expect("native host state lock")
             .closing;
         if !closing
             && state.borrow().browser_failed.get()
@@ -650,7 +638,7 @@ fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
                     shared
                         .control
                         .lock()
-                        .unwrap_or_else(|e| e.into_inner())
+                        .expect("native host state lock")
                         .shutdown();
                 }
                 let _ = TranslateMessage(&msg);
@@ -718,7 +706,7 @@ fn start_environment(state: &Rc<RefCell<Sta>>, profile: &std::path::Path) {
                     .shared
                     .control
                     .lock()
-                    .unwrap_or_else(|e| e.into_inner())
+                    .expect("native host state lock")
                     .closing
                 {
                     state.shared.wake();
@@ -760,7 +748,7 @@ fn environment_error(state: &mut Sta, error: String) {
         .shared
         .control
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .expect("native host state lock")
         .hosts;
     for host in hosts.into_iter().flatten() {
         host_error(&state.app, host.id, error.clone());
@@ -776,7 +764,7 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
             .shared
             .control
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .expect("native host state lock")
             .revision;
         let has_sleep = s.hosts.iter().flatten().any(|host| host.sleep.is_some());
         (
@@ -798,14 +786,14 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
             for host in state.hosts.iter().flatten() {
                 host_error(&state.app, host.id, "surface_browser_process_failed".into());
                 let hub = state.app.state::<SurfaceHub>();
-                let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                let mut entries = hub.0.lock().expect("surface hub lock");
                 let entry = &mut entries[host.id.surface.index()];
                 // Hidden entries have already suspended capture on the worker.
                 let closing = state
                     .shared
                     .control
                     .lock()
-                    .unwrap_or_else(|e| e.into_inner())
+                    .expect("native host state lock")
                     .closing;
                 if !closing && !entry.active && entry.host_epoch == host.id.host_epoch {
                     entry.invalidate_host();
@@ -813,7 +801,7 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
                         .shared
                         .control
                         .lock()
-                        .unwrap_or_else(|e| e.into_inner())
+                        .expect("native host state lock")
                         .close(host.id);
                 }
             }
@@ -823,7 +811,7 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
             .shared
             .control
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .expect("native host state lock")
             .hosts;
         #[cfg(all(debug_assertions, feature = "vr-preview"))]
         {
@@ -833,28 +821,24 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
                     .shared
                     .control
                     .lock()
-                    .unwrap_or_else(|e| e.into_inner())
+                    .expect("native host state lock")
                     .crash_browser,
             );
             if crash {
                 // Only the isolated capture-smoke environment may terminate its own browser.
                 let state = state.borrow();
-                if state.app.config().identifier == "app.vrcs.vr-surface-smoke" {
-                    if let Some(host) = state.hosts.iter().flatten().next() {
-                        let mut pid = 0;
-                        if unsafe { host.webview.BrowserProcessId(&mut pid) }.is_ok() {
-                            use windows::Win32::{
-                                Foundation::CloseHandle,
-                                System::Threading::{
-                                    OpenProcess, TerminateProcess, PROCESS_TERMINATE,
-                                },
-                            };
-                            if let Ok(process) =
-                                unsafe { OpenProcess(PROCESS_TERMINATE, false, pid) }
-                            {
-                                let _ = unsafe { TerminateProcess(process, 1) };
-                                let _ = unsafe { CloseHandle(process) };
-                            }
+                if state.app.config().identifier == "app.vrcs.vr-surface-smoke"
+                    && let Some(host) = state.hosts.iter().flatten().next()
+                {
+                    let mut pid = 0;
+                    if unsafe { host.webview.BrowserProcessId(&mut pid) }.is_ok() {
+                        use windows::Win32::{
+                            Foundation::CloseHandle,
+                            System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess},
+                        };
+                        if let Ok(process) = unsafe { OpenProcess(PROCESS_TERMINATE, false, pid) } {
+                            let _ = unsafe { TerminateProcess(process, 1) };
+                            let _ = unsafe { CloseHandle(process) };
                         }
                     }
                 }
@@ -865,17 +849,16 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
                     .shared
                     .control
                     .lock()
-                    .unwrap_or_else(|e| e.into_inner())
+                    .expect("native host state lock")
                     .reload,
             );
             for id in reloads.into_iter().flatten() {
                 let state = state.borrow();
-                if let Some(host) = &state.hosts[id.surface.index()] {
-                    if host.id == id {
-                        if let Err(error) = unsafe { host.webview.Reload() } {
-                            host_error(&state.app, id, failure("Reload surface", error));
-                        }
-                    }
+                if let Some(host) = &state.hosts[id.surface.index()]
+                    && host.id == id
+                    && let Err(error) = unsafe { host.webview.Reload() }
+                {
+                    host_error(&state.app, id, failure("Reload surface", error));
                 }
             }
         }
@@ -896,7 +879,7 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
                 let create = {
                     let s = state.borrow();
                     let hub = s.app.state::<SurfaceHub>();
-                    let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                    let entries = hub.0.lock().expect("surface hub lock");
                     s.hosts[index].is_none()
                         && s.creating[index].is_none()
                         && s.environment.is_some()
@@ -927,7 +910,7 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
                         );
                     }
                     let hub = app.state::<SurfaceHub>();
-                    let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut entries = hub.0.lock().expect("surface hub lock");
                     let entry = &mut entries[index];
                     if entry.host_epoch == host.id.host_epoch
                         && entry.activity_request == desired.activity.request
@@ -938,12 +921,11 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
                         .then(|| entry.state.clone())
                         .flatten();
                     drop(entries);
-                    if let (Some(view), Some(session)) = (view, host.session.borrow().as_ref()) {
-                        if let Err(error) =
+                    if let (Some(view), Some(session)) = (view, host.session.borrow().as_ref())
+                        && let Err(error) =
                             post_event(&host.webview, session, SurfaceEvent::View(Box::new(view)))
-                        {
-                            host_error(&app, host.id, failure("Wake surface view", error));
-                        }
+                    {
+                        host_error(&app, host.id, failure("Wake surface view", error));
                     }
                 }
             }
@@ -955,7 +937,7 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
             .shared
             .events
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .expect("native host state lock")
             .0,
     );
     for event in events {
@@ -963,12 +945,11 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
         if state.shared.current(event.session.host).is_none() {
             continue;
         }
-        if let Some(host) = &state.hosts[event.session.host.surface.index()] {
-            if host.session.borrow().as_ref() == Some(&event.session) {
-                if let Err(error) = post_event(&host.webview, &event.session, event.event) {
-                    host_error(&state.app, host.id, failure("Send surface event", error));
-                }
-            }
+        if let Some(host) = &state.hosts[event.session.host.surface.index()]
+            && host.session.borrow().as_ref() == Some(&event.session)
+            && let Err(error) = post_event(&host.webview, &event.session, event.event)
+        {
+            host_error(&state.app, host.id, failure("Send surface event", error));
         }
     }
     timeout
@@ -1010,10 +991,10 @@ fn start_host(state: &Rc<RefCell<Sta>>, id: HostId) {
                             .current(id)
                             .is_some_and(|activity| activity.active);
                     if !current {
-                        if let Some(composition) = composition {
-                            if let Ok(controller) = composition.cast::<ICoreWebView2Controller>() {
-                                let _ = unsafe { controller.Close() };
-                            }
+                        if let Some(composition) = composition
+                            && let Ok(controller) = composition.cast::<ICoreWebView2Controller>()
+                        {
+                            let _ = unsafe { controller.Close() };
                         }
                         if state.browser_failed.get() {
                             host_error(&state.app, id, "surface_browser_process_failed".into());
@@ -1033,7 +1014,7 @@ fn start_host(state: &Rc<RefCell<Sta>>, id: HostId) {
                         match result {
                             Ok(host) => {
                                 let hub = state.app.state::<SurfaceHub>();
-                                let mut entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                                let mut entries = hub.0.lock().expect("surface hub lock");
                                 let entry = &mut entries[id.surface.index()];
                                 // Recheck both authorities after asynchronous controller creation.
                                 if entry.host_epoch == id.host_epoch
@@ -1047,7 +1028,7 @@ fn start_host(state: &Rc<RefCell<Sta>>, id: HostId) {
                                         host: id,
                                         source: host._item.clone(),
                                         #[cfg(all(debug_assertions, feature = "vr-preview"))]
-                                        parent: host._parent.0 .0 as isize,
+                                        parent: host._parent.0.0 as isize,
                                     });
                                     entry.creating = false;
                                     entry.host_awake = true;
@@ -1187,17 +1168,17 @@ impl NativeHost {
                 post_event(&self.webview, session, SurfaceEvent::Activity(activity))?;
             }
         }
-        if let Some((request, deadline)) = self.sleep {
-            if self.snapshot.get() == Some(request) || Instant::now() >= deadline {
-                if self.snapshot.get() != Some(request) {
-                    tracing::warn!(surface = self.id.surface.name(), "snapshot_missing");
-                }
-                unsafe {
-                    self.controller.SetIsVisible(false)?;
-                }
-                self.root.SetIsVisible(false)?;
-                self.sleep = None;
+        if let Some((request, deadline)) = self.sleep
+            && (self.snapshot.get() == Some(request) || Instant::now() >= deadline)
+        {
+            if self.snapshot.get() != Some(request) {
+                tracing::warn!(surface = self.id.surface.name(), "snapshot_missing");
             }
+            unsafe {
+                self.controller.SetIsVisible(false)?;
+            }
+            self.root.SetIsVisible(false)?;
+            self.sleep = None;
         }
         Ok(())
     }
@@ -1263,7 +1244,7 @@ impl NativeHost {
                     args.NavigationId(&mut navigation)?;
                     {
                         let hub = app.state::<SurfaceHub>();
-                        let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+                        let entries = hub.0.lock().expect("surface hub lock");
                         let entry = &entries[id.surface.index()];
                         // Rejected external and superseded navigations must not fault this document.
                         if entry.host_epoch != id.host_epoch || entry.navigation_id != navigation {
@@ -1343,11 +1324,11 @@ impl NativeHost {
                     let result = app
                         .state::<SurfaceHub>()
                         .handle_page_request(&document, request);
-                    if matches!(&result, Ok(PageReply::Accepted(true))) {
-                        if let Some(request) = sleeping {
-                            snapshot.set(Some(request));
-                            shared.wake();
-                        }
+                    if matches!(&result, Ok(PageReply::Accepted(true)))
+                        && let Some(request) = sleeping
+                    {
+                        snapshot.set(Some(request));
+                        shared.wake();
                     }
                     post_reply(&sender, &document.nonce, request_id, result)
                 })),

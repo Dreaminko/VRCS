@@ -3,8 +3,8 @@ use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::Path;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use ::pipewire as pw;
@@ -15,9 +15,9 @@ use spa::param::audio::{AudioFormat, AudioInfoRaw};
 use spa::pod::Pod;
 use tokio::sync::mpsc;
 
-use super::super::tap::{TapResampler, TAP_RATE};
+use super::super::tap::{TAP_RATE, TapResampler};
 use super::super::{AudioError, CHUNK_FRAMES};
-use super::devices::{error, Node, Session};
+use super::devices::{Node, Session, error};
 use super::{CaptureTarget, DeviceDirection};
 use crate::models::AudioDevice;
 use crate::vision::MicrophoneTap;

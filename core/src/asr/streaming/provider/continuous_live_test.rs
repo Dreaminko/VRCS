@@ -310,12 +310,13 @@ async fn run(provider: Provider, key_env: &str, service: &str) {
         .last()
         .map(|v| v["received_ms"].clone())
         .unwrap_or(Value::Null);
-    report["events_after_finish"] =
-        json!(recording
+    report["events_after_finish"] = json!(
+        recording
             .iter()
             .filter(|v| finish_sent_ms
                 .is_some_and(|finish| v["received_ms"].as_u64().unwrap() > finish))
-            .count());
+            .count()
+    );
     if let Ok(path) = std::env::var("CONTINUOUS_LIVE_REPORT") {
         std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
     }
@@ -496,9 +497,11 @@ async fn recorded_gemini_mixed_language_completes_source_only_rows_without_echo(
         .filter(|r| r.transcript.language.as_deref() == Some("en"))
     {
         assert!(row.pending);
-        assert!(!observed.latest[&row.transcript.utterance_id]
-            .transcript
-            .translation
-            .is_empty());
+        assert!(
+            !observed.latest[&row.transcript.utterance_id]
+                .transcript
+                .translation
+                .is_empty()
+        );
     }
 }

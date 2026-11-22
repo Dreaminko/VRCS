@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::{AssetSpec, PackageSpec};
 use crate::asr::verification::{
-    file_sha256, modified_nanos, verification_path, VerificationRecord,
+    VerificationRecord, file_sha256, modified_nanos, verification_path,
 };
 
 pub(crate) fn package_dir(root: &Path, spec: PackageSpec) -> PathBuf {
@@ -122,17 +122,14 @@ pub(super) fn verify_asset(path: &Path, spec: AssetSpec, force: bool) -> Result<
         return Ok(false);
     }
     let modified = modified_nanos(&metadata)?;
-    if !force {
-        if let Ok(bytes) = std::fs::read(verification_path(path)) {
-            if let Ok(record) = serde_json::from_slice::<VerificationRecord>(&bytes) {
-                if record.bytes == spec.bytes
-                    && record.modified_nanos == modified
-                    && record.sha256 == spec.sha256
-                {
-                    return Ok(true);
-                }
-            }
-        }
+    if !force
+        && let Ok(bytes) = std::fs::read(verification_path(path))
+        && let Ok(record) = serde_json::from_slice::<VerificationRecord>(&bytes)
+        && record.bytes == spec.bytes
+        && record.modified_nanos == modified
+        && record.sha256 == spec.sha256
+    {
+        return Ok(true);
     }
     let digest = file_sha256(path)?;
     if digest != spec.sha256 {

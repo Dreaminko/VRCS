@@ -433,12 +433,14 @@ mod tests {
             }
         ));
         let mut bytes = [0; 1024];
-        assert!(tokio::time::timeout(
-            std::time::Duration::from_millis(150),
-            receiver.recv(&mut bytes)
-        )
-        .await
-        .is_err());
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(150),
+                receiver.recv(&mut bytes)
+            )
+            .await
+            .is_err()
+        );
     }
 
     fn subtitle(id: i64) -> Subtitle {

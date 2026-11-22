@@ -5,8 +5,8 @@ use serde::Serialize;
 use tokio::sync::watch;
 
 use crate::models::SpeakerIdentity;
-use crate::player_audio::session::NetworkConsumers;
 use crate::player_audio::PlayerInfo;
+use crate::player_audio::session::NetworkConsumers;
 use crate::vrchat_chatbox::TaskValidity;
 use crate::vrchat_log;
 
@@ -157,12 +157,12 @@ impl RoomContextSnapshot {
     pub(crate) fn asr_terms(&self, include_world_name: bool, max_terms: usize) -> Vec<String> {
         let mut seen = HashSet::new();
         let mut terms = Vec::new();
-        if include_world_name {
-            if let Some(world) = &self.world_name {
-                if seen.insert(world.to_lowercase()) && terms.len() < max_terms {
-                    terms.push(world.clone());
-                }
-            }
+        if include_world_name
+            && let Some(world) = &self.world_name
+            && seen.insert(world.to_lowercase())
+            && terms.len() < max_terms
+        {
+            terms.push(world.clone());
         }
         for member in &self.members {
             if terms.len() >= max_terms {
@@ -180,14 +180,13 @@ impl RoomContextSnapshot {
         speaker: Option<&SpeakerIdentity>,
     ) -> Option<&RoomMember> {
         let speaker = speaker?;
-        if let Some(user_id) = speaker.user_id.as_deref() {
-            if let Some(found) = self
+        if let Some(user_id) = speaker.user_id.as_deref()
+            && let Some(found) = self
                 .members
                 .iter()
                 .find(|member| member.user_id.as_deref() == Some(user_id))
-            {
-                return Some(found);
-            }
+        {
+            return Some(found);
         }
         self.members.iter().find(|member| {
             member.speaker_key == speaker.id || member.track_ids.iter().any(|id| id == &speaker.id)

@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use super::qwen_models::{
-    activate_staging, download_into_staging, is_installed, package_dir, prepare_migration,
-    staging_dir, AssetSpec, PackageSpec,
+    AssetSpec, PackageSpec, activate_staging, download_into_staging, is_installed, package_dir,
+    prepare_migration, staging_dir,
 };
 
 const FILES: [AssetSpec; 2] = [
@@ -175,12 +175,14 @@ fn qwen_migration_conflict_keeps_source_and_target_files() {
     write_file(&old_qwen, "mmproj.gguf", b"abc");
     write_file(&new_qwen, "main.gguf", b"abd");
     write_file(&new_qwen, "mmproj.gguf", b"abc");
-    assert!(super::migration::move_model_dir_with_specs(
-        source.path().to_path_buf(),
-        target.path().to_path_buf(),
-        &[FIXTURE],
-    )
-    .is_err());
+    assert!(
+        super::migration::move_model_dir_with_specs(
+            source.path().to_path_buf(),
+            target.path().to_path_buf(),
+            &[FIXTURE],
+        )
+        .is_err()
+    );
     assert!(is_installed(source.path(), FIXTURE, true).unwrap());
     assert_eq!(std::fs::read(new_qwen.join("main.gguf")).unwrap(), b"abd");
 }
@@ -204,10 +206,10 @@ fn qwen_verification_detects_same_size_replacement_with_stale_cache() {
 
 #[tokio::test]
 async fn qwen_download_reuses_verified_files_after_a_failed_companion_download() {
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-    use axum::{http::StatusCode, routing::get, Router};
+    use axum::{Router, http::StatusCode, routing::get};
 
     let main_hits = Arc::new(AtomicUsize::new(0));
     let companion_fails = Arc::new(AtomicBool::new(true));

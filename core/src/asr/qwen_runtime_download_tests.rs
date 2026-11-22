@@ -217,7 +217,7 @@ fn failed_activation_restores_previous_installation() {
 
 #[tokio::test]
 async fn runtime_asset_with_a_wrong_checksum_cannot_be_activated() {
-    use axum::{routing::get, Router};
+    use axum::{Router, routing::get};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}/runtime.zip", listener.local_addr().unwrap());
     let server = tokio::spawn(async move {

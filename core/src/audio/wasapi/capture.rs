@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use ::wasapi::{
     AudioCaptureClient, AudioClient, AudioClientProperties, Device, Direction, Handle, SampleType,
@@ -10,13 +10,13 @@ use tokio::sync::mpsc;
 
 use crate::models::AudioDevice;
 
-use super::super::tap::{TapResampler, TAP_RATE};
+use super::super::tap::{TAP_RATE, TapResampler};
 use super::super::{AudioError, CHUNK_FRAMES};
 use super::devices::{
-    default_device_id, endpoint_info, err, init_com, is_endpoint_invalidation, resolve_device,
-    ComApartment,
+    ComApartment, default_device_id, endpoint_info, err, init_com, is_endpoint_invalidation,
+    resolve_device,
 };
-use super::pcm::{append_mono_f32, resample_linear, NativeFormat, SampleEncoding};
+use super::pcm::{NativeFormat, SampleEncoding, append_mono_f32, resample_linear};
 use super::{CaptureTarget, DeviceDirection};
 
 const SHARED_BUFFER_DURATION_HNS: i64 = 0;
@@ -96,13 +96,12 @@ fn initialize_shared_client(
             Some(client) => client,
             None => recreate_client()?,
         };
-        if plan.raw {
-            if let Err(error) =
+        if plan.raw
+            && let Err(error) =
                 client.set_properties(AudioClientProperties::new().set_option(StreamOption::Raw))
-            {
-                tracing::warn!(stage = "set_raw_properties", detail = %error, "WASAPI RAW fallback is unavailable");
-                return Err(previous_oom.expect("RAW fallback follows an out-of-memory error"));
-            }
+        {
+            tracing::warn!(stage = "set_raw_properties", detail = %error, "WASAPI RAW fallback is unavailable");
+            return Err(previous_oom.expect("RAW fallback follows an out-of-memory error"));
         }
         let mode = plan.stream_mode(autoconvert);
         match client
@@ -477,18 +476,17 @@ fn run_stream(
             let mut origin = *timeline_origin
                 .get_or_insert_with(|| read_at - native_duration(pending.len() as u64));
             let estimated_end = origin + native_duration(timeline_frames + pending.len() as u64);
-            if let Some(tap) = microphone_tap {
-                if read_at.saturating_duration_since(estimated_end)
+            if let Some(tap) = microphone_tap
+                && (read_at.saturating_duration_since(estimated_end)
                     > std::time::Duration::from_millis(250)
                     || estimated_end.saturating_duration_since(read_at)
-                        > std::time::Duration::from_millis(250)
-                {
-                    tap.discontinuity("Microphone capture timing discontinuity");
-                    tap_resampler.reset();
-                    origin = read_at - native_duration(pending.len() as u64);
-                    timeline_origin = Some(origin);
-                    timeline_frames = 0;
-                }
+                        > std::time::Duration::from_millis(250))
+            {
+                tap.discontinuity("Microphone capture timing discontinuity");
+                tap_resampler.reset();
+                origin = read_at - native_duration(pending.len() as u64);
+                timeline_origin = Some(origin);
+                timeline_frames = 0;
             }
             while pending.len() >= frames_per_chunk {
                 let chunk_start = origin + native_duration(timeline_frames);
@@ -530,10 +528,10 @@ fn publish_chunk(
         };
         tap.push(samples, start, end);
     }
-    if !chunk.is_empty() {
-        if let Ok(permit) = tx.try_reserve() {
-            permit.send(chunk);
-        }
+    if !chunk.is_empty()
+        && let Ok(permit) = tx.try_reserve()
+    {
+        permit.send(chunk);
     }
 }
 
@@ -671,7 +669,7 @@ pub(crate) fn capture_main(
 #[cfg(test)]
 mod tests {
     use super::{
-        default_endpoint_changed, should_recover_default, CaptureTiming, INITIALIZE_PLANS,
+        CaptureTiming, INITIALIZE_PLANS, default_endpoint_changed, should_recover_default,
     };
 
     #[tokio::test]
@@ -715,9 +713,11 @@ mod tests {
                 assert!(samples.len() <= 64);
                 assert!(samples.contains(&0.1));
                 assert!(samples.contains(&0.2));
-                assert!(samples
-                    .iter()
-                    .all(|sample| *sample == 0.1 || *sample == 0.2));
+                assert!(
+                    samples
+                        .iter()
+                        .all(|sample| *sample == 0.1 || *sample == 0.2)
+                );
                 assert_eq!(rx.try_recv().unwrap(), vec![9.0]);
                 assert!(rx.try_recv().is_err());
             }

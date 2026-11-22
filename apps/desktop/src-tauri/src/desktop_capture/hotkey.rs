@@ -5,9 +5,9 @@ use tauri::{AppHandle, Manager as _};
 use windows_sys::Win32::{
     System::Threading::GetCurrentThreadId,
     UI::{
-        Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey, MOD_NOREPEAT},
+        Input::KeyboardAndMouse::{MOD_NOREPEAT, RegisterHotKey, UnregisterHotKey},
         WindowsAndMessaging::{
-            GetMessageW, PeekMessageW, PostThreadMessageW, MSG, PM_NOREMOVE, PM_REMOVE, WM_APP,
+            GetMessageW, MSG, PM_NOREMOVE, PM_REMOVE, PeekMessageW, PostThreadMessageW, WM_APP,
             WM_HOTKEY, WM_QUIT,
         },
     },

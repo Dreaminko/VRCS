@@ -3,11 +3,11 @@
 //! The host takes one snapshot at a time on the main thread. The worker never
 //! blocks: `start_cropped` queues work and `poll` drains the completed frame.
 use super::super::frame_receipt::FrameReceipt;
-use super::linux_host::{HostSlot, Snapshot, MARKER_HEIGHT};
+use super::linux_host::{HostSlot, MARKER_HEIGHT, Snapshot};
 use super::metrics::CaptureCounters;
 use super::recovery::Fault;
 use crate::vr_overlay::renderer::Texture;
-use std::sync::{mpsc::Receiver, Arc};
+use std::sync::{Arc, mpsc::Receiver};
 
 pub(crate) use super::error::CaptureError;
 

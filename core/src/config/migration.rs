@@ -2,8 +2,8 @@ use serde::Deserialize;
 
 use super::recognition::{default_device, default_language};
 use super::{
-    default_service_settings, AppConfig, AsrConfig, AudioConfig, ManagedQwenConfig,
-    MicrophoneConfig, OutputConfig, ServerConfig, StorageConfig, SCHEMA_VERSION,
+    AppConfig, AsrConfig, AudioConfig, ManagedQwenConfig, MicrophoneConfig, OutputConfig,
+    SCHEMA_VERSION, ServerConfig, StorageConfig, default_service_settings,
 };
 use crate::providers::{
     self, ALIBABA_TOKEN_PLAN_PROVIDER, CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION,
@@ -580,16 +580,16 @@ fn backfill_glossary_sources(
             "Configuration translation.prompt.glossary_sources must be an array".to_string()
         })?;
     let mut sources = Vec::new();
-    if let Some(entries) = glossary {
-        if !entries.as_array().is_some_and(Vec::is_empty) {
-            sources.push(serde_json::json!({
-                "id": "legacy-local",
-                "type": "local",
-                "name": "Local glossary",
-                "enabled": true,
-                "entries": entries
-            }));
-        }
+    if let Some(entries) = glossary
+        && !entries.as_array().is_some_and(Vec::is_empty)
+    {
+        sources.push(serde_json::json!({
+            "id": "legacy-local",
+            "type": "local",
+            "name": "Local glossary",
+            "enabled": true,
+            "entries": entries
+        }));
     }
     if let Some(url) = subscription_url.filter(|value| !value.is_null()) {
         sources.push(serde_json::json!({
@@ -821,10 +821,10 @@ fn normalize_translation_default(value: &mut serde_json::Value) -> Result<(), St
     else {
         return Ok(());
     };
-    if !defaults.contains_key("translation") {
-        if let Some(text) = defaults.get("text").cloned() {
-            defaults.insert("translation".into(), text);
-        }
+    if !defaults.contains_key("translation")
+        && let Some(text) = defaults.get("text").cloned()
+    {
+        defaults.insert("translation".into(), text);
     }
     Ok(())
 }
@@ -840,13 +840,12 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
             .and_then(serde_json::Value::as_object_mut)
         {
             let osc_disabled = features.remove("osc_chatbox") == Some(false.into());
-            if osc_disabled {
-                if let Some(osc) = normalized
+            if osc_disabled
+                && let Some(osc) = normalized
                     .get_mut("osc")
                     .and_then(serde_json::Value::as_object_mut)
-                {
-                    osc.insert("enabled".into(), false.into());
-                }
+            {
+                osc.insert("enabled".into(), false.into());
             }
         }
     }

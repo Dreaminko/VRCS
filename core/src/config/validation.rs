@@ -190,10 +190,10 @@ fn validate_conversation_titles(config: &AppConfig) -> Result<(), String> {
     {
         return Err("Unsupported conversation_titles.output_language".into());
     }
-    if let Some(id) = &titles.profile_id {
-        if id.is_empty() || id.len() > 64 || contains_control(id) {
-            return Err("Invalid conversation_titles.profile_id".into());
-        }
+    if let Some(id) = &titles.profile_id
+        && (id.is_empty() || id.len() > 64 || contains_control(id))
+    {
+        return Err("Invalid conversation_titles.profile_id".into());
     }
     if titles.auto_generate {
         let profile = config
@@ -1118,7 +1118,7 @@ fn validate_prompt_variables(template: &str) -> Result<(), String> {
         match (character, start) {
             ('{', None) => start = Some(index + 1),
             ('{', Some(_)) => {
-                return Err("Translation system prompt contains a nested variable".into())
+                return Err("Translation system prompt contains a nested variable".into());
             }
             ('}', Some(variable_start)) => {
                 let variable = &template[variable_start..index];
@@ -1132,7 +1132,7 @@ fn validate_prompt_variables(template: &str) -> Result<(), String> {
                 start = None;
             }
             ('}', None) => {
-                return Err("Translation system prompt contains an unmatched closing brace".into())
+                return Err("Translation system prompt contains an unmatched closing brace".into());
             }
             _ => {}
         }

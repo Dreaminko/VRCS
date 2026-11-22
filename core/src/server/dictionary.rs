@@ -2,16 +2,16 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
+use axum::Json;
 use axum::extract::{Extension, Query, State};
 use axum::http::{HeaderMap, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use super::{
-    api_error, api_error_with_params, db_call, dictionary_import_error, ApiResult, ContentState,
+    ApiResult, ContentState, api_error, api_error_with_params, db_call, dictionary_import_error,
 };
 use crate::db::Database;
 use crate::error::AppError;
@@ -304,12 +304,12 @@ pub(super) async fn dictionary_delete(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     use super::{
-        register_import_in, valid_import_id, RegisterImportError, IMPORT_PROGRESS_SCALE,
-        MAX_IMPORT_PROGRESS_ENTRIES,
+        IMPORT_PROGRESS_SCALE, MAX_IMPORT_PROGRESS_ENTRIES, RegisterImportError,
+        register_import_in, valid_import_id,
     };
 
     #[test]

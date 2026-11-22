@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::{api_error, db_call, ApiResult, ContentState};
+use super::{ApiResult, ContentState, api_error, db_call};
 
 const MAX_QUERY_CHARS: usize = 200;
 const DEFAULT_LIMIT: u32 = 50;

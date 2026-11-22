@@ -1,4 +1,4 @@
-use super::ocr_capture::{region_crop, CaptureCrop, EyeCapture};
+use super::ocr_capture::{CaptureCrop, EyeCapture, region_crop};
 use super::pose::SpaceId;
 
 #[derive(Clone)]

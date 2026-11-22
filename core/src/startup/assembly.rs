@@ -223,10 +223,10 @@ where
             }
         }))
     } else {
-        if plan.managed_vad_model {
-            if let Err(error) = preparation.await {
-                tracing::warn!(%error, "Silero VAD model unavailable; using energy fallback");
-            }
+        if plan.managed_vad_model
+            && let Err(error) = preparation.await
+        {
+            tracing::warn!(%error, "Silero VAD model unavailable; using energy fallback");
         }
         None
     };

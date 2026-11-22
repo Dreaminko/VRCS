@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn qwen_rate_close_is_shared_with_new_tracks_and_stop_cancels_reconnect_wait() {
-    use tokio_tungstenite::tungstenite::protocol::{frame::coding::CloseCode, CloseFrame};
+    use tokio_tungstenite::tungstenite::protocol::{CloseFrame, frame::coding::CloseCode};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("ws://{}", listener.local_addr().unwrap());
     let profile = ApiProfile {
@@ -105,18 +105,20 @@ async fn qwen_rate_close_is_shared_with_new_tracks_and_stop_cancels_reconnect_wa
                     Ok(())
                 );
                 // A different player cannot bypass the same account/model gate.
-                assert!(tokio::time::timeout(
-                    Duration::from_millis(100),
-                    connect_initialized(
-                        Provider::QwenLiveTranslate,
-                        &config,
-                        &profile,
-                        0.4,
-                        "mock-key"
+                assert!(
+                    tokio::time::timeout(
+                        Duration::from_millis(100),
+                        connect_initialized(
+                            Provider::QwenLiveTranslate,
+                            &config,
+                            &profile,
+                            0.4,
+                            "mock-key"
+                        )
                     )
-                )
-                .await
-                .is_err());
+                    .await
+                    .is_err()
+                );
                 assert!(
                     tokio::time::timeout(Duration::from_millis(30), listener.accept())
                         .await

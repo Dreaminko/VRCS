@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(windows)]
 use std::sync::mpsc;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::buffer::JitterBuffer;
@@ -331,11 +331,12 @@ fn run(
                     engine.invalidate_room_context();
                 }
                 world_poll = Instant::now();
-                if key.is_some() && !room_restored {
-                    if let Some(token) = token {
-                        engine.restore_room(cache, owner, token);
-                        room_restored = true;
-                    }
+                if key.is_some()
+                    && !room_restored
+                    && let Some(token) = token
+                {
+                    engine.restore_room(cache, owner, token);
+                    room_restored = true;
                 }
                 if scanner.is_none() && Instant::now() >= retry_at {
                     let mut state = status.lock().expect("player status");
@@ -484,11 +485,11 @@ fn run(
                             cache.store(owner, bytes);
                             if !room_restored {
                                 let snapshot = log.snapshot();
-                                if snapshot.process == Some(owner) {
-                                    if let Some(token) = snapshot.room_token {
-                                        engine.restore_room(cache, owner, token);
-                                        room_restored = true;
-                                    }
+                                if snapshot.process == Some(owner)
+                                    && let Some(token) = snapshot.room_token
+                                {
+                                    engine.restore_room(cache, owner, token);
+                                    room_restored = true;
                                 }
                             }
                             if key.take().is_some() {
@@ -624,11 +625,11 @@ fn run(
     room_context.invalidate_network_room();
     if result.is_ok() && key.is_some() && stop.load(Ordering::Relaxed) {
         let snapshot = log.snapshot();
-        if snapshot.process == Some(owner) {
-            if let Some(token) = snapshot.room_token {
-                *cache.room.lock().expect("room identity cache") =
-                    Some(engine.take_metadata(owner, token));
-            }
+        if snapshot.process == Some(owner)
+            && let Some(token) = snapshot.room_token
+        {
+            *cache.room.lock().expect("room identity cache") =
+                Some(engine.take_metadata(owner, token));
         }
     }
     result
@@ -1104,10 +1105,10 @@ impl Engine {
             return;
         }
         flow.nonces.push_back((incoming, nonce));
-        if flow.nonces.len() > 512 {
-            if let Some(evicted) = flow.nonces.pop_front() {
-                flow.nonce_set.remove(&evicted);
-            }
+        if flow.nonces.len() > 512
+            && let Some(evicted) = flow.nonces.pop_front()
+        {
+            flow.nonce_set.remove(&evicted);
         }
         flow.last_seen = now;
         let parser = if incoming {
@@ -1140,20 +1141,20 @@ impl Engine {
                         changed = true;
                     }
                 }
-                if let Some(decoded) = position {
-                    if let super::proximity::PositionDecode::Sample(position) = decoded.position {
-                        if local_position.is_none_or(|previous| {
-                            super::proximity::newer_tick(position.tick, previous.tick)
-                        }) {
-                            local_position = Some(position);
-                        }
-                        if let Some(yaw) = decoded.yaw_deg {
-                            if local_yaw.is_none_or(|(tick, _)| {
-                                super::proximity::newer_tick(position.tick, tick)
-                            }) {
-                                local_yaw = Some((position.tick, yaw));
-                            }
-                        }
+                if let Some(decoded) = position
+                    && let super::proximity::PositionDecode::Sample(position) = decoded.position
+                {
+                    if local_position.is_none_or(|previous| {
+                        super::proximity::newer_tick(position.tick, previous.tick)
+                    }) {
+                        local_position = Some(position);
+                    }
+                    if let Some(yaw) = decoded.yaw_deg
+                        && local_yaw.is_none_or(|(tick, _)| {
+                            super::proximity::newer_tick(position.tick, tick)
+                        })
+                    {
+                        local_yaw = Some((position.tick, yaw));
                     }
                 }
             } else {
@@ -1162,10 +1163,9 @@ impl Engine {
                     position: super::proximity::PositionDecode::Sample(position),
                     ..
                 }) = position
+                    && let Some(participant) = flow.participant(actor)
                 {
-                    if let Some(participant) = flow.participant(actor) {
-                        player_positions.push((actor, participant.generation, position));
-                    }
+                    player_positions.push((actor, participant.generation, position));
                 }
                 for update in super::names::updates(&message) {
                     match update {
@@ -1178,24 +1178,22 @@ impl Engine {
                                 participant.user_id.is_some()
                                     && user_id.is_some()
                                     && participant.user_id != user_id
-                            }) {
-                                if let Some(previous) = flow.participants.remove(&actor) {
-                                    departures.push((actor, previous.generation));
-                                }
+                            }) && let Some(previous) = flow.participants.remove(&actor)
+                            {
+                                departures.push((actor, previous.generation));
                             }
-                            if let Some(participant) = flow.participant(actor) {
-                                if (display_name.is_some()
+                            if let Some(participant) = flow.participant(actor)
+                                && ((display_name.is_some()
                                     && participant.display_name != display_name)
-                                    || (user_id.is_some() && participant.user_id != user_id)
-                                {
-                                    if display_name.is_some() {
-                                        participant.display_name = display_name;
-                                    }
-                                    if user_id.is_some() {
-                                        participant.user_id = user_id;
-                                    }
-                                    updates.push((actor, participant.clone()));
+                                    || (user_id.is_some() && participant.user_id != user_id))
+                            {
+                                if display_name.is_some() {
+                                    participant.display_name = display_name;
                                 }
+                                if user_id.is_some() {
+                                    participant.user_id = user_id;
+                                }
+                                updates.push((actor, participant.clone()));
                             }
                         }
                         super::names::Update::Left(actor) => {
@@ -1205,19 +1203,20 @@ impl Engine {
                         }
                     }
                 }
-                if self.text_enabled && allow_text {
-                    if let Some((actor, text)) = super::chatbox::parse(&message) {
-                        if let Some(participant) = flow.participant(actor) {
-                            texts.push((actor, text, participant.clone()));
-                        }
-                    }
+                if self.text_enabled
+                    && allow_text
+                    && let Some((actor, text)) = super::chatbox::parse(&message)
+                    && let Some(participant) = flow.participant(actor)
+                {
+                    texts.push((actor, text, participant.clone()));
                 }
-                if allow_voice && self.opus.is_some() {
-                    if let Some(packets) = protocol::voice(&message) {
-                        for packet in packets {
-                            if let Some(participant) = flow.participant(packet.actor) {
-                                voices.push((packet, participant.clone()));
-                            }
+                if allow_voice
+                    && self.opus.is_some()
+                    && let Some(packets) = protocol::voice(&message)
+                {
+                    for packet in packets {
+                        if let Some(participant) = flow.participant(packet.actor) {
+                            voices.push((packet, participant.clone()));
                         }
                     }
                 }
@@ -1225,17 +1224,17 @@ impl Engine {
         }
         let flow_number = flow.number;
         let epoch = flow.epoch;
-        if let Some(world) = joined_room {
-            if self.active_world.as_ref() != Some(&world) {
-                self.close_tracks_excluded();
-                self.clear_text();
-                self.clear_proximity();
-                self.identities.clear();
-                self.flows.retain(|_, flow| flow.number == flow_number);
-                self.active_world = Some(world);
-                self.roster_dirty = true;
-                self.invalidate_room_context();
-            }
+        if let Some(world) = joined_room
+            && self.active_world.as_ref() != Some(&world)
+        {
+            self.close_tracks_excluded();
+            self.clear_text();
+            self.clear_proximity();
+            self.identities.clear();
+            self.flows.retain(|_, flow| flow.number == flow_number);
+            self.active_world = Some(world);
+            self.roster_dirty = true;
+            self.invalidate_room_context();
         }
         if changed {
             self.clear_text();
@@ -1440,10 +1439,11 @@ impl Engine {
                     break;
                 }
                 track.next_playout += Duration::from_millis(20);
-                if std::mem::take(&mut track.buffer.reset) && !track.decoder.reset() {
-                    if let Some(Ok(decoder)) = self.opus.as_ref().map(|opus| opus.decoder()) {
-                        track.decoder = decoder;
-                    }
+                if std::mem::take(&mut track.buffer.reset)
+                    && !track.decoder.reset()
+                    && let Some(Ok(decoder)) = self.opus.as_ref().map(|opus| opus.decoder())
+                {
+                    track.decoder = decoder;
                 }
                 let samples = match track.buffer.pop() {
                     Some(packet) => match track.decoder.decode(&packet) {
@@ -1738,7 +1738,7 @@ mod tests {
         let mut heading = event_12_at(None, 10, [0.0, 0.0, 0.0]);
         heading[9] += 1;
         heading.push(0); // 0x47 high bits encode an east-facing 90-degree yaw.
-                         // A later no-heading sample must not erase the earlier heading.
+        // A later no-heading sample must not erase the earlier heading.
         receive(
             &mut engine,
             vec![heading, event_12_at(None, 11, [0.0, 0.0, 0.0])],

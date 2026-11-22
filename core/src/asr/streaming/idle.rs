@@ -213,9 +213,11 @@ mod tests {
                 _ => unreachable!(),
             })
             .collect();
-        assert!(audio
-            .windows(1024)
-            .any(|w| w[..512] == [0.1; 512] && w[512..] == [0.2; 512]));
+        assert!(
+            audio
+                .windows(1024)
+                .any(|w| w[..512] == [0.1; 512] && w[512..] == [0.2; 512])
+        );
         assert_eq!(&audio[audio.len() - 512..], &[0.3; 512]);
     }
 }

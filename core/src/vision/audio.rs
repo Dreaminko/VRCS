@@ -261,34 +261,33 @@ impl AudioWindow {
     fn release_at(&mut self, end: Instant) {
         let mut state = self.tap.inner.lock().expect("microphone tap lock");
         let watermark = state.watermark;
-        if let Some(window) = state.window.as_mut().filter(|window| window.id == self.id) {
-            if window.end.is_none() {
-                window.end = Some(end);
-                // A producer estimate can be slightly ahead of wall time. Trim
-                // samples already collected past the actual release boundary.
-                for &(start, stop, count, first, offset) in &window.spans {
-                    if end < stop {
-                        let last = if end <= start {
-                            0
-                        } else {
-                            ((end.duration_since(start).as_secs_f64()
-                                / stop.duration_since(start).as_secs_f64()
-                                * count as f64
-                                - 1e-7)
-                                .ceil() as usize)
-                                .min(count)
-                        };
-                        window.samples.truncate(offset + last.saturating_sub(first));
-                        break;
-                    }
+        if let Some(window) = state.window.as_mut().filter(|window| window.id == self.id)
+            && window.end.is_none()
+        {
+            window.end = Some(end);
+            // A producer estimate can be slightly ahead of wall time. Trim
+            // samples already collected past the actual release boundary.
+            for &(start, stop, count, first, offset) in &window.spans {
+                if end < stop {
+                    let last = if end <= start {
+                        0
+                    } else {
+                        ((end.duration_since(start).as_secs_f64()
+                            / stop.duration_since(start).as_secs_f64()
+                            * count as f64
+                            - 1e-7)
+                            .ceil() as usize)
+                            .min(count)
+                    };
+                    window.samples.truncate(offset + last.saturating_sub(first));
+                    break;
                 }
-                if end > window.deadline {
-                    window.error = Some("Audio window exceeded its duration limit".into());
-                    window.samples.clear();
-                }
-                window.complete =
-                    window.error.is_none() && watermark.is_some_and(|mark| mark >= end);
             }
+            if end > window.deadline {
+                window.error = Some("Audio window exceeded its duration limit".into());
+                window.samples.clear();
+            }
+            window.complete = window.error.is_none() && watermark.is_some_and(|mark| mark >= end);
         }
         self.tap.changed.notify_one();
     }
@@ -496,13 +495,15 @@ mod tests {
         tap.stopped("Device changed before the control worker stopped capture");
         assert!(status.finish_capture().unwrap());
         tap.stopped("Dedicated microphone capture stopped");
-        assert!(reader
-            .next()
-            .await
-            .unwrap()
-            .unwrap()
-            .iter()
-            .all(|sample| *sample == 0.2));
+        assert!(
+            reader
+                .next()
+                .await
+                .unwrap()
+                .unwrap()
+                .iter()
+                .all(|sample| *sample == 0.2)
+        );
         assert!(reader.next().await.unwrap().is_none());
     }
 
@@ -579,11 +580,13 @@ mod tests {
             end + Duration::from_millis(1),
             end + Duration::from_millis(11),
         );
-        assert!(window
-            .reader()
-            .check()
-            .unwrap_err()
-            .contains("missing or overlapping frames"));
+        assert!(
+            window
+                .reader()
+                .check()
+                .unwrap_err()
+                .contains("missing or overlapping frames")
+        );
     }
 
     #[tokio::test]
@@ -769,15 +772,16 @@ mod tests {
                 );
                 assert!(reader.check().is_err());
                 assert!(reader.next().await.is_err());
-                assert!(tap
-                    .inner
-                    .lock()
-                    .unwrap()
-                    .window
-                    .as_ref()
-                    .unwrap()
-                    .samples
-                    .is_empty());
+                assert!(
+                    tap.inner
+                        .lock()
+                        .unwrap()
+                        .window
+                        .as_ref()
+                        .unwrap()
+                        .samples
+                        .is_empty()
+                );
                 if !released {
                     window.release_at(base + Duration::from_millis(3));
                 }

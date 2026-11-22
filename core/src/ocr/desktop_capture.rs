@@ -5,7 +5,6 @@ use std::{
 };
 
 use windows::{
-    core::{factory, Error, Interface, BOOL, HRESULT},
     Graphics::{
         Capture::{
             Direct3D11CaptureFramePool, GraphicsCaptureAccess, GraphicsCaptureAccessKind,
@@ -16,19 +15,19 @@ use windows::{
     Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus,
     Win32::{
         Foundation::{
-            ERROR_TIMEOUT, E_ACCESSDENIED, E_FAIL, E_HANDLE, E_NOINTERFACE, E_NOTIMPL, E_POINTER,
+            E_ACCESSDENIED, E_FAIL, E_HANDLE, E_NOINTERFACE, E_NOTIMPL, E_POINTER, ERROR_TIMEOUT,
             HMODULE, HWND, LPARAM, RECT, REGDB_E_CLASSNOTREG,
         },
         Graphics::{
             Direct3D::D3D_DRIVER_TYPE_HARDWARE,
             Direct3D11::{
-                D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
-                D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE,
-                D3D11_MAP_FLAG_DO_NOT_WAIT, D3D11_MAP_READ, D3D11_SDK_VERSION,
-                D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
+                D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                D3D11_MAP_FLAG_DO_NOT_WAIT, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE,
+                D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING, D3D11CreateDevice,
+                ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
             },
             Dwm::DwmFlush,
-            Dxgi::{IDXGIDevice, DXGI_ERROR_WAS_STILL_DRAWING},
+            Dxgi::{DXGI_ERROR_WAS_STILL_DRAWING, IDXGIDevice},
             Gdi::{EnumDisplayMonitors, HDC, HMONITOR},
         },
         System::{
@@ -36,13 +35,13 @@ use windows::{
             WinRT::{
                 Direct3D11::{CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess},
                 Graphics::Capture::IGraphicsCaptureItemInterop,
-                RoInitialize, RoUninitialize, RO_INIT_MULTITHREADED,
+                RO_INIT_MULTITHREADED, RoInitialize, RoUninitialize,
             },
         },
         UI::{
             HiDpi::{
-                SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT,
-                DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+                DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+                SetThreadDpiAwarenessContext,
             },
             WindowsAndMessaging::{
                 GetWindowDisplayAffinity, IsWindow, IsWindowVisible, SetWindowDisplayAffinity,
@@ -50,6 +49,7 @@ use windows::{
             },
         },
     },
+    core::{BOOL, Error, HRESULT, Interface, factory},
 };
 
 pub struct DesktopCapture {
@@ -182,8 +182,8 @@ fn monitors() -> windows::core::Result<Vec<(HMONITOR, RECT)>> {
         rect: *mut RECT,
         data: LPARAM,
     ) -> BOOL {
-        let monitors = &mut *(data.0 as *mut Vec<(HMONITOR, RECT)>);
-        monitors.push((monitor, *rect));
+        let monitors = unsafe { &mut *(data.0 as *mut Vec<(HMONITOR, RECT)>) };
+        monitors.push((monitor, unsafe { *rect }));
         BOOL(1)
     }
     let mut monitors = Vec::new();
@@ -623,11 +623,11 @@ mod tests {
     #[ignore = "Requires an interactive Windows desktop"]
     fn restores_result_window_capture_visibility() {
         use windows::{
-            core::w,
             Win32::UI::WindowsAndMessaging::{
                 CreateWindowExW, DestroyWindow, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP,
                 WS_VISIBLE,
             },
+            core::w,
         };
         unsafe {
             let window = CreateWindowExW(

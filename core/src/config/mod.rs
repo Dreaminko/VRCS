@@ -33,7 +33,7 @@ pub use audio::{
     PlayerSourceOverride, PlayerViewPriorityConfig, VadConfig,
 };
 pub use conversation_titles::{ConversationTitleConfig, TITLE_OUTPUT_LANGUAGES};
-pub use features::{apply_feature_gates, FeatureConfig, FeatureKey};
+pub use features::{FeatureConfig, FeatureKey, apply_feature_gates};
 pub use glossary::{GlossaryCategory, GlossaryConfig, GlossaryEntry, GlossarySource};
 pub use integrations::{AnkiConfig, DictionaryConfig, OscConfig};
 pub use io::{load_config, save_config};
@@ -41,10 +41,10 @@ pub use language::LanguagePreset;
 #[cfg(test)]
 pub use model_assignment::ModelBinding;
 pub use model_assignment::{LearningAiConfig, ModelDefaultsConfig, ModelSelection};
-pub use profile::{ApiAuthMode, ApiProfile, HttpHeaderConfig, DEFAULT_PROFILE_TIMEOUT_MS};
+pub use profile::{ApiAuthMode, ApiProfile, DEFAULT_PROFILE_TIMEOUT_MS, HttpHeaderConfig};
 pub use recognition::{
-    default_service_settings, AsrConfig, ManagedQwenConfig, RecognitionServiceSettings,
-    QWEN_MANAGED_BACKEND,
+    AsrConfig, ManagedQwenConfig, QWEN_MANAGED_BACKEND, RecognitionServiceSettings,
+    default_service_settings,
 };
 pub use runtime::{
     ExternalApiConfig, ModelDownloadSource, ServerConfig, StorageConfig, VrcxConfig,

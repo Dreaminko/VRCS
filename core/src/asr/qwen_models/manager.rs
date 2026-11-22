@@ -4,7 +4,7 @@ use serde::Serialize;
 use tokio::sync::watch;
 
 use super::download::download_into_staging;
-use super::manifest::{package_spec, PACKAGES};
+use super::manifest::{PACKAGES, package_spec};
 use super::package::{
     check_owned_directory, is_installed, managed_parent, package_dir, staging_dir,
 };

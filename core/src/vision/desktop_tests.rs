@@ -1,6 +1,6 @@
 use super::*;
-use axum::{routing::post, Json, Router};
-use serde_json::{json, Value};
+use axum::{Json, Router, routing::post};
+use serde_json::{Value, json};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Semaphore;
 
@@ -237,18 +237,22 @@ async fn text_needs_no_asr_and_ignores_speech_display_and_other_mode_changes() {
     assert_eq!(answer.question, "What is this?");
     assert_eq!(answer.answer, "A menu button.");
     assert_eq!(fixture.asr_calls.load(Ordering::SeqCst), 0);
-    assert!(!fixture
-        .handle
-        .state
-        .capture
-        .capture_requested
-        .load(Ordering::SeqCst));
-    assert!(!fixture
-        .handle
-        .state
-        .config
-        .question_microphone
-        .load(Ordering::SeqCst));
+    assert!(
+        !fixture
+            .handle
+            .state
+            .capture
+            .capture_requested
+            .load(Ordering::SeqCst)
+    );
+    assert!(
+        !fixture
+            .handle
+            .state
+            .config
+            .question_microphone
+            .load(Ordering::SeqCst)
+    );
     assert!(subtitles.try_recv().is_err());
     fixture.close().await;
 }
@@ -262,19 +266,25 @@ async fn text_rejects_invalid_input_and_inactive_modes_before_http() {
         "x".repeat(MAX_QUESTION_CHARACTERS + 1),
         "bad\0question".into(),
     ] {
-        assert!(service
-            .answer_text(VisionMode::Desktop, question, test_png())
-            .await
-            .is_err());
+        assert!(
+            service
+                .answer_text(VisionMode::Desktop, question, test_png())
+                .await
+                .is_err()
+        );
     }
-    assert!(service
-        .answer_text(VisionMode::Desktop, "Question".into(), vec![])
-        .await
-        .is_err());
-    assert!(service
-        .answer_text(VisionMode::Vr, "Question".into(), test_png())
-        .await
-        .is_err());
+    assert!(
+        service
+            .answer_text(VisionMode::Desktop, "Question".into(), vec![])
+            .await
+            .is_err()
+    );
+    assert!(
+        service
+            .answer_text(VisionMode::Vr, "Question".into(), test_png())
+            .await
+            .is_err()
+    );
     fixture
         .handle
         .state
@@ -284,10 +294,12 @@ async fn text_rejects_invalid_input_and_inactive_modes_before_http() {
         .unwrap()
         .vision
         .desktop_enabled = false;
-    assert!(service
-        .answer_text(VisionMode::Desktop, "Question".into(), test_png())
-        .await
-        .is_err());
+    assert!(
+        service
+            .answer_text(VisionMode::Desktop, "Question".into(), test_png())
+            .await
+            .is_err()
+    );
     fixture
         .handle
         .state
@@ -308,10 +320,12 @@ async fn text_rejects_invalid_input_and_inactive_modes_before_http() {
         .api_profiles[0]
         .enabled_capabilities
         .clear();
-    assert!(service
-        .answer_text(VisionMode::Desktop, "Question".into(), test_png())
-        .await
-        .is_err());
+    assert!(
+        service
+            .answer_text(VisionMode::Desktop, "Question".into(), test_png())
+            .await
+            .is_err()
+    );
     assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
     assert_eq!(fixture.asr_calls.load(Ordering::SeqCst), 0);
     fixture.close().await;

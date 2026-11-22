@@ -303,12 +303,12 @@ fn parse(message: &[u8]) -> Option<Vec<Update>> {
         result.extend(name(actor, properties));
     }
     // A property snapshot can contain several actor entries in any of these events.
-    if matches!(event, 42 | 253 | 255) {
-        if let Value::Map(items) = properties {
-            for (key, properties) in items {
-                if let Some(actor) = key.actor() {
-                    result.extend(name(actor, properties));
-                }
+    if matches!(event, 42 | 253 | 255)
+        && let Value::Map(items) = properties
+    {
+        for (key, properties) in items {
+            if let Some(actor) = key.actor() {
+                result.extend(name(actor, properties));
             }
         }
     }

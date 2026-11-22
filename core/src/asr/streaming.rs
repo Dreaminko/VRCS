@@ -21,7 +21,7 @@ use crate::providers::{
     SERVICE_TOKEN_PLAN_REALTIME,
 };
 
-use super::{read_credential, SharedAudio};
+use super::{SharedAudio, read_credential};
 
 mod alignment;
 mod idle;
@@ -585,17 +585,17 @@ async fn run_with_reconnect_context(
             break;
         }
         if *stop.borrow() || audio.is_closed() {
-            if let Err(detail) = outcome {
-                if !detail.is_empty() {
-                    let _ = events
-                        .send(CloudEvent::Failed {
-                            utterance_id: None,
-                            reset_session: true,
-                            code: "asr.cloud_drain_failed".into(),
-                            detail,
-                        })
-                        .await;
-                }
+            if let Err(detail) = outcome
+                && !detail.is_empty()
+            {
+                let _ = events
+                    .send(CloudEvent::Failed {
+                        utterance_id: None,
+                        reset_session: true,
+                        code: "asr.cloud_drain_failed".into(),
+                        detail,
+                    })
+                    .await;
             }
             break;
         }
@@ -805,10 +805,9 @@ async fn run_session_buffered(
         provider,
         Provider::OpenAiLiveTranslate | Provider::GeminiLiveTranslate | Provider::QwenLiveTranslate
     ) && outcome.is_err()
+        && let Some(event) = provider.finish_translation(config, &mut normalization)
     {
-        if let Some(event) = provider.finish_translation(config, &mut normalization) {
-            let _ = events.send(event).await;
-        }
+        let _ = events.send(event).await;
     }
     outcome
 }
@@ -853,9 +852,8 @@ async fn run_session_inner(
             _ = translation_tick.tick(), if provider.segmentation_mode() == SegmentationMode::Continuous => {
                 if let Some(event) = provider.poll_translation(config, normalization) {
                     event_updates_transcript_state(&event, &mut in_transcript);
-                    if let Some(event) = filter_echo_event(event, context_state.as_ref().map(|c| c.echo_guard)) {
-                        if events.send(event).await.is_err() { return Ok(SessionEnd::Closed); }
-                    }
+                    if let Some(event) = filter_echo_event(event, context_state.as_ref().map(|c| c.echo_guard))
+                        && events.send(event).await.is_err() { return Ok(SessionEnd::Closed); }
                 }
             }
             changed = async {
@@ -1020,11 +1018,10 @@ async fn run_session_inner(
                         activity.push(0, true);
                     }
                     event_updates_transcript_state(&event, &mut in_transcript);
-                    if let Some(event) = filter_echo_event(event, context_state.as_ref().map(|c| c.echo_guard)) {
-                        if events.send(event).await.is_err() {
+                    if let Some(event) = filter_echo_event(event, context_state.as_ref().map(|c| c.echo_guard))
+                        && events.send(event).await.is_err() {
                             return Ok(SessionEnd::Closed);
                         }
-                    }
                 }
             }
         }
@@ -1540,11 +1537,13 @@ mod tests {
         assert_eq!(snapshot.text, "Original tail");
         assert!(completed.is_empty() && translations.is_empty());
         server.close(None).await.unwrap();
-        assert!(tokio::time::timeout(Duration::from_secs(2), task)
-            .await
-            .unwrap()
-            .unwrap()
-            .is_err());
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_err()
+        );
         let mut originals = Vec::new();
         let mut translated = Vec::new();
         while let Some(event) = received.recv().await {
@@ -1910,10 +1909,10 @@ mod tests {
                         || StreamingInput::Audio(super::super::share_audio(vec![0.1; 1600]));
                     audio_tx.send(audio()).await.unwrap();
                     loop {
-                        if let Some(CloudEvent::Failed { code, .. }) = event_rx.recv().await {
-                            if code == "asr.cloud_disconnected" {
-                                break;
-                            }
+                        if let Some(CloudEvent::Failed { code, .. }) = event_rx.recv().await
+                            && code == "asr.cloud_disconnected"
+                        {
+                            break;
                         }
                     }
                     // Sent during reconnect backoff: must be acknowledged without waiting.
@@ -2237,9 +2236,11 @@ mod tests {
             {
                 assert!(completed.is_empty() && translations.is_empty());
             }
-            assert!(Provider::OpenAiLiveTranslate
-                .finish_translation(&config, &mut reconnected)
-                .is_none());
+            assert!(
+                Provider::OpenAiLiveTranslate
+                    .finish_translation(&config, &mut reconnected)
+                    .is_none()
+            );
         }
     }
 
@@ -2327,11 +2328,13 @@ mod tests {
             server.send(json_frame(serde_json::json!({"type":format!("session.{kind}_transcript.delta"),"delta":delta}),false)).await.unwrap();
         }
         server.close(None).await.unwrap();
-        assert!(tokio::time::timeout(Duration::from_secs(2), task)
-            .await
-            .unwrap()
-            .unwrap()
-            .is_err());
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_err()
+        );
         let mut originals = Vec::new();
         let mut updates = Vec::new();
         while let Some(CloudEvent::LiveTranslation {
@@ -2656,7 +2659,7 @@ mod tests {
     #[tokio::test]
     async fn cloud_initialization_reports_binary_errors_and_close_reasons() {
         use tokio_tungstenite::tungstenite::{
-            protocol::frame::coding::CloseCode, protocol::CloseFrame,
+            protocol::CloseFrame, protocol::frame::coding::CloseCode,
         };
         for (frame, expected) in [
             (
@@ -2760,18 +2763,22 @@ mod tests {
             .unwrap(),
             SERVICE_OPENAI_REALTIME
         );
-        assert!(resolve_test_service(
-            &alibaba,
-            SERVICE_QWEN_REALTIME,
-            Some(SERVICE_OPENAI_REALTIME)
-        )
-        .is_err());
-        assert!(resolve_test_service(
-            &openai,
-            SERVICE_OPENAI_REALTIME,
-            Some(SERVICE_FUN_ASR_REALTIME)
-        )
-        .is_err());
+        assert!(
+            resolve_test_service(
+                &alibaba,
+                SERVICE_QWEN_REALTIME,
+                Some(SERVICE_OPENAI_REALTIME)
+            )
+            .is_err()
+        );
+        assert!(
+            resolve_test_service(
+                &openai,
+                SERVICE_OPENAI_REALTIME,
+                Some(SERVICE_FUN_ASR_REALTIME)
+            )
+            .is_err()
+        );
         assert!(Provider::from_service(providers::SERVICE_GROQ_TRANSCRIPTION).is_err());
     }
 
@@ -3173,9 +3180,11 @@ mod tests {
         let qwen_update = session_update(&qwen, 0.7);
         assert_eq!(qwen_update["session"]["sample_rate"], 16_000);
         assert!(qwen_update["session"]["turn_detection"].is_null());
-        assert!(qwen_update["session"]["input_audio_transcription"]
-            .get("language")
-            .is_none());
+        assert!(
+            qwen_update["session"]["input_audio_transcription"]
+                .get("language")
+                .is_none()
+        );
         assert_eq!(
             qwen_update["session"]["input_audio_transcription"]["corpus"]["text"],
             "VRChat, VRCX"
@@ -3286,7 +3295,10 @@ mod tests {
             ..ApiProfile::default()
         };
         let request = build_request(&config, &profile, "sk-test").unwrap();
-        assert_eq!(request.uri().to_string(), "wss://ws-example.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen-custom-realtime");
+        assert_eq!(
+            request.uri().to_string(),
+            "wss://ws-example.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen-custom-realtime"
+        );
         assert_eq!(request.headers()["Authorization"], "Bearer sk-test");
         assert_eq!(request.headers()["OpenAI-Beta"], "realtime=v1");
     }

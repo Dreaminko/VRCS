@@ -248,8 +248,8 @@ async fn vrchat_chatbox_text_only_http_lifecycle_and_settings_rollback() {
 #[tokio::test]
 async fn public_model_catalog_does_not_prove_completion_authentication() {
     use axum::{
-        routing::{get, post},
         Json, Router,
+        routing::{get, post},
     };
     let upstream = Router::new()
         .route(
@@ -868,15 +868,17 @@ async fn storage_stats_quota_update_and_history_clear_are_available_over_http() 
         .await
         .unwrap();
     assert!(cleared.status().is_success());
-    assert!(handle
-        .state
-        .content
-        .db
-        .lock()
-        .unwrap()
-        .subtitle_history(10)
-        .unwrap()
-        .is_empty());
+    assert!(
+        handle
+            .state
+            .content
+            .db
+            .lock()
+            .unwrap()
+            .subtitle_history(10)
+            .unwrap()
+            .is_empty()
+    );
 
     handle.shutdown().await.unwrap();
 }
@@ -1315,10 +1317,12 @@ async fn external_api_startup_failure_does_not_stop_the_core() {
         .await
         .unwrap();
     assert_eq!(status["state"], "failed");
-    assert!(status["error"]
-        .as_str()
-        .unwrap()
-        .contains("Failed to listen for External API"));
+    assert!(
+        status["error"]
+            .as_str()
+            .unwrap()
+            .contains("Failed to listen for External API")
+    );
 
     handle.shutdown().await.unwrap();
 }
@@ -1724,11 +1728,13 @@ async fn deleting_selected_qwen_package_clears_selection() {
         .await
         .unwrap();
     assert_eq!(saved["asr"]["managed_qwen"]["package_id"], "");
-    assert!(!handle
-        .state
-        .capture
-        .capture_requested
-        .load(std::sync::atomic::Ordering::SeqCst));
+    assert!(
+        !handle
+            .state
+            .capture
+            .capture_requested
+            .load(std::sync::atomic::Ordering::SeqCst)
+    );
     assert_eq!(
         client
             .put(format!("{base_url}/api/settings"))
@@ -2369,13 +2375,15 @@ async fn stale_settings_cannot_restore_a_deleted_api_profile() {
         .await
         .unwrap();
     assert_eq!(preflight.status(), reqwest::StatusCode::OK);
-    assert!(preflight
-        .headers()
-        .get("access-control-allow-headers")
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .contains("x-vrcs-config-revision"));
+    assert!(
+        preflight
+            .headers()
+            .get("access-control-allow-headers")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("x-vrcs-config-revision")
+    );
 
     let initial_response = client
         .get(format!("{base_url}/api/settings"))
@@ -2384,13 +2392,15 @@ async fn stale_settings_cannot_restore_a_deleted_api_profile() {
         .send()
         .await
         .unwrap();
-    assert!(initial_response
-        .headers()
-        .get("access-control-expose-headers")
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .contains("x-vrcs-config-revision"));
+    assert!(
+        initial_response
+            .headers()
+            .get("access-control-expose-headers")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("x-vrcs-config-revision")
+    );
     let initial_revision = initial_response
         .headers()
         .get("x-vrcs-config-revision")

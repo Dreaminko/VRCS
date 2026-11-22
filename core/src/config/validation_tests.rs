@@ -10,10 +10,12 @@ fn player_view_priority_angle_is_validated_even_when_disabled() {
         .player_audio
         .view_priority
         .horizontal_fov_deg = 29.0;
-    assert!(config
-        .validate_settings()
-        .unwrap_err()
-        .contains("view_priority.horizontal_fov_deg"));
+    assert!(
+        config
+            .validate_settings()
+            .unwrap_err()
+            .contains("view_priority.horizontal_fov_deg")
+    );
     config
         .audio
         .output
@@ -34,19 +36,23 @@ fn player_view_priority_angle_is_validated_even_when_disabled() {
 fn player_proximity_radius_is_validated_even_when_disabled() {
     let mut config = AppConfig::default();
     config.audio.output.player_audio.proximity.radius_m = f32::NAN;
-    assert!(config
-        .validate_settings()
-        .unwrap_err()
-        .contains("proximity.radius_m"));
+    assert!(
+        config
+            .validate_settings()
+            .unwrap_err()
+            .contains("proximity.radius_m")
+    );
     config.audio.output.player_audio.proximity.radius_m = 0.0;
     assert!(config.validate_settings().is_ok());
     config.audio.output.player_audio.proximity.radius_m = 10.0;
     assert!(config.validate_settings().is_ok());
     config.audio.output.player_audio.proximity.radius_m = 10.1;
-    assert!(config
-        .validate_settings()
-        .unwrap_err()
-        .contains("between 0 and 10"));
+    assert!(
+        config
+            .validate_settings()
+            .unwrap_err()
+            .contains("between 0 and 10")
+    );
 }
 
 #[test]
@@ -95,10 +101,10 @@ fn conversation_titles_require_text_generation_only_when_automatic() {
         config.conversation_titles.model = model;
         assert!(config.validate_settings().is_err());
     }
-    assert!(serde_json::from_value::<ConversationTitleConfig>(
-        serde_json::json!({"unknown": true})
-    )
-    .is_err());
+    assert!(
+        serde_json::from_value::<ConversationTitleConfig>(serde_json::json!({"unknown": true}))
+            .is_err()
+    );
 }
 
 #[test]
@@ -106,19 +112,23 @@ fn vision_defaults_and_limits_are_validated_even_when_disabled() {
     let mut config = AppConfig::default();
     assert!(config.validate_settings().is_ok());
     config.vision.image_max_bytes = 0;
-    assert!(config
-        .validate_settings()
-        .unwrap_err()
-        .contains("vision.image_max_bytes"));
+    assert!(
+        config
+            .validate_settings()
+            .unwrap_err()
+            .contains("vision.image_max_bytes")
+    );
     config.vision = super::ocr::VisionConfig::default();
     config.vision.display_seconds = f32::NAN;
     assert!(config.validate_settings().is_err());
     config.vision = super::ocr::VisionConfig::default();
     config.vision.wrist.as_mut().unwrap().offset_x_m = 0.6;
-    assert!(config
-        .validate_settings()
-        .unwrap_err()
-        .contains("vision.wrist"));
+    assert!(
+        config
+            .validate_settings()
+            .unwrap_err()
+            .contains("vision.wrist")
+    );
     config.vision = super::ocr::VisionConfig::default();
     config.vision.enabled = true;
     assert!(config.validate_settings().is_ok());
@@ -163,10 +173,12 @@ fn vision_requires_image_capability_but_does_not_infer_it_from_model_names() {
     assert!(config.validate_settings().is_ok());
     config.asr.api_profiles[0].enabled_capabilities = vec!["text_generation".into()];
     config.vision.model = "vision-in-the-name".into();
-    assert!(config
-        .validate_settings()
-        .unwrap_err()
-        .contains("image_understanding"));
+    assert!(
+        config
+            .validate_settings()
+            .unwrap_err()
+            .contains("image_understanding")
+    );
 }
 
 #[test]
@@ -202,17 +214,19 @@ fn vision_accepts_all_registered_image_providers() {
 
 #[test]
 fn vision_rejects_unknown_fields_and_missing_profiles() {
-    assert!(serde_json::from_value::<super::ocr::VisionConfig>(
-        serde_json::json!({"unknown": true})
-    )
-    .is_err());
+    assert!(
+        serde_json::from_value::<super::ocr::VisionConfig>(serde_json::json!({"unknown": true}))
+            .is_err()
+    );
     let mut config = AppConfig::default();
     config.vision.use_default_model = false;
     config.vision.profile_id = Some("missing".into());
-    assert!(config
-        .validate_settings()
-        .unwrap_err()
-        .contains("vision.profile_id"));
+    assert!(
+        config
+            .validate_settings()
+            .unwrap_err()
+            .contains("vision.profile_id")
+    );
 }
 
 #[test]
@@ -227,10 +241,12 @@ fn legacy_question_asr_is_ignored_and_not_serialized() {
     let config = super::migration::config_from_value(&raw).unwrap();
     assert!(config.vision.legacy_asr.is_none());
     config.validate_settings().unwrap();
-    assert!(serde_json::to_value(&config.vision)
-        .unwrap()
-        .get("asr")
-        .is_none());
+    assert!(
+        serde_json::to_value(&config.vision)
+            .unwrap()
+            .get("asr")
+            .is_none()
+    );
 }
 
 #[test]
@@ -960,10 +976,12 @@ fn openrouter_transcription_validates_defaults_and_speech_capability() {
         .model = "new-provider/new-asr".into();
     assert!(config.validate_settings().is_ok());
     config.asr.api_profiles[0].enabled_capabilities = text_capabilities();
-    assert!(config
-        .validate_settings()
-        .unwrap_err()
-        .contains("has not enabled speech recognition"));
+    assert!(
+        config
+            .validate_settings()
+            .unwrap_err()
+            .contains("has not enabled speech recognition")
+    );
 }
 
 #[test]
@@ -1185,10 +1203,12 @@ fn ocr_source_view_can_be_enabled_without_a_translation_profile() {
 
 #[test]
 fn ocr_settings_reject_backend_selection() {
-    assert!(serde_json::from_value::<crate::config::VrOcrConfig>(
-        serde_json::json!({"backend":"cloud"})
-    )
-    .is_err());
+    assert!(
+        serde_json::from_value::<crate::config::VrOcrConfig>(
+            serde_json::json!({"backend":"cloud"})
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -1203,10 +1223,12 @@ fn ocr_device_preserves_cpu_defaults_and_round_trips_directml() {
         serde_json::from_value::<crate::config::VrOcrConfig>(serialized).unwrap(),
         gpu
     );
-    assert!(serde_json::from_value::<crate::config::VrOcrConfig>(
-        serde_json::json!({"device":"invalid"})
-    )
-    .is_err());
+    assert!(
+        serde_json::from_value::<crate::config::VrOcrConfig>(
+            serde_json::json!({"device":"invalid"})
+        )
+        .is_err()
+    );
 }
 
 #[test]

@@ -1,12 +1,12 @@
-use serde_json::{json, Value};
-use tokio_tungstenite::tungstenite::{http::Request, Message};
+use serde_json::{Value, json};
+use tokio_tungstenite::tungstenite::{Message, http::Request};
 
 use crate::config::AsrConfig;
 use crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE;
 
 use super::{
-    append_pcm16_base64, authenticated_request, live_translation, resample_16k_to_24k,
-    service_settings, CloudEvent, InitializationEvent,
+    CloudEvent, InitializationEvent, append_pcm16_base64, authenticated_request, live_translation,
+    resample_16k_to_24k, service_settings,
 };
 
 const TRANSCRIPTION_MODEL: &str = "gpt-realtime-whisper";
@@ -404,9 +404,11 @@ mod tests {
                     panic!("each nonempty translated delta must publish immediately");
                 };
                 visible_deltas += 1;
-                assert!(snapshot
-                    .translation
-                    .ends_with(event["delta"].as_str().unwrap()));
+                assert!(
+                    snapshot
+                        .translation
+                        .ends_with(event["delta"].as_str().unwrap())
+                );
                 assert!(
                     translations.is_empty(),
                     "a visible delta must never wait for alignment"
@@ -428,7 +430,12 @@ mod tests {
                 ("apples", "苹果"),
             ] {
                 if source.contains(spoken) {
-                    assert!(target.contains(translated), "recorded source anchor {spoken:?} has no matching translation in group {:?} => {:?}", update.transcript.text, target);
+                    assert!(
+                        target.contains(translated),
+                        "recorded source anchor {spoken:?} has no matching translation in group {:?} => {:?}",
+                        update.transcript.text,
+                        target
+                    );
                 }
             }
         }
@@ -492,9 +499,11 @@ mod tests {
         )
         .unwrap();
         let error = json!({"type":"error","error":{"type":"invalid_request_error","code":"bad_audio","param":"audio","message":"Invalid audio"}});
-        assert!(normalize_event(&config, &error, &mut state)
-            .unwrap()
-            .is_none());
+        assert!(
+            normalize_event(&config, &error, &mut state)
+                .unwrap()
+                .is_none()
+        );
         let detail = error_detail(&error);
         assert!(detail.contains("bad_audio") && detail.contains("param=audio"));
         assert_eq!(state.input, "Hello");

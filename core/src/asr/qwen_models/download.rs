@@ -8,7 +8,7 @@ use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::watch;
 
 use super::package::{cache_verified_asset, managed_parent, verify_asset};
-use super::{activate_staging, staging_dir, AssetSpec, PackageSpec};
+use super::{AssetSpec, PackageSpec, activate_staging, staging_dir};
 
 const DOWNLOAD_ATTEMPTS: usize = 4;
 
@@ -36,7 +36,7 @@ pub(crate) async fn download_into_staging(
         Err(error) => {
             return Err(format!(
                 "Could not create Qwen ASR staging directory: {error}"
-            ))
+            ));
         }
     }
     let total = spec.files.iter().map(|file| file.bytes).sum();
@@ -291,12 +291,12 @@ pub(crate) async fn download_file(
 mod tests {
     use super::*;
     use axum::{
+        Router,
         http::{HeaderMap, StatusCode},
         routing::get,
-        Router,
     };
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     const ASSET: AssetSpec = AssetSpec {
         name: "fixture.gguf",
@@ -355,17 +355,49 @@ mod tests {
 
         let cases = [
             ("body interruption", vec![]),
-            ("connection failure and 503", vec![
-                "",
-                "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n",
-            ]),
-            ("request timeout", vec!["HTTP/1.1 408 Request Timeout\r\nContent-Length: 0\r\n\r\n"]),
-            ("rate limit", vec!["HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n"]),
-            ("wrong range start", vec!["HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-0/3\r\nContent-Length: 1\r\n\r\na"]),
-            ("wrong range total", vec!["HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 2-2/4\r\nContent-Length: 1\r\n\r\na"]),
-            ("invalid range end", vec!["HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 2-3/3\r\nContent-Length: 2\r\n\r\naa"]),
-            ("missing range", vec!["HTTP/1.1 206 Partial Content\r\nContent-Length: 1\r\n\r\na"]),
-            ("malformed range", vec!["HTTP/1.1 206 Partial Content\r\nContent-Range: invalid\r\nContent-Length: 1\r\n\r\na"]),
+            (
+                "connection failure and 503",
+                vec![
+                    "",
+                    "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n",
+                ],
+            ),
+            (
+                "request timeout",
+                vec!["HTTP/1.1 408 Request Timeout\r\nContent-Length: 0\r\n\r\n"],
+            ),
+            (
+                "rate limit",
+                vec!["HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n"],
+            ),
+            (
+                "wrong range start",
+                vec![
+                    "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-0/3\r\nContent-Length: 1\r\n\r\na",
+                ],
+            ),
+            (
+                "wrong range total",
+                vec![
+                    "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 2-2/4\r\nContent-Length: 1\r\n\r\na",
+                ],
+            ),
+            (
+                "invalid range end",
+                vec![
+                    "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 2-3/3\r\nContent-Length: 2\r\n\r\naa",
+                ],
+            ),
+            (
+                "missing range",
+                vec!["HTTP/1.1 206 Partial Content\r\nContent-Length: 1\r\n\r\na"],
+            ),
+            (
+                "malformed range",
+                vec![
+                    "HTTP/1.1 206 Partial Content\r\nContent-Range: invalid\r\nContent-Length: 1\r\n\r\na",
+                ],
+            ),
         ];
         for (case, middle) in cases {
             let mut responses = vec!["HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nab"];

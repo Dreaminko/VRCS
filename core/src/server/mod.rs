@@ -30,12 +30,12 @@ mod ws;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::{DefaultBodyLimit, State};
-use axum::http::{header, Method, Request, StatusCode};
+use axum::http::{Method, Request, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use tower_http::cors::CorsLayer;
 
@@ -510,10 +510,12 @@ mod tests {
         settings["audio"]["unknown"] = serde_json::json!(true);
         let body = serde_json::to_vec(&settings).unwrap();
 
-        assert!(parse_settings_update(&body)
-            .err()
-            .unwrap()
-            .contains("audio.unknown"));
+        assert!(
+            parse_settings_update(&body)
+                .err()
+                .unwrap()
+                .contains("audio.unknown")
+        );
     }
 
     #[test]

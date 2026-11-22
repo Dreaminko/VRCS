@@ -489,7 +489,7 @@ mod tests {
 
     #[tokio::test]
     async fn download_errors_do_not_expose_signed_urls() {
-        use axum::{http::StatusCode, routing::get, Router};
+        use axum::{Router, http::StatusCode, routing::get};
         let app = Router::new()
             .route(
                 "/repo",

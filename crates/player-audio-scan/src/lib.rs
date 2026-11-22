@@ -1,6 +1,6 @@
 //! Hot pagefile search path, optimized independently of the desktop debug build.
 //! Only a key authenticating every supplied session packet can leave the scanner.
-use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
+use ring::aead::{AES_256_GCM, Aad, LessSafeKey, Nonce, UnboundKey};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use zeroize::{Zeroize, Zeroizing};
@@ -159,9 +159,11 @@ mod tests {
         assert_eq!(control.candidates, 1);
         let mut corrupt = packets;
         corrupt[1][5] ^= 1;
-        assert!(scan_candidates(&data, &corrupt, &mut control)
-            .unwrap()
-            .is_none());
+        assert!(
+            scan_candidates(&data, &corrupt, &mut control)
+                .unwrap()
+                .is_none()
+        );
         stop.store(true, Ordering::Relaxed);
         assert_eq!(
             scan_candidates(&data, &corrupt, &mut control).err(),

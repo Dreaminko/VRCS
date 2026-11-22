@@ -87,9 +87,11 @@ fn retired_microphone_speaker_filter_keys_are_ignored_on_upgrade() {
         assert_eq!(migrated.audio.microphone.trigger_threshold_dbfs, -42.0);
         let saved = serde_json::to_value(&migrated).unwrap();
         assert!(saved["features"].get("microphone_speaker_filter").is_none());
-        assert!(saved["audio"]["microphone"]
-            .get("speaker_filter_enabled")
-            .is_none());
+        assert!(
+            saved["audio"]["microphone"]
+                .get("speaker_filter_enabled")
+                .is_none()
+        );
         assert_eq!(config_from_value(&saved).unwrap(), migrated);
     }
 }
@@ -135,9 +137,11 @@ fn legacy_osc_gate_disables_osc_output_and_drops_retired_keys() {
     let saved = serde_json::to_value(&migrated).unwrap();
     assert!(saved["features"].get("microphone_speaker_filter").is_none());
     assert!(saved["features"].get("osc_chatbox").is_none());
-    assert!(saved["audio"]["microphone"]
-        .get("speaker_filter_enabled")
-        .is_none());
+    assert!(
+        saved["audio"]["microphone"]
+            .get("speaker_filter_enabled")
+            .is_none()
+    );
     assert!(!migrated.osc.enabled);
     assert_eq!(config_from_value(&saved).unwrap(), migrated);
 }
@@ -213,9 +217,11 @@ fn retired_mute_toast_preference_is_ignored_without_changing_mute_sync() {
         assert!(config.osc.enabled);
         assert_eq!(config.osc.port, 9001);
         assert_eq!(config.osc.mute_sync_enabled, enabled);
-        assert!(serde_json::to_value(config).unwrap()["osc"]
-            .get("mute_status_toast_enabled")
-            .is_none());
+        assert!(
+            serde_json::to_value(config).unwrap()["osc"]
+                .get("mute_status_toast_enabled")
+                .is_none()
+        );
     }
 }
 
@@ -382,10 +388,12 @@ fn removed_whisper_migration_preserves_existing_qwen_and_legacy_default_director
 fn removed_whisper_backend_is_rejected_in_current_settings() {
     let mut config = AppConfig::default();
     config.asr.backend = "local_whisper".into();
-    assert!(config
-        .validate_settings()
-        .unwrap_err()
-        .contains("Unsupported recognition backend"));
+    assert!(
+        config
+            .validate_settings()
+            .unwrap_err()
+            .contains("Unsupported recognition backend")
+    );
 }
 
 #[test]
@@ -671,10 +679,12 @@ fn migrates_v15_compatible_profiles_to_independent_brands() {
         groq.enabled_capabilities,
         [CAPABILITY_TEXT_GENERATION, CAPABILITY_TEXT_TRANSLATION]
     );
-    assert!(!groq
-        .enabled_capabilities
-        .iter()
-        .any(|capability| capability == CAPABILITY_SPEECH_TO_TEXT));
+    assert!(
+        !groq
+            .enabled_capabilities
+            .iter()
+            .any(|capability| capability == CAPABILITY_SPEECH_TO_TEXT)
+    );
 }
 
 #[test]
@@ -709,9 +719,11 @@ fn migrates_v20_without_independent_microphone_translation_switch() {
         migrated["translation"]["mode"],
         serde_json::json!("disabled")
     );
-    assert!(migrated["translation"]
-        .get("translate_microphone")
-        .is_none());
+    assert!(
+        migrated["translation"]
+            .get("translate_microphone")
+            .is_none()
+    );
 }
 
 #[test]
@@ -1140,9 +1152,11 @@ fn migrates_v24_glossary_sources_to_top_level_without_data_loss() {
             && display_name == "Community"
     ));
     let migrated = serde_json::to_value(config).unwrap();
-    assert!(migrated["translation"]["prompt"]
-        .get("glossary_sources")
-        .is_none());
+    assert!(
+        migrated["translation"]["prompt"]
+            .get("glossary_sources")
+            .is_none()
+    );
 }
 
 #[test]

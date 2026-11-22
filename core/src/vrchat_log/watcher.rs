@@ -671,11 +671,13 @@ mod tests {
             .unwrap();
         assert!(!late.poll());
         assert_eq!(late.world_name(), None);
-        assert!(!WorldWatcher::new(
-            directory.path().into(),
-            SystemTime::now() + Duration::from_secs(5)
-        )
-        .poll());
+        assert!(
+            !WorldWatcher::new(
+                directory.path().into(),
+                SystemTime::now() + Duration::from_secs(5)
+            )
+            .poll()
+        );
         drop(file);
         fs::write(&path, line("[Behaviour] Finished entering world")).unwrap();
         assert!(late.poll());

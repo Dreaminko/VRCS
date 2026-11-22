@@ -1,9 +1,9 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::config::ApiProfile;
 
 use super::{
-    http_error, invalid, invalid_response, network_error, TranslationError, TranslationResult,
+    TranslationError, TranslationResult, http_error, invalid, invalid_response, network_error,
 };
 
 pub(super) async fn translate(
@@ -27,10 +27,10 @@ pub(super) async fn translate(
             "Ocp-Apim-Subscription-Region",
             profile.region.as_deref().unwrap_or(""),
         );
-    if let Some(source) = source.filter(|value| *value != "auto") {
-        if let Some(source_code) = language_code(source) {
-            request = request.query(&[("from", source_code)]);
-        }
+    if let Some(source) = source.filter(|value| *value != "auto")
+        && let Some(source_code) = language_code(source)
+    {
+        request = request.query(&[("from", source_code)]);
     }
     let response = request
         .json(&json!([{ "Text": text }]))

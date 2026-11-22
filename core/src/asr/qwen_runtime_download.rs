@@ -47,7 +47,7 @@ impl ModelManager {
                     total_bytes: 0,
                     progress: 0.0,
                     error: Some(error),
-                }
+                };
             }
         };
         let available = runtime.executable_path().is_ok_and(|path| path.is_file());
@@ -167,14 +167,13 @@ impl ModelManager {
                     &stage.join(format!(".{}.part", file.name)),
                     &mut cancel,
                     |bytes| {
-                        if file.name == asset.archive.name {
-                            if let Some(job) =
+                        if file.name == asset.archive.name
+                            && let Some(job) =
                                 self.jobs.lock().expect("model jobs lock").get_mut(JOB_ID)
-                            {
-                                job.downloaded_bytes = bytes;
-                                if bytes == asset.archive.bytes {
-                                    job.status = "verifying";
-                                }
+                        {
+                            job.downloaded_bytes = bytes;
+                            if bytes == asset.archive.bytes {
+                                job.status = "verifying";
                             }
                         }
                     },
@@ -199,10 +198,10 @@ impl ModelManager {
                 format!("{}.vrcs-verified.json", asset.archive.name),
                 "LICENSE.vrcs-verified.json".to_owned(),
             ] {
-                if let Err(error) = tokio::fs::remove_file(stage.join(name)).await {
-                    if error.kind() != std::io::ErrorKind::NotFound {
-                        return Err(error.to_string());
-                    }
+                if let Err(error) = tokio::fs::remove_file(stage.join(name)).await
+                    && error.kind() != std::io::ErrorKind::NotFound
+                {
+                    return Err(error.to_string());
                 }
             }
             extract::activate(&stage, directory, asset)

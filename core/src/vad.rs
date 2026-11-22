@@ -343,11 +343,12 @@ impl SileroVad {
         let mut guard = cache
             .lock()
             .map_err(|_| LoadError::Init("Silero VAD session cache lock poisoned".into()))?;
-        if let Some(entry) = guard.as_ref() {
-            if entry.path == model_path && entry.bytes == bytes && entry.modified_nanos == modified
-            {
-                return Ok(Arc::clone(&entry.session));
-            }
+        if let Some(entry) = guard.as_ref()
+            && entry.path == model_path
+            && entry.bytes == bytes
+            && entry.modified_nanos == modified
+        {
+            return Ok(Arc::clone(&entry.session));
         }
         match model_file_is_valid_sync(model_path) {
             Ok(true) => {}

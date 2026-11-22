@@ -181,13 +181,13 @@ fn normalize_local_qwen_text(text: &str) -> Result<&str, String> {
     if let Some(text) = text.strip_prefix("<asr_text>") {
         return Ok(text.trim());
     }
-    if let Some(marked) = text.strip_prefix("language ") {
-        if let Some((language, transcript)) = marked.split_once("<asr_text>") {
-            if language.trim().is_empty() {
-                return Err("Local Qwen ASR returned an empty language marker".into());
-            }
-            return Ok(transcript.trim());
+    if let Some(marked) = text.strip_prefix("language ")
+        && let Some((language, transcript)) = marked.split_once("<asr_text>")
+    {
+        if language.trim().is_empty() {
+            return Err("Local Qwen ASR returned an empty language marker".into());
         }
+        return Ok(transcript.trim());
     }
     if text.contains("<asr_text") {
         return Err("Local Qwen ASR returned an unexpected text marker".into());
@@ -376,22 +376,21 @@ mod tests {
             let read = stream.read(&mut buffer).await.unwrap();
             assert!(read > 0, "HTTP request closed before its body was complete");
             request.extend_from_slice(&buffer[..read]);
-            if expected.is_none() {
-                if let Some(header_end) = request.windows(4).position(|value| value == b"\r\n\r\n")
-                {
-                    let headers = String::from_utf8_lossy(&request[..header_end]);
-                    let content_length = headers
-                        .lines()
-                        .find_map(|line| {
-                            line.to_ascii_lowercase()
-                                .strip_prefix("content-length:")
-                                .map(str::trim)
-                                .map(str::to_owned)
-                        })
-                        .and_then(|value| value.parse::<usize>().ok())
-                        .unwrap();
-                    expected = Some(header_end + 4 + content_length);
-                }
+            if expected.is_none()
+                && let Some(header_end) = request.windows(4).position(|value| value == b"\r\n\r\n")
+            {
+                let headers = String::from_utf8_lossy(&request[..header_end]);
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(str::trim)
+                            .map(str::to_owned)
+                    })
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap();
+                expected = Some(header_end + 4 + content_length);
             }
             if expected.is_some_and(|length| request.len() >= length) {
                 return request;
@@ -600,9 +599,11 @@ mod tests {
 
     #[test]
     fn malformed_qwen_asr_prefix_is_not_shown_as_a_subtitle() {
-        assert!(normalize_local_qwen_text("language English<asr_text>")
-            .unwrap()
-            .is_empty());
+        assert!(
+            normalize_local_qwen_text("language English<asr_text>")
+                .unwrap()
+                .is_empty()
+        );
         assert!(normalize_local_qwen_text("language English<asr_text>Hello").is_ok());
         assert!(normalize_local_qwen_text("language English<asr_text").is_err());
         assert_eq!(
@@ -665,10 +666,14 @@ mod tests {
 
     #[test]
     fn status_errors_identify_common_failures() {
-        assert!(status_error(reqwest::StatusCode::UNAUTHORIZED, "bad key")
-            .contains("authentication failed"));
-        assert!(status_error(reqwest::StatusCode::PAYLOAD_TOO_LARGE, "")
-            .contains("payload is too large"));
+        assert!(
+            status_error(reqwest::StatusCode::UNAUTHORIZED, "bad key")
+                .contains("authentication failed")
+        );
+        assert!(
+            status_error(reqwest::StatusCode::PAYLOAD_TOO_LARGE, "")
+                .contains("payload is too large")
+        );
         assert!(status_error(reqwest::StatusCode::TOO_MANY_REQUESTS, "").contains("rate limit"));
     }
 }

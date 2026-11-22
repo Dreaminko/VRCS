@@ -4,10 +4,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
-use super::{http, openai_compatible, LlmError};
+use super::{LlmError, http, openai_compatible};
 use crate::config::ApiProfile;
 
 pub use super::model_catalog::{ModelCatalog, ModelDetails, ReasoningOptions};
@@ -298,9 +298,11 @@ mod tests {
         );
         let request = server.await.unwrap();
         assert!(request.starts_with("GET /api/v1/models?output_modalities=transcription HTTP/1.1"));
-        assert!(request
-            .to_ascii_lowercase()
-            .contains("authorization: bearer test-key"));
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer test-key")
+        );
         assert!(request.contains("x-test: catalog"));
     }
 

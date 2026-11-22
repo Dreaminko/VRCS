@@ -1,15 +1,15 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::config::AsrConfig;
 use crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE;
 
 use super::live_translation::State;
+use super::{CloudEvent, service_settings};
 #[cfg(test)]
 use super::{
-    live_translation::{append_display_text, finish, MAX_DISPLAY_CHARS},
     MAX_TRANSCRIPT_BYTES,
+    live_translation::{MAX_DISPLAY_CHARS, append_display_text, finish},
 };
-use super::{service_settings, CloudEvent};
 
 pub(super) fn setup(config: &AsrConfig) -> Result<Value, String> {
     let settings = service_settings(config, SERVICE_GEMINI_LIVE_TRANSLATE)?;
@@ -199,13 +199,15 @@ mod tests {
         assert_eq!(first.utterance_id, second.utterance_id);
         assert_eq!(second.text, "hello hello");
         assert_eq!(second.translation, "你好");
-        assert!(normalize_event(
-            &config(),
-            &json!({"serverContent": {"generationComplete": true}}),
-            &mut state
-        )
-        .unwrap()
-        .is_none());
+        assert!(
+            normalize_event(
+                &config(),
+                &json!({"serverContent": {"generationComplete": true}}),
+                &mut state
+            )
+            .unwrap()
+            .is_none()
+        );
     }
 
     #[test]
@@ -433,9 +435,11 @@ mod tests {
         };
         assert_eq!(completed.len(), 1);
         assert_eq!(completed[0].transcript.text, "Hello. Tail");
-        assert!(completed
-            .iter()
-            .all(|result| result.transcript.translation.is_empty()));
+        assert!(
+            completed
+                .iter()
+                .all(|result| result.transcript.translation.is_empty())
+        );
     }
 
     #[test]
