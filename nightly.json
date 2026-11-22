@@ -1,13 +1,13 @@
 {
-  "version": "0.3.12-nightly.20261120",
-  "notes": "Windows 10/11 x64 Nightly for VRCS 0.3.12-nightly.20261120, built from the last main update on 2026-11-20 (Beijing time).",
-  "pub_date": "2026-11-20T22:55:16.0823073Z",
+  "version": "0.3.13-nightly.20261122",
+  "notes": "Windows 10/11 x64 Nightly for VRCS 0.3.13-nightly.20261122, built from the last main update on 2026-11-22 (Beijing time).",
+  "pub_date": "2026-11-22T21:56:33.6482890Z",
   "platforms": {
     "windows-x86_64-standard": {
-      "url": "https://github.com/Dreaminko/VRCS/releases/download/nightly-20261120/VRCS-0.3.12-nightly.20261120-windows-x64.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbTR3cjNlaEpZL2FBOHBGQ2ZXdXhHbGo2ZHZFR2tTZXFmb2ZkcVFDVVZqUFBFRXd0NjRUOVY5V01rVEpLTWtxV0JqTmU1WjU3NmVrWHFhemJ5SWdFS1BlbFEwc2RqaGdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MjE1MzE1CWZpbGU6VlJDU18wLjMuMTItbmlnaHRseS4yMDI2MTEyMF94NjQtc2V0dXAuZXhlCko2NndtYm5WVDlOVmhHV0hBYVo0RWFvOEVUbE45dFBpUVZnZHgyVzdDTlBzcVAzUCtGRkJXdjlkd1MyS2Z6eWZtc0pYcjNBZjNSYUpkMU1YT1MyeENRPT0K"
+      "url": "https://github.com/Dreaminko/VRCS/releases/download/nightly-20261122/VRCS-0.3.13-nightly.20261122-windows-x64.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbTR3cjNlaEpZL2JvTWRMV0FDVmo0dk5XeDNkT0N0YnRadGo4WldoMERPdHVCc21xZWduSkFOSGJIK1lPV2FSaUZsa0lmRENubUxtQkp6Q0RiU1pYRHB3Vzk4cTZmSmc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1Mzg0NTkyCWZpbGU6VlJDU18wLjMuMTMtbmlnaHRseS4yMDI2MTEyMl94NjQtc2V0dXAuZXhlCjlDRVhjaEFnQ1JiVXZMYWRNcHRCRXUvazA2VGFpd0tWMGRDZTBwQmI3eUs4aUhCRWlWUitQRTAzOUNnVTRQTHJ3bGJaUGJVYk9tOHJLblB4UUVyTERRPT0K"
     }
   },
-  "build_date": "2026-11-20",
-  "source_sha": "0855ecc02122efc0b22c887745ff21ac3860882e"
+  "build_date": "2026-11-22",
+  "source_sha": "73248fd116ab0de6a494cbddffb943dd4efb0d32"
 }
