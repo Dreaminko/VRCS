@@ -82,10 +82,11 @@ function validateExtractedLinuxTree(directory, arch, label) {
   }
 }
 export function validatePackage(path, target, options = {}) {
-  const { size } = statSync(path);
+  const packagePath = resolve(path);
+  const { size } = statSync(packagePath);
   if (!size) throw new Error("Release package is empty");
   if (target.channel === "appimage") {
-    const data = readFileSync(path);
+    const data = readFileSync(packagePath);
     elfArchitecture(data, target.arch);
     if (!data.subarray(8, 11).equals(Buffer.from([65, 73, 2]))) throw new Error("Expected a type-2 AppImage");
     const directory = mkdtempSync(join(tmpdir(), "vrcs-appimage-"));
@@ -96,26 +97,26 @@ export function validatePackage(path, target, options = {}) {
       }
       if (offset < 0) throw new Error("AppImage SquashFS payload is missing");
       const extracted = join(directory, "AppDir");
-      execFileSync("unsquashfs", ["-no-progress", "-o", String(offset), "-d", extracted, path], { stdio: "pipe" });
+      execFileSync("unsquashfs", ["-no-progress", "-o", String(offset), "-d", extracted, packagePath], { stdio: "pipe" });
       elfArchitectureFile(join(extracted, "usr", "bin", "vrcs-desktop"), target.arch);
       for (const file of walk(extracted).filter((file) => /\.so(?:\.|$)/.test(file))) elfArchitectureFile(file, target.arch);
     } finally { rmSync(directory, { recursive: true, force: true }); }
   } else if (target.channel === "deb") {
     const expected = target.arch === "x86_64" ? "amd64" : "arm64";
-    const actual = execFileSync("dpkg-deb", ["--field", path, "Architecture"], { encoding: "utf8" }).trim();
+    const actual = execFileSync("dpkg-deb", ["--field", packagePath, "Architecture"], { encoding: "utf8" }).trim();
     if (actual !== expected) throw new Error(`Deb architecture ${actual} does not match ${expected}`);
     const directory = options.extractTo ?? mkdtempSync(join(tmpdir(), "vrcs-deb-"));
     if (options.extractTo) mkdirSync(directory, { recursive: true });
     try {
-      execFileSync("dpkg-deb", ["--extract", path, directory]);
+      execFileSync("dpkg-deb", ["--extract", packagePath, directory]);
       validateExtractedLinuxTree(directory, target.arch, "Deb");
     } finally { if (!options.extractTo) rmSync(directory, { recursive: true, force: true }); }
   } else if (target.channel === "rpm") {
-    const header = readHead(path, 96);
+    const header = readHead(packagePath, 96);
     if (size < 96 || header.length < 96 || !header.subarray(0, 4).equals(Buffer.from([0xed, 0xab, 0xee, 0xdb]))) {
       throw new Error("Expected an RPM package");
     }
-    const actual = execFileSync("rpm", ["-qp", "--nosignature", "--qf", "%{ARCH}\n", path], {
+    const actual = execFileSync("rpm", ["-qp", "--nosignature", "--qf", "%{ARCH}\n", packagePath], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
@@ -123,17 +124,17 @@ export function validatePackage(path, target, options = {}) {
     const directory = options.extractTo ?? mkdtempSync(join(tmpdir(), "vrcs-rpm-"));
     if (options.extractTo) mkdirSync(directory, { recursive: true });
     try {
-      execFileSync("sh", ["-c", 'rpm2cpio "$1" | cpio -idm --no-absolute-filenames --quiet', "--", path], {
+      execFileSync("sh", ["-c", 'rpm2cpio "$1" | cpio -idm --no-absolute-filenames --quiet', "--", packagePath], {
         cwd: directory,
         stdio: "pipe",
       });
       validateExtractedLinuxTree(directory, target.arch, "Rpm");
     } finally { if (!options.extractTo) rmSync(directory, { recursive: true, force: true }); }
   } else {
-    const dosHeader = readHead(path, 64);
+    const dosHeader = readHead(packagePath, 64);
     if (dosHeader.length < 64 || dosHeader.toString("ascii", 0, 2) !== "MZ") throw new Error("Expected a PE installer");
     const offset = dosHeader.readUInt32LE(60);
-    const peHeader = offset + 6 <= size ? readHead(path, 6, offset) : Buffer.alloc(0);
+    const peHeader = offset + 6 <= size ? readHead(packagePath, 6, offset) : Buffer.alloc(0);
     // NSIS uses an x86 bootstrapper even when its installed application is x64.
     if (offset + 6 > size || peHeader.length < 6 || peHeader.toString("ascii", 0, 4) !== "PE\0\0" || ![0x14c, 0x8664].includes(peHeader.readUInt16LE(4))) throw new Error("Invalid PE installer");
   }

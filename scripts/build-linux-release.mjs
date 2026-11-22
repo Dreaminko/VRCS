@@ -286,13 +286,14 @@ function verifyRpmMetadata(rpmPath) {
   }
 }
 function extractPackage(pkgPath, channel, extracted) {
+  const packagePath = resolve(pkgPath);
   if (channel === "deb") {
-    run("dpkg-deb", ["--extract", pkgPath, extracted]);
+    run("dpkg-deb", ["--extract", packagePath, extracted]);
   } else if (channel === "rpm") {
-    execFileSync("sh", ["-c", 'rpm2cpio "$1" | cpio -idm --no-absolute-filenames --quiet', "--", pkgPath], { cwd: extracted, env, stdio: "inherit" });
+    execFileSync("sh", ["-c", 'rpm2cpio "$1" | cpio -idm --no-absolute-filenames --quiet', "--", packagePath], { cwd: extracted, env, stdio: "inherit" });
   } else {
-    run("chmod", ["+x", pkgPath]);
-    run(pkgPath, ["--appimage-extract"], { cwd: extracted });
+    run("chmod", ["+x", packagePath]);
+    run(packagePath, ["--appimage-extract"], { cwd: extracted });
   }
 }
 async function bundleAndCollectAsync({ config, sourceBin, channel, outputPath, debug }) {

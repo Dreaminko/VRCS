@@ -3,7 +3,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { test } from "node:test";
 import { aggregateRelease, checkProjectVersion, releaseTargets, validatePackage, verifyUpdaterSignature, writeTargetManifest } from "./release-metadata.mjs";
 
@@ -203,6 +203,13 @@ test("validatePackage and writeTargetManifest preserve extractTo for deb and rpm
     assert.ok(existsSync(manifestPath));
     assert.ok(existsSync(join(manifestDir, "usr/bin/vrcs-desktop")));
   }
+});
+
+test("aggregateRelease accepts relative artifact directories including RPM packages", { skip: !linux }, (t) => {
+  const root = complete(t);
+  const relativeRoot = relative(process.cwd(), root);
+  const latestPath = aggregateRelease({ root: relativeRoot, version, publicKey: encodedKey });
+  assert.ok(existsSync(latestPath));
 });
 
 test("validatePackage checks PE headers without loading invalid installers", (t) => {
