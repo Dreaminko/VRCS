@@ -23,10 +23,10 @@ case "$format" in
     ;;
   rpm)
     if command -v dnf >/dev/null 2>&1; then
-      dnf install -y --setopt=localpkg_gpgcheck=0 ca-certificates "$pkg"
+      dnf install -y --setopt=localpkg_gpgcheck=0 --setopt=install_weak_deps=False ca-certificates "$pkg"
     elif command -v zypper >/dev/null 2>&1; then
       zypper --non-interactive refresh
-      zypper --non-interactive install --allow-unsigned-rpm ca-certificates ca-certificates-mozilla "$pkg"
+      zypper --non-interactive install --no-recommends --allow-unsigned-rpm ca-certificates ca-certificates-mozilla "$pkg"
     else
       echo "Unsupported RPM distribution: neither dnf nor zypper found" >&2
       exit 1

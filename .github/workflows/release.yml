@@ -142,7 +142,7 @@ jobs:
           workspaces: . -> .build
       - name: Install native desktop dependencies
         if: startsWith(github.ref, 'refs/tags/') || steps.cache.outputs.cache-hit != 'true'
-        run: bash scripts/install-linux-deps.sh
+        run: bash scripts/install-linux-deps.sh --ci
       - uses: actions/setup-node@v6
         if: startsWith(github.ref, 'refs/tags/') || steps.cache.outputs.cache-hit != 'true'
         with:

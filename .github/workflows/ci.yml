@@ -113,7 +113,7 @@ jobs:
         run: ./scripts/check-rust.ps1 -Check format
 
   rust:
-    needs: [changes, rustfmt]
+    needs: [changes]
     if: needs.changes.outputs.rust == 'true'
     runs-on: windows-2022
     timeout-minutes: 45
@@ -159,7 +159,7 @@ jobs:
 
   linux:
     name: linux (${{ matrix.arch }})
-    needs: [changes, rustfmt]
+    needs: [changes]
     if: needs.changes.outputs.rust == 'true'
     strategy:
       fail-fast: false
@@ -171,13 +171,15 @@ jobs:
     timeout-minutes: 45
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
+      CARGO_BUILD_TARGET: ${{ matrix.arch }}-unknown-linux-gnu
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.target-sha }}
           persist-credentials: false
       - name: Install native desktop dependencies
-        run: bash scripts/install-linux-deps.sh
+        run: bash scripts/install-linux-deps.sh --ci
       - name: Install pinned Rust toolchain
         run: rustup show
       - uses: actions/setup-node@v6
@@ -186,7 +188,7 @@ jobs:
           cache: npm
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: ci-linux-${{ matrix.arch }}-cpu-vulkan
+          shared-key: ci-linux-${{ matrix.arch }}-cpu-vulkan-v2
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           workspaces: . -> .build
       - run: npm ci
@@ -199,7 +201,7 @@ jobs:
           cargo clippy -p vrcs-core -p vrcs-desktop --no-deps --all-targets --locked --features vulkan -- -D warnings
           cargo test -p vrcs-core --locked --features vulkan asr::qwen_runtime::tests::
       - name: Build and load native ONNX runtime and verify packages
-        run: node scripts/build-linux-release.mjs --preview --verify-packages --max-glibc 2.39
+        run: node scripts/build-linux-release.mjs --preview --verify-packages --skip-frontend-build --max-glibc 2.39
       - uses: actions/upload-artifact@v7
         with:
           name: ci-linux-${{ matrix.arch }}-runtime-${{ github.sha }}

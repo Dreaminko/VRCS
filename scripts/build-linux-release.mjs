@@ -1,7 +1,7 @@
 import { cpSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { checkProjectVersion, validatePackage, writeTargetManifest } from "./release-metadata.mjs";
 
@@ -14,6 +14,7 @@ const triple = `${arch}-unknown-linux-gnu`;
 if (host !== triple) throw new Error(`Native Rust host ${triple} required; got ${host}`);
 const preview = process.argv.includes("--preview");
 const verifyPackages = process.argv.includes("--verify-packages");
+const skipFrontendBuild = process.argv.includes("--skip-frontend-build");
 const requireSigned = process.argv.includes("--require-signed");
 const signed = Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY?.trim());
 if ((requireSigned || signed) && !process.env.TAURI_UPDATER_PUBLIC_KEY?.trim()) throw new Error("Updater public key required for signed release");
@@ -43,10 +44,26 @@ const binaryRoot = join(targetRoot, triple, profile);
 const artifactRoot = resolve(preview ? "preview-artifacts" : "release-artifacts");
 mkdirSync(artifactRoot, { recursive: true });
 const work = mkdtempSync(join(tmpdir(), "vrcs-linux-package-"));
-const generated = join(root, "apps/desktop/src-tauri/tauri.linux.generated.conf.json");
+const generatedConfigs = new Set();
+const writeGeneratedConfig = (name, value) => {
+  const path = join(root, "apps/desktop/src-tauri", name);
+  generatedConfigs.add(path);
+  writeFileSync(path, JSON.stringify(value));
+  return `src-tauri/${name}`;
+};
 const env = { ...process.env, CARGO_TARGET_DIR: targetRoot, NO_STRIP: "1", APPIMAGE_EXTRACT_AND_RUN: "1" };
 const run = (command, args, options = {}) => execFileSync(command, args, { cwd: root, env, stdio: "inherit", ...options });
+const runAsync = (command, args, options = {}) => new Promise((resolvePromise, rejectPromise) => {
+  const child = spawn(command, args, { cwd: root, env, stdio: "inherit", ...options });
+  child.on("error", rejectPromise);
+  child.on("close", (code, signal) => {
+    if (signal) rejectPromise(new Error(`${command} terminated with signal ${signal}`));
+    else if (code !== 0) rejectPromise(new Error(`${command} exited with status ${code}`));
+    else resolvePromise();
+  });
+});
 const tauri = (args) => run("npm", ["--workspace", "apps/desktop", "run", "tauri", "--", ...args]);
+const tauriAsync = (args) => runAsync("npm", ["--workspace", "apps/desktop", "run", "tauri", "--", ...args]);
 function files(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((item) => {
     const path = join(directory, item.name);
@@ -221,7 +238,7 @@ function selfTest(binary, cwd) {
   delete cleanEnv.LD_LIBRARY_PATH;
   execFileSync("dbus-run-session", ["--", "xvfb-run", "-a", binary, "--release-self-test"], { cwd, env: cleanEnv, stdio: "inherit", timeout: 180_000 });
 }
-function configureLinuxBundles(config, stageLib) {
+function configureLinuxBundles(config, stageLib, { preview: isPreview = false } = {}) {
   const mapped = Object.fromEntries(readdirSync(stageLib).map((name) => [`/usr/lib/vrcs/${name}`, join(stageLib, name)]));
   const systemFiles = {
     ...mapped,
@@ -238,6 +255,7 @@ function configureLinuxBundles(config, stageLib) {
     files: systemFiles,
     depends: RPM_DEPENDS,
     postInstallScript: resolve("packaging/linux/postinst"),
+    ...(isPreview ? { compression: { type: "none" } } : {}),
   };
   config.bundle.linux.appimage = {
     ...config.bundle.linux.appimage,
@@ -277,18 +295,22 @@ function extractPackage(pkgPath, channel, extracted) {
     run(pkgPath, ["--appimage-extract"], { cwd: extracted });
   }
 }
-function bundleAndCollect({ config, executable, stageBin, channel, outputPath, debug }) {
-  copyFileSync(stageBin, executable);
-  config.bundle.active = true;
-  config.bundle.targets = [channel];
-  writeFileSync(generated, JSON.stringify(config));
+async function bundleAndCollectAsync({ config, channel, outputPath, debug }) {
+  const channelConfig = structuredClone(config);
+  channelConfig.bundle = {
+    ...channelConfig.bundle,
+    active: true,
+    targets: [channel],
+    createUpdaterArtifacts: channel === "appimage" && signed,
+  };
+  const configArg = writeGeneratedConfig(`tauri.linux.generated.${channel}.conf.json`, channelConfig);
   const bundleDirectory = join(binaryRoot, "bundle", channel);
   rmSync(bundleDirectory, { recursive: true, force: true });
-  tauri([
+  await tauriAsync([
     "bundle",
     ...(debug ? ["--debug"] : []),
     "--target", triple,
-    "--config", "src-tauri/tauri.linux.generated.conf.json",
+    "--config", configArg,
     "--bundles", channel,
     ...(signed && channel === "appimage" ? [] : ["--no-sign"]),
   ]);
@@ -299,9 +321,16 @@ function bundleAndCollect({ config, executable, stageBin, channel, outputPath, d
   copyFileSync(packages[0], outputPath);
   if (channel === "appimage" && signed) copyFileSync(`${packages[0]}.sig`, `${outputPath}.sig`);
 }
-function verifyBundledPackage({ channel, pkgPath, extracted, runSelfTest }) {
-  validatePackage(pkgPath, { os: "linux", arch, channel });
-  extractPackage(pkgPath, channel, extracted);
+function verifyBundledPackage({ channel, pkgPath, extracted, runSelfTest, alreadyValidated = false, alreadyExtracted = false }) {
+  if (!alreadyValidated) {
+    const canReuseExtraction = channel === "deb" || channel === "rpm";
+    validatePackage(pkgPath, { os: "linux", arch, channel }, !alreadyExtracted && canReuseExtraction ? { extractTo: extracted } : {});
+    if (!alreadyExtracted && !canReuseExtraction) {
+      extractPackage(pkgPath, channel, extracted);
+    }
+  } else if (!alreadyExtracted) {
+    extractPackage(pkgPath, channel, extracted);
+  }
   if (channel === "deb" || channel === "rpm") {
     if (!existsSync(join(extracted, "usr/share/polkit-1/actions/app.vrcs.network-capture.policy"))) {
       throw new Error(`${channel} package is missing polkit policy`);
@@ -314,36 +343,47 @@ function verifyBundledPackage({ channel, pkgPath, extracted, runSelfTest }) {
     if (channel === "appimage") selfTest(join(extracted, "squashfs-root", "AppRun"), join(extracted, "squashfs-root"));
     else selfTest(packagedBinary, dirname(packagedBinary));
   }
+  return packagedBinary;
 }
 try {
+  if (skipFrontendBuild && !existsSync("apps/desktop/dist/index.html")) {
+    throw new Error("Missing built frontend at apps/desktop/dist/index.html for --skip-frontend-build");
+  }
   const channels = preview ? ["development"] : channelFlags.length ? channelFlags : ["deb", "rpm", "appimage"];
   const config = JSON.parse(readFileSync("apps/desktop/src-tauri/tauri.linux.release.conf.json", "utf8"));
   config.bundle.active = !preview;
   config.bundle.targets = preview ? ["deb"] : channels;
   config.bundle.createUpdaterArtifacts = channels.includes("appimage") && signed;
   if (signed) config.plugins = { updater: { pubkey: process.env.TAURI_UPDATER_PUBLIC_KEY, endpoints: ["https://github.com/Dreaminko/VRCS/releases/latest/download/latest.json"] } };
-  writeFileSync(generated, JSON.stringify(config));
-  tauri(["build", "--target", triple, "--features", "vulkan", "--config", "src-tauri/tauri.linux.generated.conf.json", "--no-bundle", "--no-sign", ...(preview ? ["--debug"] : []), "--", "--locked"]);
+  const buildConfig = structuredClone(config);
+  if (skipFrontendBuild) {
+    buildConfig.build = { ...buildConfig.build, beforeBuildCommand: "" };
+  }
+  const buildConfigArg = writeGeneratedConfig("tauri.linux.generated.build.conf.json", buildConfig);
+  tauri(["build", "--target", triple, "--features", "vulkan", "--config", buildConfigArg, "--no-bundle", "--no-sign", ...(preview ? ["--debug"] : []), "--", "--locked"]);
   const executable = join(binaryRoot, "vrcs-desktop");
   const rawExecutable = join(work, "vrcs-desktop.raw");
   copyFileSync(executable, rawExecutable);
+
+  const stage = join(work, "stage");
+  const stageBin = join(stage, "usr/bin/vrcs-desktop");
+  const stageLib = join(stage, "usr/lib/vrcs");
+  mkdirSync(dirname(stageBin), { recursive: true });
+  copyFileSync(rawExecutable, stageBin);
+  const linked = collectRuntime(rawExecutable, stageLib);
+  const bundledLibraries = readdirSync(stageLib).sort();
+  verifyDirectDependencies(stageBin, bundledLibraries);
+  const abi = inspectAbiVersions(stageBin);
+  if (maxGlibc && abi.maxGlibc && compareVersions(abi.maxGlibc, maxGlibc) > 0) {
+    throw new Error(`Binary requires GLIBC_${abi.maxGlibc}, exceeding --max-glibc ${maxGlibc}`);
+  }
+  run("patchelf", ["--set-rpath", "$ORIGIN/../lib/vrcs:$ORIGIN/../lib:$ORIGIN/lib", stageBin]);
+  selfTest(stageBin, stage);
+  const detectedHostOs = hostOs();
   for (const channel of channels) {
-    const stage = join(work, channel);
-    const stageBin = join(stage, "usr/bin/vrcs-desktop");
-    const stageLib = join(stage, "usr/lib/vrcs");
-    mkdirSync(dirname(stageBin), { recursive: true });
-    copyFileSync(rawExecutable, stageBin);
-    const linked = collectRuntime(rawExecutable, stageLib);
-    const bundledLibraries = readdirSync(stageLib).sort();
-    verifyDirectDependencies(stageBin, bundledLibraries);
-    const abi = inspectAbiVersions(stageBin);
-    if (maxGlibc && abi.maxGlibc && compareVersions(abi.maxGlibc, maxGlibc) > 0) {
-      throw new Error(`Binary requires GLIBC_${abi.maxGlibc}, exceeding --max-glibc ${maxGlibc}`);
-    }
-    run("patchelf", ["--set-rpath", "$ORIGIN/../lib/vrcs:$ORIGIN/../lib:$ORIGIN/lib", stageBin]);
     writeFileSync(join(artifactRoot, `linux-${arch}-${channel}.ldd.txt`), linked);
     const report = {
-      os: hostOs(),
+      os: detectedHostOs,
       arch,
       channel,
       host,
@@ -351,41 +391,70 @@ try {
       systemPackages: channel === "rpm" ? RPM_DEPENDS : DEB_DEPENDS,
       bundledLibraries,
       networkHelper: channel === "appimage" ? "requires system installation (/usr/bin/vrcs-desktop)" : "built-in (--network-helper)",
-      onnx: "pending-self-test",
+      onnx: "Silero-v6.2.1-session-loaded",
     };
-    selfTest(stageBin, stage);
-    report.onnx = "Silero-v6.2.1-session-loaded";
     writeFileSync(join(artifactRoot, `linux-${arch}-${channel}.runtime.json`), `${JSON.stringify(report, null, 2)}\n`);
-    configureLinuxBundles(config, stageLib);
-    if (preview) {
-      cpSync(stage, join(artifactRoot, `VRCS-preview-linux-${arch}`), { recursive: true });
-      copyFileSync("LICENSE", join(artifactRoot, `VRCS-preview-linux-${arch}/LICENSE`));
-      copyFileSync("THIRD_PARTY_NOTICES.md", join(artifactRoot, `VRCS-preview-linux-${arch}/THIRD_PARTY_NOTICES.md`));
-      writeFileSync(join(artifactRoot, `VRCS-preview-linux-${arch}/README.txt`), "Unsigned development preview. Run usr/bin/vrcs-desktop with the entire directory intact. Requires the Linux system libraries listed in the adjacent runtime report and CJK fonts. This CI native ONNX self-test is not desktop/hardware acceptance or a published release. No automatic updates.\n");
-      if (verifyPackages) {
-        const verifyRoot = join(work, "verify-packages");
-        mkdirSync(verifyRoot, { recursive: true });
-        for (const pkgChannel of ["deb", "rpm"]) {
+  }
+  configureLinuxBundles(config, stageLib, { preview });
+
+  if (preview) {
+    cpSync(stage, join(artifactRoot, `VRCS-preview-linux-${arch}`), { recursive: true });
+    copyFileSync("LICENSE", join(artifactRoot, `VRCS-preview-linux-${arch}/LICENSE`));
+    copyFileSync("THIRD_PARTY_NOTICES.md", join(artifactRoot, `VRCS-preview-linux-${arch}/THIRD_PARTY_NOTICES.md`));
+    writeFileSync(join(artifactRoot, `VRCS-preview-linux-${arch}/README.txt`), "Unsigned development preview. Run usr/bin/vrcs-desktop with the entire directory intact. Requires the Linux system libraries listed in the adjacent runtime report and CJK fonts. This CI native ONNX self-test is not desktop/hardware acceptance or a published release. No automatic updates.\n");
+    if (verifyPackages) {
+      const verifyRoot = join(work, "verify-packages");
+      mkdirSync(verifyRoot, { recursive: true });
+      const verifyBin = join(verifyRoot, "vrcs-desktop");
+      copyFileSync(stageBin, verifyBin);
+      run("strip", ["--strip-debug", verifyBin]);
+      copyFileSync(verifyBin, executable);
+      try {
+        await Promise.all(["deb", "rpm"].map(async (pkgChannel) => {
           const suffix = pkgChannel === "deb" ? ".deb" : ".rpm";
           const pkgPath = join(verifyRoot, `VRCS-${version}-linux-${arch}${suffix}`);
           const extracted = join(verifyRoot, `extracted-${pkgChannel}`);
           mkdirSync(extracted, { recursive: true });
-          bundleAndCollect({ config, executable, stageBin, channel: pkgChannel, outputPath: pkgPath, debug: true });
-          verifyBundledPackage({ channel: pkgChannel, pkgPath, extracted, runSelfTest: false });
-        }
+          await bundleAndCollectAsync({ config, channel: pkgChannel, outputPath: pkgPath, debug: true });
+          verifyBundledPackage({ channel: pkgChannel, pkgPath, extracted, runSelfTest: false, alreadyValidated: false, alreadyExtracted: false });
+        }));
+      } finally {
         copyFileSync(stageBin, executable);
       }
-      continue;
     }
-    const suffix = { deb: ".deb", rpm: ".rpm", appimage: ".AppImage" }[channel];
-    const output = join(artifactRoot, `VRCS-${version}-linux-${arch}${suffix}`);
-    bundleAndCollect({ config, executable, stageBin, channel, outputPath: output, debug: false });
-    writeTargetManifest({ root: artifactRoot, version, os: "linux", arch, channel });
-    const extracted = join(work, `extracted-${channel}`);
-    mkdirSync(extracted);
-    verifyBundledPackage({ channel, pkgPath: output, extracted, runSelfTest: true });
+  } else {
+    copyFileSync(stageBin, executable);
+    const bundledResults = await Promise.all(channels.map(async (channel) => {
+      const suffix = { deb: ".deb", rpm: ".rpm", appimage: ".AppImage" }[channel];
+      const output = join(artifactRoot, `VRCS-${version}-linux-${arch}${suffix}`);
+      await bundleAndCollectAsync({ config, channel, outputPath: output, debug: false });
+      const extracted = join(work, `extracted-${channel}`);
+      mkdirSync(extracted, { recursive: true });
+      writeTargetManifest({
+        root: artifactRoot,
+        version,
+        os: "linux",
+        arch,
+        channel,
+        extractTo: channel === "appimage" ? undefined : extracted,
+      });
+      verifyBundledPackage({
+        channel,
+        pkgPath: output,
+        extracted,
+        runSelfTest: false,
+        alreadyValidated: true,
+        alreadyExtracted: channel !== "appimage",
+      });
+      return { channel, extracted };
+    }));
+    // Keep post-package self-tests serial so concurrent xvfb-run instances never collide on X displays.
+    for (const { channel, extracted } of bundledResults) {
+      if (channel === "appimage") selfTest(join(extracted, "squashfs-root", "AppRun"), join(extracted, "squashfs-root"));
+      else selfTest(join(extracted, "usr/bin/vrcs-desktop"), join(extracted, "usr/bin"));
+    }
   }
 } finally {
-  rmSync(generated, { force: true });
+  for (const configPath of generatedConfigs) rmSync(configPath, { force: true });
   rmSync(work, { recursive: true, force: true });
 }

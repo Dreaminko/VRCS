@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -187,6 +187,40 @@ test("AppImage runtime architecture cannot conceal a wrong payload", { skip: !li
   const artifact = join(root, "wrong-payload.AppImage");
   writeFileSync(artifact, appimage(root, "x86_64", "aarch64"));
   assert.throws(() => validatePackage(artifact, target), /ELF architecture/);
+});
+
+test("validatePackage and writeTargetManifest preserve extractTo for deb and rpm", { skip: !linux }, (t) => {
+  const root = fixture(t);
+  for (const channel of ["deb", "rpm"]) {
+    const target = releaseTargets.find((item) => item.channel === channel && item.arch === "x86_64");
+    const artifact = packageFixture(root, target);
+    const validateDir = join(root, `extract-validate-${channel}`);
+    validatePackage(artifact, target, { extractTo: validateDir });
+    assert.ok(existsSync(join(validateDir, "usr/bin/vrcs-desktop")));
+
+    const manifestDir = join(root, `extract-manifest-${channel}`);
+    const manifestPath = writeTargetManifest({ root, version, ...target, extractTo: manifestDir });
+    assert.ok(existsSync(manifestPath));
+    assert.ok(existsSync(join(manifestDir, "usr/bin/vrcs-desktop")));
+  }
+});
+
+test("validatePackage checks PE headers without loading invalid installers", (t) => {
+  const root = fixture(t);
+  const target = releaseTargets.find((item) => item.channel === "nsis");
+  const artifact = packageFixture(root, target);
+  assert.doesNotThrow(() => validatePackage(artifact, target));
+
+  const empty = join(root, "empty.exe");
+  writeFileSync(empty, Buffer.alloc(0));
+  assert.throws(() => validatePackage(empty, target), /empty/);
+
+  const badOffset = join(root, "bad-offset.exe");
+  const data = Buffer.alloc(128);
+  data.write("MZ");
+  data.writeUInt32LE(512, 60);
+  writeFileSync(badOffset, data);
+  assert.throws(() => validatePackage(badOffset, target), /Invalid PE/);
 });
 
 test("updater verifies both payload and trusted comment signatures", () => {

@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, verify } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -41,11 +41,29 @@ function targetFor(os, arch, channel) {
   if (!target) throw new Error(`Unsupported release target: ${os}/${arch}/${channel}`);
   return target;
 }
+function readHead(path, length, position = 0) {
+  const fd = openSync(path, "r");
+  try {
+    const buffer = Buffer.allocUnsafe(length);
+    let total = 0;
+    while (total < length) {
+      const bytes = readSync(fd, buffer, total, length - total, position + total);
+      if (bytes === 0) break;
+      total += bytes;
+    }
+    return buffer.subarray(0, total);
+  } finally {
+    closeSync(fd);
+  }
+}
 function elfArchitecture(data, arch) {
   const machine = { x86_64: 62, aarch64: 183 }[arch];
   if (data.length < 64 || !data.subarray(0, 4).equals(Buffer.from([127, 69, 76, 70])) || data[4] !== 2 || data[5] !== 1 || data.readUInt16LE(18) !== machine) {
     throw new Error(`ELF architecture does not match ${arch}`);
   }
+}
+function elfArchitectureFile(filePath, arch) {
+  elfArchitecture(readHead(filePath, 64), arch);
 }
 function walk(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((item) => {
@@ -58,15 +76,16 @@ function validateExtractedLinuxTree(directory, arch, label) {
   if (!existsSync(binDir)) throw new Error(`${label} must contain vrcs-desktop`);
   const executables = walk(binDir).filter((file) => basename(file) === "vrcs-desktop");
   if (executables.length !== 1) throw new Error(`${label} must contain vrcs-desktop`);
-  elfArchitecture(readFileSync(executables[0]), arch);
+  elfArchitectureFile(executables[0], arch);
   for (const file of walk(directory).filter((file) => /\.so(?:\.|$)/.test(file))) {
-    elfArchitecture(readFileSync(file), arch);
+    elfArchitectureFile(file, arch);
   }
 }
-export function validatePackage(path, target) {
-  const data = readFileSync(path);
-  if (!data.length) throw new Error("Release package is empty");
+export function validatePackage(path, target, options = {}) {
+  const { size } = statSync(path);
+  if (!size) throw new Error("Release package is empty");
   if (target.channel === "appimage") {
+    const data = readFileSync(path);
     elfArchitecture(data, target.arch);
     if (!data.subarray(8, 11).equals(Buffer.from([65, 73, 2]))) throw new Error("Expected a type-2 AppImage");
     const directory = mkdtempSync(join(tmpdir(), "vrcs-appimage-"));
@@ -78,20 +97,22 @@ export function validatePackage(path, target) {
       if (offset < 0) throw new Error("AppImage SquashFS payload is missing");
       const extracted = join(directory, "AppDir");
       execFileSync("unsquashfs", ["-no-progress", "-o", String(offset), "-d", extracted, path], { stdio: "pipe" });
-      elfArchitecture(readFileSync(join(extracted, "usr", "bin", "vrcs-desktop")), target.arch);
-      for (const file of walk(extracted).filter((file) => /\.so(?:\.|$)/.test(file))) elfArchitecture(readFileSync(file), target.arch);
+      elfArchitectureFile(join(extracted, "usr", "bin", "vrcs-desktop"), target.arch);
+      for (const file of walk(extracted).filter((file) => /\.so(?:\.|$)/.test(file))) elfArchitectureFile(file, target.arch);
     } finally { rmSync(directory, { recursive: true, force: true }); }
   } else if (target.channel === "deb") {
     const expected = target.arch === "x86_64" ? "amd64" : "arm64";
     const actual = execFileSync("dpkg-deb", ["--field", path, "Architecture"], { encoding: "utf8" }).trim();
     if (actual !== expected) throw new Error(`Deb architecture ${actual} does not match ${expected}`);
-    const directory = mkdtempSync(join(tmpdir(), "vrcs-deb-"));
+    const directory = options.extractTo ?? mkdtempSync(join(tmpdir(), "vrcs-deb-"));
+    if (options.extractTo) mkdirSync(directory, { recursive: true });
     try {
       execFileSync("dpkg-deb", ["--extract", path, directory]);
       validateExtractedLinuxTree(directory, target.arch, "Deb");
-    } finally { rmSync(directory, { recursive: true, force: true }); }
+    } finally { if (!options.extractTo) rmSync(directory, { recursive: true, force: true }); }
   } else if (target.channel === "rpm") {
-    if (data.length < 96 || !data.subarray(0, 4).equals(Buffer.from([0xed, 0xab, 0xee, 0xdb]))) {
+    const header = readHead(path, 96);
+    if (size < 96 || header.length < 96 || !header.subarray(0, 4).equals(Buffer.from([0xed, 0xab, 0xee, 0xdb]))) {
       throw new Error("Expected an RPM package");
     }
     const actual = execFileSync("rpm", ["-qp", "--nosignature", "--qf", "%{ARCH}\n", path], {
@@ -99,19 +120,22 @@ export function validatePackage(path, target) {
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
     if (actual !== target.arch) throw new Error(`Rpm architecture ${actual} does not match ${target.arch}`);
-    const directory = mkdtempSync(join(tmpdir(), "vrcs-rpm-"));
+    const directory = options.extractTo ?? mkdtempSync(join(tmpdir(), "vrcs-rpm-"));
+    if (options.extractTo) mkdirSync(directory, { recursive: true });
     try {
       execFileSync("sh", ["-c", 'rpm2cpio "$1" | cpio -idm --no-absolute-filenames --quiet', "--", path], {
         cwd: directory,
         stdio: "pipe",
       });
       validateExtractedLinuxTree(directory, target.arch, "Rpm");
-    } finally { rmSync(directory, { recursive: true, force: true }); }
+    } finally { if (!options.extractTo) rmSync(directory, { recursive: true, force: true }); }
   } else {
-    if (data.length < 64 || data.toString("ascii", 0, 2) !== "MZ") throw new Error("Expected a PE installer");
-    const offset = data.readUInt32LE(60);
+    const dosHeader = readHead(path, 64);
+    if (dosHeader.length < 64 || dosHeader.toString("ascii", 0, 2) !== "MZ") throw new Error("Expected a PE installer");
+    const offset = dosHeader.readUInt32LE(60);
+    const peHeader = offset + 6 <= size ? readHead(path, 6, offset) : Buffer.alloc(0);
     // NSIS uses an x86 bootstrapper even when its installed application is x64.
-    if (offset + 6 > data.length || data.toString("ascii", offset, offset + 4) !== "PE\0\0" || ![0x14c, 0x8664].includes(data.readUInt16LE(offset + 4))) throw new Error("Invalid PE installer");
+    if (offset + 6 > size || peHeader.length < 6 || peHeader.toString("ascii", 0, 4) !== "PE\0\0" || ![0x14c, 0x8664].includes(peHeader.readUInt16LE(4))) throw new Error("Invalid PE installer");
   }
 }
 export function verifyUpdaterSignature(data, signature, encodedPublicKey) {
@@ -129,12 +153,12 @@ export function verifyUpdaterSignature(data, signature, encodedPublicKey) {
   const signed = algorithm === "ED" ? createHash("blake2b512").update(data).digest() : data;
   if (!verify(null, signed, publicKey, packet.subarray(10)) || !verify(null, Buffer.concat([packet.subarray(10), Buffer.from(lines[2].slice("trusted comment: ".length))]), publicKey, globalSignature)) throw new Error("Updater signature verification failed");
 }
-export function writeTargetManifest({ root, version, os, arch, channel }) {
+export function writeTargetManifest({ root, version, os, arch, channel, extractTo }) {
   requireVersion(version);
   const target = targetFor(os, arch, channel);
   const artifact = `VRCS-${version}-${target.suffix}`;
   const path = join(root, artifact);
-  validatePackage(path, target);
+  validatePackage(path, target, extractTo ? { extractTo } : {});
   const sha256 = digest(readFileSync(path));
   writeFileSync(`${path}.sha256`, `${sha256}  ${artifact}\n`);
   const signaturePath = `${path}.sig`;

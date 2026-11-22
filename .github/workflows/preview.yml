@@ -101,6 +101,8 @@ jobs:
     timeout-minutes: 45
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
+      CARGO_BUILD_TARGET: ${{ matrix.arch }}-unknown-linux-gnu
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@v7
         with:
@@ -110,12 +112,12 @@ jobs:
           node-version: "24"
           cache: npm
       - name: Install native desktop dependencies
-        run: bash scripts/install-linux-deps.sh
+        run: bash scripts/install-linux-deps.sh --ci
       - name: Install pinned Rust toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: ci-linux-${{ matrix.arch }}-cpu-vulkan
+          shared-key: ci-linux-${{ matrix.arch }}-cpu-vulkan-v2
           save-if: false
           workspaces: . -> .build
       - run: npm ci

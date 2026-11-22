@@ -13,6 +13,7 @@
     "linux": {
       "deb": { "recommends": ["fonts-noto-cjk", "libopenxr-loader1", "xdg-utils", "xdg-desktop-portal"] },
       "rpm": {
+        "compression": { "type": "zstd", "level": 3 },
         "recommends": [
           "(libayatana-appindicator3.so.1()(64bit) or libappindicator3.so.1()(64bit))",
           "libopenxr_loader.so.1()(64bit)",
