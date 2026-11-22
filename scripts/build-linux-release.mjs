@@ -385,8 +385,8 @@ try {
   run("patchelf", ["--set-rpath", "$ORIGIN/../lib/vrcs:$ORIGIN/../lib:$ORIGIN/lib", stageBin]);
   selfTest(stageBin, stage);
   const detectedHostOs = hostOs();
+  writeFileSync(join(artifactRoot, `linux-${arch}.ldd.txt`), linked);
   for (const channel of channels) {
-    writeFileSync(join(artifactRoot, `linux-${arch}-${channel}.ldd.txt`), linked);
     const report = {
       os: detectedHostOs,
       arch,
