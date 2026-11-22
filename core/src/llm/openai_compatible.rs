@@ -712,7 +712,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/chat/completions", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let http = crate::http_client_builder().no_proxy().build().unwrap();
         let profile = ApiProfile {
             provider: OPENROUTER_PROVIDER.into(),
             auth_mode: ApiAuthMode::None,
@@ -836,7 +836,7 @@ mod tests {
                 reasoning_control: None,
             };
             let output = generate_with_image(
-                &reqwest::Client::new(),
+                &crate::http_client(),
                 &profile,
                 "",
                 request,
@@ -1013,7 +1013,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/chat/completions", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let http = crate::http_client_builder().no_proxy().build().unwrap();
         let profile = ApiProfile {
             provider: providers::QWEN_AI_PROVIDER.into(),
             enabled_capabilities: vec![providers::CAPABILITY_IMAGE_UNDERSTANDING.into()],
@@ -1310,7 +1310,7 @@ mod tests {
             }),
         );
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let client = reqwest::Client::builder()
+        let client = crate::http_client_builder()
             .no_proxy()
             .timeout(Duration::from_secs(5))
             .build()
@@ -1658,7 +1658,7 @@ mod tests {
             }],
             ..ApiProfile::default()
         };
-        let models = list_models(&reqwest::Client::new(), &profile, "")
+        let models = list_models(&crate::http_client(), &profile, "")
             .await
             .unwrap();
         let request = server.await.unwrap().to_ascii_lowercase();

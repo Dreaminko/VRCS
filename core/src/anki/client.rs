@@ -212,7 +212,7 @@ pub(super) async fn discover(
 }
 
 pub(super) fn http_client() -> reqwest::Client {
-    reqwest::Client::builder()
+    crate::http_client_builder()
         .timeout(Duration::from_secs(5))
         .build()
         .expect("reqwest client")

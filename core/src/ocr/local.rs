@@ -267,7 +267,8 @@ impl Engine {
     fn load(directory: &std::path::Path, device: OcrDevice) -> Result<Self, String> {
         let load = |filename: &str, device: OcrDevice| {
             let session = || -> ort::Result<Session> {
-                let builder = Session::builder()?
+                let env = crate::ort_environment()?;
+                let builder = Session::builder(&env)?
                     .with_intra_threads(2)?
                     .with_inter_threads(1)?
                     .with_parallel_execution(false)?
@@ -818,7 +819,8 @@ mod tests {
             Some(OcrDevice::Directml)
         );
         // A detector in the recognizer slot forces a real session/output failure.
-        runtime.engine.lock().unwrap().as_mut().unwrap().recognizer = Session::builder()
+        let env = crate::ort_environment().unwrap();
+        runtime.engine.lock().unwrap().as_mut().unwrap().recognizer = Session::builder(&env)
             .unwrap()
             .commit_from_file(directory.join("det.onnx"))
             .unwrap();

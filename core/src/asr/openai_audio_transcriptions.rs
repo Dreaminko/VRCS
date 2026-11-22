@@ -15,13 +15,13 @@ const MAX_ERROR_BODY_CHARS: usize = 8 * 1024;
 
 pub(crate) fn http_client(profile: &ApiProfile) -> reqwest::Client {
     if profile.provider == providers::QWEN_LOCAL_PROVIDER {
-        reqwest::Client::builder()
+        crate::http_client_builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .expect("static local HTTP client options are valid")
     } else {
-        reqwest::Client::new()
+        crate::http_client()
     }
 }
 
@@ -103,7 +103,7 @@ pub(super) async fn transcribe_result_with_empty(
 fn local_qwen_http_client() -> &'static reqwest::Client {
     static LOCAL_QWEN_HTTP: OnceLock<reqwest::Client> = OnceLock::new();
     LOCAL_QWEN_HTTP.get_or_init(|| {
-        reqwest::Client::builder()
+        crate::http_client_builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(5))
@@ -476,7 +476,7 @@ mod tests {
         let mut profile = mock_profile(base_url);
         profile.auth_mode = ApiAuthMode::Bearer;
         let text = transcribe(
-            &reqwest::Client::new(),
+            &crate::http_client(),
             &profile,
             "test-key",
             &settings,
@@ -506,7 +506,7 @@ mod tests {
         };
         let (base_url, request) = mock_server(r#"{"text":""}"#).await;
         let error = transcribe(
-            &reqwest::Client::new(),
+            &crate::http_client(),
             &mock_profile(base_url),
             "",
             &settings,
@@ -523,7 +523,7 @@ mod tests {
 
         let (base_url, _) = mock_server(r#"{"text":""}"#).await;
         test_connection(
-            &reqwest::Client::new(),
+            &crate::http_client(),
             &mock_profile(base_url),
             "",
             &settings,
@@ -550,7 +550,7 @@ mod tests {
         };
         assert_eq!(
             transcribe(
-                &reqwest::Client::new(),
+                &crate::http_client(),
                 &profile,
                 "",
                 &settings,

@@ -20,15 +20,16 @@ tower-http = { version = "0.6", features = ["cors"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 rusqlite = { version = "0.32", features = ["bundled"] }
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream", "multipart"], default-features = false }
-zip = { version = "2", default-features = false, features = ["deflate"] }
+reqwest = { version = "0.13", features = ["json", "rustls-no-provider", "stream", "multipart", "query"], default-features = false }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
 regex = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 ndarray = "0.17"
-ort = { version = "=2.0.0-rc.12", features = ["ndarray"] }
+ort = { version = "=2.0.0-rc.15", features = ["ndarray"] }
 rustfft = "6.4.1"
 futures-util.workspace = true
 base64 = "0.22"
@@ -52,7 +53,7 @@ pipewire = { version = "=0.10.1", features = ["v0_3_65"] }
 secret-service = { version = "=5.2.0", default-features = false, features = ["rt-async-io-crypto-rust"] }
 
 [target.'cfg(windows)'.dependencies]
-ort = { version = "=2.0.0-rc.12", features = ["directml"] }
+ort = { version = "=2.0.0-rc.15", features = ["directml"] }
 wasapi = "0.23"
 windows = { workspace = true, features = [
   "Graphics_Capture",

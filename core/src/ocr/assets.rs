@@ -739,7 +739,7 @@ mod tests {
             format!("http://{address}/official"),
         ];
         assets
-            .download_from_sources(&reqwest::Client::new(), &asset, &urls, &temporary, &path)
+            .download_from_sources(&crate::http_client(), &asset, &urls, &temporary, &path)
             .await
             .unwrap();
         assert_eq!(std::fs::read(path).unwrap(), b"abc");
@@ -783,7 +783,7 @@ mod tests {
             bytes: 3,
             sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
         };
-        let client = reqwest::Client::new();
+        let client = crate::http_client();
         assert!(assets
             .download_file(&client, &asset, asset.url, &temporary, &path)
             .await

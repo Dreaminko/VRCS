@@ -396,5 +396,30 @@ where
     })
 }
 
+pub(crate) fn http_client_builder() -> reqwest::ClientBuilder {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    reqwest::Client::builder()
+}
+
+pub(crate) fn http_client() -> reqwest::Client {
+    http_client_builder()
+        .build()
+        .expect("default reqwest client")
+}
+
+pub(crate) fn ort_environment() -> ort::Result<ort::environment::Environment> {
+    static ENV: std::sync::Mutex<Option<ort::environment::Environment>> =
+        std::sync::Mutex::new(None);
+    let mut guard = ENV
+        .lock()
+        .map_err(|_| ort::Error::new("ONNX Runtime environment lock poisoned"))?;
+    if let Some(env) = guard.as_ref() {
+        return Ok(env.clone());
+    }
+    let env = ort::init().with_name("vrcs").build()?;
+    *guard = Some(env.clone());
+    Ok(env)
+}
+
 #[cfg(test)]
 mod tests;

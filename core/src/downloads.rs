@@ -39,7 +39,7 @@ const MIRRORS: [(&str, &str); 7] = [
 ];
 
 pub(crate) fn client_builder() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
+    crate::http_client_builder()
         // ModelScope's CDN rejects requests without a User-Agent.
         .user_agent(concat!("VRCS/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(15))

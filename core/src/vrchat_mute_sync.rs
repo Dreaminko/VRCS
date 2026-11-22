@@ -158,7 +158,7 @@ async fn discover_and_follow(
     let _ = daemon.stop_browse(SERVICE_TYPE);
     let _ = daemon.shutdown();
 
-    let client = reqwest::Client::builder()
+    let client = crate::http_client_builder()
         .timeout(Duration::from_secs(2))
         .build()
         .map_err(|error| error.to_string())?;

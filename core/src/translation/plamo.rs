@@ -658,7 +658,7 @@ mod tests {
         progress: Option<&super::super::LlmProgress>,
     ) -> Result<String, TranslationError> {
         translate(
-            &reqwest::Client::new(),
+            &crate::http_client(),
             origin,
             "test-token",
             CompletionRequest {

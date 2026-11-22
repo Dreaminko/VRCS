@@ -209,7 +209,7 @@ mod tests {
         .unwrap();
         // Runtime port overrides are ephemeral; settings still require a nonzero port.
         handle.state.config.config.write().unwrap().server.port = handle.address().port();
-        let client = reqwest::Client::new();
+        let client = crate::http_client();
         let base = format!("http://{}", handle.address());
         assert_eq!(
             client

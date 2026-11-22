@@ -110,7 +110,8 @@ impl SmartTurnAnalyzer {
             ));
         }
         let session = (|| -> ort::Result<Session> {
-            Session::builder()?
+            let env = crate::ort_environment()?;
+            Session::builder(&env)?
                 .with_intra_threads(2)?
                 .with_inter_threads(1)?
                 .with_parallel_execution(false)?
@@ -504,7 +505,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join(MODEL_FILENAME);
         let error = download_model(
-            &reqwest::Client::new(),
+            &crate::http_client(),
             &format!("http://{address}/repo"),
             &path.with_extension("onnx.part"),
             &path,

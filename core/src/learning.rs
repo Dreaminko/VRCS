@@ -697,7 +697,7 @@ pub struct LearningService {
 
 impl LearningService {
     pub fn new() -> Result<Self, String> {
-        let http = reqwest::Client::builder()
+        let http = crate::http_client_builder()
             .build()
             .map_err(|error| format!("Failed to create learning HTTP client: {error}"))?;
         Ok(Self {

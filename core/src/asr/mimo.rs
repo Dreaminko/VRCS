@@ -169,7 +169,7 @@ mod tests {
             ..ApiProfile::default()
         };
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let http = crate::http_client_builder().no_proxy().build().unwrap();
         let result = transcribe(
             &http,
             &profile,

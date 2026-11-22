@@ -296,7 +296,7 @@ async fn managed_qwen_readiness_requires_the_expected_model_alias() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let client = crate::http_client_builder().no_proxy().build().unwrap();
 
     let ready = probe_ready(
         &client,
@@ -337,7 +337,7 @@ async fn managed_qwen_readiness_checks_the_session_token() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let client = crate::http_client_builder().no_proxy().build().unwrap();
     let origin = format!("http://{address}");
 
     assert!(

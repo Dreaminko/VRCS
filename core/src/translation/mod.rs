@@ -136,7 +136,7 @@ impl TranslationService {
         glossary: Option<Arc<crate::glossary::GlossaryStore>>,
         local: Option<Arc<LocalTranslation>>,
     ) -> Result<Self, String> {
-        let http = reqwest::Client::builder()
+        let http = crate::http_client_builder()
             .timeout(Duration::from_secs(8))
             .build()
             .map_err(|error| format!("Failed to create translation HTTP client: {error}"))?;

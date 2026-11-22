@@ -154,7 +154,7 @@ pub struct GlossaryStore {
 impl GlossaryStore {
     pub fn new(cache_path: PathBuf, config: GlossaryConfig) -> Result<Self, String> {
         let glossary_sources = &config.sources;
-        let client = reqwest::Client::builder()
+        let client = crate::http_client_builder()
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::custom(|attempt| {
                 if attempt.previous().len() >= 3

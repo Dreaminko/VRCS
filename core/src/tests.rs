@@ -68,7 +68,7 @@ async fn vrchat_chatbox_text_only_http_lifecycle_and_settings_rollback() {
     })
     .await
     .unwrap();
-    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let client = crate::http_client_builder().no_proxy().build().unwrap();
     let base = format!("http://{}", handle.address());
     let request = |method, path: &str| {
         client
@@ -297,7 +297,7 @@ async fn public_model_catalog_does_not_prove_completion_authentication() {
     })
     .await
     .unwrap();
-    let response = reqwest::Client::builder()
+    let response = crate::http_client_builder()
         .no_proxy()
         .build()
         .unwrap()
@@ -366,7 +366,7 @@ async fn feature_switches_project_runtime_and_block_business_routes() {
     assert!(!updates.borrow().1.enabled);
     assert!(!updates.borrow().1.desktop_enabled);
     assert!(handle.external_api_address().is_none());
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let base = format!("http://{}", handle.address());
     for (method, path, feature) in [
         ("GET", "/api/dictionary?text=test", "learning"),
@@ -497,7 +497,7 @@ async fn local_recognition_sources_can_be_saved_without_an_api_profile() {
     })
     .await
     .unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let base = format!("http://{}", handle.address());
     for backend in [crate::config::QWEN_MANAGED_BACKEND] {
         let response = client
@@ -623,7 +623,7 @@ async fn audio_settings_can_repair_stale_routes_one_at_a_time() {
         })
         .await
         .unwrap();
-        let client = reqwest::Client::new();
+        let client = crate::http_client();
         let url = format!("http://{}/api/settings", handle.address());
         let response = client
             .get(&url)
@@ -726,7 +726,7 @@ async fn vr_overlay_watch_starts_with_current_config_and_updates_after_commit() 
         )
     );
 
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let settings_url = format!("http://{}/api/settings", handle.address());
     let mut settings: serde_json::Value = client
         .get(&settings_url)
@@ -807,7 +807,7 @@ async fn storage_stats_quota_update_and_history_clear_are_available_over_http() 
     })
     .await
     .unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let base_url = format!("http://{}", handle.address());
     let mut settings: serde_json::Value = client
         .get(format!("{base_url}/api/settings"))
@@ -905,7 +905,7 @@ async fn model_download_source_preference_is_loaded_persisted_and_applied_only_a
     })
     .await
     .unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let base = format!("http://{}", handle.address());
     let official = "https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/928ab958557df9aa2ef1c93e0e83c7ad0933fae2/Qwen3-ASR-0.6B-Q8_0.gguf";
     let mirror = "https://modelscope.cn/api/v1/models/ggml-org/Qwen3-ASR-0.6B-GGUF/repo?Revision=86222636b790fae434fb24c03c46fc817dfb27b2&FilePath=Qwen3-ASR-0.6B-Q8_0.gguf";
@@ -1008,7 +1008,7 @@ async fn conversation_http_catalog_and_pagination_are_stable() {
         }
     }
 
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let base_url = format!("http://{}", handle.address());
     let catalog: serde_json::Value = client
         .get(format!("{base_url}/api/conversations"))
@@ -1134,7 +1134,7 @@ async fn external_api_uses_a_separate_listener_and_route_surface() {
     let external = handle.external_api_address().unwrap();
     assert_ne!(external, handle.address());
 
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let health: serde_json::Value = client
         .get(format!("http://{external}/v1/health"))
         .send()
@@ -1186,7 +1186,7 @@ async fn external_api_settings_reload_without_restarting_core() {
     })
     .await
     .unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let base_url = format!("http://{}", handle.address());
     let mut settings: serde_json::Value = client
         .get(format!("{base_url}/api/settings"))
@@ -1304,7 +1304,7 @@ async fn external_api_startup_failure_does_not_stop_the_core() {
     .unwrap();
 
     assert!(handle.external_api_address().is_none());
-    let status: serde_json::Value = reqwest::Client::new()
+    let status: serde_json::Value = crate::http_client()
         .get(format!(
             "http://{}/api/external-api/status",
             handle.address()
@@ -1345,7 +1345,7 @@ async fn chatbox_send_is_stored_and_broadcast_as_conversation_message() {
     })
     .await
     .unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let base_url = format!("http://{}", handle.address());
     let udp = tokio::net::UdpSocket::bind(("127.0.0.1", 0)).await.unwrap();
     let mut settings: serde_json::Value = client
@@ -1436,7 +1436,7 @@ async fn microphone_test_requires_a_selected_input_and_stop_is_idempotent() {
     })
     .await
     .unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let base_url = format!("http://{}", handle.address());
     let rejected = client
         .post(format!("{base_url}/api/audio/microphone-test/start"))
@@ -1519,7 +1519,7 @@ async fn deferred_vad_does_not_block_core_startup() {
             "model preparation must still be pending after startup"
         );
         assert_eq!(handle.vad_backend(), "energy");
-        let response = reqwest::Client::new()
+        let response = crate::http_client()
             .get(format!("http://{}/health", handle.address()))
             .bearer_auth("test-token")
             .send()
@@ -1568,7 +1568,7 @@ async fn settings_update_switches_the_live_model_directory() {
     let old_ocr_model_path = handle.state.config.local_ocr.model_dir().join("det.onnx");
     std::fs::create_dir_all(old_ocr_model_path.parent().unwrap()).unwrap();
     std::fs::write(&old_ocr_model_path, b"ocr").unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let settings_url = format!("http://{}/api/settings", handle.address());
     let mut settings: serde_json::Value = client
         .get(&settings_url)
@@ -1670,7 +1670,7 @@ async fn deleting_selected_qwen_package_clears_selection() {
     })
     .await
     .unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let base_url = format!("http://{}", handle.address());
     let response = client
         .get(format!("{base_url}/api/settings"))
@@ -1798,7 +1798,7 @@ async fn websocket_accepts_query_token_without_authorization_header() {
     })
     .await
     .unwrap();
-    let response = reqwest::Client::new()
+    let response = crate::http_client()
         .get(format!("http://{}/ws?token=test-token", handle.address()))
         .header(reqwest::header::CONNECTION, "Upgrade")
         .header(reqwest::header::UPGRADE, "websocket")
@@ -1826,7 +1826,7 @@ async fn websocket_query_token_does_not_weaken_rest_authentication() {
     })
     .await
     .unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let base_url = format!("http://{}", handle.address());
     let health = client
         .get(format!("{base_url}/health"))
@@ -1861,7 +1861,7 @@ async fn websocket_rejects_untrusted_browser_origin() {
     })
     .await
     .unwrap();
-    let response = reqwest::Client::new()
+    let response = crate::http_client()
         .get(format!("http://{}/ws?token=test-token", handle.address()))
         .header(reqwest::header::ORIGIN, "https://example.com")
         .header(reqwest::header::CONNECTION, "Upgrade")
@@ -1890,7 +1890,7 @@ async fn dictionary_import_accepts_bodies_larger_than_axum_default() {
     .await
     .unwrap();
     let token = handle.session_token().to_owned();
-    let response = reqwest::Client::new()
+    let response = crate::http_client()
         .post(format!(
             "http://{}/api/dictionaries/import",
             handle.address()
@@ -1918,7 +1918,7 @@ async fn loopback_without_supplied_token_is_still_authenticated() {
     })
     .await
     .unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let url = format!("http://{}/health", handle.address());
     let unauthorized = client.get(&url).send().await.unwrap();
     let authorized = client
@@ -2025,7 +2025,7 @@ async fn concurrent_api_profile_creates_do_not_lose_updates() {
     })
     .await
     .unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let url = format!("http://{}/api/profile", handle.address());
     let mut requests = tokio::task::JoinSet::new();
     for index in 0..16 {
@@ -2132,7 +2132,7 @@ async fn api_profile_diagnostic_disconnect_stops_the_upstream_request() {
         handle.address()
     );
     let request = tokio::spawn(async move {
-        reqwest::Client::builder()
+        crate::http_client_builder()
             .no_proxy()
             .build()
             .unwrap()
@@ -2213,7 +2213,7 @@ async fn api_profile_model_catalogs_only_contact_the_service_when_needed() {
     })
     .await
     .unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     for (query, expected) in [
         ("?cached_only=true", 0),
         ("", 1),
@@ -2296,7 +2296,7 @@ async fn api_profile_update_rolls_back_credentials_when_config_cannot_be_saved()
     })
     .await
     .unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let url = format!("http://{}/api/profile/{profile_id}", handle.address());
     let update = |body: serde_json::Value| client.put(&url).bearer_auth("test-token").json(&body);
     let rejected = update(serde_json::json!({ "base_url": "https://other.example/v1" }))
@@ -2361,7 +2361,7 @@ async fn stale_settings_cannot_restore_a_deleted_api_profile() {
     })
     .await
     .unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let base_url = format!("http://{}", handle.address());
     let preflight = client
         .request(reqwest::Method::OPTIONS, format!("{base_url}/api/settings"))

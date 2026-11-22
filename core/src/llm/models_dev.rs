@@ -376,7 +376,7 @@ impl Store {
 }
 
 async fn fetch(url: &str, etag: Option<&str>) -> Result<Option<Snapshot>, String> {
-    let http = reqwest::Client::builder()
+    let http = crate::http_client_builder()
         .timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
         .build()

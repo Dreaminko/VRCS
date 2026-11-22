@@ -340,7 +340,7 @@ mod tests {
         })
         .await
         .unwrap();
-        let client = reqwest::Client::new();
+        let client = crate::http_client();
         let mut events = handle.state.content.conversation_catalog_tx.subscribe();
         let mut source: crate::models::Subtitle = serde_json::from_value(json!({
             "text": "Japanese interview practice", "created_at": crate::models::now_iso8601(),

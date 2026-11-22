@@ -469,7 +469,7 @@ mod tests {
                 }
             })
         );
-        let http = reqwest::Client::new();
+        let http = crate::http_client();
         let built = generation_request(&http, &profile, "test-key", request.model, &body, false)
             .unwrap()
             .build()
@@ -539,7 +539,7 @@ mod tests {
     #[test]
     fn inline_limit_counts_the_complete_encoded_json_body() {
         let profile = ApiProfile::default();
-        let http = reqwest::Client::new();
+        let http = crate::http_client();
         let request = LlmRequest {
             model: "gemini-2.5-flash",
             instructions: "Describe",

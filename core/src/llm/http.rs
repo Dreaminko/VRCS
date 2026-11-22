@@ -304,7 +304,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}/models", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let client = crate::http_client_builder().no_proxy().build().unwrap();
         let catalog = list_model_catalog(client.get(&url), "mimo").await.unwrap();
         assert_eq!(catalog.models.len(), 5);
         for model in crate::providers::MIMO_CHAT_MODELS {
@@ -340,7 +340,7 @@ mod tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        let client = reqwest::Client::new();
+        let client = crate::http_client();
         let deepseek = list_model_catalog(client.get(&url), "deepseek")
             .await
             .unwrap();

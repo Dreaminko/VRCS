@@ -409,7 +409,7 @@ async fn vision_watch_reports_common_settings_and_committed_feature_and_shortcut
     assert!(updates.borrow().enabled);
     assert!(!updates.borrow().vr_enabled);
     assert!(updates.borrow().desktop_enabled);
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let url = format!("http://{}/api/settings", fixture.handle.address());
     for (field, value) in [
         ("desktop_shortcut", json!("Ctrl+Shift+V")),

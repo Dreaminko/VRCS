@@ -243,7 +243,7 @@ async fn qwen_download_reuses_verified_files_after_a_failed_companion_download()
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let root = tempfile::tempdir().unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::http_client();
     let (_cancel_sender, cancel) = tokio::sync::watch::channel(false);
     let url = format!("http://{address}");
 

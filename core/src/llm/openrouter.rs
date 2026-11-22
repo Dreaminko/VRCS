@@ -287,7 +287,7 @@ mod tests {
             }],
             ..ApiProfile::default()
         };
-        let catalog = fetch_transcription_catalog(&reqwest::Client::new(), &profile, "test-key")
+        let catalog = fetch_transcription_catalog(&crate::http_client(), &profile, "test-key")
             .await
             .unwrap();
         assert_eq!(catalog.models, ["new-provider/new-asr", "openai/whisper-1"]);

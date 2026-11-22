@@ -489,7 +489,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let temporary = root.path().join("fixture.part");
         let path = root.path().join(ASSET.name);
-        let client = reqwest::Client::new();
+        let client = crate::http_client();
         let (_cancel_tx, mut cancel) = watch::channel(false);
         let error = download_file_from_sources(
             &client,
@@ -563,7 +563,7 @@ mod tests {
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(2),
             download_file_from_sources(
-                &reqwest::Client::new(),
+                &crate::http_client(),
                 &urls,
                 ASSET,
                 &root.path().join(ASSET.name),

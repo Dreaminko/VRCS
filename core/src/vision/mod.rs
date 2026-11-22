@@ -57,7 +57,7 @@ impl VisionService {
     pub(crate) fn new(state: Arc<AppState>) -> Self {
         Self {
             state,
-            llm: LlmClient::new(reqwest::Client::new()),
+            llm: LlmClient::new(crate::http_client()),
             runtime: tokio::runtime::Handle::try_current().ok(),
         }
     }
@@ -963,7 +963,7 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         tap.stopped("test ended");
         handle.state.config.config.write().unwrap().vision.enabled = false;
-        let client = reqwest::Client::new();
+        let client = crate::http_client();
         let url = format!("http://{}/api/vision/test", handle.address());
         let response = client
             .post(&url)

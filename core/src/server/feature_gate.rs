@@ -160,7 +160,7 @@ mod tests {
             axum::serve(listener, router).await.unwrap();
         });
         let request = tokio::spawn(async move {
-            reqwest::Client::new()
+            crate::http_client()
                 .post(format!("http://{address}/api/learning/selection-query"))
                 .send()
                 .await

@@ -115,7 +115,7 @@ impl QwenRuntime {
             leases: Arc::new(AtomicUsize::new(0)),
             deferred_stop: Arc::new(AtomicBool::new(false)),
             requests: crate::work_priority::Gate::new(2, 32),
-            http: reqwest::Client::builder()
+            http: crate::http_client_builder()
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(Duration::from_secs(2))

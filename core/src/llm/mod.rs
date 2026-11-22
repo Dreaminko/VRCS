@@ -482,7 +482,7 @@ mod tests {
         };
         models_dev::supplement(&profile, &mut catalog);
         // A local closed proxy prevents any external API request if validation regresses.
-        let http = reqwest::Client::builder()
+        let http = crate::http_client_builder()
             .proxy(reqwest::Proxy::all("http://127.0.0.1:9").unwrap())
             .build()
             .unwrap();
@@ -551,7 +551,7 @@ mod tests {
                     }],
                     ..ApiProfile::default()
                 };
-                let client = LlmClient::new(reqwest::Client::new());
+                let client = LlmClient::new(crate::http_client());
                 let output = if with_image {
                     client
                         .generate_with_image(&profile, "test-key", request(), b"\x89PNG\r\n\x1a\n")
@@ -594,7 +594,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_disabled_unsupported_and_empty_image_inputs_before_http() {
-        let client = LlmClient::new(reqwest::Client::new());
+        let client = LlmClient::new(crate::http_client());
         let mut profile = ApiProfile {
             provider: providers::OPENAI_COMPATIBLE_PROVIDER.into(),
             enabled_capabilities: vec![CAPABILITY_TEXT_GENERATION.into()],
@@ -651,7 +651,7 @@ mod tests {
             auth_mode: ApiAuthMode::None,
             ..ApiProfile::default()
         };
-        let models = LlmClient::new(reqwest::Client::new())
+        let models = LlmClient::new(crate::http_client())
             .list_model_catalog(&profile, "")
             .await
             .unwrap()

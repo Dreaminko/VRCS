@@ -821,7 +821,7 @@ mod tests {
         let (_cancel_tx, cancel) = watch::channel(false);
 
         let error = download_assets(
-            &reqwest::Client::new(),
+            &crate::http_client(),
             &crate::downloads::DownloadSources::new(crate::config::ModelDownloadSource::Official),
             &stage,
             &target,
@@ -867,7 +867,7 @@ mod tests {
             let target = target.clone();
             async move {
                 download_assets(
-                    &reqwest::Client::new(),
+                    &crate::http_client(),
                     &crate::downloads::DownloadSources::new(
                         crate::config::ModelDownloadSource::Official,
                     ),
@@ -912,7 +912,7 @@ mod tests {
         for _ in 0..2 {
             let (_cancel_tx, cancel) = watch::channel(false);
             download_assets(
-                &reqwest::Client::new(),
+                &crate::http_client(),
                 &crate::downloads::DownloadSources::new(
                     crate::config::ModelDownloadSource::Official,
                 ),

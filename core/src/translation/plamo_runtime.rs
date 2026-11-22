@@ -75,7 +75,7 @@ impl PlamoRuntime {
             state: Arc::new(Mutex::new(RuntimeState::default())),
             startup: Mutex::new(()),
             slots: Gate::new(2, MAX_WAITING_REQUESTS),
-            http: reqwest::Client::builder()
+            http: crate::http_client_builder()
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(REQUEST_TIMEOUT)
@@ -699,7 +699,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let client = crate::http_client_builder().no_proxy().build().unwrap();
 
         assert!(
             probe_ready(&client, &origin, "secret", MODEL_ID, "local PLaMo")

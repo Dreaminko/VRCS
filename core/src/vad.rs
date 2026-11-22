@@ -221,7 +221,7 @@ pub async fn ensure_model(model_path: &Path) -> Result<(), String> {
         revision = MODEL_REVISION,
         "downloading Silero VAD model"
     );
-    let client = reqwest::Client::builder()
+    let client = crate::http_client_builder()
         .connect_timeout(Duration::from_secs(15))
         .read_timeout(Duration::from_secs(60))
         .build()
@@ -355,7 +355,8 @@ impl SileroVad {
             Err(error) => return Err(LoadError::ValidationError(error)),
         }
         let session = (|| -> ort::Result<Session> {
-            Session::builder()?
+            let env = crate::ort_environment()?;
+            Session::builder(&env)?
                 .with_intra_threads(1)?
                 .with_inter_threads(1)?
                 .with_parallel_execution(false)?

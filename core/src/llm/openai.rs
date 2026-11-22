@@ -289,7 +289,7 @@ mod tests {
                 "reasoning": { "effort": "none" }
             })
         );
-        let http = reqwest::Client::new();
+        let http = crate::http_client();
         let built = generation_request(
             &http,
             "test-key",
@@ -499,7 +499,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let response = reqwest::Client::builder()
+        let response = crate::http_client_builder()
             .no_proxy()
             .build()
             .unwrap()

@@ -232,7 +232,7 @@ async fn runtime_asset_with_a_wrong_checksum_cannot_be_activated() {
     let target = root.path().join("runtime.zip");
     let (_sender, mut cancel) = tokio::sync::watch::channel(false);
     let result = super::qwen_models::download_file(
-        &reqwest::Client::new(),
+        &crate::http_client(),
         reqwest::Url::parse(&url).unwrap(),
         super::qwen_models::AssetSpec {
             name: "runtime.zip",
