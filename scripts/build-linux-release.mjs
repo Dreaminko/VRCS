@@ -63,7 +63,7 @@ const runAsync = (command, args, options = {}) => new Promise((resolvePromise, r
   });
 });
 const tauri = (args) => run("npm", ["--workspace", "apps/desktop", "run", "tauri", "--", ...args]);
-const tauriAsync = (args) => runAsync("npm", ["--workspace", "apps/desktop", "run", "tauri", "--", ...args]);
+const tauriAsync = (args, options = {}) => runAsync("npm", ["--workspace", "apps/desktop", "run", "tauri", "--", ...args], options);
 function files(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((item) => {
     const path = join(directory, item.name);
@@ -295,7 +295,7 @@ function extractPackage(pkgPath, channel, extracted) {
     run(pkgPath, ["--appimage-extract"], { cwd: extracted });
   }
 }
-async function bundleAndCollectAsync({ config, channel, outputPath, debug }) {
+async function bundleAndCollectAsync({ config, sourceBin, channel, outputPath, debug }) {
   const channelConfig = structuredClone(config);
   channelConfig.bundle = {
     ...channelConfig.bundle,
@@ -304,7 +304,11 @@ async function bundleAndCollectAsync({ config, channel, outputPath, debug }) {
     createUpdaterArtifacts: channel === "appimage" && signed,
   };
   const configArg = writeGeneratedConfig(`tauri.linux.generated.${channel}.conf.json`, channelConfig);
-  const bundleDirectory = join(binaryRoot, "bundle", channel);
+  const channelTargetRoot = join(work, `bundle-target-${channel}`);
+  const channelBinaryRoot = join(channelTargetRoot, triple, debug ? "debug" : "release");
+  mkdirSync(channelBinaryRoot, { recursive: true });
+  copyFileSync(sourceBin, join(channelBinaryRoot, "vrcs-desktop"));
+  const bundleDirectory = join(channelBinaryRoot, "bundle", channel);
   rmSync(bundleDirectory, { recursive: true, force: true });
   await tauriAsync([
     "bundle",
@@ -313,7 +317,7 @@ async function bundleAndCollectAsync({ config, channel, outputPath, debug }) {
     "--config", configArg,
     "--bundles", channel,
     ...(signed && channel === "appimage" ? [] : ["--no-sign"]),
-  ]);
+  ], { env: { ...env, CARGO_TARGET_DIR: channelTargetRoot } });
   const suffix = { deb: ".deb", rpm: ".rpm", appimage: ".AppImage" }[channel];
   const packages = files(bundleDirectory).filter((path) => path.endsWith(suffix) && !path.endsWith(".src.rpm"));
   if (packages.length !== 1) throw new Error(`Expected exactly one ${channel} package`);
@@ -408,26 +412,20 @@ try {
       const verifyBin = join(verifyRoot, "vrcs-desktop");
       copyFileSync(stageBin, verifyBin);
       run("strip", ["--strip-debug", verifyBin]);
-      copyFileSync(verifyBin, executable);
-      try {
-        await Promise.all(["deb", "rpm"].map(async (pkgChannel) => {
-          const suffix = pkgChannel === "deb" ? ".deb" : ".rpm";
-          const pkgPath = join(verifyRoot, `VRCS-${version}-linux-${arch}${suffix}`);
-          const extracted = join(verifyRoot, `extracted-${pkgChannel}`);
-          mkdirSync(extracted, { recursive: true });
-          await bundleAndCollectAsync({ config, channel: pkgChannel, outputPath: pkgPath, debug: true });
-          verifyBundledPackage({ channel: pkgChannel, pkgPath, extracted, runSelfTest: false, alreadyValidated: false, alreadyExtracted: false });
-        }));
-      } finally {
-        copyFileSync(stageBin, executable);
-      }
+      await Promise.all(["deb", "rpm"].map(async (pkgChannel) => {
+        const suffix = pkgChannel === "deb" ? ".deb" : ".rpm";
+        const pkgPath = join(verifyRoot, `VRCS-${version}-linux-${arch}${suffix}`);
+        const extracted = join(verifyRoot, `extracted-${pkgChannel}`);
+        mkdirSync(extracted, { recursive: true });
+        await bundleAndCollectAsync({ config, sourceBin: verifyBin, channel: pkgChannel, outputPath: pkgPath, debug: true });
+        verifyBundledPackage({ channel: pkgChannel, pkgPath, extracted, runSelfTest: false, alreadyValidated: false, alreadyExtracted: false });
+      }));
     }
   } else {
-    copyFileSync(stageBin, executable);
     const bundledResults = await Promise.all(channels.map(async (channel) => {
       const suffix = { deb: ".deb", rpm: ".rpm", appimage: ".AppImage" }[channel];
       const output = join(artifactRoot, `VRCS-${version}-linux-${arch}${suffix}`);
-      await bundleAndCollectAsync({ config, channel, outputPath: output, debug: false });
+      await bundleAndCollectAsync({ config, sourceBin: stageBin, channel, outputPath: output, debug: false });
       const extracted = join(work, `extracted-${channel}`);
       mkdirSync(extracted, { recursive: true });
       writeTargetManifest({
