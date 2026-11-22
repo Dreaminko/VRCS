@@ -768,11 +768,11 @@ impl Preview {
                 Vec::new()
             }
             PreviewHeadset => {
-                self.view.headset.preview_visible = !self.view.headset.preview_visible;
+                self.view.headset.preview_visible.toggle();
                 Vec::new()
             }
             PreviewWrist => {
-                self.view.wrist.preview_visible = !self.view.wrist.preview_visible;
+                self.view.wrist.preview_visible.toggle();
                 Vec::new()
             }
             _ => vec![Effect::Dashboard(action)],

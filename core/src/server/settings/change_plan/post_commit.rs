@@ -186,7 +186,7 @@ mod tests {
         let current = AppConfig::default();
         let mut candidate = current.clone();
         candidate.storage.subtitle_history_max_bytes += 1;
-        candidate.vrcx.enabled = !candidate.vrcx.enabled;
+        candidate.vrcx.enabled.toggle();
 
         let updates = PostCommitUpdates::between(&current, &candidate);
 

@@ -159,10 +159,13 @@ impl LocalOcrRuntime {
         let cancelled = Arc::new(AtomicBool::new(false));
         let options =
             Arc::new(RunOptions::new().map_err(|_| "Could not create OCR inference options")?);
-        let _cancel = CancelOnDrop {
-            cancelled: cancelled.clone(),
-            options: options.clone(),
-        };
+        let _cancel = std::mem::DropGuard::new(
+            (cancelled.clone(), options.clone()),
+            |(cancelled, options)| {
+                cancelled.store(true, Ordering::Release);
+                let _ = options.terminate();
+            },
+        );
         let engine = self.engine.clone();
         let assets = self.assets.clone();
         let execution = self.execution.clone();
@@ -242,18 +245,6 @@ impl LocalOcrRuntime {
                 result = &mut worker => return result.map_err(|_| "Local OCR inference worker failed")?,
             }
         }
-    }
-}
-
-struct CancelOnDrop {
-    cancelled: Arc<AtomicBool>,
-    options: Arc<RunOptions>,
-}
-
-impl Drop for CancelOnDrop {
-    fn drop(&mut self) {
-        self.cancelled.store(true, Ordering::Release);
-        let _ = self.options.terminate();
     }
 }
 

@@ -103,17 +103,29 @@ impl PlamoRuntime {
             state.generation = state.generation.wrapping_add(1);
             state.generation
         };
-        let mut guard = StartupGuard {
-            state: Arc::clone(&self.state),
-            generation,
-            armed: true,
-        };
+        let guard = std::mem::DropGuard::new(
+            (Arc::clone(&self.state), generation),
+            |(state, generation)| {
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.spawn(async move {
+                        let mut state = state.lock().await;
+                        if state.generation == generation && state.connection.is_none() {
+                            state.model = None;
+                            state.status = "not_loaded";
+                            state.error = None;
+                            state.generation = state.generation.wrapping_add(1);
+                            let _ = stop_child(&mut state).await;
+                        }
+                    });
+                }
+            },
+        );
         let executable = match crate::asr::llama_server_executable_path(&self.runtime_directory) {
             Ok(path) => path,
             Err(detail) => {
                 let error = local_error("translation.local_runtime_unavailable", detail, false);
                 self.fail_startup(generation, &error.detail).await?;
-                guard.armed = false;
+                std::mem::DropGuard::dismiss(guard);
                 return Err(error);
             }
         };
@@ -121,7 +133,7 @@ impl PlamoRuntime {
         if let Err(error) = &result {
             self.fail_startup(generation, &error.detail).await?;
         }
-        guard.armed = false;
+        std::mem::DropGuard::dismiss(guard);
         result
     }
 
@@ -440,34 +452,6 @@ fn check_child(state: &mut RuntimeState) -> Result<(), TranslationError> {
         state.error = Some(format!("Local PLaMo runtime exited: {exit}"));
     }
     Ok(())
-}
-
-struct StartupGuard {
-    state: Arc<Mutex<RuntimeState>>,
-    generation: u64,
-    armed: bool,
-}
-
-impl Drop for StartupGuard {
-    fn drop(&mut self) {
-        if !self.armed {
-            return;
-        }
-        let state = Arc::clone(&self.state);
-        let generation = self.generation;
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async move {
-                let mut state = state.lock().await;
-                if state.generation == generation && state.connection.is_none() {
-                    state.model = None;
-                    state.status = "not_loaded";
-                    state.error = None;
-                    state.generation = state.generation.wrapping_add(1);
-                    let _ = stop_child(&mut state).await;
-                }
-            });
-        }
-    }
 }
 
 async fn stop_child(state: &mut RuntimeState) -> Result<(), String> {

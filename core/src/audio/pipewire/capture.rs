@@ -856,15 +856,11 @@ pub(crate) fn capture_main(
     ready: std::sync::mpsc::Sender<Result<AudioDevice, AudioError>>,
     microphone_tap: Option<MicrophoneTap>,
 ) {
-    struct StopTap<'a>(Option<&'a MicrophoneTap>);
-    impl Drop for StopTap<'_> {
-        fn drop(&mut self) {
-            if let Some(tap) = self.0 {
-                tap.stopped("PipeWire microphone capture stopped");
-            }
+    let _lifetime = std::mem::DropGuard::new(microphone_tap.as_ref(), |tap| {
+        if let Some(tap) = tap {
+            tap.stopped("PipeWire microphone capture stopped");
         }
-    }
-    let _lifetime = StopTap(microphone_tap.as_ref());
+    });
     let follows_default = matches!(
         &target,
         CaptureTarget::Device {

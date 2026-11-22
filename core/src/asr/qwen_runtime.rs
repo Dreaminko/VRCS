@@ -219,14 +219,10 @@ impl QwenRuntime {
             state.fallback = None;
             state.session
         };
-        let mut guard = StartupGuard {
-            state: Arc::clone(&self.state),
-            session,
-            armed: true,
-        };
+        let guard = startup_guard(&self.state, session);
         self.deferred_stop.store(false, Ordering::Release);
         let result = self.start_selection(selection, session, timeout).await;
-        guard.armed = false;
+        std::mem::DropGuard::dismiss(guard);
         result
     }
 
@@ -253,15 +249,11 @@ impl QwenRuntime {
             state.error = None;
             selection
         };
-        let mut guard = StartupGuard {
-            state: Arc::clone(&self.state),
-            session: previous.session,
-            armed: true,
-        };
+        let guard = startup_guard(&self.state, previous.session);
         let result = self
             .start_selection(selection, previous.session, Duration::from_secs(120))
             .await;
-        guard.armed = false;
+        std::mem::DropGuard::dismiss(guard);
         result
     }
 
@@ -552,19 +544,11 @@ fn check_child(state: &mut RuntimeState) -> Result<(), String> {
     }
     Ok(())
 }
-struct StartupGuard {
-    state: Arc<Mutex<RuntimeState>>,
-    session: u64,
-    armed: bool,
-}
+type StartupGuard =
+    std::mem::DropGuard<(Arc<Mutex<RuntimeState>>, u64), fn((Arc<Mutex<RuntimeState>>, u64))>;
 
-impl Drop for StartupGuard {
-    fn drop(&mut self) {
-        if !self.armed {
-            return;
-        }
-        let state = Arc::clone(&self.state);
-        let session = self.session;
+fn startup_guard(state: &Arc<Mutex<RuntimeState>>, session: u64) -> StartupGuard {
+    fn rollback((state, session): (Arc<Mutex<RuntimeState>>, u64)) {
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(async move {
                 let mut state = state.lock().await;
@@ -574,6 +558,8 @@ impl Drop for StartupGuard {
             });
         }
     }
+
+    std::mem::DropGuard::new((Arc::clone(state), session), rollback)
 }
 
 async fn stop_child(state: &mut RuntimeState) -> Result<(), String> {

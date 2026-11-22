@@ -448,7 +448,7 @@ impl NameUpdate<'_> {
 
 fn name_update(message: &str) -> Option<NameUpdate<'_>> {
     if let Some(rest) = message.strip_prefix("[Behaviour] Entering Room:") {
-        let name = rest.strip_prefix(' ').unwrap_or(rest);
+        let name = rest.trim_prefix(' ');
         return Some(if name.trim().is_empty() {
             NameUpdate::Clear
         } else {

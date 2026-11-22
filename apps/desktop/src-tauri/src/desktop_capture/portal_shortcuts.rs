@@ -311,13 +311,9 @@ pub fn sync(app: AppHandle) {
     }
 
     tauri::async_runtime::spawn(async move {
-        struct RestoreGuard<'a>(&'a AppHandle);
-        impl Drop for RestoreGuard<'_> {
-            fn drop(&mut self) {
-                self.0.state::<Manager>().state.lock().unwrap().restoring = false;
-            }
-        }
-        let _guard = RestoreGuard(&app);
+        let _guard = std::mem::DropGuard::new(&app, |app: &AppHandle| {
+            app.state::<Manager>().state.lock().unwrap().restoring = false;
+        });
 
         let Ok(proxy) = GlobalShortcuts::new().await else {
             return;

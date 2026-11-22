@@ -174,7 +174,7 @@ impl Visibility {
             let since = *self.since.get_or_insert(now);
             let delay = if self.visible { 400 } else { 150 };
             if now.duration_since(since) >= Duration::from_millis(delay) {
-                self.visible = !self.visible;
+                self.visible.toggle();
                 self.since = None;
             }
         } else {

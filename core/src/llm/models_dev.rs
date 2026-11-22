@@ -188,7 +188,7 @@ impl Snapshot {
         let id = provider_id(profile)?;
         let model = model.trim();
         let model = if profile.provider == "gemini" {
-            model.strip_prefix("models/").unwrap_or(model)
+            model.trim_prefix("models/")
         } else {
             model
         };
@@ -252,7 +252,7 @@ pub fn model_details(profile: &ApiProfile, model: &str) -> Option<ModelDetails> 
     provider_id(profile)?;
     let model = model.trim();
     let model = if profile.provider == "gemini" {
-        model.strip_prefix("models/").unwrap_or(model)
+        model.trim_prefix("models/")
     } else {
         model
     };

@@ -544,15 +544,11 @@ pub(crate) fn capture_main(
     microphone_tap: Option<crate::vision::MicrophoneTap>,
 ) {
     // This guard also clears running state if the producer unwinds.
-    struct StopTap<'a>(Option<&'a crate::vision::MicrophoneTap>);
-    impl Drop for StopTap<'_> {
-        fn drop(&mut self) {
-            if let Some(tap) = self.0 {
-                tap.stopped("Microphone capture stopped");
-            }
+    let _tap_lifetime = std::mem::DropGuard::new(microphone_tap.as_ref(), |tap| {
+        if let Some(tap) = tap {
+            tap.stopped("Microphone capture stopped");
         }
-    }
-    let _tap_lifetime = StopTap(microphone_tap.as_ref());
+    });
     let follows_default = matches!(
         &target,
         CaptureTarget::Device {

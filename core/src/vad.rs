@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 
 use futures_util::StreamExt;
@@ -91,7 +91,7 @@ struct SharedSileroSession {
     session: Arc<Mutex<Session>>,
 }
 
-static SHARED_SILERO: OnceLock<Mutex<Option<SharedSileroSession>>> = OnceLock::new();
+static SHARED_SILERO: Mutex<Option<SharedSileroSession>> = Mutex::new(None);
 
 fn modified_nanos(metadata: &std::fs::Metadata) -> i128 {
     metadata
@@ -339,8 +339,7 @@ impl SileroVad {
         })?;
         let bytes = metadata.len();
         let modified = modified_nanos(&metadata);
-        let cache = SHARED_SILERO.get_or_init(|| Mutex::new(None));
-        let mut guard = cache
+        let mut guard = SHARED_SILERO
             .lock()
             .map_err(|_| LoadError::Init("Silero VAD session cache lock poisoned".into()))?;
         if let Some(entry) = guard.as_ref()

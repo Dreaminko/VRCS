@@ -389,9 +389,9 @@ impl VisionRuntime {
             match action {
                 Action::PreviousPage => view.page = view.page.saturating_sub(1),
                 Action::NextPage => view.page = (view.page + 1).min(self.pages.saturating_sub(1)),
-                Action::TogglePin => view.pinned = !view.pinned,
+                Action::TogglePin => view.pinned.toggle(),
                 Action::ToggleQuestion => {
-                    view.source_only = !view.source_only;
+                    view.source_only.toggle();
                     view.page = 0;
                 }
                 _ => {}

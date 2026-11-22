@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 use regex::Regex;
 use serde_json::{Value, json};
@@ -32,21 +32,26 @@ fn section_label(label: &str) -> String {
 }
 
 fn dictionary_heading_pattern() -> &'static Regex {
-    static PATTERN: OnceLock<Regex> = OnceLock::new();
-    PATTERN.get_or_init(|| Regex::new(r"^【(?P<label>.+)】$").unwrap())
+    static PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^【(?P<label>.+)】$").unwrap());
+    &PATTERN
 }
 
 fn numbered_gloss_pattern() -> &'static Regex {
-    static PATTERN: OnceLock<Regex> = OnceLock::new();
-    PATTERN.get_or_init(|| Regex::new(r"^\d+[.)、]\s*(?P<text>.+)$").unwrap())
+    static PATTERN: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^\d+[.)、]\s*(?P<text>.+)$").unwrap());
+    &PATTERN
+}
+
+fn block_splitter_pattern() -> &'static Regex {
+    static PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\n\s*\n").unwrap());
+    &PATTERN
 }
 
 fn definition_html(value: &str) -> String {
     let normalized = value.replace("\r\n", "\n").replace('\r', "\n");
     let normalized = normalized.trim();
-    let block_splitter = Regex::new(r"\n\s*\n").unwrap();
     let mut rendered = String::new();
-    for raw_block in block_splitter.split(normalized) {
+    for raw_block in block_splitter_pattern().split(normalized) {
         let lines: Vec<&str> = raw_block
             .lines()
             .map(str::trim)

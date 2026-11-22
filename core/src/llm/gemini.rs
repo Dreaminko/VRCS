@@ -198,7 +198,7 @@ fn request_body(request: &LlmRequest<'_>) -> Value {
 }
 
 fn model_id(model: &str) -> Result<&str, LlmError> {
-    let model = model.trim().strip_prefix("models/").unwrap_or(model.trim());
+    let model = model.trim().trim_prefix("models/");
     if model.is_empty()
         || model.len() > 200
         || !model
@@ -252,7 +252,7 @@ fn process_sse_line(
     })?;
     let line = line.trim_end_matches(['\r', '\n']);
     if let Some(data) = line.strip_prefix("data:") {
-        event_data.push_str(data.strip_prefix(' ').unwrap_or(data));
+        event_data.push_str(data.trim_prefix(' '));
         event_data.push('\n');
     }
     if !line.is_empty() || event_data.is_empty() {
@@ -370,7 +370,7 @@ fn extract_models(value: &Value) -> Vec<String> {
                 .is_some_and(|methods| methods.iter().any(|method| method == "generateContent"))
         })
         .filter_map(|model| model.get("name").and_then(Value::as_str))
-        .map(|name| name.strip_prefix("models/").unwrap_or(name).trim())
+        .map(|name| name.trim_prefix("models/").trim())
         .filter(|name| !name.is_empty() && name.len() <= 200)
         .map(str::to_owned)
         .take(500)

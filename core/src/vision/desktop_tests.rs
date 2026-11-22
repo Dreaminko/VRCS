@@ -133,7 +133,7 @@ async fn vr_configuration_matches_ignores_only_desktop_fields() {
     let snapshot = service.configuration();
     {
         let mut config = fixture.handle.state.config.config.write().unwrap();
-        config.vision.desktop_enabled = !config.vision.desktop_enabled;
+        config.vision.desktop_enabled.toggle();
         config.vision.desktop_shortcut = "Ctrl+Shift+V".into();
     }
     assert!(service.configuration_matches(&snapshot));
