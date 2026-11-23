@@ -93,6 +93,7 @@ pub fn apply_feature_gates(config: &AppConfig) -> AppConfig {
         effective.audio.output.mode = "disabled".into();
     }
     effective.osc.mute_sync_enabled &= effective.osc.enabled;
+    effective.unitext.mute_sync_enabled &= effective.unitext.enabled;
     effective.vrcx.enabled &= features.vrcx;
     effective.external_api.enabled &= features.external_api;
     effective.vr_overlay.enabled &= features.vr_overlay;

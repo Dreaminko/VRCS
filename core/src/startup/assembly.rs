@@ -11,7 +11,7 @@ use crate::server::{
 };
 use crate::{
     asr, credentials, domain_events, external_api, glossary, learning, osc, subtitle_output,
-    translation, vad, vrchat_mute_sync, vrcx,
+    translation, unitext, vad, vrchat_mute_sync, vrcx,
 };
 
 use super::plan::StartupPlan;
@@ -136,7 +136,12 @@ impl RuntimeAssembly {
         let (external_api_server, external_api_status) =
             start_external_api(&plan, domain_events.clone(), shutdown_rx.clone()).await;
         let vrchat_mute_sync = vrchat_mute_sync::VrchatMuteSync::new(
-            effective.osc.mute_sync_enabled,
+            effective.osc.mute_sync_enabled || effective.unitext.mute_sync_enabled,
+            shutdown_rx.clone(),
+        );
+        let unitext = unitext::UniTextDispatcher::new(
+            effective.unitext.clone(),
+            subtitle_output.subscribe_presentation_events(),
             shutdown_rx.clone(),
         );
         let (vr_overlay_config_tx, _) =
@@ -167,6 +172,7 @@ impl RuntimeAssembly {
         let integration_runtime = IntegrationRuntime::new(IntegrationRuntimeInput {
             vr_overlay_config_tx,
             osc,
+            unitext,
             session_token: plan.session_token.clone(),
             domain_events,
             external_api_server,

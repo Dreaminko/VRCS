@@ -83,8 +83,12 @@ impl PostCommitUpdates {
         );
         state
             .integrations
-            .vrchat_mute_sync
-            .update_enabled(effective_candidate.osc.mute_sync_enabled);
+            .unitext
+            .update_config(effective_candidate.unitext.clone());
+        state.integrations.vrchat_mute_sync.update_enabled(
+            effective_candidate.osc.mute_sync_enabled
+                || effective_candidate.unitext.mute_sync_enabled,
+        );
         if self.vrcx_changed {
             let token = credentials::blocking(credentials::read_vrcx_token)
                 .await

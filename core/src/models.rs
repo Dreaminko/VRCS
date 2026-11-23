@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{
     AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ExternalApiConfig, GlossaryConfig,
-    OscConfig, ServerConfig, StorageConfig, TranslationConfig, VadConfig, VrOcrConfig,
-    VrOverlayConfig, VrchatChatboxConfig,
+    OscConfig, ServerConfig, StorageConfig, TranslationConfig, UniTextConfig, VadConfig,
+    VrOcrConfig, VrOverlayConfig, VrchatChatboxConfig,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,6 +123,8 @@ pub struct SettingsUpdate {
     pub language_presets: Vec<crate::config::LanguagePreset>,
     #[serde(default)]
     pub osc: OscConfig,
+    #[serde(default)]
+    pub unitext: UniTextConfig,
     #[serde(default)]
     pub anki: AnkiConfig,
     #[serde(default)]

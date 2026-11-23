@@ -23,3 +23,28 @@ pub(super) async fn test_message(State(state): State<IntegrationState>) -> ApiRe
     })?;
     Ok(Json(json!({ "queued": true })))
 }
+
+pub(super) async fn test_unitext(State(state): State<IntegrationState>) -> ApiResult<Json<Value>> {
+    state.unitext.queue_test().map_err(map_unitext_error)?;
+    Ok(Json(json!({ "queued": true })))
+}
+
+pub(super) async fn clear_unitext(State(state): State<IntegrationState>) -> ApiResult<Json<Value>> {
+    state.unitext.clear().map_err(map_unitext_error)?;
+    Ok(Json(json!({ "cleared": true })))
+}
+
+fn map_unitext_error(code: &'static str) -> (StatusCode, Json<Value>) {
+    let (status, detail) = match code {
+        "unitext.disabled" => (StatusCode::CONFLICT, "UniText prop output is disabled"),
+        "unitext.not_detected" => (
+            StatusCode::CONFLICT,
+            "UniText avatar parameters have not been detected yet",
+        ),
+        _ => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "UniText command queue is full",
+        ),
+    };
+    api_error(status, code, detail)
+}

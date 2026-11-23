@@ -36,6 +36,36 @@ pub struct OscConfig {
     pub translation_strategy: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UniTextConfig {
+    pub enabled: bool,
+    pub port: u16,
+    pub tier: String,
+    pub interval_ms: u16,
+    pub include_microphone: bool,
+    pub include_speaker: bool,
+    pub preserve_original_text: bool,
+    pub mute_sync_enabled: bool,
+    pub clear_after_seconds: u16,
+}
+
+impl Default for UniTextConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: default_osc_port(),
+            tier: "auto".into(),
+            interval_ms: 150,
+            include_microphone: true,
+            include_speaker: true,
+            preserve_original_text: true,
+            mute_sync_enabled: true,
+            clear_after_seconds: 30,
+        }
+    }
+}
+
 fn default_enabled() -> bool {
     true
 }

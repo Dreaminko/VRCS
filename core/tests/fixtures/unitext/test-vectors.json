@@ -1,0 +1,1741 @@
+{
+  "schema_version": "1.0.0",
+  "protocol_version": 2,
+  "grid": {
+    "cols": 64,
+    "narrow_cols": 32,
+    "min_rows": 4,
+    "default_rows": 6,
+    "max_rows": 12,
+    "min_row_px": 192,
+    "default_row_px": 384,
+    "max_row_px": 640
+  },
+  "vectors": [
+    {
+      "id": "wide_english_proportional_standard",
+      "description": "63-char proportional English line spanning bank 0 and bank 1 on Standard (8B).",
+      "tier": "standard",
+      "payload_bytes": 8,
+      "row_cells": 64,
+      "rows": 6,
+      "row_px": 384,
+      "encoder_check": true,
+      "max_encoder_packets": 9,
+      "initial_state": {
+        "top_row": 0,
+        "rows": {},
+        "row_styles": [],
+        "status": 0
+      },
+      "packets": [
+        {
+          "ctrl": 97,
+          "data": [
+            105,
+            87,
+            32,
+            80,
+            114,
+            111,
+            112,
+            111
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 99,
+          "data": [
+            114,
+            116,
+            105,
+            111,
+            110,
+            97,
+            108,
+            32
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 101,
+          "data": [
+            102,
+            111,
+            110,
+            116,
+            115,
+            32,
+            108,
+            101
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 103,
+          "data": [
+            116,
+            32,
+            116,
+            104,
+            105,
+            115,
+            32,
+            69
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 97,
+          "data": [
+            110,
+            103,
+            108,
+            105,
+            115,
+            104,
+            32,
+            114
+          ],
+          "bank": 1,
+          "row_page": 0
+        },
+        {
+          "ctrl": 99,
+          "data": [
+            111,
+            119,
+            32,
+            104,
+            111,
+            108,
+            100,
+            32
+          ],
+          "bank": 1,
+          "row_page": 0
+        },
+        {
+          "ctrl": 101,
+          "data": [
+            54,
+            51,
+            32,
+            99,
+            104,
+            97,
+            114,
+            97
+          ],
+          "bank": 1,
+          "row_page": 0
+        },
+        {
+          "ctrl": 103,
+          "data": [
+            99,
+            116,
+            101,
+            114,
+            115,
+            33,
+            33,
+            0
+          ],
+          "bank": 1,
+          "row_page": 0
+        },
+        {
+          "ctrl": 250,
+          "data": [
+            32,
+            2,
+            130,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        }
+      ],
+      "expected_state": {
+        "top_row": 0,
+        "rows": {
+          "0": "iW Proportional fonts let this English row hold 63 characters!!"
+        },
+        "row_styles": [
+          {
+            "row": 0,
+            "color": 2,
+            "flags": 2
+          }
+        ],
+        "status": 2
+      },
+      "expected_row_px": [
+        355,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "expected_layout": {
+        "0": [
+          0,
+          4,
+          14,
+          20,
+          27,
+          32,
+          38,
+          44
+        ]
+      }
+    },
+    {
+      "id": "full_cjk_32_chars_balanced",
+      "description": "32 full-width CJK glyphs hitting exact 384 px budget via LUT12 on Balanced (6B).",
+      "tier": "balanced",
+      "payload_bytes": 6,
+      "row_cells": 64,
+      "rows": 6,
+      "row_px": 384,
+      "encoder_check": true,
+      "max_encoder_packets": 9,
+      "initial_state": {
+        "top_row": 0,
+        "rows": {},
+        "row_styles": [],
+        "status": 0
+      },
+      "packets": [
+        {
+          "ctrl": 161,
+          "data": [
+            174,
+            58,
+            223,
+            62,
+            30,
+            9
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 163,
+          "data": [
+            252,
+            168,
+            181,
+            36,
+            11,
+            2
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 165,
+          "data": [
+            195,
+            34,
+            133,
+            19,
+            31,
+            102
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 167,
+          "data": [
+            198,
+            175,
+            202,
+            139,
+            93,
+            222
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 169,
+          "data": [
+            104,
+            241,
+            163,
+            41,
+            40,
+            91
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 171,
+          "data": [
+            211,
+            42,
+            111,
+            173,
+            195,
+            212
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 173,
+          "data": [
+            72,
+            138,
+            29,
+            98,
+            255,
+            202
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 31,
+          "data": [
+            123,
+            38,
+            255,
+            1,
+            0,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 250,
+          "data": [
+            16,
+            16,
+            130,
+            0,
+            0,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        }
+      ],
+      "expected_state": {
+        "top_row": 0,
+        "rows": {
+          "1": "实时翻译字幕测试完成，中文字幕依旧保持每行三十二个全角字符！"
+        },
+        "row_styles": [
+          {
+            "row": 1,
+            "color": 0,
+            "flags": 2
+          }
+        ],
+        "status": 1
+      },
+      "expected_row_px": [
+        0,
+        360,
+        0,
+        0,
+        0,
+        0
+      ],
+      "expected_layout": {
+        "0": []
+      }
+    },
+    {
+      "id": "write_page_bank0_bank1_compact36",
+      "description": "WRITE_PAGE / UTF16 / ASCII across bank 0 (Kana 0x30) and bank 1 (Cyrillic 0x04) on Compact36 (D0..D3 + D4 high nibble, 36 bits); byte opcodes ignore D4.",
+      "tier": "compact",
+      "payload_bytes": 5,
+      "row_cells": 64,
+      "rows": 6,
+      "row_px": 384,
+      "encoder_check": true,
+      "max_encoder_packets": 15,
+      "initial_state": {
+        "top_row": 0,
+        "rows": {},
+        "row_styles": [],
+        "status": 0
+      },
+      "packets": [
+        {
+          "ctrl": 244,
+          "data": [
+            0,
+            83,
+            147,
+            107,
+            167
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 244,
+          "data": [
+            3,
+            97,
+            111,
+            171,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 244,
+          "data": [
+            6,
+            191,
+            171,
+            202,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 244,
+          "data": [
+            9,
+            198,
+            185,
+            200,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 7,
+          "data": [
+            48,
+            96,
+            48,
+            136,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 8,
+          "data": [
+            255,
+            1,
+            0,
+            32,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 101,
+          "data": [
+            32,
+            32,
+            32,
+            32,
+            95
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 102,
+          "data": [
+            32,
+            32,
+            32,
+            32,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 13,
+          "data": [
+            0,
+            32,
+            0,
+            32,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 244,
+          "data": [
+            90,
+            31,
+            64,
+            56,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 244,
+          "data": [
+            93,
+            50,
+            53,
+            66,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 1,
+          "data": [
+            0,
+            32,
+            4,
+            60,
+            0
+          ],
+          "bank": 1,
+          "row_page": 0
+        },
+        {
+          "ctrl": 2,
+          "data": [
+            4,
+            56,
+            4,
+            64,
+            0
+          ],
+          "bank": 1,
+          "row_page": 0
+        },
+        {
+          "ctrl": 98,
+          "data": [
+            33,
+            33,
+            0,
+            0,
+            0
+          ],
+          "bank": 1,
+          "row_page": 0
+        },
+        {
+          "ctrl": 250,
+          "data": [
+            32,
+            3,
+            128,
+            0,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        }
+      ],
+      "expected_state": {
+        "top_row": 0,
+        "rows": {
+          "0": "こんにちはカタカナテストだよ！           Привет мир!!"
+        },
+        "row_styles": [
+          {
+            "row": 0,
+            "color": 3,
+            "flags": 0
+          }
+        ],
+        "status": 2
+      },
+      "expected_geometry": null
+    },
+    {
+      "id": "narrow_32_cells_balanced",
+      "description": "Narrow 32-column fallback writes bank 0 only and keeps cols 32..63 empty.",
+      "tier": "balanced",
+      "payload_bytes": 6,
+      "row_cells": 32,
+      "rows": 6,
+      "row_px": 384,
+      "encoder_check": true,
+      "max_encoder_packets": 9,
+      "initial_state": {
+        "top_row": 0,
+        "rows": {},
+        "row_styles": [],
+        "status": 0
+      },
+      "packets": [
+        {
+          "ctrl": 97,
+          "data": [
+            78,
+            97,
+            114,
+            114,
+            111,
+            119
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 244,
+          "data": [
+            134,
+            32,
+            51,
+            50,
+            45,
+            99
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 244,
+          "data": [
+            139,
+            101,
+            108,
+            108,
+            32,
+            112
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 101,
+          "data": [
+            114,
+            111,
+            112,
+            111,
+            114,
+            116
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 244,
+          "data": [
+            150,
+            105,
+            111,
+            110,
+            97,
+            108
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 244,
+          "data": [
+            155,
+            32,
+            79,
+            75,
+            33,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 161,
+          "data": [
+            246,
+            108,
+            106,
+            58,
+            45,
+            50
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 19,
+          "data": [
+            109,
+            75,
+            139,
+            213,
+            0,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 250,
+          "data": [
+            0,
+            20,
+            0,
+            0,
+            0,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        }
+      ],
+      "expected_state": {
+        "top_row": 0,
+        "rows": {
+          "0": "Narrow 32-cell proportional OK!",
+          "1": "中文短行测试"
+        },
+        "row_styles": [
+          {
+            "row": 0,
+            "color": 0,
+            "flags": 0
+          },
+          {
+            "row": 1,
+            "color": 4,
+            "flags": 0
+          }
+        ],
+        "status": 0
+      }
+    },
+    {
+      "id": "lut12_odd_offset_and_slot_243",
+      "description": "WRITE_LUT12 Standard oddOffset=1 (D7&1) and slot 243 (Ctrl=243) end-of-plane clamping.",
+      "tier": "standard",
+      "payload_bytes": 8,
+      "row_cells": 64,
+      "rows": 6,
+      "row_px": 384,
+      "encoder_check": false,
+      "initial_state": {
+        "top_row": 0,
+        "rows": {},
+        "row_styles": [],
+        "status": 0
+      },
+      "packets": [
+        {
+          "ctrl": 145,
+          "data": [
+            141,
+            213,
+            17,
+            174,
+            230,
+            79,
+            36,
+            1
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 243,
+          "data": [
+            195,
+            34,
+            133,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        }
+      ],
+      "expected_state": {
+        "top_row": 0,
+        "rows": {},
+        "sparse_cells": [
+          {
+            "row": 0,
+            "col": 1,
+            "cp": 20320
+          },
+          {
+            "row": 0,
+            "col": 2,
+            "cp": 22909
+          },
+          {
+            "row": 0,
+            "col": 3,
+            "cp": 19990
+          },
+          {
+            "row": 0,
+            "col": 4,
+            "cp": 30028
+          },
+          {
+            "row": 0,
+            "col": 5,
+            "cp": 27979
+          },
+          {
+            "row": 5,
+            "col": 30,
+            "cp": 23436
+          },
+          {
+            "row": 5,
+            "col": 31,
+            "cp": 25104
+          }
+        ],
+        "row_styles": [],
+        "status": 0
+      }
+    },
+    {
+      "id": "cmd_set_view_and_clear_row_12r_lite",
+      "description": "Unified Ctrl=250 sets topRow=7, row 9 style & status, plus 12-bit CMD_CLEAR_ROW clears rows 0 & 8.",
+      "tier": "lite",
+      "payload_bytes": 3,
+      "row_cells": 64,
+      "rows": 12,
+      "row_px": 384,
+      "encoder_check": false,
+      "initial_state": {
+        "top_row": 0,
+        "rows": {
+          "0": "Clear Row 0",
+          "1": "Keep Row 1",
+          "8": "Clear Row 8",
+          "9": "Keep Row 9"
+        },
+        "row_styles": [],
+        "status": 0
+      },
+      "packets": [
+        {
+          "ctrl": 241,
+          "data": [
+            1,
+            4,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 250,
+          "data": [
+            39,
+            149,
+            130
+          ],
+          "bank": 0,
+          "row_page": 0
+        }
+      ],
+      "expected_state": {
+        "top_row": 7,
+        "rows": {
+          "2": "Keep Row 9",
+          "6": "Keep Row 1"
+        },
+        "row_styles": [
+          {
+            "row": 2,
+            "color": 5,
+            "flags": 2
+          }
+        ],
+        "status": 2
+      }
+    },
+    {
+      "id": "ring_buffer_8r_scroll_lite_256px",
+      "description": "8-row Ring-Buffer scroll (rows 6..7 on RowPage 1, 256px width) on Lite (3B).",
+      "tier": "lite",
+      "payload_bytes": 3,
+      "row_cells": 64,
+      "rows": 8,
+      "row_px": 256,
+      "encoder_check": true,
+      "max_encoder_packets": 8,
+      "initial_state": {
+        "top_row": 0,
+        "rows": {
+          "0": "Line 0",
+          "1": "Line 1",
+          "2": "Line 2",
+          "3": "Line 3",
+          "4": "Line 4",
+          "5": "Line 5",
+          "6": "Line 6",
+          "7": "Line 7"
+        },
+        "row_styles": [],
+        "status": 0
+      },
+      "packets": [
+        {
+          "ctrl": 250,
+          "data": [
+            33,
+            4,
+            130
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 241,
+          "data": [
+            1,
+            0,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 145,
+          "data": [
+            53,
+            32,
+            25
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 146,
+          "data": [
+            211,
+            45,
+            36
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 147,
+          "data": [
+            252,
+            168,
+            181
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 148,
+          "data": [
+            19,
+            84,
+            230
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 149,
+          "data": [
+            151,
+            114,
+            64
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 150,
+          "data": [
+            176,
+            33,
+            38
+          ],
+          "bank": 0,
+          "row_page": 0
+        }
+      ],
+      "expected_state": {
+        "top_row": 1,
+        "rows": {
+          "0": "Line 1",
+          "1": "Line 2",
+          "2": "Line 3",
+          "3": "Line 4",
+          "4": "Line 5",
+          "5": "Line 6",
+          "6": "Line 7",
+          "7": "第8行新字幕：滚屏测试！"
+        },
+        "row_styles": [
+          {
+            "row": 7,
+            "color": 4,
+            "flags": 2
+          }
+        ],
+        "status": 2
+      },
+      "scroll_up": 1
+    },
+    {
+      "id": "mixed_12r_korean_turbo",
+      "description": "12-row viewport with RowPage 1 Korean Hangul UTF-16 & English proportional wrap on Turbo (16B).",
+      "tier": "turbo",
+      "payload_bytes": 16,
+      "row_cells": 64,
+      "rows": 12,
+      "row_px": 384,
+      "encoder_check": true,
+      "max_encoder_packets": 12,
+      "initial_state": {
+        "top_row": 0,
+        "rows": {},
+        "row_styles": [],
+        "status": 0
+      },
+      "packets": [
+        {
+          "ctrl": 97,
+          "data": [
+            84,
+            111,
+            112,
+            32,
+            114,
+            111,
+            119,
+            58,
+            32,
+            85,
+            110,
+            105,
+            84,
+            101,
+            120,
+            116
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 101,
+          "data": [
+            32,
+            49,
+            50,
+            45,
+            114,
+            111,
+            119,
+            32,
+            118,
+            105,
+            101,
+            119,
+            112,
+            111,
+            114,
+            116
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 97,
+          "data": [
+            32,
+            114,
+            101,
+            97,
+            100,
+            121,
+            33,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "bank": 1,
+          "row_page": 0
+        },
+        {
+          "ctrl": 145,
+          "data": [
+            3,
+            16,
+            66,
+            4,
+            128,
+            70,
+            0,
+            16,
+            18,
+            0,
+            16,
+            51,
+            5,
+            0,
+            88,
+            0
+          ],
+          "bank": 0,
+          "row_page": 1
+        },
+        {
+          "ctrl": 150,
+          "data": [
+            0,
+            16,
+            23,
+            1,
+            176,
+            1,
+            246,
+            108,
+            106,
+            230,
+            112,
+            1,
+            2,
+            96,
+            79,
+            0
+          ],
+          "bank": 0,
+          "row_page": 1
+        },
+        {
+          "ctrl": 155,
+          "data": [
+            4,
+            128,
+            77,
+            4,
+            160,
+            84,
+            4,
+            144,
+            1,
+            89,
+            137,
+            29,
+            252,
+            168,
+            181,
+            0
+          ],
+          "bank": 0,
+          "row_page": 1
+        },
+        {
+          "ctrl": 81,
+          "data": [
+            0,
+            66,
+            0,
+            111,
+            0,
+            116,
+            0,
+            116,
+            0,
+            111,
+            0,
+            109,
+            0,
+            58,
+            0,
+            32
+          ],
+          "bank": 0,
+          "row_page": 1
+        },
+        {
+          "ctrl": 85,
+          "data": [
+            197,
+            72,
+            177,
+            85,
+            213,
+            88,
+            193,
+            56,
+            198,
+            148,
+            0,
+            33,
+            0,
+            32,
+            0,
+            49
+          ],
+          "bank": 0,
+          "row_page": 1
+        },
+        {
+          "ctrl": 141,
+          "data": [
+            50,
+            45,
+            114,
+            111,
+            119,
+            32,
+            84,
+            117,
+            114,
+            98,
+            111,
+            32,
+            79,
+            75,
+            0,
+            0
+          ],
+          "bank": 0,
+          "row_page": 1
+        },
+        {
+          "ctrl": 250,
+          "data": [
+            16,
+            7,
+            128,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 250,
+          "data": [
+            0,
+            96,
+            2,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 250,
+          "data": [
+            0,
+            180,
+            2,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        }
+      ],
+      "expected_state": {
+        "top_row": 0,
+        "rows": {
+          "0": "Top row: UniText 12-row viewport ready!",
+          "6": "Page 1 Row 6: 中文与 English 混排字幕",
+          "11": "Bottom: 안녕하세요! 12-row Turbo OK"
+        },
+        "row_styles": [
+          {
+            "row": 0,
+            "color": 7,
+            "flags": 0
+          },
+          {
+            "row": 6,
+            "color": 0,
+            "flags": 2
+          },
+          {
+            "row": 11,
+            "color": 4,
+            "flags": 2
+          }
+        ],
+        "status": 1
+      },
+      "expected_row_px": [
+        231,
+        0,
+        0,
+        0,
+        0,
+        0,
+        221,
+        0,
+        0,
+        0,
+        0,
+        212
+      ],
+      "expected_layout": {
+        "0": [
+          0,
+          8,
+          14,
+          20,
+          26,
+          31,
+          37,
+          45
+        ]
+      }
+    },
+    {
+      "id": "clear_all_nop_and_reserved",
+      "description": "CMD_CLEAR_ALL resets both banks/pages/layout; NOP (0), reserved (242, 255) and an out-of-range CMD_SET_GEOMETRY (rows 2) preserve state.",
+      "tier": "standard",
+      "payload_bytes": 8,
+      "row_cells": 64,
+      "rows": 12,
+      "row_px": 384,
+      "encoder_check": false,
+      "initial_state": {
+        "top_row": 5,
+        "rows": {
+          "0": "Stale Row 0",
+          "9": "Stale Row 9"
+        },
+        "row_styles": [
+          {
+            "row": 2,
+            "color": 3,
+            "flags": 2
+          }
+        ],
+        "status": 2
+      },
+      "packets": [
+        {
+          "ctrl": 240,
+          "data": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 0,
+          "data": [
+            99,
+            99,
+            99,
+            99,
+            99,
+            99,
+            99,
+            99
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 242,
+          "data": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 251,
+          "data": [
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 255,
+          "data": [
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 97,
+          "data": [
+            79,
+            75,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        }
+      ],
+      "expected_state": {
+        "top_row": 0,
+        "rows": {
+          "0": "OK"
+        },
+        "row_styles": [],
+        "status": 0
+      },
+      "expected_geometry": null
+    },
+    {
+      "id": "set_geometry_survives_clear_lite",
+      "description": "CMD_SET_GEOMETRY (Ctrl 251, D0 = rows, D1 = row_px / 8) writes metadata pixel (29, 12), survives CMD_CLEAR_ALL, and ignores out-of-range rows / row_px.",
+      "tier": "lite",
+      "payload_bytes": 3,
+      "row_cells": 64,
+      "rows": 8,
+      "row_px": 256,
+      "encoder_check": false,
+      "initial_state": {
+        "top_row": 0,
+        "rows": {
+          "0": "Old"
+        },
+        "row_styles": [],
+        "status": 0
+      },
+      "packets": [
+        {
+          "ctrl": 251,
+          "data": [
+            8,
+            32,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 240,
+          "data": [
+            0,
+            0,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 251,
+          "data": [
+            13,
+            32,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 251,
+          "data": [
+            6,
+            81,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 97,
+          "data": [
+            79,
+            75,
+            0
+          ],
+          "bank": 0,
+          "row_page": 0
+        }
+      ],
+      "expected_state": {
+        "top_row": 0,
+        "rows": {
+          "0": "OK"
+        },
+        "row_styles": [],
+        "status": 0
+      },
+      "expected_geometry": [
+        8,
+        256
+      ]
+    },
+    {
+      "id": "lut12_three_per_packet_compact36",
+      "description": "Compact36 WRITE_LUT12 packs 3 x 12-bit indices per packet (row * 11 + chunk, slots 0..65) with D4 low-nibble masking, chunk-10 column clamping (no row-1 bleed), and slot >= 66 NOP guard.",
+      "tier": "compact",
+      "payload_bytes": 5,
+      "row_cells": 64,
+      "rows": 6,
+      "row_px": 384,
+      "encoder_check": true,
+      "max_encoder_packets": 11,
+      "initial_state": {
+        "top_row": 0,
+        "rows": {},
+        "row_styles": [],
+        "status": 0
+      },
+      "packets": [
+        {
+          "ctrl": 145,
+          "data": [
+            174,
+            58,
+            223,
+            62,
+            27
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 146,
+          "data": [
+            224,
+            159,
+            202,
+            139,
+            80
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 147,
+          "data": [
+            36,
+            11,
+            2,
+            19,
+            80
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 148,
+          "data": [
+            141,
+            213,
+            17,
+            174,
+            224
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 149,
+          "data": [
+            100,
+            241,
+            49,
+            199,
+            128
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 150,
+          "data": [
+            134,
+            62,
+            180,
+            241,
+            160
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 151,
+          "data": [
+            119,
+            27,
+            192,
+            129,
+            144
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 152,
+          "data": [
+            28,
+            135,
+            127,
+            252,
+            160
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 153,
+          "data": [
+            188,
+            254,
+            103,
+            215,
+            144
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 154,
+          "data": [
+            184,
+            18,
+            44,
+            178,
+            176
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 155,
+          "data": [
+            147,
+            207,
+            89,
+            2,
+            160
+          ],
+          "bank": 0,
+          "row_page": 0
+        },
+        {
+          "ctrl": 211,
+          "data": [
+            18,
+            52,
+            86,
+            120,
+            144
+          ],
+          "bank": 0,
+          "row_page": 0
+        }
+      ],
+      "expected_state": {
+        "top_row": 0,
+        "rows": {
+          "0": "实时翻译字幕测试：你好世界，我们在这里讨论比例字体与压缩参数配置"
+        },
+        "row_styles": [],
+        "status": 0
+      },
+      "expected_geometry": null
+    }
+  ]
+}

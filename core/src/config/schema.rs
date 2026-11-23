@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use super::{
     AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ExternalApiConfig, FeatureConfig,
     GlossaryConfig, LanguagePreset, OscConfig, ServerConfig, StorageConfig, TranslationConfig,
-    VadConfig, VrOcrConfig, VrOverlayConfig, VrchatChatboxConfig, VrchatContextConfig, VrcxConfig,
+    UniTextConfig, VadConfig, VrOcrConfig, VrOverlayConfig, VrchatChatboxConfig,
+    VrchatContextConfig, VrcxConfig,
 };
 
 pub const SCHEMA_VERSION: u32 = 46;
@@ -47,6 +48,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub osc: OscConfig,
     #[serde(default)]
+    pub unitext: UniTextConfig,
+    #[serde(default)]
     pub anki: AnkiConfig,
     #[serde(default)]
     pub external_api: ExternalApiConfig,
@@ -85,6 +88,7 @@ impl Default for AppConfig {
             local_translation: super::LocalTranslationConfig::default(),
             language_presets: Vec::new(),
             osc: OscConfig::default(),
+            unitext: UniTextConfig::default(),
             anki: AnkiConfig::default(),
             external_api: ExternalApiConfig::default(),
             vrcx: VrcxConfig::default(),
@@ -157,6 +161,7 @@ mod tests {
                 "server",
                 "storage",
                 "translation",
+                "unitext",
                 "vad",
                 "vision",
                 "vr_overlay",
@@ -301,6 +306,20 @@ mod tests {
                 "port",
                 "preserve_original_text",
                 "translation_strategy",
+            ],
+        );
+        assert_keys(
+            &value["unitext"],
+            [
+                "clear_after_seconds",
+                "enabled",
+                "include_microphone",
+                "include_speaker",
+                "interval_ms",
+                "mute_sync_enabled",
+                "port",
+                "preserve_original_text",
+                "tier",
             ],
         );
         assert_keys(

@@ -30,6 +30,7 @@ mod smart_turn;
 mod startup;
 mod subtitle_output;
 mod translation;
+mod unitext;
 mod vad;
 pub mod vision;
 mod vrchat_chatbox;

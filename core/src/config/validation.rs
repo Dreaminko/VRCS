@@ -119,6 +119,7 @@ impl AppConfig {
             &self.asr.backend,
         )?;
         validate_osc(&self.osc)?;
+        validate_unitext(&self.unitext)?;
         validate_recognition_models(&self.asr, &self.vad)?;
         validate_anki(&self.anki)?;
         validate_vr_overlay(&self.vr_overlay)?;
@@ -508,6 +509,24 @@ fn validate_osc(osc: &OscConfig) -> Result<(), String> {
             "Unsupported OSC translation strategy: {}",
             osc.translation_strategy
         ));
+    }
+    Ok(())
+}
+
+fn validate_unitext(unitext: &UniTextConfig) -> Result<(), String> {
+    if unitext.port == 0 {
+        return Err("UniText OSC port must be between 1 and 65535".into());
+    }
+    if !["auto", "lite", "compact", "balanced", "standard", "turbo"]
+        .contains(&unitext.tier.as_str())
+    {
+        return Err(format!("Unsupported UniText tier: {}", unitext.tier));
+    }
+    if !(80..=500).contains(&unitext.interval_ms) {
+        return Err("UniText interval_ms must be between 80 and 500".into());
+    }
+    if unitext.clear_after_seconds > 300 {
+        return Err("UniText clear_after_seconds must be between 0 and 300".into());
     }
     Ok(())
 }

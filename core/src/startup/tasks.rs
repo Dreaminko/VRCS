@@ -138,6 +138,10 @@ fn spawn_mute_coordinator(
         loop {
             let snapshot = mute_updates.borrow().clone();
             capture.integrations.osc.update_mute_status(snapshot.muted);
+            capture
+                .integrations
+                .unitext
+                .update_mute_status(snapshot.muted);
             if snapshot.muted == Some(true) {
                 let _control = capture.capture.capture_control.lock().await;
                 capture

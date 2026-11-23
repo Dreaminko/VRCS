@@ -105,6 +105,7 @@ fn config_from_update(update: SettingsUpdate) -> AppConfig {
         local_translation: update.local_translation,
         language_presets: update.language_presets,
         osc: update.osc,
+        unitext: update.unitext,
         dictionary: update.dictionary,
         anki: update.anki,
         external_api: update.external_api,

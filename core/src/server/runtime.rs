@@ -15,6 +15,7 @@ use crate::osc::OscChatboxDispatcher;
 use crate::pipeline::TranscriptionPipeline;
 use crate::subtitle_output::SubtitleLifecyclePublisher;
 use crate::translation::{TranslationDispatcher, TranslationService};
+use crate::unitext::UniTextDispatcher;
 use crate::{asr, smart_turn, vad};
 
 pub(crate) struct ConfigRuntime {
@@ -200,6 +201,7 @@ impl ContentServices {
 pub(crate) struct IntegrationRuntime {
     pub(crate) vr_overlay_config_tx: watch::Sender<(VrOverlayConfig, VrOcrConfig)>,
     pub(crate) osc: OscChatboxDispatcher,
+    pub(crate) unitext: UniTextDispatcher,
     pub(crate) http: reqwest::Client,
     pub(super) model_catalogs: super::model_cache::ModelCatalogCache,
     pub(crate) session_token: String,
@@ -214,6 +216,7 @@ pub(crate) struct IntegrationRuntime {
 pub(crate) struct IntegrationRuntimeInput {
     pub(crate) vr_overlay_config_tx: watch::Sender<(VrOverlayConfig, VrOcrConfig)>,
     pub(crate) osc: OscChatboxDispatcher,
+    pub(crate) unitext: UniTextDispatcher,
     pub(crate) session_token: String,
     pub(crate) domain_events: crate::domain_events::DomainEventHub,
     pub(crate) external_api_server: Option<crate::external_api::ExternalApiServer>,
@@ -228,6 +231,7 @@ impl IntegrationRuntime {
         Self {
             vr_overlay_config_tx: input.vr_overlay_config_tx,
             osc: input.osc,
+            unitext: input.unitext,
             http: crate::anki::client(),
             model_catalogs: super::model_cache::ModelCatalogCache::default(),
             session_token: input.session_token,

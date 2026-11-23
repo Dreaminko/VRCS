@@ -35,7 +35,7 @@ pub use audio::{
 pub use conversation_titles::{ConversationTitleConfig, TITLE_OUTPUT_LANGUAGES};
 pub use features::{FeatureConfig, FeatureKey, apply_feature_gates};
 pub use glossary::{GlossaryCategory, GlossaryConfig, GlossaryEntry, GlossarySource};
-pub use integrations::{AnkiConfig, DictionaryConfig, OscConfig};
+pub use integrations::{AnkiConfig, DictionaryConfig, OscConfig, UniTextConfig};
 pub use io::{load_config, save_config};
 pub use language::LanguagePreset;
 #[cfg(test)]

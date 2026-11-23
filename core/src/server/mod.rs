@@ -192,6 +192,8 @@ pub fn router(state: Arc<AppState>) -> Router {
             post(capture::microphone_test_stop),
         )
         .route("/api/osc/test", post(osc::test_message))
+        .route("/api/unitext/test", post(osc::test_unitext))
+        .route("/api/unitext/clear", post(osc::clear_unitext))
         .route("/api/chatbox/preview", post(chatbox::preview))
         .route("/api/chatbox/messages", post(chatbox::send))
         .route(
@@ -452,6 +454,7 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
     };
     let last_error = speaker_error.or(microphone_error).or(asr_error);
     let osc = state.integrations.osc.status();
+    let unitext = state.integrations.unitext.status();
     let capture_requested = state
         .capture
         .capture_requested
@@ -491,6 +494,7 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
         "vad_model_version": vad_model_version,
         "last_error": last_error,
         "osc": osc,
+        "unitext": unitext,
         "language_session": language_session,
         "vrchat_mute_sync": vrchat_mute_sync,
     }))
