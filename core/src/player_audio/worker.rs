@@ -714,11 +714,12 @@ struct Engine {
 
 impl Engine {
     fn reconcile_voice(&mut self, path: &std::path::Path) {
-        let (enabled, generation, path) = {
+        let (enabled, chatbox_enabled, generation, path) = {
             let outputs = self.tx.0.lock().expect("network outputs");
             self.maximum = outputs.max_players;
             (
                 outputs.voice_enabled(),
+                outputs.chatbox_enabled(),
                 outputs.voice_generation,
                 if outputs.opus_library_path.is_empty() {
                     path.to_path_buf()
@@ -728,11 +729,19 @@ impl Engine {
             )
         };
         if !enabled {
-            self.clear_proximity();
+            if chatbox_enabled {
+                self.clear_voice_spatial();
+            } else {
+                self.clear_proximity();
+            }
             self.tracks.clear();
             self.opus = None;
         } else if self.opus.is_none() || generation != self.voice_generation {
-            self.clear_proximity();
+            if chatbox_enabled {
+                self.clear_voice_spatial();
+            } else {
+                self.clear_proximity();
+            }
             self.tracks.clear();
             self.voice_generation = generation;
             self.voice_enabled_at = Instant::now();
@@ -751,9 +760,13 @@ impl Engine {
     }
 
     fn reconcile_text(&mut self) {
-        let (enabled, generation) = {
+        let (enabled, voice_enabled, generation) = {
             let outputs = self.tx.0.lock().expect("network outputs");
-            (outputs.chatbox_enabled(), outputs.text_generation)
+            (
+                outputs.chatbox_enabled(),
+                outputs.voice_enabled(),
+                outputs.text_generation,
+            )
         };
         if enabled != self.text_enabled || generation != self.text_generation {
             self.clear_text();
@@ -762,6 +775,8 @@ impl Engine {
             if enabled {
                 self.roster_dirty = true;
                 self.room_context_resync = true;
+            } else if !voice_enabled {
+                self.clear_proximity();
             }
         }
     }
@@ -778,6 +793,30 @@ impl Engine {
         use super::chatbox::Outcome;
         use crate::vrchat_chatbox::{ChatboxEvent, ChatboxMessage};
         if self.source_blocked(&speaker.id).1 {
+            return;
+        }
+        let admission = self.proximity.admission(
+            &speaker.id,
+            self.proximity_config.enabled,
+            self.proximity_config.radius_m,
+            now,
+        );
+        if matches!(
+            admission,
+            super::proximity::Admission::OutOfRange | super::proximity::Admission::Unknown
+        ) {
+            let active = {
+                let outputs = self.tx.0.lock().expect("network outputs");
+                outputs.chatbox_enabled() && outputs.text_generation == self.text_generation
+            };
+            if active {
+                let mut status = self.status.lock().expect("player status");
+                if admission == super::proximity::Admission::Unknown {
+                    status.proximity.unknown_packets += 1;
+                } else {
+                    status.proximity.excluded_packets += 1;
+                }
+            }
             return;
         }
         let mut outputs = self.tx.0.lock().expect("network outputs");
@@ -1097,8 +1136,13 @@ impl Engine {
                 },
             );
         }
-        let spatial_enabled =
-            allow_voice && self.tx.0.lock().expect("network outputs").voice_enabled();
+        let (voice_enabled, chatbox_enabled) = {
+            let outputs = self.tx.0.lock().expect("network outputs");
+            (outputs.voice_enabled(), outputs.chatbox_enabled())
+        };
+        let voice_spatial = allow_voice && voice_enabled;
+        let text_spatial = self.text_enabled && allow_text && chatbox_enabled;
+        let spatial_enabled = voice_spatial || text_spatial;
         let flow = self.flows.get_mut(&connection).unwrap();
         let nonce: [u8; 12] = packet[7..19].try_into().unwrap();
         if !flow.nonce_set.insert((incoming, nonce)) {
@@ -1149,7 +1193,8 @@ impl Engine {
                     }) {
                         local_position = Some(position);
                     }
-                    if let Some(yaw) = decoded.yaw_deg
+                    if voice_spatial
+                        && let Some(yaw) = decoded.yaw_deg
                         && local_yaw.is_none_or(|(tick, _)| {
                             super::proximity::newer_tick(position.tick, tick)
                         })
@@ -1268,7 +1313,7 @@ impl Engine {
                 .observe_player(&id, flow_number, epoch, position, now);
         }
         if spatial_changed {
-            self.publish_spatial_state(now, spatial_enabled, true);
+            self.publish_spatial_state(now, voice_spatial, true);
         }
         for (voice, participant) in voices {
             self.voice(flow_number, epoch, voice, participant, now);
@@ -1515,7 +1560,7 @@ impl Engine {
         super::publish_view_priority(enabled, visible, valid_until);
         let mut status = self.status.lock().expect("player status");
         status.proximity.view_enabled = enabled;
-        status.proximity.local_view = local_view;
+        status.proximity.local_view = local_view && voice_enabled;
         status.proximity.in_view_players = count;
         if update_proximity {
             status.proximity.enabled = self.proximity_config.enabled;
@@ -1595,6 +1640,15 @@ impl Engine {
         {
             self.admission_pending.remove(id);
         }
+    }
+    fn clear_voice_spatial(&mut self) {
+        super::clear_view_priority();
+        self.admitted_proximity.clear();
+        self.admission_pending.clear();
+        let mut status = self.status.lock().expect("player status");
+        status.proximity.view_enabled = false;
+        status.proximity.local_view = false;
+        status.proximity.in_view_players = 0;
     }
     fn clear_proximity(&mut self) {
         self.proximity.clear();
@@ -1988,6 +2042,125 @@ mod tests {
         let outputs = outputs.lock().unwrap();
         assert_eq!(outputs.chatbox_status.accepted, 2);
         assert_eq!(outputs.chatbox_status.duplicates, 5);
+    }
+
+    #[test]
+    fn chatbox_only_proximity_filter_tracks_distance_and_ignores_voice_reconcile() {
+        use crate::vrchat_chatbox::ChatboxEvent;
+        let (text_tx, mut text_rx) = tokio::sync::mpsc::channel(64);
+        let mut output = super::super::session::Outputs::default();
+        output.chatbox = Some(text_tx);
+        let outputs = Arc::new(std::sync::Mutex::new(output));
+        let status: SharedStatus = Arc::default();
+        let mut engine = Engine::new(
+            None,
+            0,
+            EventSender(Arc::clone(&outputs)),
+            Arc::clone(&status),
+        );
+        engine.set_source_policy(BTreeMap::new(), false);
+        engine.set_proximity(crate::config::PlayerProximityConfig {
+            enabled: true,
+            radius_m: 10.0,
+        });
+        engine.set_view_priority(PlayerViewPriorityConfig {
+            enabled: true,
+            horizontal_fov_deg: 60.0,
+        });
+        let connection = Connection {
+            local: "127.0.0.1:42000".parse().unwrap(),
+            remote: "127.0.0.2:27002".parse().unwrap(),
+            challenge: [1; 4],
+        };
+        let now = Instant::now();
+        let mut counter = 0;
+        let mut receive = |engine: &mut Engine, message: Vec<u8>, incoming: bool| {
+            counter += 1;
+            let mut bytes = vec![1, 0, 0, 0, 0, 7, 0, 0, 0];
+            bytes.extend((message.len() as u32 + 12).to_be_bytes());
+            bytes.extend([0; 4]);
+            bytes.extend(message);
+            let packet = super::super::crypto::seal(&[3; 32], counter, &bytes);
+            engine.reconcile_voice(std::path::Path::new("unused.dll"));
+            engine.reconcile_text();
+            engine.receive_packet(
+                connection.clone(),
+                incoming,
+                &packet,
+                &bytes,
+                now,
+                false,
+                true,
+            );
+        };
+        let chatbox_message = |value: &str| {
+            let mut result = vec![0xf3, 4, 43, 2, 254, 11, 7, 245, 7, value.len() as u8];
+            result.extend_from_slice(value.as_bytes());
+            result
+        };
+
+        receive(&mut engine, event_12(Some(7), [20.0, 0.0, 0.0]), true);
+        receive(&mut engine, chatbox_message("hello"), true);
+        assert!(matches!(text_rx.try_recv(), Ok(ChatboxEvent::Speaker(_))));
+        assert!(text_rx.try_recv().is_err());
+        assert_eq!(status.lock().unwrap().proximity.unknown_packets, 1);
+        assert_eq!(outputs.lock().unwrap().chatbox_status.accepted, 0);
+
+        let mut local_heading = event_12(None, [0.0, 0.0, 0.0]);
+        local_heading[9] += 1;
+        local_heading.push(0);
+        receive(&mut engine, local_heading, false);
+        engine.reconcile_voice(std::path::Path::new("unused.dll"));
+        receive(&mut engine, chatbox_message("hello"), true);
+        engine.tick(now);
+
+        while let Ok(event) = text_rx.try_recv() {
+            assert!(!matches!(event, ChatboxEvent::Message(_)));
+        }
+        {
+            let guard = status.lock().unwrap();
+            assert!(guard.proximity.local_position);
+            assert!(!guard.proximity.view_enabled);
+            assert!(!guard.proximity.local_view);
+            assert_eq!(guard.proximity.excluded_packets, 1);
+            assert_eq!(guard.players.len(), 1);
+            assert_eq!(guard.players[0].distance_m, Some(20.0));
+        }
+        assert_eq!(outputs.lock().unwrap().chatbox_status.accepted, 0);
+
+        receive(&mut engine, event_12_at(Some(7), 1, [5.0, 0.0, 0.0]), true);
+        receive(&mut engine, chatbox_message("hello"), true);
+        let accepted = std::iter::from_fn(|| text_rx.try_recv().ok())
+            .filter_map(|event| match event {
+                ChatboxEvent::Message(message) => Some(message.text),
+                ChatboxEvent::Speaker(_) => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(accepted, vec!["hello"]);
+        assert_eq!(outputs.lock().unwrap().chatbox_status.accepted, 1);
+
+        receive(&mut engine, event_12_at(Some(7), 2, [20.0, 0.0, 0.0]), true);
+        receive(&mut engine, chatbox_message("far"), true);
+        assert!(text_rx.try_recv().is_err());
+        assert_eq!(status.lock().unwrap().proximity.excluded_packets, 2);
+        assert_eq!(outputs.lock().unwrap().chatbox_status.accepted, 1);
+
+        engine.set_proximity(crate::config::PlayerProximityConfig {
+            enabled: false,
+            radius_m: 10.0,
+        });
+        receive(&mut engine, chatbox_message("far"), true);
+        let ChatboxEvent::Message(message) = text_rx.try_recv().unwrap() else {
+            panic!("chatbox message after disabling proximity")
+        };
+        assert_eq!(message.text, "far");
+        assert_eq!(outputs.lock().unwrap().chatbox_status.accepted, 2);
+
+        outputs.lock().unwrap().chatbox.take();
+        engine.reconcile_text();
+        let guard = status.lock().unwrap();
+        assert!(!guard.proximity.local_position);
+        assert_eq!(guard.proximity.tracked_players, 0);
     }
 
     #[test]
