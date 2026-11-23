@@ -1829,6 +1829,47 @@
           "error": "OSC 送信エラー"
         }
       },
+      "unitext": {
+        "title": "アバター共有プロップ（UniText）",
+        "enable": "UniText プロップ出力を有効にする",
+        "tier": "パラメータティア",
+        "tiers": {
+          "auto": "OSCQuery で自動検出",
+          "lite": "Lite（33 bits）",
+          "compact": "Compact（45 bits）",
+          "balanced": "Balanced（57 bits）",
+          "standard": "Standard（73 bits）",
+          "turbo": "Turbo（137 bits）"
+        },
+        "includeMicrophone": "自分のマイク字幕を送信",
+        "includeSpeaker": "他のプレイヤーの字幕を共有",
+        "includeSpeakerDescription": "相手の音声認識や Chatbox の翻訳もプロップに出力します。",
+        "preserveOriginal": "出力に原文を残す",
+        "preserveOriginalDescription": "翻訳がある場合は原文と翻訳を一緒に表示します。オフにすると翻訳のみ表示します。",
+        "muteSync": "VRChat のマイクミュートと同期",
+        "address": "IP アドレス",
+        "port": "ポート",
+        "invalidPort": "1～65535 の有効なポートを入力してください。",
+        "intervalMs": "送信間隔（ms）",
+        "invalidInterval": "80～500 ms の間で入力してください。",
+        "clearAfterSeconds": "無操作自動クリア（秒、0=オフ）",
+        "invalidClearAfter": "0～300 秒の間で入力してください。",
+        "test": "テスト表示を送信",
+        "testing": "送信中…",
+        "testQueued": "テスト表示を送信キューに追加しました。",
+        "testFailed": "テスト表示を送信できませんでした。プロップが有効で検出済みか確認してください。",
+        "clear": "クリア",
+        "cleared": "クリアコマンドを送信キューに追加しました。",
+        "clearFailed": "UniText プロップをクリアできませんでした。",
+        "statusHint": "アバターに UniText を導入すると OSCQuery で自動検出して送信します。",
+        "status": {
+          "disabled": "UniText はオフです",
+          "discovering": "VRChat OSCQuery を検出中…",
+          "not_detected": "現在のアバターで UniText パラメータが見つかりません",
+          "ready": "UniText プロップ準備完了",
+          "error": "UniText 送信エラー"
+        }
+      },
       "debug": {
         "schema": "スキーマ",
         "coreAddress": "Core アドレス",
@@ -2054,6 +2095,11 @@
         "send_timeout": "OSC 送信がタイムアウトしました。",
         "send_cancelled": "OSC 設定が変更されたため、送信を中止しました。",
         "send_failed": "ローカルの VRChat OSC ポートに送信できませんでした。"
+      },
+      "unitext": {
+        "disabled": "UniText プロップ出力は無効です。",
+        "not_detected": "現在のアバターで UniText パラメータが検出されていません。",
+        "queue_full": "UniText 送信キューがいっぱいです。しばらくしてから再試行してください。"
       },
       "apiProfiles": {
         "operation": "API プロファイルの操作に失敗しました。",

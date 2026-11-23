@@ -222,3 +222,27 @@ export interface OscRuntimeStatus {
   dropped_messages: number;
   send_gate: "open" | "blocked_vrchat_muted" | "blocked_mute_unknown";
 }
+
+export type UniTextTier = "auto" | "lite" | "compact" | "balanced" | "standard" | "turbo";
+
+export interface UniTextSettings {
+  enabled: boolean;
+  port: number;
+  tier: UniTextTier;
+  interval_ms: number;
+  include_microphone: boolean;
+  include_speaker: boolean;
+  preserve_original_text: boolean;
+  mute_sync_enabled: boolean;
+  clear_after_seconds: number;
+}
+
+export interface UniTextRuntimeStatus {
+  enabled: boolean;
+  status: "disabled" | "discovering" | "not_detected" | "ready" | "error";
+  target: string;
+  detected_tier: Exclude<UniTextTier, "auto"> | null;
+  active_tier: Exclude<UniTextTier, "auto"> | null;
+  last_error: string | null;
+  last_sent_at: string | null;
+}

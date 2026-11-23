@@ -30,6 +30,11 @@ const settings = {
     enabled: false, port: 9001, mute_sync_enabled: true,
     preserve_original_text: true, translation_strategy: "preferred_only",
   },
+  unitext: {
+    enabled: false, port: 9000, tier: "auto", interval_ms: 150,
+    include_microphone: true, include_speaker: true, preserve_original_text: true,
+    mute_sync_enabled: true, clear_after_seconds: 30,
+  },
   language_presets: [],
   vr_overlay: {
     ...DEFAULT_VR_OVERLAY_SETTINGS,

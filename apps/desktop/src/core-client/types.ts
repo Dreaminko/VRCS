@@ -1,5 +1,5 @@
 import type { AudioDevice } from "../capture/types";
-import type { OscRuntimeStatus, VrchatMuteStatus } from "../integrations/types";
+import type { OscRuntimeStatus, UniTextRuntimeStatus, VrchatMuteStatus } from "../integrations/types";
 import type {
   LanguagePreset,
   OscTranslationStrategy,
@@ -29,6 +29,7 @@ export interface Health {
   vrchat_chatbox?: ChatboxStatus | null;
   room_context?: RoomContextStatus | null;
   osc?: OscRuntimeStatus;
+  unitext?: UniTextRuntimeStatus;
   vrchat_mute_sync: VrchatMuteStatus;
   language_session?: ActiveLanguageSession;
 }

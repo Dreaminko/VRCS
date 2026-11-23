@@ -25,4 +25,6 @@ export const integrationsApi = {
   ),
   testVrcx: () => request<VrcxRuntimeStatus>("/api/vrcx/test", { method: "POST" }),
   testOsc: () => request<{ queued: boolean }>("/api/osc/test", { method: "POST" }),
+  testUniText: () => request<{ queued: boolean }>("/api/unitext/test", { method: "POST" }),
+  clearUniText: () => request<{ cleared: boolean }>("/api/unitext/clear", { method: "POST" }),
 };

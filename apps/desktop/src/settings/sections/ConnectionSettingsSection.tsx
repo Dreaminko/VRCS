@@ -11,6 +11,7 @@ import { SettingsDisclosure } from "../components/SettingsDisclosure";
 import { ExternalApiSettingsCard } from "../system/ExternalApiSettingsCard";
 import { VrcxIntegrationSettingsCard } from "../system/VrcxIntegrationSettingsCard";
 import { AnkiSettingsSection } from "./AnkiSettingsSection";
+import { UniTextSettingsCard } from "./UniTextSettingsCard";
 
 export function ConnectionSettingsSection({
   draft,
@@ -113,6 +114,12 @@ export function ConnectionSettingsSection({
     applySettings((current) => ({
       ...current,
       vrcx: { ...current.vrcx, ...patch },
+    }));
+  };
+  const updateUniText = (patch: Partial<Settings["unitext"]>) => {
+    applySettings((current) => ({
+      ...current,
+      unitext: { ...current.unitext, ...patch },
     }));
   };
 
@@ -230,6 +237,12 @@ export function ConnectionSettingsSection({
             </div>
           </SettingsDisclosure>
         </section>
+        <UniTextSettingsCard
+          config={draft.unitext}
+          runtime={health?.unitext}
+          saveState={saveState}
+          onChange={updateUniText}
+        />
         {features.anki && <AnkiSettingsSection
           draft={draft}
           status={anki.status}

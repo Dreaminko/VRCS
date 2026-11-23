@@ -2,6 +2,7 @@ import type { AnkiSettings } from "../anki/types";
 import type { AudioOutputSettings, MicrophoneSettings, VadSettings } from "../capture/types";
 import type {
   ExternalApiSettings,
+  UniTextSettings,
   VrOverlaySettings,
   VrOcrSettings,
   VrcxSettings,
@@ -49,6 +50,7 @@ export interface Settings {
     preserve_original_text: boolean;
     translation_strategy: OscTranslationStrategy;
   };
+  unitext: UniTextSettings;
   dictionary: {
     selection_lookup_enabled: boolean;
   };

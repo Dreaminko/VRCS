@@ -45,6 +45,7 @@ const settings: Settings = {
   language_presets: [],
   glossary: { llm_enabled: true, asr_enabled: true, sources: [] },
   osc: { enabled: false, port: 9000, mute_sync_enabled: true, preserve_original_text: true, translation_strategy: "preferred_only" },
+  unitext: { enabled: false, port: 9000, tier: "auto", interval_ms: 150, include_microphone: true, include_speaker: true, preserve_original_text: true, mute_sync_enabled: true, clear_after_seconds: 30 },
   dictionary: { selection_lookup_enabled: true },
   anki: { enabled: true, port: 8765, deck: "VRCS", model: "Basic", front_field: "Front", back_field: "Back" },
   external_api: { enabled: false, host: "127.0.0.1", port: 8767, require_token: false },

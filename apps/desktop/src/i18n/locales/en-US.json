@@ -1829,6 +1829,47 @@
           "error": "OSC send failed"
         }
       },
+      "unitext": {
+        "title": "Avatar Prop (UniText)",
+        "enable": "Enable UniText prop output",
+        "tier": "Parameter tier",
+        "tiers": {
+          "auto": "Auto-detect via OSCQuery",
+          "lite": "Lite (33 bits)",
+          "compact": "Compact (45 bits)",
+          "balanced": "Balanced (57 bits)",
+          "standard": "Standard (73 bits)",
+          "turbo": "Turbo (137 bits)"
+        },
+        "includeMicrophone": "Send my microphone subtitles",
+        "includeSpeaker": "Share others' subtitles",
+        "includeSpeakerDescription": "Forward recognized speech and VRChat chatbox translations from other players to the prop.",
+        "preserveOriginal": "Keep original text in output",
+        "preserveOriginalDescription": "Show original text above translations when available.",
+        "muteSync": "Sync VRChat microphone mute",
+        "address": "IP address",
+        "port": "Port",
+        "invalidPort": "Enter a valid port from 1 to 65535.",
+        "intervalMs": "Packet interval (ms)",
+        "invalidInterval": "Enter an interval from 80 to 500 ms.",
+        "clearAfterSeconds": "Auto-clear idle (s, 0 = off)",
+        "invalidClearAfter": "Enter a value from 0 to 300 seconds.",
+        "test": "Send test",
+        "testing": "Sending…",
+        "testQueued": "UniText test screen queued.",
+        "testFailed": "Unable to send test screen. Ensure the UniText prop is active.",
+        "clear": "Clear",
+        "cleared": "Clear command queued.",
+        "clearFailed": "Unable to clear the UniText prop.",
+        "statusHint": "Equips UniText on your VRChat avatar and sends via OSCQuery / UDP.",
+        "status": {
+          "disabled": "UniText is off",
+          "discovering": "Discovering VRChat OSCQuery…",
+          "not_detected": "UniText prop not detected on current avatar",
+          "ready": "UniText prop ready",
+          "error": "UniText send failed"
+        }
+      },
       "debug": {
         "schema": "Schema",
         "coreAddress": "Core address",
@@ -2054,6 +2095,11 @@
         "send_timeout": "The OSC send timed out.",
         "send_cancelled": "The OSC settings changed, so the send was cancelled.",
         "send_failed": "We couldn't send to the local VRChat OSC port."
+      },
+      "unitext": {
+        "disabled": "UniText prop output is disabled.",
+        "not_detected": "UniText avatar parameters were not detected on the active avatar.",
+        "queue_full": "The UniText send queue is full. Try again shortly."
       },
       "apiProfiles": {
         "operation": "The API profile operation failed.",

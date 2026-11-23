@@ -1829,6 +1829,47 @@
           "error": "OSC 发送失败"
         }
       },
+      "unitext": {
+        "title": "Avatar 共享道具（UniText）",
+        "enable": "启用 UniText 道具输出",
+        "tier": "参数档位",
+        "tiers": {
+          "auto": "通过 OSCQuery 自动识别",
+          "lite": "Lite（33 bits）",
+          "compact": "Compact（45 bits）",
+          "balanced": "Balanced（57 bits）",
+          "standard": "Standard（73 bits）",
+          "turbo": "Turbo（137 bits）"
+        },
+        "includeMicrophone": "发送我的麦克风字幕",
+        "includeSpeaker": "共享他人字幕",
+        "includeSpeakerDescription": "将对方语音识别与 Chatbox 译文一并输出到道具上。",
+        "preserveOriginal": "输出中保留原文",
+        "preserveOriginalDescription": "有译文时同时显示原文和译文；关闭后仅显示译文。",
+        "muteSync": "同步 VRChat 麦克风静音",
+        "address": "IP 地址",
+        "port": "端口",
+        "invalidPort": "请输入 1 到 65535 之间的有效端口。",
+        "intervalMs": "发包间隔（ms）",
+        "invalidInterval": "请输入 80 到 500 ms 之间的间隔。",
+        "clearAfterSeconds": "空闲自动清屏（秒，0 为关闭）",
+        "invalidClearAfter": "请输入 0 到 300 秒之间的数值。",
+        "test": "发送测试画面",
+        "testing": "正在发送…",
+        "testQueued": "测试画面已加入发送队列。",
+        "testFailed": "无法发送测试画面，请确认道具已启用并被识别。",
+        "clear": "清屏",
+        "cleared": "清屏指令已加入发送队列。",
+        "clearFailed": "无法清空 UniText 道具屏幕。",
+        "statusHint": "在 Avatar 上挂载 UniText 预制道具后可自动识别并通过 OSC 发送。",
+        "status": {
+          "disabled": "UniText 已关闭",
+          "discovering": "正在发现 VRChat OSCQuery…",
+          "not_detected": "当前 Avatar 未检测到 UniText 道具参数",
+          "ready": "UniText 道具就绪",
+          "error": "UniText 发送失败"
+        }
+      },
       "debug": {
         "schema": "配置版本",
         "coreAddress": "Core 地址",
@@ -2054,6 +2095,11 @@
         "send_timeout": "OSC 发送等待超时。",
         "send_cancelled": "OSC 设置发生变化，发送已取消。",
         "send_failed": "无法发送到本机 VRChat OSC 端口。"
+      },
+      "unitext": {
+        "disabled": "UniText 道具输出尚未启用。",
+        "not_detected": "未在当前 Avatar 上检测到 UniText 参数。",
+        "queue_full": "UniText 发送队列已满，请稍后再试。"
       },
       "apiProfiles": {
         "operation": "API 配置操作失败。",
