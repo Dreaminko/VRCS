@@ -266,19 +266,19 @@ fn build_capture_stream(
                 let Some(mut buffer) = stream.dequeue_buffer() else {
                     break;
                 };
-                if let Some(header) = buffer.find_meta::<MetaHeader>() {
-                    if header.flags().intersects(
+                if let Some(header) = buffer.find_meta::<MetaHeader>()
+                    && header.flags().intersects(
                         MetaHeaderFlags::DISCONT
                             | MetaHeaderFlags::CORRUPTED
                             | MetaHeaderFlags::GAP,
-                    ) {
-                        state.reset_timeline();
-                        if header
-                            .flags()
-                            .intersects(MetaHeaderFlags::CORRUPTED | MetaHeaderFlags::GAP)
-                        {
-                            continue;
-                        }
+                    )
+                {
+                    state.reset_timeline();
+                    if header
+                        .flags()
+                        .intersects(MetaHeaderFlags::CORRUPTED | MetaHeaderFlags::GAP)
+                    {
+                        continue;
                     }
                 }
                 let Some(data) = buffer.datas_mut().first_mut() else {

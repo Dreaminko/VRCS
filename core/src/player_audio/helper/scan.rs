@@ -212,12 +212,12 @@ pub(super) fn scan(
                             }
                             break;
                         }
-                        if let Ok(mut guard) = progress_state.try_lock() {
-                            if guard.1.elapsed() >= Duration::from_millis(250) {
-                                guard.1 = Instant::now();
-                                let cands = candidates_total.load(Ordering::Relaxed);
-                                (guard.0)(total_scanned, total, cands);
-                            }
+                        if let Ok(mut guard) = progress_state.try_lock()
+                            && guard.1.elapsed() >= Duration::from_millis(250)
+                        {
+                            guard.1 = Instant::now();
+                            let cands = candidates_total.load(Ordering::Relaxed);
+                            (guard.0)(total_scanned, total, cands);
                         }
                         carry = valid.min(OVERLAP);
                         buf.copy_within(valid - carry..valid, 0);

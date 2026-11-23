@@ -121,24 +121,24 @@ impl WorldWatcher {
             .checked_sub(Duration::from_secs(2))
             .unwrap_or(self.started);
         #[cfg(target_os = "linux")]
-        if self.path.is_none() {
-            if let Some(pid) = self.pid {
-                let home = std::env::var_os("HOME")
-                    .map(PathBuf::from)
-                    .unwrap_or_default();
-                let env_dir = || {
-                    let environment = fs::read(format!("/proc/{pid}/environ")).unwrap_or_default();
-                    linux_log_directory(&environment, &home, earliest)
-                };
-                self.directory = linux_proc_fd_log_directory(pid, earliest)
-                    .or_else(env_dir)
-                    .ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::NotFound,
-                            "waiting for an output_log in the target Wine/Proton prefix",
-                        )
-                    })?;
-            }
+        if self.path.is_none()
+            && let Some(pid) = self.pid
+        {
+            let home = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default();
+            let env_dir = || {
+                let environment = fs::read(format!("/proc/{pid}/environ")).unwrap_or_default();
+                linux_log_directory(&environment, &home, earliest)
+            };
+            self.directory = linux_proc_fd_log_directory(pid, earliest)
+                .or_else(env_dir)
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "waiting for an output_log in the target Wine/Proton prefix",
+                    )
+                })?;
         }
         let dir_modified = fs::metadata(&self.directory)?.modified().ok();
         let mut path_changed = false;

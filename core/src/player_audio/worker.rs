@@ -431,22 +431,22 @@ fn run(
                 }
             }
             #[cfg(target_os = "linux")]
-            if let Some(pending_scan) = scanner.as_ref() {
-                if let Some(result) = network.poll_key_scan(pending_scan) {
-                    scanner = None;
-                    if stop.load(Ordering::Relaxed) {
-                        break;
-                    }
-                    match result {
-                        Ok(bytes) => candidate = Some(bytes),
-                        Err(error) => {
-                            network.refresh()?;
-                            retry_at = Instant::now() + retry_delay;
-                            retry_delay = (retry_delay * 2).min(Duration::from_secs(30));
-                            let mut state = status.lock().expect("player status");
-                            state.phase = "retrying_key";
-                            state.detail = Some(error);
-                        }
+            if let Some(pending_scan) = scanner.as_ref()
+                && let Some(result) = network.poll_key_scan(pending_scan)
+            {
+                scanner = None;
+                if stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                match result {
+                    Ok(bytes) => candidate = Some(bytes),
+                    Err(error) => {
+                        network.refresh()?;
+                        retry_at = Instant::now() + retry_delay;
+                        retry_delay = (retry_delay * 2).min(Duration::from_secs(30));
+                        let mut state = status.lock().expect("player status");
+                        state.phase = "retrying_key";
+                        state.detail = Some(error);
                     }
                 }
             }

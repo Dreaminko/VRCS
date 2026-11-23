@@ -128,12 +128,12 @@ impl Capture {
         let mut alive_checked = Instant::now() - Duration::from_secs(2);
         let mut draining = true;
         while !self.stop.load(Ordering::Relaxed) {
-            if let Ok(changed) = flow_cache.refresh_if_due(self.pid) {
-                if changed {
-                    // Only a changed owned inventory can admit newly attributed flows.
-                    // Drain old frames before accepting the new ownership snapshot.
-                    draining = true;
-                }
+            if let Ok(changed) = flow_cache.refresh_if_due(self.pid)
+                && changed
+            {
+                // Only a changed owned inventory can admit newly attributed flows.
+                // Drain old frames before accepting the new ownership snapshot.
+                draining = true;
             }
             if alive_checked.elapsed() >= Duration::from_secs(1) {
                 if let Err(error) = procfs::check_identity(self.pid, self.starttime) {

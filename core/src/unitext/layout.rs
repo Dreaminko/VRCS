@@ -841,7 +841,13 @@ mod tests {
         assert_eq!(screen_row_string(&screen, 0), "Alice：");
 
         // Subsequent updates lacking display_name must not overwrite resolved name.
-        layout.upsert_final(Some("u1"), Some(1), "speaker", Some(&unresolved), "Hi".into());
+        layout.upsert_final(
+            Some("u1"),
+            Some(1),
+            "speaker",
+            Some(&unresolved),
+            "Hi".into(),
+        );
         layout.sync_to_screen(&mut screen, &config, viewport);
         assert_eq!(screen_row_string(&screen, 0), "Alice：");
     }

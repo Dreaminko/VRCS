@@ -68,12 +68,12 @@ pub(crate) fn network_available() -> bool {
     let Some(helper) = helper_path() else {
         return false;
     };
-    if let Ok(guard) = AVAILABILITY_CACHE.lock() {
-        if let Some((checked_at, cached_path, available)) = &*guard {
-            if checked_at.elapsed() < AVAILABILITY_CACHE_TTL && cached_path == &helper {
-                return *available;
-            }
-        }
+    if let Ok(guard) = AVAILABILITY_CACHE.lock()
+        && let Some((checked_at, cached_path, available)) = &*guard
+        && checked_at.elapsed() < AVAILABILITY_CACHE_TTL
+        && cached_path == &helper
+    {
+        return *available;
     }
     let available = probe_helper(&helper).is_ok();
     if let Ok(mut guard) = AVAILABILITY_CACHE.lock() {
@@ -293,14 +293,13 @@ impl Network {
         if let Some(mut stdin) = child.process().stdin.take() {
             use std::io::Write;
             if let Err(error) = stdin.write_all(token.as_bytes()) {
-                if error.kind() == std::io::ErrorKind::BrokenPipe {
-                    if let Some(state) = child
+                if error.kind() == std::io::ErrorKind::BrokenPipe
+                    && let Some(state) = child
                         .process()
                         .try_wait()
                         .map_err(|wait_err| wait_err.to_string())?
-                    {
-                        return Err(helper_failure(state.code()));
-                    }
+                {
+                    return Err(helper_failure(state.code()));
                 }
                 return Err(format!("Cannot authorize the network helper: {error}"));
             }
@@ -434,10 +433,9 @@ impl Network {
                             if pending
                                 .as_ref()
                                 .is_some_and(|wait| wait.request == result.request)
+                                && let Some(wait) = pending.take()
                             {
-                                if let Some(wait) = pending.take() {
-                                    let _ = wait.sender.try_send(result);
-                                }
+                                let _ = wait.sender.try_send(result);
                             }
                         }
                         Ok(Some(Event::Status { fatal, detail })) => {

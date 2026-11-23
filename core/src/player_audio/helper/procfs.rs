@@ -497,10 +497,10 @@ impl FlowCache {
             remote_ip,
             remote_port,
         };
-        if let Some(cached) = self.flows.get(&key) {
-            if cached.verified_at.elapsed() < CACHE_TTL {
-                return Some(cached.flow.clone());
-            }
+        if let Some(cached) = self.flows.get(&key)
+            && cached.verified_at.elapsed() < CACHE_TTL
+        {
+            return Some(cached.flow.clone());
         }
         if self.snapshot_at.is_none_or(|at| at.elapsed() >= CACHE_TTL) && self.refresh(pid).is_err()
         {
@@ -533,15 +533,14 @@ impl FlowCache {
         if self.flows.len() >= FLOW_CACHE_CAP {
             self.flows
                 .retain(|_, entry| entry.verified_at.elapsed() < CACHE_TTL);
-            if self.flows.len() >= FLOW_CACHE_CAP {
-                if let Some(oldest) = self
+            if self.flows.len() >= FLOW_CACHE_CAP
+                && let Some(oldest) = self
                     .flows
                     .iter()
                     .min_by_key(|(_, entry)| entry.verified_at)
                     .map(|(k, _)| *k)
-                {
-                    self.flows.remove(&oldest);
-                }
+            {
+                self.flows.remove(&oldest);
             }
         }
         self.flows.insert(
@@ -637,12 +636,11 @@ fn confirms_flow(pid: u32, starttime: u64, flow: &Endpoint) -> bool {
 #[cfg(test)]
 fn holds_socket(pid: u32, inode: u64, fd_hint: Option<u32>) -> io::Result<bool> {
     let expected = format!("socket:[{inode}]");
-    if let Some(fd) = fd_hint {
-        if let Ok(path) = fs::read_link(format!("/proc/{pid}/fd/{fd}")) {
-            if path.as_os_str() == std::ffi::OsStr::new(&expected) {
-                return Ok(true);
-            }
-        }
+    if let Some(fd) = fd_hint
+        && let Ok(path) = fs::read_link(format!("/proc/{pid}/fd/{fd}"))
+        && path.as_os_str() == std::ffi::OsStr::new(&expected)
+    {
+        return Ok(true);
     }
     for entry in fs::read_dir(format!("/proc/{pid}/fd"))? {
         match fs::read_link(entry?.path()) {

@@ -128,10 +128,10 @@ pub(crate) async fn stop_child(child: &mut Option<Child>, label: &str) -> Result
     {
         #[cfg(unix)]
         {
-            if let Some(pid) = child.id() {
-                if let Ok(pid) = libc::pid_t::try_from(pid) {
-                    unsafe { libc::kill(pid, libc::SIGTERM) };
-                }
+            if let Some(pid) = child.id()
+                && let Ok(pid) = libc::pid_t::try_from(pid)
+            {
+                unsafe { libc::kill(pid, libc::SIGTERM) };
             }
             let exited =
                 tokio::time::timeout(std::time::Duration::from_millis(1500), child.wait()).await;

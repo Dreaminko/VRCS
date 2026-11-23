@@ -603,7 +603,8 @@ impl ShadowCrt {
                                 (((data[base + 1] as u16) & 0x0F) << 8) | (data[base + 2] as u16)
                             };
                             if target_row < MAX_ROWS {
-                                let idx = target_row * WIDE_COLS + start_col + i + PLANE_COLS * bank;
+                                let idx =
+                                    target_row * WIDE_COLS + start_col + i + PLANE_COLS * bank;
                                 self.cells[idx] = lut12::lut_idx_to_cp(lut_idx & 0x0FFF);
                                 self.known_cells[idx] = true;
                             }
@@ -1131,9 +1132,9 @@ fn encode_first_plane_packet(
                             data[b_off + 2] = (b & 0xFF) as u8;
                         } else {
                             data[b_off] = (a >> 4) as u8;
-                            data[b_off + 1] =
-                                (((a & 0x0F) << 4) | if n_bytes == 8 { l_start as u16 & 1 } else { 0 })
-                                    as u8;
+                            data[b_off + 1] = (((a & 0x0F) << 4)
+                                | if n_bytes == 8 { l_start as u16 & 1 } else { 0 })
+                                as u8;
                         }
                     }
                     let slot = (l_start / 2) as u8;
@@ -1397,7 +1398,8 @@ pub(crate) fn parse_oscquery_avatar(tree: &Value) -> OscQueryAvatarInfo {
     };
     let viewport = base_viewport.resolve_live(width, height);
 
-    let has_resize_axes = acc.names.contains("UniText_Width") || acc.names.contains("UniText_Height");
+    let has_resize_axes =
+        acc.names.contains("UniText_Width") || acc.names.contains("UniText_Height");
 
     OscQueryAvatarInfo {
         tier,
