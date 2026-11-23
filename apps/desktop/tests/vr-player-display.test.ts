@@ -81,6 +81,43 @@ test("proximity controls update the shared player audio settings and reject inva
   await assert.rejects(execute({ set_proximity_radius: Number.NaN }), /invalid/i);
   settings = { ...settings, audio: { ...settings.audio, output: { ...settings.audio.output, mode: "system" } } } as Settings;
   await assert.rejects(execute({ set_proximity_radius: 5 }), /unavailable/i);
+  settings = {
+    ...settings,
+    vrchat_chatbox: { enabled: true },
+    audio: {
+      ...settings.audio,
+      output: {
+        ...settings.audio.output,
+        mode: "system",
+        player_audio: { ...settings.audio.output.player_audio!, enabled: true },
+      },
+    },
+  } as Settings;
+  await execute({ set_proximity_radius: 6.5 });
+  assert.deepEqual(settings.audio.output.player_audio?.proximity, { enabled: true, radius_m: 6.5 });
+  settings = {
+    ...settings,
+    audio: {
+      ...settings.audio,
+      output: {
+        ...settings.audio.output,
+        player_audio: { ...settings.audio.output.player_audio!, view_priority: { enabled: false, horizontal_fov_deg: 120 } },
+      },
+    },
+  } as Settings;
+  await assert.rejects(execute({ set_view_priority: { enabled: true, horizontal_fov_deg: 120 } }), /unavailable/i);
+  settings = {
+    ...settings,
+    audio: {
+      ...settings.audio,
+      output: {
+        ...settings.audio.output,
+        mode: "system",
+        player_audio: { ...settings.audio.output.player_audio!, enabled: false },
+      },
+    },
+  } as Settings;
+  await assert.rejects(execute({ set_proximity_radius: 5 }), /unavailable/i);
 });
 
 test("proximity controls repair a stored radius whose enabled flag disagrees with it", async () => {

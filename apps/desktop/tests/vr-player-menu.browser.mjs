@@ -231,6 +231,13 @@ test("spatial rules live on the Rules tab with unified cards, toggles, and align
     assert.equal(await page.locator(".vr-menu-card-note").count(), 0, "View waiting note hides when player mode is inactive");
     assert.match(await page.locator('.vr-player-display-panel [role="status"]').innerText(), /per-player audio/);
 
+    await render(page, { page: "rules", players: { player_mode: false, proximity_available: true, view_priority: { enabled: true, horizontal_fov_deg: 110, local_view: false } } });
+    assert.equal(await proxToggle.isDisabled(), false, "Chatbox capture enables distance toggle without per-player audio");
+    assert.equal(await slider.isDisabled(), false, "Chatbox capture enables distance slider without per-player audio");
+    assert.equal(await viewToggle.isDisabled(), true);
+    assert.equal(await fovSlider.isDisabled(), true);
+    assert.equal(await page.locator(".vr-menu-card-note").count(), 0);
+
     await render(page, { page: "rules", players: { proximity: undefined, view_priority: undefined } });
     assert.equal(await slider.count(), 0);
     assert.equal(await fovSlider.count(), 0);

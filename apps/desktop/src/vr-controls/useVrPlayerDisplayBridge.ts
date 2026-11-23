@@ -40,6 +40,10 @@ function playerDisplayState(workspace: AppWorkspace, optimistic = false, cached?
     : confirmed;
   const playerMode = settings?.audio.output.mode === "vrchat_players";
   const playerAudioAvailable = workspace.runtime.capabilities.core?.audio.player_audio.available === true;
+  const chatboxCapture = settings?.audio.output.player_audio?.enabled === true
+    && settings?.vrchat_chatbox?.enabled === true;
+  const networkReceiveAvailable = workspace.runtime.capabilities.core?.chatbox.network_receive.available === true;
+  const proximityAvailable = playerMode || (chatboxCapture && networkReceiveAvailable);
   const names = settings?.audio.output.player_audio?.selected_user_names ?? EMPTY_NAMES;
   const overrides = settings?.audio.output.player_audio?.source_overrides ?? EMPTY_OVERRIDES;
   const unmatchedBlocked = settings?.audio.output.player_audio?.source_mode !== "everyone";
@@ -71,7 +75,7 @@ function playerDisplayState(workspace: AppWorkspace, optimistic = false, cached?
     : playerLanguageOptions(workspace.subtitles.items, defaultLanguages, preferences.hiddenSourceLanguages);
   return {
     available, processingAvailable: available && workspace.runtime.ready && playerMode && playerAudioAvailable,
-    playerMode, sourceMode: sourceMode(settings?.audio.output.player_audio), names, overrides, proximity, viewPriority, current, distances, preferences, defaultLanguages, unmatchedBlocked,
+    playerMode, proximityAvailable, sourceMode: sourceMode(settings?.audio.output.player_audio), names, overrides, proximity, viewPriority, current, distances, preferences, defaultLanguages, unmatchedBlocked,
     hiddenTracks: preferences.hiddenTracks,
     speakers,
     languages,
@@ -85,6 +89,7 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
   const activeSettings = workspace.settings.getOptimistic() ?? workspace.settings.value;
   const playerMode = activeSettings?.audio.output.mode === "vrchat_players";
   const playerAudioAvailable = workspace.runtime.capabilities.core?.audio.player_audio.available === true;
+  const networkReceiveAvailable = workspace.runtime.capabilities.core?.chatbox.network_receive.available === true;
   const names = activeSettings?.audio.output.player_audio?.selected_user_names ?? EMPTY_NAMES;
   const overrides = activeSettings?.audio.output.player_audio?.source_overrides ?? EMPTY_OVERRIDES;
   const liveHealth = useHealth() ?? workspace.runtime.health;
@@ -165,6 +170,7 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
       available: state.available,
       processing_available: state.processingAvailable,
       player_mode: state.playerMode,
+      proximity_available: state.proximityAvailable,
       source_mode: state.sourceMode,
       ...(state.proximity ? { proximity: { enabled: state.proximity.enabled, radius_m: state.proximity.radius_m } } : {}),
       ...(state.viewPriority ? { view_priority: {
@@ -188,7 +194,7 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
             const dist = translate("live.players.distance", { distance: distance.toFixed(1) });
             const far = state.proximity?.enabled && distance > state.proximity.radius_m;
             detail = `${category} · ${dist}${far ? ` · ${labels.outOfRange}` : ""}`;
-          } else if (state.playerMode) {
+          } else if (state.playerMode || state.proximityAvailable) {
             detail = `${category} · ${labels.distanceUnknown}`;
           } else {
             detail = `${category} · ${number}`;
@@ -273,6 +279,7 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
     workspace.onboarding.status,
     workspace.runtime.ready,
     playerAudioAvailable,
+    networkReceiveAvailable,
     locale,
     t,
   ]);

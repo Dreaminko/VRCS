@@ -355,7 +355,7 @@
         "languagesTab": "Languages",
         "groups": "People list",
         "historySaved": "History",
-        "processingUnavailable": "Distance filtering and view priority require per-player audio and a connected Core.",
+        "processingUnavailable": "Distance filtering requires per-player audio or Chatbox capture; view priority requires per-player audio and a connected Core.",
         "unavailable": "Open the main VRCS window to use these settings.",
         "savedSelection": "Saved selection",
         "userIdPending": "Waiting for player user ID before selection",

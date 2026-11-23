@@ -58,7 +58,7 @@ impl Action {
             | Self::ClearHiddenLanguages(()) => true,
             Self::SetProximityRadius(radius_m) => {
                 view.available
-                    && view.player_mode
+                    && (view.player_mode || view.proximity_available)
                     && view.proximity.is_some()
                     && radius_m.is_finite()
                     && (0.0..=10.0).contains(radius_m)
@@ -142,6 +142,8 @@ pub struct View {
     pub processing_available: bool,
     pub player_mode: bool,
     #[serde(default)]
+    pub proximity_available: bool,
+    #[serde(default)]
     pub source_mode: String,
     pub players: Vec<Player>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -169,6 +171,11 @@ mod tests {
                 enabled: false,
                 radius_m: 10.0,
             }),
+            view_priority: Some(ViewPriority {
+                enabled: false,
+                horizontal_fov_deg: 120.0,
+                local_view: false,
+            }),
             ..Default::default()
         };
         assert!(Action::SetProximityRadius(0.0).allowed(&view));
@@ -179,6 +186,16 @@ mod tests {
         assert!(!Action::SetProximityRadius(f32::NAN).allowed(&view));
         view.player_mode = false;
         assert!(!Action::SetProximityRadius(5.0).allowed(&view));
+        view.proximity_available = true;
+        assert!(Action::SetProximityRadius(5.0).allowed(&view));
+        assert!(
+            !Action::SetViewPriority {
+                enabled: true,
+                horizontal_fov_deg: 120.0,
+            }
+            .allowed(&view)
+        );
+        view.proximity_available = false;
         view.player_mode = true;
         view.proximity = None;
         assert!(!Action::SetProximityRadius(5.0).allowed(&view));

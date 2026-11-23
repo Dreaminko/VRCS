@@ -231,6 +231,12 @@ export function DesktopShell({
                   subtitles={conversations.selectedSubtitles}
                   useLiveHealth
                   enabled={settings.value?.audio.output.mode === "vrchat_players" && runtime.capabilities.core?.audio.player_audio.available === true}
+                  proximityEnabled={
+                    (settings.value?.audio.output.mode === "vrchat_players" && runtime.capabilities.core?.audio.player_audio.available === true)
+                    || (settings.value?.audio.output.player_audio?.enabled === true
+                      && settings.value?.vrchat_chatbox?.enabled === true
+                      && runtime.capabilities.core?.chatbox.network_receive.available === true)
+                  }
                   selectedUserNames={settings.value?.audio.output.player_audio?.selected_user_names}
                   sourceOverrides={settings.value?.audio.output.player_audio?.source_overrides}
                   sourceMode={sourceMode(settings.value?.audio.output.player_audio)}

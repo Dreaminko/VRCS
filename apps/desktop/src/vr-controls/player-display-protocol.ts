@@ -22,6 +22,7 @@ export interface PlayerDisplayView {
   available: boolean;
   processing_available: boolean;
   player_mode: boolean;
+  proximity_available?: boolean;
   source_mode: PlayerSourceMode;
   players: PlayerDisplayRow[];
   proximity?: {
@@ -151,7 +152,11 @@ export function createPlayerDisplayExecutor(options: {
       const radius_m = Math.round(action.set_proximity_radius * 10) / 10;
       if (radius_m < 0 || radius_m > 10) throw new Error("Distance limit is invalid");
       const saved = await options.updateSettings(settings => {
-        if (settings.audio.output.mode !== "vrchat_players") throw new Error("Player processing is unavailable");
+        const chatboxCapture = settings.audio.output.player_audio?.enabled === true
+          && settings.vrchat_chatbox?.enabled === true;
+        if (settings.audio.output.mode !== "vrchat_players" && !chatboxCapture) {
+          throw new Error("Player processing is unavailable");
+        }
         const proximity = settings.audio.output.player_audio?.proximity;
         if (!proximity) throw new Error("Distance filtering is unavailable");
         return proximity.radius_m === radius_m && proximity.enabled === (radius_m > 0)

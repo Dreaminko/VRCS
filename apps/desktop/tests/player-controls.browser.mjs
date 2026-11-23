@@ -34,7 +34,7 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
         const translation=(language,source_language)=>({text:'译文-'+language,source_language,target_language:language,provider:'local',created_at:'2026-10-25T00:00:00Z',model:null});
         const rows=[alice,bob,null].map((speaker,index)=>({id:index+1,source:speaker?'speaker':'microphone',speaker,
           text:'原文-'+index,language:['ja','zh-CN','zh'][index],started_at:null,ended_at:null,created_at:'2026-10-25T00:00:00Z',translations:['zh-Hans','en','ja'].map(language=>translation(language,['ja','zh-CN','zh'][index]))}));
-        let state,changeLanguages,changeHiddenTracks,changeRows,changeFocus,changePlayers,changeOverrides,changeHeight,scrollApi;
+        let state,changeLanguages,changeHiddenTracks,changeRows,changeFocus,changePlayers,changeOverrides,changeHeight,changeCaptureMode,scrollApi;
         const noop=async()=>{};
         function Fixture(){
           const [preferences,setPreferences]=useState({hiddenTracks:[],hiddenSourceLanguages:['zh','en']});
@@ -47,16 +47,19 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           const [proximity,setProximity]=useState({enabled:false,radius_m:10});
           const [viewPriority,setViewPriority]=useState({enabled:false,horizontal_fov_deg:120});
           const [sourceMode,setSourceMode]=useState('allowlist');
+          const [voiceEnabled,setVoiceEnabled]=useState(true);
+          const [distanceEnabled,setDistanceEnabled]=useState(true);
           changeHeight=setHeight;
           changeFocus=setFocused;
           scrollApi=useLiveConversationScroll({page:'live',activeConversationId:'current',selectedConversationId:'current',openedConversationId:'current',loadingConversationSubtitles:false,selectedConversationUpdatedAt:String(subtitles.length),focusedSubtitleId:focused});
           const scroll=scrollApi.liveScrollRef;
           state={preferences,overrides,subtitles,proximity,viewPriority};changeLanguages=languages=>setPreferences(value=>({...value,hiddenSourceLanguages:languages}));changeRows=setSubtitles;changePlayers=setPlayers;changeOverrides=setOverrides;
           changeHiddenTracks=hiddenTracks=>setPreferences(value=>({...value,hiddenTracks}));
+          changeCaptureMode=(voice,distance)=>{setVoiceEnabled(voice);setDistanceEnabled(distance);};
           return <div className="app-shell live-shell sidebar-collapsed" style={{height}}><div className="window-chrome">VRCS</div><div className="app-body">
             <WorkspaceFrame page="live" scrollRef={scroll} onScroll={scrollApi.onLiveScroll} toolbar={
             <TopStatus connection="connected" health={null} settings={null} controls={<PlayerHistoryControls subtitles={subtitles} status={{players:players.map(speaker=>({speaker,active:true,selected:true}))}}
-              enabled={true} sourceOverrides={overrides} defaultLanguages={defaults} preferences={preferences} onPreferences={setPreferences} proximity={proximity} viewPriority={viewPriority}
+              enabled={voiceEnabled} proximityEnabled={distanceEnabled} sourceOverrides={overrides} defaultLanguages={defaults} preferences={preferences} onPreferences={setPreferences} proximity={proximity} viewPriority={viewPriority}
               sourceMode={sourceMode} onSourceMode={setSourceMode}
               onProximityChange={radius_m=>setProximity({enabled:radius_m>0,radius_m})}
               onViewPriorityChange={(enabled,horizontal_fov_deg)=>setViewPriority({enabled,horizontal_fov_deg})}
@@ -206,6 +209,11 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           click(viewSwitch);
           await wait(()=>!state.viewPriority.enabled&&viewRangeInput.disabled);
           check(chipMatches(ruleChip(1),'水平视角','关闭',false),'rules summary restores view priority off state');
+          changeCaptureMode(false,true);
+          await wait(()=>viewSwitch.disabled);
+          check(!radiusInput.disabled&&viewSwitch.disabled,'chatbox-only capture keeps recognition distance enabled while disabling view priority');
+          changeCaptureMode(true,true);
+          await wait(()=>!viewSwitch.disabled);
           rulesSummary.click();
           for(const animation of rulesDetails.getAnimations({subtree:true}))animation.finish();
           await settled();

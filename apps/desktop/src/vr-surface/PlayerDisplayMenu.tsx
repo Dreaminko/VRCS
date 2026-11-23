@@ -145,6 +145,7 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
   const page = ui.page;
   if (page === "home") return null;
   const viewPriority = view.view_priority;
+  const proximityAvailable = Boolean(view.proximity_available || view.player_mode);
   const restoreProximityRadius = proximity && proximity.radius_m > 0
     ? Math.round(Math.max(0.1, Math.min(10, proximity.radius_m)) * 10) / 10
     : (lastProximityRadius.current ?? DEFAULT_PROXIMITY_RADIUS);
@@ -233,15 +234,15 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
         </section>
         {view.available && (!view.processing_available || !view.player_mode) && <div className="vr-menu-banner warning" role="status">
           <TriangleAlert aria-hidden="true" />
-          <span>{label("processingUnavailable", "Distance filtering and view priority require per-player audio and a connected Core.")}</span>
+          <span>{label("processingUnavailable", "Distance filtering requires per-player audio or Chatbox capture; view priority requires per-player audio and a connected Core.")}</span>
         </div>}
         {proximity && <RuleSliderCard
           state={state}
           icon={<Radar aria-hidden="true" />}
           title={label("proximityRadius", "Recognition distance")}
           value={proximity.enabled ? proximity.radius_m : 0}
-          cardDisabled={locked || !view.player_mode}
-          sliderDisabled={locked || !view.player_mode}
+          cardDisabled={locked || !proximityAvailable}
+          sliderDisabled={locked || !proximityAvailable}
           toggleId={54}
           toggleChecked={proximity.enabled}
           toggleCommand={{ display: { set_proximity_radius: proximity.enabled ? 0 : restoreProximityRadius } }}
@@ -249,7 +250,7 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
           sliderCommand={PROXIMITY_SLIDER}
           scale={[label("proximityOff", "Off"), "10 m"]}
           formatValue={radius => radius > 0 ? `${radius.toFixed(1)} m` : label("proximityOff", "Off")}
-          valueMuted={shown => locked || !view.player_mode || shown <= 0}
+          valueMuted={shown => locked || !proximityAvailable || shown <= 0}
           zeroStyled={shown => shown <= 0}
           error={view.error}
         />}

@@ -1346,6 +1346,7 @@ fn sample_player_display(scene: Scene) -> player_display::View {
         available: scene != Scene::Unavailable,
         processing_available: scene != Scene::Unavailable,
         player_mode: true,
+        proximity_available: true,
         source_mode: "allowlist".into(),
         players,
         proximity: Some(player_display::Proximity {
@@ -1395,7 +1396,7 @@ fn sample_player_display(scene: Scene) -> player_display::View {
             ("sourceModeAllowlist", "Allowlist"),
             (
                 "processingUnavailable",
-                "Distance filtering and view priority require per-player audio and a connected Core.",
+                "Distance filtering requires per-player audio or Chatbox capture; view priority requires per-player audio and a connected Core.",
             ),
             (
                 "unavailable",

@@ -98,7 +98,7 @@ impl Ui {
         match command {
             Command::Page(page) => {
                 if self.page == Page::Home && *page == Page::Players {
-                    self.group = if view.player_mode {
+                    self.group = if view.player_mode || view.proximity_available {
                         Group::Current
                     } else {
                         Group::History
@@ -209,7 +209,15 @@ mod tests {
         assert_eq!(ui, before);
         assert!(ui.apply(&Command::Page(Page::Home), &view));
         let view = super::super::player_display::View {
+            proximity_available: true,
+            ..view
+        };
+        assert!(ui.apply(&Command::Page(Page::Players), &view));
+        assert_eq!(ui.group, Group::Current);
+        assert!(ui.apply(&Command::Page(Page::Home), &view));
+        let view = super::super::player_display::View {
             player_mode: true,
+            proximity_available: false,
             ..view
         };
         assert!(ui.apply(&Command::Page(Page::Players), &view));

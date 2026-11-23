@@ -17,12 +17,13 @@ import { useDismissibleLayer } from "../../shared/hooks/use-dismissible-layer";
 import { useDropdownMenuMotion } from "../../shared/hooks/use-dropdown-menu-motion";
 import { PreferenceToggle, RangeField } from "../../settings/SettingsControls";
 
-export function PlayerHistoryControls({ subtitles, status, roster, useLiveHealth = false, enabled, selectedUserNames = {}, sourceOverrides = {}, sourceMode = "allowlist", proximity, viewPriority, defaultLanguages, preferences, onPreferences, onSource, onSourceMode, onProximityChange, onViewPriorityChange }: {
+export function PlayerHistoryControls({ subtitles, status, roster, useLiveHealth = false, enabled, proximityEnabled, selectedUserNames = {}, sourceOverrides = {}, sourceMode = "allowlist", proximity, viewPriority, defaultLanguages, preferences, onPreferences, onSource, onSourceMode, onProximityChange, onViewPriorityChange }: {
   subtitles: Subtitle[];
   status?: PlayerAudioStatus | null;
   roster?: PlayerAudioStatus["players"];
   useLiveHealth?: boolean;
   enabled: boolean;
+  proximityEnabled?: boolean;
   selectedUserNames?: Record<string, string>;
   sourceOverrides?: Record<string, PlayerSourceOverride>;
   sourceMode?: PlayerSourceMode;
@@ -91,6 +92,7 @@ export function PlayerHistoryControls({ subtitles, status, roster, useLiveHealth
     .map(playerUserId)
     .filter((id): id is string => id !== null)), [speakers, preferences.hiddenTracks]);
   const languages = preferences.hiddenSourceLanguages ?? [];
+  const distanceEnabled = proximityEnabled ?? enabled;
   const displayedRadius = proximity?.enabled ? proximity.radius_m : 0;
   const ruleChips = [
     proximity && {
@@ -162,7 +164,7 @@ export function PlayerHistoryControls({ subtitles, status, roster, useLiveHealth
         <div className="player-history-rules-content">
           {proximity && <div className="player-history-proximity" role="group" aria-label={t("live.players.proximityRadius")}>
             <RangeField label={t("live.players.proximityRadius")} value={displayedRadius}
-              min={0} max={10} step={0.1} disabled={!enabled || !onProximityChange}
+              min={0} max={10} step={0.1} disabled={!distanceEnabled || !onProximityChange}
               formatValue={(radius) => radius > 0 ? `${radius.toFixed(1)} m` : t("live.players.proximityOff")}
               onCommit={(radius_m) => void onProximityChange?.(radius_m)} />
           </div>}

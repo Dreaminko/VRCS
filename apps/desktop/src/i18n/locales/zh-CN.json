@@ -355,7 +355,7 @@
         "languagesTab": "隐藏语言",
         "groups": "人员列表",
         "historySaved": "历史记录",
-        "processingUnavailable": "距离筛选和视野优先需要开启「分玩家独立音轨」，且后台服务已连接。",
+        "processingUnavailable": "距离筛选需要开启「分玩家独立音轨」或「VRChat Chatbox 捕获」，视野优先需要开启「分玩家独立音轨」，且后台服务已连接。",
         "unavailable": "请打开 VRCS 主窗口以使用这些设置。",
         "savedSelection": "已保存的选择",
         "userIdPending": "等待玩家用户 ID，暂不能选择",
