@@ -3,6 +3,20 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// How long a live surface may wait for its next captured frame before it is
+/// treated as stalled. Linux shares one GPU with the game and the WiVRn
+/// encoder; when that GPU is saturated a WebKit frame can take seconds, so the
+/// last good frame stays up instead of the panel blinking out.
+#[cfg(not(linux_vr))]
+const LIVE_FRAME_TIMEOUT: Duration = Duration::from_millis(500);
+#[cfg(linux_vr)]
+const LIVE_FRAME_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long the last frame stays visible after a capture fault.
+#[cfg(not(linux_vr))]
+const FAULT_FRAME_RETENTION: Duration = Duration::from_millis(500);
+#[cfg(linux_vr)]
+const FAULT_FRAME_RETENTION: Duration = Duration::from_secs(2);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Phase {
     Dormant,
@@ -154,9 +168,9 @@ impl Recovery {
             self.since
                 .is_some_and(|since| now.saturating_duration_since(since) >= Duration::from_secs(3))
         } else {
-            observation.pending_since.is_some_and(|since| {
-                now.saturating_duration_since(since) >= Duration::from_millis(500)
-            })
+            observation
+                .pending_since
+                .is_some_and(|since| now.saturating_duration_since(since) >= LIVE_FRAME_TIMEOUT)
         };
         let fault = observation.fault.or_else(|| {
             timed_out.then_some(if !observation.ready || !observation.layout {
@@ -220,9 +234,9 @@ impl Recovery {
             && allowed_surface
             && self.phase == Phase::RecoveringCapture
             && retained_fault
-            && self.fault_since.is_some_and(|since| {
-                now.saturating_duration_since(since) < Duration::from_millis(500)
-            })
+            && self
+                .fault_since
+                .is_some_and(|since| now.saturating_duration_since(since) < FAULT_FRAME_RETENTION)
     }
 
     #[cfg(any(windows, linux_vr))]
@@ -322,14 +336,14 @@ mod tests {
         assert_eq!(
             recovery.advance(
                 observation(true, true, Some(start)),
-                start + Duration::from_millis(499)
+                start + LIVE_FRAME_TIMEOUT - Duration::from_millis(1)
             ),
             Action::None
         );
         assert_eq!(
             recovery.advance(
                 observation(true, true, Some(start)),
-                start + Duration::from_millis(500)
+                start + LIVE_FRAME_TIMEOUT
             ),
             Action::RestartCapture
         );
@@ -430,8 +444,12 @@ mod tests {
             },
             now,
         );
-        assert!(recovery.retains_frame(true, true, now + Duration::from_millis(499)));
-        assert!(!recovery.retains_frame(true, true, now + Duration::from_millis(500)));
+        assert!(recovery.retains_frame(
+            true,
+            true,
+            now + FAULT_FRAME_RETENTION - Duration::from_millis(1)
+        ));
+        assert!(!recovery.retains_frame(true, true, now + FAULT_FRAME_RETENTION));
         assert!(!recovery.retains_frame(false, true, now));
         assert!(!recovery.retains_frame(true, false, now));
         recovery.set_active(false, now);
