@@ -37,6 +37,7 @@
 - **上下文与术语管理**：支持自定义提示词、本地与订阅术语表、房间及字幕上下文（可基于本地 VRChat 日志或网络采集生效），还可联动 [VRCX-0](https://vrcx-0.dev/) 获取当前世界与成员信息，并通过语言预设一键切换识别、翻译和 Chatbox 配置。
 - **对话管理**：可为已结束的会话生成 AI 总结标题，并按标题检索历史记录。该功能默认关闭，可在「设置 › 系统 › 对话管理」与「设置 › API 与模型」配置模型与自动生成开关，也可在历史菜单中手动生成或重新生成；自定义命名始终优先。
 - **VRChat OSC Chatbox 输出**：将麦克风字幕与译文发送至 VRChat Chatbox，支持快捷输入、翻译预览、多语言输出以及可选的 OSCQuery 静音同步。
+- **UniText 道具输出**：将麦克风字幕、他人字幕与译文发送至 Avatar 上挂载的 [UniText](https://github.com/Dreaminko/UniText) 道具，支持通过 OSCQuery 自动识别与 OSC 发送、参数档位选择、可选保留原文、麦克风静音同步以及空闲自动清屏。
 - **VR 字幕叠层（SteamVR / OpenXR & OpenVR）**：在头显内或手腕面板查看多语言字幕，并通过 VR 仪表盘直接调整字幕布局、语言与 Chatbox 设置，支持 Windows 与 Linux（`x86_64`）。
 - **OCR 翻译**：在桌面（Windows 与 Linux 经由 Screenshot Portal）或 VR（Windows）中框选文字进行识别与翻译，采用本地 PP-OCRv6（CPU，Windows 另支持 DirectML GPU），结果可显示于桌面窗口、手腕面板或 VR 中的原文位置。
 - **视觉问答**：对桌面（Windows 与 Linux 经由 Screenshot Portal）或 VR（Windows）中框选的画面区域提问——桌面支持打字或语音输入，VR 中按住左扳机即可语音提问。回答显示在独立窗口或支持 Markdown 的手腕面板上，无需开启 OCR。*（由于上游 OpenXR / Monado 场景捕获接口尚不完善，VR OCR 与 VR 视觉问答目前仅支持 Windows。）*
