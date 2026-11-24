@@ -112,6 +112,7 @@
     "chatbox": {
       "title": "Chatbox に送信",
       "detailsTitle": "送信設定",
+      "followTranslationSettings": "翻訳設定に従う",
       "expandDetails": "送信設定を開く",
       "collapseDetails": "送信設定を閉じる",
       "translationPreviewPending": "送信時に翻訳を自動生成します",
@@ -120,7 +121,8 @@
       "originalPlaceholder": "VRChat に送信するメッセージを入力",
       "translation": "翻訳",
       "translationPlaceholder": "翻訳後のメッセージを編集できます",
-      "translationStale": "原文が変更されました",
+      "translationStale": "再翻訳が必要です",
+      "translationContextChanged": "翻訳中に対象言語またはルームが変わりました。もう一度お試しください。",
       "targetLanguage": "翻訳先言語",
       "translate": "翻訳",
       "sendMode": "送信内容",

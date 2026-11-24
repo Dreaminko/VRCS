@@ -1377,14 +1377,15 @@ async fn chatbox_send_is_stored_and_broadcast_as_conversation_message() {
     handle.state.integrations.osc.update_mute_status(Some(true));
 
     let mut subtitles = handle.state.content.subtitle_output.subscribe_subtitles();
+    let target_language = "sl-Latn-SI-rozaj-biske-1994";
     let sent = client
         .post(format!("{base_url}/api/chatbox/messages"))
         .bearer_auth("test-token")
         .json(&serde_json::json!({
             "original": "hello",
-            "translation": "こんにちは",
+            "translation": "Živjo",
             "source_language": "en",
-            "target_language": "ja",
+            "target_language": target_language,
             "send_mode": "bilingual",
             "message_format": "original_newline_translation",
             "custom_format": null,
@@ -1401,13 +1402,25 @@ async fn chatbox_send_is_stored_and_broadcast_as_conversation_message() {
         "Chatbox send failed: {sent_body}"
     );
 
+    let mut buffer = [0u8; 1024];
+    let length = tokio::time::timeout(std::time::Duration::from_secs(2), udp.recv(&mut buffer))
+        .await
+        .unwrap()
+        .unwrap();
+    let (_, packet) = rosc::decoder::decode_udp(&buffer[..length]).unwrap();
+    let rosc::OscPacket::Message(message) = packet else {
+        panic!("expected a chatbox OSC message");
+    };
+    assert_eq!(message.addr, "/chatbox/input");
+    assert_eq!(message.args[0], rosc::OscType::String("hello\nŽivjo".into()));
+
     let streamed = tokio::time::timeout(std::time::Duration::from_secs(1), subtitles.recv())
         .await
         .unwrap()
         .unwrap();
     assert_eq!(streamed.source, "chatbox");
     assert_eq!(streamed.text, "hello");
-    assert_eq!(streamed.translations[0].text, "こんにちは");
+    assert_eq!(streamed.translations[0].text, "Živjo");
 
     let history: serde_json::Value = client
         .get(format!("{base_url}/api/subtitles?limit=10"))
@@ -1419,7 +1432,8 @@ async fn chatbox_send_is_stored_and_broadcast_as_conversation_message() {
         .await
         .unwrap();
     assert_eq!(history[0]["source"], "chatbox");
-    assert_eq!(history[0]["translations"][0]["text"], "こんにちは");
+    assert_eq!(history[0]["translations"][0]["text"], "Živjo");
+    assert_eq!(history[0]["translations"][0]["target_language"], target_language);
     handle.shutdown().await.unwrap();
 }
 

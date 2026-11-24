@@ -112,6 +112,7 @@
     "chatbox": {
       "title": "Chatbox 发送",
       "detailsTitle": "发送设置",
+      "followTranslationSettings": "跟随翻译设置",
       "expandDetails": "展开发送设置",
       "collapseDetails": "收起发送设置",
       "translationPreviewPending": "译文将在发送时自动生成",
@@ -120,7 +121,8 @@
       "originalPlaceholder": "输入要发送到 VRChat 的消息",
       "translation": "译文",
       "translationPlaceholder": "翻译后可在这里修改",
-      "translationStale": "原文已修改",
+      "translationStale": "译文需更新",
+      "translationContextChanged": "翻译期间目标语言或房间已切换，请重试。",
       "targetLanguage": "目标语言",
       "translate": "翻译",
       "sendMode": "发送内容",

@@ -101,6 +101,21 @@ test("Chatbox send settings round-trip without retaining message text", () => {
   assert.equal(restored.overflow_policy, "smart_truncate");
 });
 
+test("following the preferred target survives saving and reopening", () => {
+  const draft = createChatboxDraft("fr");
+  const saved = JSON.stringify(chatboxPreferencesFromDraft(draft));
+  const preferences = normalizeChatboxPreferences(saved, "de");
+  assert.deepEqual(applyChatboxPreferences(createChatboxDraft(), preferences), draft);
+});
+
+test("new preferences and legacy follow mode follow the current preferred language", () => {
+  for (const stored of [null, { target_language: null }]) {
+    const prefs = normalizeChatboxPreferences(stored, "fr");
+    assert.equal(prefs.follow_translation_settings, true);
+    assert.equal(prefs.target_language, "fr");
+  }
+});
+
 test("invalid persisted Chatbox settings fall back to current defaults", () => {
   assert.deepEqual(normalizeChatboxPreferences({
     target_language: "$invalid",
@@ -116,6 +131,8 @@ test("custom BCP 47 Chatbox languages survive preference round-trips", () => {
     target_language: "tlh-latn",
   }, "ja");
   assert.equal(preferences.target_language, "tlh-Latn");
+  assert.equal(preferences.follow_translation_settings, false);
+  assert.deepEqual(normalizeChatboxPreferences(JSON.stringify(preferences)), preferences);
 });
 
 test("Chatbox preference writes keep only the latest pending value", async () => {

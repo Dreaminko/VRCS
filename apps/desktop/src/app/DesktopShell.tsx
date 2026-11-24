@@ -431,6 +431,7 @@ export function DesktopShell({
       {page === "live" && chatbox.open && (
         <ChatboxComposer
           draft={chatbox.draft}
+          preferredTarget={chatbox.preferredTarget}
           preview={chatbox.preview}
           busy={chatbox.busy}
           feedback={chatbox.feedback}

@@ -9,15 +9,15 @@ import {
 } from "lucide-react";
 
 import type {
-  ChatboxComposeInput,
   ChatboxPreview,
 } from "./types";
-import { updateChatboxTranslation } from "./chatbox";
+import { type ChatboxDraft, updateChatboxTranslation } from "./chatbox";
 import { DropdownField } from "../shared/ui/DropdownField";
 import { LanguagePicker } from "../shared/ui/LanguagePicker";
 
 export function ChatboxComposer({
   draft,
+  preferredTarget,
   preview,
   busy,
   feedback,
@@ -33,7 +33,8 @@ export function ChatboxComposer({
   onExpandedChange,
   onClose,
 }: {
-  draft: ChatboxComposeInput;
+  draft: ChatboxDraft;
+  preferredTarget: string;
   preview: ChatboxPreview;
   busy: "translate" | "send" | null;
   feedback: { tone: "success" | "error"; text: string } | null;
@@ -41,7 +42,7 @@ export function ChatboxComposer({
   oscEnabled: boolean;
   languageCodes: readonly string[];
   allowCustomLanguage: boolean;
-  onDraftChange: (draft: ChatboxComposeInput) => void;
+  onDraftChange: (draft: ChatboxDraft) => void;
   onTranslate: () => Promise<void>;
   onSend: () => Promise<boolean>;
   inline?: boolean;
@@ -63,7 +64,7 @@ export function ChatboxComposer({
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const update = (partial: Partial<ChatboxComposeInput>) => {
+  const update = (partial: Partial<ChatboxDraft>) => {
     onDraftChange({ ...draft, ...partial });
   };
   const translationAvailable = Boolean(draft.translation?.trim());
@@ -92,13 +93,22 @@ export function ChatboxComposer({
         <h2>{t("chatbox.detailsTitle")}</h2>
       </header>
 
+      <label className="chatbox-checkbox">
+        <input
+          type="checkbox"
+          checked={draft.follow_translation_settings}
+          onChange={(event) => update({ follow_translation_settings: event.target.checked })}
+        />
+        <span>{t("chatbox.followTranslationSettings")}</span>
+      </label>
       <div className="chatbox-controls">
         <div className="chatbox-language-control">
           <LanguagePicker
             compact
             floating
             label={t("chatbox.targetLanguage")}
-            value={draft.target_language ?? "ja"}
+            value={draft.follow_translation_settings ? preferredTarget : draft.target_language}
+            disabled={draft.follow_translation_settings}
             languageCodes={languageCodes}
             allowCustom={allowCustomLanguage}
             onChange={(target_language) => update({ target_language })}
@@ -152,7 +162,7 @@ export function ChatboxComposer({
               { value: "slash_separated", label: t("chatbox.formats.slash") },
               { value: "custom", label: t("chatbox.formats.custom") },
             ]}
-            onChange={(message_format) => update({ message_format: message_format as ChatboxComposeInput["message_format"] })}
+            onChange={(message_format) => update({ message_format: message_format as ChatboxDraft["message_format"] })}
           />
           {draft.message_format === "custom" && (
             <input
@@ -175,7 +185,7 @@ export function ChatboxComposer({
         <p className={translationPending || !preview.text ? "is-placeholder" : undefined}>{translationPending
           ? t("chatbox.translationPreviewPending")
           : preview.text || t("chatbox.previewEmpty")}</p>
-        <label className="chatbox-overflow-choice">
+        <label className="chatbox-overflow-choice chatbox-checkbox">
           <input
             type="checkbox"
             checked={draft.overflow_policy === "smart_truncate"}
