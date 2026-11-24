@@ -302,10 +302,11 @@ pub fn sync(app: AppHandle) {
     {
         let manager = app.state::<Manager>();
         let mut state = manager.state.lock().unwrap();
-        if let Some(existing) = state.task.as_ref() {
-            if !existing.stop.load(Ordering::Acquire) && existing.config == config {
-                return;
-            }
+        if let Some(existing) = state.task.as_ref()
+            && !existing.stop.load(Ordering::Acquire)
+            && existing.config == config
+        {
+            return;
         }
         if state.restoring || state.restore_attempted.as_ref() == Some(&config) {
             return;
@@ -375,12 +376,11 @@ pub async fn desktop_capture_register_shortcuts(
             let _ = sync_x11(&app, None, None);
             return Err("capture.shortcuts_disabled".into());
         }
-        if let (Some(ocr_sc), Some(vision_sc)) = (ocr.as_deref(), vision.as_deref()) {
-            if super::shortcut::Shortcut::parse(ocr_sc)
+        if let (Some(ocr_sc), Some(vision_sc)) = (ocr.as_deref(), vision.as_deref())
+            && super::shortcut::Shortcut::parse(ocr_sc)
                 == super::shortcut::Shortcut::parse(vision_sc)
-            {
-                return Err("desktop_vision.shortcut_conflict".into());
-            }
+        {
+            return Err("desktop_vision.shortcut_conflict".into());
         }
         sync_x11(&app, ocr, vision)?;
         return Ok(());

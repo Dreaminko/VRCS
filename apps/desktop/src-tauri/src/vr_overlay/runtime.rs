@@ -1735,18 +1735,17 @@ fn tick(
     }
     #[cfg(linux_vr)]
     if !openxr {
-        if state.ocr_manifest.is_none() {
-            if let Some(directory) = app
+        if state.ocr_manifest.is_none()
+            && let Some(directory) = app
                 .path()
                 .app_config_dir()
                 .ok()
                 .map(|path| path.join("steamvr-ocr"))
-            {
-                match super::ocr_input::install_manifest(&directory) {
-                    Ok(path) => state.ocr_manifest = Some(path),
-                    Err(error) => {
-                        tracing::warn!(%error, "VR controller input manifest unavailable")
-                    }
+        {
+            match super::ocr_input::install_manifest(&directory) {
+                Ok(path) => state.ocr_manifest = Some(path),
+                Err(error) => {
+                    tracing::warn!(%error, "VR controller input manifest unavailable")
                 }
             }
         }
