@@ -545,77 +545,123 @@ impl Dispatcher {
         }
         let cancellation = gio::Cancellable::new();
         host.pending_snapshot = Some(cancellation.clone());
-        let reply = request.reply;
-        host.web.snapshot(
-            webkit2gtk::SnapshotRegion::Visible,
-            webkit2gtk::SnapshotOptions::TRANSPARENT_BACKGROUND,
-            Some(&cancellation),
-            move |result| {
-                let snapshot = (|| {
-                    let surface = result.map_err(|error| error.to_string())?;
-                    let image = cairo::ImageSurface::try_from(surface)
-                        .map_err(|_| "snapshot is not a Cairo image surface".to_string())?;
-                    let scale = image.width() as f32 / logical_width as f32;
-                    let expected_height = (logical_height + MARKER_HEIGHT) as f32 * scale;
-                    if scale < 1.0 || (image.height() as f32 - expected_height).abs() > 2.0 {
-                        return Err(format!(
-                            "unexpected snapshot dimensions {}x{}",
-                            image.width(),
-                            image.height()
-                        ));
-                    }
-                    let width = image.width() as usize;
-                    let (generation, revision, paint) =
-                        marker(&image, logical_height as usize, scale)?
-                            .ok_or_else(|| "snapshot marker not painted".to_string())?;
-                    let px = |value: usize| ((value as f32) * scale).round() as usize;
-                    let (xs, ys) = (px(left as usize), px(top as usize));
-                    let (xe, ye) = (px(right as usize), px(bottom as usize));
-                    if xe <= xs || ye <= ys || xe > width || ye > image.height() as usize {
-                        return Err("snapshot crop is outside the surface".into());
-                    }
-                    let crop_w = right - left;
-                    let crop_h = bottom - top;
-                    let (pixels, out_width, out_height) = if scale > 1.01 {
-                        let scaled = cairo::ImageSurface::create(
-                            cairo::Format::ARgb32,
-                            crop_w as i32,
-                            crop_h as i32,
-                        )
-                        .map_err(|error| error.to_string())?;
-                        let ctx =
-                            cairo::Context::new(&scaled).map_err(|error| error.to_string())?;
-                        ctx.scale(1.0 / f64::from(scale), 1.0 / f64::from(scale));
-                        ctx.set_source_surface(&image, -(xs as f64), -(ys as f64))
-                            .map_err(|error| error.to_string())?;
-                        ctx.paint().map_err(|error| error.to_string())?;
-                        drop(ctx);
-                        scaled.flush();
-                        (
-                            rgba_crop(&scaled, 0, 0, crop_w as usize, crop_h as usize)?,
-                            crop_w,
-                            crop_h,
-                        )
-                    } else {
-                        (
-                            rgba_crop(&image, xs, ys, xe - xs, ye - ys)?,
-                            (xe - xs) as u32,
-                            (ye - ys) as u32,
-                        )
-                    };
-                    Ok(Snapshot {
-                        pixels,
-                        width: out_width,
-                        height: out_height,
-                        generation,
-                        revision,
-                        paint,
-                    })
-                })();
-                let _ = reply.send(snapshot);
-            },
+        capture_snapshot(
+            host.web.clone(),
+            cancellation,
+            (logical_width, logical_height),
+            request.bounds,
+            request.reply,
+            0,
         );
     }
+}
+
+/// Snapshots that miss the marker are retried briefly before failing. With the
+/// DMABUF renderer WebKit returns the last composited frame, which can predate
+/// the frame that added the marker the page just announced.
+const SNAPSHOT_MARKER_RETRIES: u32 = 8;
+const SNAPSHOT_MARKER_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(16);
+const MARKER_NOT_PAINTED: &str = "snapshot marker not painted";
+
+fn capture_snapshot(
+    web: webkit2gtk::WebView,
+    cancellation: gio::Cancellable,
+    (logical_width, logical_height): (u32, u32),
+    bounds: [u32; 4],
+    reply: SyncSender<Result<Snapshot, String>>,
+    attempt: u32,
+) {
+    let [left, top, right, bottom] = bounds;
+    let final_attempt = attempt >= SNAPSHOT_MARKER_RETRIES;
+    let retry_web = web.clone();
+    let retry_cancellation = cancellation.clone();
+    web.snapshot(
+        webkit2gtk::SnapshotRegion::Visible,
+        webkit2gtk::SnapshotOptions::TRANSPARENT_BACKGROUND,
+        Some(&cancellation),
+        move |result| {
+            let snapshot = (|| {
+                let surface = result.map_err(|error| error.to_string())?;
+                let image = cairo::ImageSurface::try_from(surface)
+                    .map_err(|_| "snapshot is not a Cairo image surface".to_string())?;
+                let scale = image.width() as f32 / logical_width as f32;
+                let expected_height = (logical_height + MARKER_HEIGHT) as f32 * scale;
+                if scale < 1.0 || (image.height() as f32 - expected_height).abs() > 2.0 {
+                    return Err(format!(
+                        "unexpected snapshot dimensions {}x{}",
+                        image.width(),
+                        image.height()
+                    ));
+                }
+                let width = image.width() as usize;
+                let (generation, revision, paint) = marker(&image, logical_height as usize, scale)?
+                    .ok_or_else(|| MARKER_NOT_PAINTED.to_string())?;
+                let px = |value: usize| ((value as f32) * scale).round() as usize;
+                let (xs, ys) = (px(left as usize), px(top as usize));
+                let (xe, ye) = (px(right as usize), px(bottom as usize));
+                if xe <= xs || ye <= ys || xe > width || ye > image.height() as usize {
+                    return Err("snapshot crop is outside the surface".into());
+                }
+                let crop_w = right - left;
+                let crop_h = bottom - top;
+                let (pixels, out_width, out_height) = if scale > 1.01 {
+                    let scaled = cairo::ImageSurface::create(
+                        cairo::Format::ARgb32,
+                        crop_w as i32,
+                        crop_h as i32,
+                    )
+                    .map_err(|error| error.to_string())?;
+                    let ctx = cairo::Context::new(&scaled).map_err(|error| error.to_string())?;
+                    ctx.scale(1.0 / f64::from(scale), 1.0 / f64::from(scale));
+                    ctx.set_source_surface(&image, -(xs as f64), -(ys as f64))
+                        .map_err(|error| error.to_string())?;
+                    ctx.paint().map_err(|error| error.to_string())?;
+                    drop(ctx);
+                    scaled.flush();
+                    (
+                        rgba_crop(&scaled, 0, 0, crop_w as usize, crop_h as usize)?,
+                        crop_w,
+                        crop_h,
+                    )
+                } else {
+                    (
+                        rgba_crop(&image, xs, ys, xe - xs, ye - ys)?,
+                        (xe - xs) as u32,
+                        (ye - ys) as u32,
+                    )
+                };
+                Ok(Snapshot {
+                    pixels,
+                    width: out_width,
+                    height: out_height,
+                    generation,
+                    revision,
+                    paint,
+                })
+            })();
+            if !final_attempt
+                && !retry_cancellation.is_cancelled()
+                && matches!(&snapshot, Err(error) if error == MARKER_NOT_PAINTED)
+            {
+                glib::timeout_add_local_once(SNAPSHOT_MARKER_RETRY_DELAY, move || {
+                    if retry_cancellation.is_cancelled() {
+                        let _ = reply.send(Err("snapshot cancelled".into()));
+                        return;
+                    }
+                    capture_snapshot(
+                        retry_web,
+                        retry_cancellation,
+                        (logical_width, logical_height),
+                        bounds,
+                        reply,
+                        attempt + 1,
+                    );
+                });
+                return;
+            }
+            let _ = reply.send(snapshot);
+        },
+    );
 }
 
 fn post(web: &webkit2gtk::WebView, message: serde_json::Value) {
