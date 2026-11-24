@@ -25,6 +25,7 @@ export { TopStatus } from "./TopStatus";
 
 export const LiveView = memo(function LiveView({
   subtitles,
+  playerName,
   hiddenTracks = [],
   hiddenSourceLanguages,
   scrollContainerRef,
@@ -50,6 +51,7 @@ export const LiveView = memo(function LiveView({
   focusedSubtitleId = null,
 }: {
   subtitles: Subtitle[];
+  playerName?: string;
   hiddenTracks?: readonly string[];
   hiddenSourceLanguages?: readonly string[];
   scrollContainerRef: RefObject<HTMLDivElement | null>;
@@ -201,6 +203,7 @@ export const LiveView = memo(function LiveView({
               <SubtitleBubble
                 key={subtitle.id ?? `${subtitle.created_at}-${index}`}
                 subtitle={subtitle}
+                playerName={playerName}
                 focused={subtitle.id === focusedSubtitleId}
                 selected={selected}
                 selection={selected && selectedSubtitles.length > 1 ? selectedSubtitles : null}
@@ -237,7 +240,7 @@ export const LiveView = memo(function LiveView({
       ) : (
         <EmptyLiveView running={running} />
       )}
-      {running && <LivePartials subtitles={subtitles} hiddenTracks={hiddenTracks} hiddenSourceLanguages={hiddenSourceLanguages} />}
+      {running && <LivePartials subtitles={subtitles} playerName={playerName} hiddenTracks={hiddenTracks} hiddenSourceLanguages={hiddenSourceLanguages} />}
     </section>
   );
 });

@@ -36,6 +36,7 @@
 .settings-toggle-list { display: grid; gap: 0; }
 .settings-feature-toggle { margin: 0 0 14px; }
 .system-select-setting,
+.system-text-setting,
 .system-scale-setting,
 .system-theme-setting,
 .system-onboarding-setting {
@@ -47,11 +48,27 @@
   padding: 5px 4px;
 }
 .system-select-setting > div:first-child,
+.system-text-setting > div:first-child,
 .system-scale-setting > div:first-child,
 .system-theme-setting > div:first-child { display: grid; gap: 4px; }
 .system-select-setting strong,
+.system-text-setting strong,
 .system-scale-setting strong,
 .system-theme-setting strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
+.system-text-setting input {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--settings-control-height);
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--control-shadow);
+  font-size: var(--settings-text-label);
+  transition: border-color 140ms ease-out, box-shadow 140ms ease-out;
+}
+.system-text-setting input:focus { outline: none; border-color: var(--primary); box-shadow: var(--control-focus-shadow); }
 
 .system-select-setting .field { min-width: 0; }
 .theme-toggle-group {

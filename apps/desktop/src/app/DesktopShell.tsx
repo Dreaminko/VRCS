@@ -281,6 +281,7 @@ export function DesktopShell({
                   )}
                 <LiveView
                   subtitles={conversations.selectedSubtitles}
+                  playerName={settings.value?.vrchat_player_id?.trim() || undefined}
                   hiddenTracks={playerDisplay.hiddenTracks}
                   hiddenSourceLanguages={playerDisplay.hiddenSourceLanguages}
                   scrollContainerRef={liveScroll.liveScrollRef}

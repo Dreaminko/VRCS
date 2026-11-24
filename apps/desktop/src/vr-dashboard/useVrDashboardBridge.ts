@@ -192,7 +192,7 @@ export function useVrDashboardBridge(
       max_visible_players: settings.audio.output.mode === "vrchat_players" ? settings.audio.output.player_audio?.max_visible_players ?? 4 : null,
       caption_notice: captionNoticeRef.current,
       labels: {
-        captions: { me: t("live.microphoneMe"), other: t("live.speakerOther") },
+        captions: { me: settings.vrchat_player_id?.trim() || t("live.microphoneMe"), other: t("live.speakerOther") },
         ocr_progress: i18n.t("settings.vrOcr.progress", { returnObjects: true }) as Record<string, string>,
         wrist_reader: {
           ...i18n.t("settings.vrOcr.states", { returnObjects: true }) as Record<string, string>,

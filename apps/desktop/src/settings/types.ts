@@ -18,6 +18,7 @@ export interface Settings {
   learning_ai: LearningAiSettings;
   vrchat_chatbox: VrchatChatboxConfig;
   vrchat_context: VrchatContextConfig;
+  vrchat_player_id?: string;
   conversation_titles: ConversationTitleSettings;
   features: FeatureSettings;
   server: {

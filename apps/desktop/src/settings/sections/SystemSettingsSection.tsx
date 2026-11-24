@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ChevronDown, ChevronUp, Settings2, SlidersHorizontal } from "lucide-react";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { DesktopPreferences } from "../../shell/desktop-preferences";
@@ -72,12 +72,25 @@ export function SystemSettingsSection({
   const { core, desktop } = usePlatformCapabilities();
   const reducedMotion = useSyncExternalStore(subscribeReducedMotionPreference, currentReducedMotionPreference);
   const [interfaceScaleText, setInterfaceScaleText] = useState(() => String(interfaceScale));
+  const [playerIdText, setPlayerIdText] = useState(() => draft.vrchat_player_id ?? "");
+  const playerIdInputId = useId();
   const [shortcutsBusy, setShortcutsBusy] = useState(false);
   const [shortcutResult, setShortcutResult] = useState<{ key: string; shortcuts?: string; error?: boolean } | null>(null);
 
   useEffect(() => {
     setInterfaceScaleText(String(interfaceScale));
   }, [interfaceScale]);
+  useEffect(() => {
+    setPlayerIdText(draft.vrchat_player_id ?? "");
+  }, [draft.vrchat_player_id]);
+
+  const commitPlayerId = () => {
+    const next = playerIdText.trim();
+    setPlayerIdText(next);
+    if (next !== (draft.vrchat_player_id ?? "")) {
+      applySettings((current) => ({ ...current, vrchat_player_id: next }));
+    }
+  };
 
   const commitInterfaceScale = () => {
     if (!interfaceScaleText.trim() || !Number.isFinite(Number(interfaceScaleText))) {
@@ -131,6 +144,28 @@ export function SystemSettingsSection({
             <div><Settings2 size={18} /><h3 id="system-general-title">{t("settings.system.general")}</h3></div>
           </div>
           {desktopMessage && <p className="settings-validation-error" role="alert">{desktopMessage}</p>}
+          <div className="system-text-setting">
+            <div>
+              <label htmlFor={playerIdInputId}>
+                <strong>{t("settings.system.vrchatPlayerId")}</strong>
+              </label>
+            </div>
+            <input
+              id={playerIdInputId}
+              type="text"
+              maxLength={128}
+              value={playerIdText}
+              placeholder={t("settings.system.vrchatPlayerIdPlaceholder")}
+              onChange={(event) => setPlayerIdText(event.target.value)}
+              onBlur={commitPlayerId}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                }
+              }}
+            />
+          </div>
           <div className="system-select-setting">
             <div>
               <strong>{t("settings.system.language")}</strong>

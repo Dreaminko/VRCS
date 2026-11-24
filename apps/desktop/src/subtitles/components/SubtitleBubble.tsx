@@ -27,6 +27,7 @@ type SubtitleSource = NonNullable<Subtitle["source"]>;
 
 export const SubtitleBubble = memo(function SubtitleBubble({
   subtitle,
+  playerName,
   focused,
   selected,
   selection,
@@ -48,6 +49,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
   selectionLearningCaptured = false,
 }: {
   subtitle: Subtitle;
+  playerName?: string;
   focused: boolean;
   selected: boolean;
   selectionActive?: boolean;
@@ -200,7 +202,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
       <div className="message-meta">
         {!mine && <MessageSourceIcon source={source} className="message-source-icon" chatboxLabel={t("chatbox.title")} />}
         {mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
-        <span className="speaker-name">{source === "vrchat_chatbox" ? speaker?.display_name || t("live.speakerNumber", { number: (speaker?.index ?? 0) + 1 }) : source === "chatbox" ? t("chatbox.title") : mine ? t("live.microphoneMe") : speaker?.display_name || t("live.speakerOther")}</span>
+        <span className="speaker-name">{source === "vrchat_chatbox" ? speaker?.display_name || t("live.speakerNumber", { number: (speaker?.index ?? 0) + 1 }) : source === "chatbox" ? playerName || t("chatbox.title") : mine ? playerName || t("live.microphoneMe") : speaker?.display_name || t("live.speakerOther")}</span>
         {source === "speaker" && speaker && !speaker.display_name && <span>{t(isAudioTrack(speaker) ? "live.trackNumber" : "live.speakerNumber", { number: speaker.index + 1 })}</span>}
         {!mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
         {source === "microphone" && <MessageSourceIcon source={source} className="message-source-icon" chatboxLabel={t("chatbox.title")} />}

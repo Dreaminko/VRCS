@@ -1,4 +1,5 @@
-import { AudioLines, Languages, ShieldCheck } from "lucide-react";
+import { useId } from "react";
+import { AudioLines, Languages, ShieldCheck, UserRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { UiLanguagePreference } from "../../app/ui-language";
@@ -13,6 +14,9 @@ export function WelcomeStep({
   languagePreference,
   busy,
   onUpdateLanguage,
+  playerId,
+  onChangePlayerId,
+  onCommitPlayerId,
   features,
   onUpdateFeatures,
   downloadSource,
@@ -21,12 +25,16 @@ export function WelcomeStep({
   languagePreference: UiLanguagePreference;
   busy: boolean;
   onUpdateLanguage: (preference: UiLanguagePreference) => void;
+  playerId?: string;
+  onChangePlayerId?: (value: string) => void;
+  onCommitPlayerId?: () => void;
   features?: FeatureSettings;
   onUpdateFeatures?: (update: (current: FeatureSettings) => FeatureSettings) => Promise<boolean>;
   downloadSource: ModelDownloadSource;
   onUpdateDownloadSource: (source: ModelDownloadSource) => void;
 }) {
   const { t } = useTranslation();
+  const playerIdInputId = useId();
 
   return (
     <div className="onboarding-welcome">
@@ -51,6 +59,33 @@ export function WelcomeStep({
         />
       </div>
       <ThemeSettings variant="onboarding" disabled={busy} />
+      {onChangePlayerId && (
+        <div className="onboarding-language-setting">
+          <div className="onboarding-language-copy">
+            <UserRound size={18} />
+            <span>
+              <label htmlFor={playerIdInputId}><strong>{t("settings.system.vrchatPlayerId")}</strong></label>
+              <small>{t("onboarding.welcome.playerIdDescription")}</small>
+            </span>
+          </div>
+          <input
+            id={playerIdInputId}
+            type="text"
+            maxLength={128}
+            value={playerId ?? ""}
+            placeholder={t("settings.system.vrchatPlayerIdPlaceholder")}
+            disabled={busy}
+            onChange={(event) => onChangePlayerId(event.target.value)}
+            onBlur={() => onCommitPlayerId?.()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                event.currentTarget.blur();
+              }
+            }}
+          />
+        </div>
+      )}
       <DownloadSourceSettings
         source={downloadSource}
         disabled={busy}

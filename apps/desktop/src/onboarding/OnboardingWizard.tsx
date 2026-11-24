@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AudioLines,
@@ -74,7 +74,15 @@ export function OnboardingWizard({
   const [languagePreference, setLanguagePreference] = useState<UiLanguagePreference>(
     currentUiLanguagePreference,
   );
+  const [playerId, setPlayerId] = useState(() => settings.vrchat_player_id ?? "");
+  const playerIdRef = useRef(playerId);
+  playerIdRef.current = playerId;
+  const playerIdSaveRef = useRef<{ value: string; promise: Promise<boolean> } | null>(null);
   const progressPendingRef = useRef(false);
+
+  useEffect(() => {
+    setPlayerId(settings.vrchat_player_id ?? "");
+  }, [settings.vrchat_player_id]);
 
   const showError = (reason: unknown, fallbackKey = "errors.operation") => {
     setMessageTone("error");
@@ -186,6 +194,42 @@ export function OnboardingWizard({
     }
   };
 
+  const commitPlayerId = async (): Promise<boolean> => {
+    const next = playerIdRef.current.trim();
+    setPlayerId(next);
+    if (playerIdSaveRef.current?.value === next) {
+      return playerIdSaveRef.current.promise;
+    }
+    if (next === (settings.vrchat_player_id ?? "")) {
+      return true;
+    }
+    clearMessage();
+    let promise!: Promise<boolean>;
+    promise = (async () => {
+      try {
+        await (onUpdateSettings
+          ? onUpdateSettings((current) => ({ ...current, vrchat_player_id: next }))
+          : onSave({ ...settings, vrchat_player_id: next }));
+        return true;
+      } catch (reason) {
+        showError(reason, "errors.settings.apply");
+        return false;
+      } finally {
+        if (playerIdSaveRef.current?.promise === promise) {
+          playerIdSaveRef.current = null;
+        }
+      }
+    })();
+    playerIdSaveRef.current = { value: next, promise };
+    return promise;
+  };
+
+  const finishWelcome = async () => {
+    if (await commitPlayerId()) {
+      await goToStep(1);
+    }
+  };
+
   const leaveWizard = async () => {
     setBusy(true);
     setMessage("");
@@ -264,6 +308,9 @@ export function OnboardingWizard({
                 languagePreference={languagePreference}
                 busy={operationBusy}
                 onUpdateLanguage={(preference) => void updateLanguage(preference)}
+                playerId={playerId}
+                onChangePlayerId={setPlayerId}
+                onCommitPlayerId={() => void commitPlayerId()}
                 features={pendingFeatures ?? settings.features}
                 onUpdateFeatures={updateFeatures}
                 downloadSource={settings.storage.model_download_source}
@@ -355,7 +402,7 @@ export function OnboardingWizard({
             </div>
             <div>
               {step < STEP_COUNT - 1 ? (
-                <button className="primary-button" type="button" disabled={!canContinue} onClick={() => step === 1 ? void recognition.finishRecognition() : void goToStep(step + 1)}>{t("onboarding.next")}<ChevronRight size={16} /></button>
+                <button className="primary-button" type="button" disabled={!canContinue} onClick={() => step === 0 ? void finishWelcome() : step === 1 ? void recognition.finishRecognition() : void goToStep(step + 1)}>{t("onboarding.next")}<ChevronRight size={16} /></button>
               ) : (
                 <button className="primary-button" type="button" disabled={operationBusy || !audio.ready} onClick={() => void leaveWizard()}>{t("onboarding.complete.finish")}<ChevronRight size={16} /></button>
               )}

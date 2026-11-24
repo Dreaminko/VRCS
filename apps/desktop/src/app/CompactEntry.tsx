@@ -84,6 +84,7 @@ export function CompactEntry({
         onCaptionHeight={compact.ensureCaptionHeight}
         subtitles={compact.subtitles}
         subtitleHistory={compact.subtitleHistory}
+        playerName={settings.value?.vrchat_player_id?.trim() || undefined}
         selectionTarget={selection.target}
         running={runtime.health?.capture_requested ?? false}
         vrchatMuted={runtime.vrchatMuteStatus?.muted === true}

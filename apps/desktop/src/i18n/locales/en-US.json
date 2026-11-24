@@ -1137,6 +1137,8 @@
         },
         "title": "System",
         "general": "General settings",
+        "vrchatPlayerId": "Player ID",
+        "vrchatPlayerIdPlaceholder": "VRChat ID",
         "language": "Interface language",
         "languageDescription": "Use the system language or choose one for VRCS.",
         "followSystem": "Follow system",
@@ -1971,6 +1973,7 @@
       "welcome": {
         "title": "Welcome to VRCS",
         "description": "Take a few minutes to configure recognition and audio. You can then get live subtitles from VRChat or system audio.",
+        "playerIdDescription": "Optional. Used by VRCS for player ID-related features.",
         "privacyTitle": "Local first",
         "privacyDescription": "VRCS does not save raw audio. Cloud recognition sends only detected speech segments.",
         "realtimeTitle": "Live subtitles",

@@ -1137,6 +1137,8 @@
         },
         "title": "システム",
         "general": "一般設定",
+        "vrchatPlayerId": "プレイヤーID",
+        "vrchatPlayerIdPlaceholder": "VRChat ID",
         "language": "表示言語",
         "languageDescription": "システム言語に従うか、VRCS 用の言語を選びます。",
         "followSystem": "システム設定に従う",
@@ -1971,6 +1973,7 @@
       "welcome": {
         "title": "VRCS へようこそ",
         "description": "数分で音声認識と音声入力を設定すると、VRChat やシステム音声のリアルタイム字幕を利用できます。",
+        "playerIdDescription": "任意。VRCSでプレイヤーIDに関連する一部機能に使用します。",
         "privacyTitle": "ローカル優先",
         "privacyDescription": "VRCS は生の音声を保存しません。クラウド認識では、検出された発話区間だけを送信します。",
         "realtimeTitle": "リアルタイム字幕",

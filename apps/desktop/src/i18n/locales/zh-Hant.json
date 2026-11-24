@@ -1137,6 +1137,8 @@
         },
         "title": "系統",
         "general": "一般設定",
+        "vrchatPlayerId": "玩家ID",
+        "vrchatPlayerIdPlaceholder": "VRChat ID",
         "language": "介面語言",
         "languageDescription": "跟隨系統語言，或單獨指定 VRCS 使用的語言。",
         "followSystem": "跟隨系統",
@@ -1971,6 +1973,7 @@
       "welcome": {
         "title": "歡迎使用 VRCS",
         "description": "花幾分鐘設定辨識與音訊，之後即可從 VRChat 或系統音訊取得即時字幕。",
+        "playerIdDescription": "選填，用於VRCS實現有關玩家ID的部分功能。",
         "privacyTitle": "本機優先",
         "privacyDescription": "VRCS 不儲存原始音訊；使用雲端辨識時，只傳送偵測到的語音片段。",
         "realtimeTitle": "即時字幕",

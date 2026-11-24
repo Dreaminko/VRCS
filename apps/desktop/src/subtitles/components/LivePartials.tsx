@@ -9,18 +9,18 @@ import { isAudioTrack, livePartialVisible } from "../player-history";
 import { useLanguageDetectorReady } from "../usePlayerHistoryPreferences";
 import { MessageSourceIcon } from "./MessageSourceIcon";
 
-function PartialMeta({ identity, source }: { identity?: SpeakerIdentity | null; source: Subtitle["source"] }) {
+function PartialMeta({ identity, source, playerName }: { identity?: SpeakerIdentity | null; source: Subtitle["source"]; playerName?: string }) {
   const { t } = useTranslation();
   const speaker = useSpeakerIdentity(identity);
   const mine = source === "microphone" || source === "chatbox";
   return <div className="message-meta">
     {!mine && <MessageSourceIcon source={source} className="message-source-icon" chatboxLabel={t("chatbox.title")} />}
-    {speaker && <span className="speaker-name">{speaker.display_name || t(isAudioTrack(speaker) ? "live.trackNumber" : "live.speakerNumber", { number: speaker.index + 1 })}</span>}
+    {mine && playerName ? <span className="speaker-name">{playerName}</span> : speaker && <span className="speaker-name">{speaker.display_name || t(isAudioTrack(speaker) ? "live.trackNumber" : "live.speakerNumber", { number: speaker.index + 1 })}</span>}
     {mine && <MessageSourceIcon source={source} className="message-source-icon" chatboxLabel={t("chatbox.title")} />}
   </div>;
 }
 
-export function LivePartials({ subtitles, hiddenTracks = [], hiddenSourceLanguages }: { subtitles: Subtitle[]; hiddenTracks?: readonly string[]; hiddenSourceLanguages?: readonly string[] }) {
+export function LivePartials({ subtitles, playerName, hiddenTracks = [], hiddenSourceLanguages }: { subtitles: Subtitle[]; playerName?: string; hiddenTracks?: readonly string[]; hiddenSourceLanguages?: readonly string[] }) {
   const { t } = useTranslation();
   useLanguageDetectorReady();
   const speaker = useLivePartials("speaker");
@@ -41,7 +41,7 @@ export function LivePartials({ subtitles, hiddenTracks = [], hiddenSourceLanguag
     if (!preview.text && !translation) return null;
     return (
       <div className={`message-group source-${partial.source} streaming-message`} key={`${partial.source}-${partial.utterance_id}`}>
-        <PartialMeta identity={partial.speaker} source={partial.source} />
+        <PartialMeta identity={partial.speaker} source={partial.source} playerName={playerName} />
         <div className="bubble">
           {preview.text && <p className="bubble-original" lang={contentLanguageTag(partial.language)}>{preview.text}<span className="streaming-ellipsis" aria-hidden="true">…</span></p>}
           {preview.text && translation && <div className="bubble-translation-divider" aria-hidden="true" />}

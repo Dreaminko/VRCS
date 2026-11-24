@@ -221,6 +221,22 @@
 .onboarding-language-copy > svg { flex: none; color: var(--primary-ink); }
 .onboarding-language-copy > span { display: grid; gap: 3px; }
 .onboarding-language-setting > .field { width: min(190px, 100%); justify-self: end; }
+.onboarding-language-setting > input {
+  width: min(190px, 100%);
+  min-width: 0;
+  min-height: var(--settings-control-height);
+  justify-self: end;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--control-shadow);
+  font-size: var(--settings-text-label);
+  transition: border-color 140ms ease-out, box-shadow 140ms ease-out;
+}
+.onboarding-language-setting > input:focus { outline: none; border-color: var(--primary); box-shadow: var(--control-focus-shadow); }
+.onboarding-language-setting > input:disabled { opacity: 0.48; cursor: not-allowed; }
 .onboarding-language-setting strong { font-size: 12px; }
 .onboarding-language-setting small { color: var(--text-quiet); font-size: 10px; line-height: 1.5; }
 .onboarding-theme-setting { grid-template-columns: minmax(0, 1fr) auto; }
@@ -447,6 +463,7 @@
   .onboarding-language-setting,
   .onboarding-profile-select { grid-template-columns: 1fr; }
   .onboarding-language-setting { gap: 12px; }
+  .onboarding-language-setting > input { width: 100%; justify-self: stretch; }
   .onboarding-theme-setting { grid-template-columns: 1fr; }
   .onboarding-theme-setting .theme-toggle-group { max-width: 100%; justify-self: start; flex-wrap: wrap; }
   .onboarding-feature-section { padding: 13px; }

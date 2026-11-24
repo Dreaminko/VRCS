@@ -21,7 +21,7 @@ import { CompactBackgroundControls, CompactWindowIcon } from "./CompactBackgroun
 const EMPTY_PREVIEWS: LiveTranscription[] = [];
 const EMPTY_FILTER: readonly string[] = [];
 
-export function CompactView({ transparentBackground, onToggleBackground, backgroundOpacity, onBackgroundOpacityChange, fontSize, onFontSizeChange, subtitles, subtitleHistory, selectionTarget, playerLimit, hiddenTracks = EMPTY_FILTER, hiddenSourceLanguages = EMPTY_FILTER, onCaptionHeight, running, vrchatMuted, captureDisabled, captureReason, chatboxOpen, chatboxDisabled, chatboxButtonRef, onChatbox, onSelect, onCapture, onRestore, onClose, onResize }: {
+export function CompactView({ transparentBackground, onToggleBackground, backgroundOpacity, onBackgroundOpacityChange, fontSize, onFontSizeChange, subtitles, subtitleHistory, playerName, selectionTarget, playerLimit, hiddenTracks = EMPTY_FILTER, hiddenSourceLanguages = EMPTY_FILTER, onCaptionHeight, running, vrchatMuted, captureDisabled, captureReason, chatboxOpen, chatboxDisabled, chatboxButtonRef, onChatbox, onSelect, onCapture, onRestore, onClose, onResize }: {
   transparentBackground: boolean;
   onToggleBackground: () => void;
   backgroundOpacity: number;
@@ -30,6 +30,7 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
   onFontSizeChange: (size: CompactFontSize) => void;
   subtitles: Subtitle[];
   subtitleHistory: Subtitle[];
+  playerName?: string;
   selectionTarget: SelectionTarget | null;
   playerLimit?: number;
   hiddenTracks?: readonly string[];
@@ -118,7 +119,7 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
         <div ref={layout.contentRef} className="compact-content">
           <div ref={stackRef} className={`compact-subtitle-stack${layout.parallel ? " compact-parallel" : ""}${layout.scrollable ? " compact-scrollable" : ""}`}>
             {layout.visibleGroups.map((group, index) => (
-              <CompactSubtitleRow key={group.key} group={group} current={(Boolean(layout.parallel) && group.source !== "chatbox") || index === layout.visibleGroups.length - 1}
+              <CompactSubtitleRow key={group.key} group={group} playerName={playerName} current={(Boolean(layout.parallel) && group.source !== "chatbox") || index === layout.visibleGroups.length - 1}
                 budget={layout.parallel || index === layout.visibleGroups.length - 1 ? layout.latestBudget : undefined}
                 frozen={layout.frozen} onSelect={onSelect} />
             ))}
@@ -131,7 +132,7 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
           <div ref={layout.measureRef} className="compact-measurements" aria-hidden="true" inert>
             {layout.measurementGroups.map((group, index) => (
               <div key={group.key} className={`compact-subtitle-row ${index === layout.measurementGroups.length - 1 ? "compact-subtitle-current" : "compact-subtitle-history"}`}>
-                <CompactSpeaker speaker={group.speaker} source={group.source} />
+                <CompactSpeaker speaker={group.speaker} source={group.source} playerName={playerName} />
                 {group.text && <p className="compact-original" lang={contentLanguageTag(group.language)}>{group.text}</p>}
                 {group.translation && <p className="compact-translation" lang={contentLanguageTag(group.targetLanguage)}>{group.translation}{group.streaming && <span className="streaming-ellipsis">…</span>}</p>}
               </div>
@@ -230,16 +231,17 @@ function CompactFontMenu({ value, onChange }: { value: CompactFontSize; onChange
   );
 }
 
-function CompactSpeaker({ speaker: identity, source }: { speaker?: SpeakerIdentity | null; source?: string }) {
+function CompactSpeaker({ speaker: identity, source, playerName }: { speaker?: SpeakerIdentity | null; source?: string; playerName?: string }) {
   const { t } = useTranslation();
   const speaker = useSpeakerIdentity(identity);
-  const label = source === "vrchat_chatbox" ? speaker?.display_name || t("live.speakerNumber", { number: (speaker?.index ?? 0) + 1 }) : source === "chatbox" ? t("chatbox.title") : speaker?.display_name || (source === "microphone" ? t("live.microphoneMe")
+  const label = source === "vrchat_chatbox" ? speaker?.display_name || t("live.speakerNumber", { number: (speaker?.index ?? 0) + 1 }) : source === "chatbox" ? playerName || t("chatbox.title") : speaker?.display_name || (source === "microphone" ? playerName || t("live.microphoneMe")
     : speaker ? t("live.trackNumber", { number: speaker.index + 1 }) : t("live.speakerOther"));
   return <div className="compact-speaker">{source && <MessageSourceIcon source={source} size={12} chatboxLabel={t("chatbox.title")} className="compact-source-icon" />}{label}</div>;
 }
 
-function CompactSubtitleRow({ group, current, budget, frozen, onSelect }: {
+function CompactSubtitleRow({ group, playerName, current, budget, frozen, onSelect }: {
   group: CompactGroup;
+  playerName?: string;
   current: boolean;
   budget?: CompactTextBudget;
   frozen: boolean;
@@ -247,7 +249,7 @@ function CompactSubtitleRow({ group, current, budget, frozen, onSelect }: {
 }) {
   return (
     <div className={`compact-subtitle-row ${current ? "compact-subtitle-current" : "compact-subtitle-history"}`}>
-      <CompactSpeaker speaker={group.speaker} source={group.source} />
+      <CompactSpeaker speaker={group.speaker} source={group.source} playerName={playerName} />
       {group.text && <CompactText className="compact-original" lang={contentLanguageTag(group.language)} text={group.text}
         height={budget?.original} frozen={frozen} onMouseUp={() => void onSelect(group.context, group.origin)} />}
       {group.translation && <CompactText className="compact-translation" lang={contentLanguageTag(group.targetLanguage)}
