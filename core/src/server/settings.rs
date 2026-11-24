@@ -98,6 +98,7 @@ fn config_from_update(update: SettingsUpdate) -> AppConfig {
         audio: update.audio,
         vrchat_chatbox: update.vrchat_chatbox,
         vrchat_context: update.vrchat_context,
+        vrchat_player_id: update.vrchat_player_id,
         vad: update.vad,
         asr: update.asr,
         glossary: update.glossary,

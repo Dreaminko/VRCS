@@ -45,7 +45,10 @@ pub struct UniTextRuntimeStatus {
 }
 
 enum UniTextCommand {
-    Config(UniTextConfig),
+    Config {
+        config: UniTextConfig,
+        self_player_id: String,
+    },
     Muted(Option<bool>),
     Test,
     Clear,
@@ -77,6 +80,7 @@ pub struct UniTextDispatcher {
 impl UniTextDispatcher {
     pub fn new(
         config: UniTextConfig,
+        self_player_id: String,
         presentation_rx: broadcast::Receiver<PresentationEvent>,
         shutdown: watch::Receiver<bool>,
     ) -> Self {
@@ -101,6 +105,7 @@ impl UniTextDispatcher {
         ));
         tokio::spawn(run_worker(
             config,
+            self_player_id,
             cmd_rx,
             presentation_rx,
             live_osc_rx,
@@ -113,8 +118,11 @@ impl UniTextDispatcher {
         Self { sender, status }
     }
 
-    pub fn update_config(&self, config: UniTextConfig) {
-        let _ = self.sender.try_send(UniTextCommand::Config(config));
+    pub fn update_config(&self, config: UniTextConfig, self_player_id: String) {
+        let _ = self.sender.try_send(UniTextCommand::Config {
+            config,
+            self_player_id,
+        });
     }
 
     pub fn update_mute_status(&self, muted: Option<bool>) {
@@ -532,6 +540,7 @@ async fn wait_resize_debounce(pending: Option<(ViewportConfig, Instant)>) {
 #[allow(clippy::too_many_arguments)]
 async fn run_worker(
     config: UniTextConfig,
+    self_player_id: String,
     mut cmd_rx: mpsc::Receiver<UniTextCommand>,
     mut presentation_rx: broadcast::Receiver<PresentationEvent>,
     mut live_osc_rx: mpsc::Receiver<LiveOscParamEvent>,
@@ -549,6 +558,7 @@ async fn run_worker(
     };
 
     let mut session = WorkerSession::new(config, &probe_rx.borrow());
+    session.layout.set_self_player_name(&self_player_id);
 
     let mut ticker = tokio::time::interval(Duration::from_millis(
         session.config.interval_ms.max(80) as u64,
@@ -570,10 +580,16 @@ async fn run_worker(
             _ = shutdown.changed() => break,
             cmd = cmd_rx.recv() => match cmd {
                 None => break,
-                Some(UniTextCommand::Config(next)) => {
+                Some(UniTextCommand::Config {
+                    config: next,
+                    self_player_id,
+                }) => {
                     let interval_changed = next.interval_ms != session.config.interval_ms;
                     let became_enabled = !session.config.enabled && next.enabled;
-                    let preserve_changed = session.config.preserve_original_text != next.preserve_original_text;
+                    let preserve_changed =
+                        session.config.preserve_original_text != next.preserve_original_text;
+                    let player_name_changed =
+                        session.layout.set_self_player_name(&self_player_id);
                     session.config = next;
                     let _ = probe_enable_tx.send(session.config.enabled);
                     if interval_changed {
@@ -606,7 +622,9 @@ async fn run_worker(
                                 session.shadow.invalidate_all();
                             }
                         }
-                    } else if preserve_changed && !session.showing_test_screen {
+                    } else if (preserve_changed || player_name_changed)
+                        && !session.showing_test_screen
+                    {
                         session.overflow_ready_since = None;
                         session.layout.sync_to_screen(
                             &mut session.target,

@@ -141,6 +141,7 @@ impl RuntimeAssembly {
         );
         let unitext = unitext::UniTextDispatcher::new(
             effective.unitext.clone(),
+            effective.vrchat_player_id.clone(),
             subtitle_output.subscribe_presentation_events(),
             shutdown_rx.clone(),
         );

@@ -32,6 +32,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub vrchat_context: VrchatContextConfig,
     #[serde(default)]
+    pub vrchat_player_id: String,
+    #[serde(default)]
     pub vad: VadConfig,
     #[serde(default)]
     pub asr: AsrConfig,
@@ -80,6 +82,7 @@ impl Default for AppConfig {
             audio: AudioConfig::default(),
             vrchat_chatbox: VrchatChatboxConfig::default(),
             vrchat_context: VrchatContextConfig::default(),
+            vrchat_player_id: String::new(),
             vad: VadConfig::default(),
             asr: AsrConfig::default(),
             dictionary: DictionaryConfig::default(),
@@ -167,6 +170,7 @@ mod tests {
                 "vr_overlay",
                 "vrchat_chatbox",
                 "vrchat_context",
+                "vrchat_player_id",
                 "vrcx",
             ],
         );

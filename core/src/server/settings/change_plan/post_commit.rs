@@ -81,10 +81,10 @@ impl PostCommitUpdates {
                 crate::config::apply_feature_gates(candidate).osc
             },
         );
-        state
-            .integrations
-            .unitext
-            .update_config(effective_candidate.unitext.clone());
+        state.integrations.unitext.update_config(
+            effective_candidate.unitext.clone(),
+            effective_candidate.vrchat_player_id.clone(),
+        );
         state.integrations.vrchat_mute_sync.update_enabled(
             effective_candidate.osc.mute_sync_enabled
                 || effective_candidate.unitext.mute_sync_enabled,

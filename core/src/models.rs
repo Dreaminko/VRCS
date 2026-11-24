@@ -109,6 +109,8 @@ pub struct SettingsUpdate {
     #[serde(default)]
     pub vrchat_context: crate::config::VrchatContextConfig,
     #[serde(default)]
+    pub vrchat_player_id: String,
+    #[serde(default)]
     pub vad: VadConfig,
     pub asr: AsrConfig,
     #[serde(default)]

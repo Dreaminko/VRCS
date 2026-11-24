@@ -43,6 +43,7 @@ pub(crate) struct UniTextLayout {
     next_seq: u64,
     overflow: Option<OverflowState>,
     pending_overflow_lines: usize,
+    self_player_name: Option<String>,
 }
 
 impl UniTextLayout {
@@ -70,6 +71,22 @@ impl UniTextLayout {
         screen.set_status(status);
     }
 
+    pub(crate) fn set_self_player_name(&mut self, name: &str) -> bool {
+        let next = Some(name.trim())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        if self.self_player_name == next {
+            return false;
+        }
+        self.self_player_name = next.clone();
+        for entry in &mut self.entries {
+            if entry.source == "microphone" {
+                entry.speaker_name = next.clone();
+            }
+        }
+        true
+    }
+
     pub(crate) fn upsert_final(
         &mut self,
         utterance_id: Option<&str>,
@@ -78,7 +95,7 @@ impl UniTextLayout {
         speaker: Option<&SpeakerIdentity>,
         text: String,
     ) {
-        let speaker_name = speaker_label(source, speaker);
+        let speaker_name = speaker_label(source, speaker, self.self_player_name.as_deref());
         let speaker_color = speaker_palette_color(source, speaker);
         let key = subtitle_id
             .map(|id| format!("sub:{id}"))
@@ -154,7 +171,7 @@ impl UniTextLayout {
         translation: String,
     ) {
         let match_id = source_utterance_id.unwrap_or(utterance_id);
-        let speaker_name = speaker_label(source, speaker);
+        let speaker_name = speaker_label(source, speaker, self.self_player_name.as_deref());
         let speaker_color = speaker_palette_color(source, speaker);
         let translated = (!translation.trim().is_empty()).then_some(translation);
 
@@ -429,9 +446,13 @@ fn trimmed_display_name(speaker: &SpeakerIdentity) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn speaker_label(source: &str, speaker: Option<&SpeakerIdentity>) -> Option<String> {
+fn speaker_label(
+    source: &str,
+    speaker: Option<&SpeakerIdentity>,
+    self_player_name: Option<&str>,
+) -> Option<String> {
     if source == "microphone" {
-        return None;
+        return self_player_name.map(str::to_owned);
     }
     let speaker = speaker?;
     Some(
@@ -913,5 +934,26 @@ mod tests {
         assert!(advance::text_advance(&header) <= viewport.row_px);
         assert!(header.chars().count() <= viewport.cols);
         assert_eq!(screen_row_string(&screen, 1), "Test");
+    }
+
+    #[test]
+    fn microphone_displays_self_player_name_header_when_configured() {
+        let config = UniTextConfig::default();
+        let viewport = ViewportConfig::default();
+        let mut layout = UniTextLayout::default();
+        let mut screen = VirtualScreen::new(viewport.cols, viewport.rows);
+
+        assert!(layout.set_self_player_name(" Dreaminko "));
+        layout.upsert_final(Some("m1"), Some(1), "microphone", None, "My line".into());
+        layout.sync_to_screen(&mut screen, &config, viewport);
+
+        assert_eq!(screen_row_string(&screen, 0), "Dreaminko：");
+        assert_eq!(screen_row_string(&screen, 1), "My line");
+
+        assert!(layout.set_self_player_name(""));
+        layout.sync_to_screen(&mut screen, &config, viewport);
+
+        assert_eq!(screen_row_string(&screen, 0), "My line");
+        assert_eq!(screen_row_string(&screen, 1), "");
     }
 }

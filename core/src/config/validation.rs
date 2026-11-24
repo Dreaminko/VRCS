@@ -125,6 +125,12 @@ impl AppConfig {
         validate_vr_overlay(&self.vr_overlay)?;
         validate_vision(self)?;
         validate_conversation_titles(self)?;
+        if self.vrchat_player_id.chars().count() > 128 || contains_control(&self.vrchat_player_id) {
+            return Err(
+                "vrchat_player_id must not exceed 128 characters or contain control characters"
+                    .into(),
+            );
+        }
         let ocr = &self.ocr;
         if !(5..=120).contains(&ocr.timeout_seconds)
             || !ocr.minimum_confidence.is_finite()
