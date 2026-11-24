@@ -27,11 +27,10 @@ fn configure_openvr_env() {
     if std::env::var_os("VR_CONFIG_PATH")
         .filter(|value| !value.is_empty())
         .is_none()
+        && let Some(config_dir) = config_root.as_ref().map(|root| root.join("openvr"))
     {
-        if let Some(config_dir) = config_root.as_ref().map(|root| root.join("openvr")) {
-            // SAFETY: Called once at the start of `main` before spawning background threads.
-            unsafe { std::env::set_var("VR_CONFIG_PATH", config_dir) };
-        }
+        // SAFETY: Called once at the start of `main` before spawning background threads.
+        unsafe { std::env::set_var("VR_CONFIG_PATH", config_dir) };
     }
     if std::env::var_os("VR_LOG_PATH")
         .filter(|value| !value.is_empty())
