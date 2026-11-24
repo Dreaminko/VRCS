@@ -1412,7 +1412,10 @@ async fn chatbox_send_is_stored_and_broadcast_as_conversation_message() {
         panic!("expected a chatbox OSC message");
     };
     assert_eq!(message.addr, "/chatbox/input");
-    assert_eq!(message.args[0], rosc::OscType::String("hello\nŽivjo".into()));
+    assert_eq!(
+        message.args[0],
+        rosc::OscType::String("hello\nŽivjo".into())
+    );
 
     let streamed = tokio::time::timeout(std::time::Duration::from_secs(1), subtitles.recv())
         .await
@@ -1433,7 +1436,10 @@ async fn chatbox_send_is_stored_and_broadcast_as_conversation_message() {
         .unwrap();
     assert_eq!(history[0]["source"], "chatbox");
     assert_eq!(history[0]["translations"][0]["text"], "Živjo");
-    assert_eq!(history[0]["translations"][0]["target_language"], target_language);
+    assert_eq!(
+        history[0]["translations"][0]["target_language"],
+        target_language
+    );
     handle.shutdown().await.unwrap();
 }
 
