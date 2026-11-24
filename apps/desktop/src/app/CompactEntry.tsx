@@ -113,6 +113,7 @@ export function CompactEntry({
           onExpandedChange={setExpanded}
           onClose={closeChatbox}
           draft={chatbox.draft}
+          preferredTarget={chatbox.preferredTarget}
           preview={chatbox.preview}
           busy={chatbox.busy}
           feedback={chatbox.feedback}

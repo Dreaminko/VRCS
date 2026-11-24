@@ -17,6 +17,7 @@ const MESSAGE_FORMATS = new Set<ChatboxMessageFormat>([
 const OVERFLOW_POLICIES = new Set<ChatboxOverflowPolicy>(["block", "smart_truncate"]);
 
 export interface ChatboxPreferences {
+  follow_translation_settings: boolean;
   target_language: string;
   send_mode: ChatboxSendMode;
   message_format: ChatboxMessageFormat;
@@ -24,12 +25,18 @@ export interface ChatboxPreferences {
   overflow_policy: ChatboxOverflowPolicy;
 }
 
-export function createChatboxDraft(targetLanguage = "ja"): ChatboxComposeInput {
+export interface ChatboxDraft extends ChatboxComposeInput {
+  follow_translation_settings: boolean;
+  target_language: string;
+}
+
+export function createChatboxDraft(targetLanguage = "ja"): ChatboxDraft {
   return {
     original: "",
     translation: null,
     translation_origin: null,
     source_language: null,
+    follow_translation_settings: true,
     target_language: targetLanguage,
     send_mode: "bilingual",
     message_format: "original_newline_translation",
@@ -61,14 +68,14 @@ export function previewChatboxLocally(input: ChatboxComposeInput): ChatboxPrevie
   };
 }
 
-export function clearSentDraft(input: ChatboxComposeInput): ChatboxComposeInput {
+export function clearSentDraft(input: ChatboxDraft): ChatboxDraft {
   return { ...input, original: "", translation: null, translation_origin: null };
 }
 
 export function updateChatboxTranslation(
-  input: ChatboxComposeInput,
+  input: ChatboxDraft,
   translation: string,
-): ChatboxComposeInput {
+): ChatboxDraft {
   return {
     ...input,
     translation: translation || null,
@@ -76,8 +83,9 @@ export function updateChatboxTranslation(
   };
 }
 
-export function chatboxPreferencesFromDraft(draft: ChatboxComposeInput): ChatboxPreferences {
+export function chatboxPreferencesFromDraft(draft: ChatboxDraft): ChatboxPreferences {
   return {
+    follow_translation_settings: draft.follow_translation_settings,
     target_language: normalizeTargetLanguage(draft.target_language, "ja"),
     send_mode: draft.send_mode,
     message_format: draft.message_format,
@@ -89,7 +97,7 @@ export function chatboxPreferencesFromDraft(draft: ChatboxComposeInput): Chatbox
 export function applyChatboxPreferences(
   draft: ChatboxComposeInput,
   preferences: ChatboxPreferences,
-): ChatboxComposeInput {
+): ChatboxDraft {
   return { ...draft, ...preferences };
 }
 
@@ -103,8 +111,13 @@ export function normalizeChatboxPreferences(
     return chatboxPreferencesFromDraft(defaults);
   }
   const stored = candidate as Record<string, unknown>;
+  const manualTarget = normalizeTargetLanguage(stored.target_language, "");
   return {
-    target_language: normalizeTargetLanguage(stored.target_language, fallbackTarget),
+    // Older preferences stored a fixed language or null for follow mode.
+    follow_translation_settings: typeof stored.follow_translation_settings === "boolean"
+      ? stored.follow_translation_settings
+      : !manualTarget,
+    target_language: manualTarget || fallbackTarget,
     send_mode: isSetValue(stored.send_mode, SEND_MODES) ? stored.send_mode : defaults.send_mode,
     message_format: isSetValue(stored.message_format, MESSAGE_FORMATS)
       ? stored.message_format

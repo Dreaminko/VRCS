@@ -112,6 +112,7 @@
     "chatbox": {
       "title": "傳送至 Chatbox",
       "detailsTitle": "傳送設定",
+      "followTranslationSettings": "跟隨翻譯設定",
       "expandDetails": "展開傳送設定",
       "collapseDetails": "收起傳送設定",
       "translationPreviewPending": "譯文將在傳送時自動產生",
@@ -120,7 +121,8 @@
       "originalPlaceholder": "輸入要傳送到 VRChat 的訊息",
       "translation": "譯文",
       "translationPlaceholder": "翻譯後可在此處修改",
-      "translationStale": "原文已修改",
+      "translationStale": "譯文需更新",
+      "translationContextChanged": "翻譯期間目標語言或房間已切換，請重試。",
       "targetLanguage": "目標語言",
       "translate": "翻譯",
       "sendMode": "傳送內容",
