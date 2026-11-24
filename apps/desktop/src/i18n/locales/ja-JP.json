@@ -1831,7 +1831,7 @@
         }
       },
       "unitext": {
-        "title": "アバター共有プロップ（UniText）",
+        "title": "UniText",
         "enable": "UniText プロップ出力を有効にする",
         "tier": "パラメータティア",
         "tiers": {

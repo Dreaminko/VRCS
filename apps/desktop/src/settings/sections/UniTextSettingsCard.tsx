@@ -184,6 +184,12 @@ export function UniTextSettingsCard({
               onChange={(include_microphone) => onChange({ include_microphone })}
             />
             <PreferenceToggle
+              title={t("settings.unitext.muteSync")}
+              checked={config.mute_sync_enabled}
+              disabled={false}
+              onChange={(mute_sync_enabled) => onChange({ mute_sync_enabled })}
+            />
+            <PreferenceToggle
               title={t("settings.unitext.includeSpeaker")}
               description={t("settings.unitext.includeSpeakerDescription")}
               checked={config.include_speaker}
@@ -196,12 +202,6 @@ export function UniTextSettingsCard({
               checked={config.preserve_original_text}
               disabled={false}
               onChange={(preserve_original_text) => onChange({ preserve_original_text })}
-            />
-            <PreferenceToggle
-              title={t("settings.unitext.muteSync")}
-              checked={config.mute_sync_enabled}
-              disabled={false}
-              onChange={(mute_sync_enabled) => onChange({ mute_sync_enabled })}
             />
           </div>
 

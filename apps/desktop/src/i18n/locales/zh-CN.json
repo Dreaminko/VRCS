@@ -1831,7 +1831,7 @@
         }
       },
       "unitext": {
-        "title": "Avatar 共享道具（UniText）",
+        "title": "UniText",
         "enable": "启用 UniText 道具输出",
         "tier": "参数档位",
         "tiers": {

@@ -1831,7 +1831,7 @@
         }
       },
       "unitext": {
-        "title": "Avatar Prop (UniText)",
+        "title": "UniText",
         "enable": "Enable UniText prop output",
         "tier": "Parameter tier",
         "tiers": {
