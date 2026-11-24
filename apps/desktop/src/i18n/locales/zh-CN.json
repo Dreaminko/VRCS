@@ -1834,6 +1834,7 @@
       },
       "unitext": {
         "title": "UniText",
+        "openRepository": "打开 UniText 仓库",
         "enable": "启用 UniText 道具输出",
         "tier": "参数档位",
         "tiers": {

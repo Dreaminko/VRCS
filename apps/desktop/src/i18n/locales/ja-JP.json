@@ -1834,6 +1834,7 @@
       },
       "unitext": {
         "title": "UniText",
+        "openRepository": "UniText リポジトリを開く",
         "enable": "UniText プロップ出力を有効にする",
         "tier": "パラメータティア",
         "tiers": {

@@ -1834,6 +1834,7 @@
       },
       "unitext": {
         "title": "UniText",
+        "openRepository": "Open UniText repository",
         "enable": "Enable UniText prop output",
         "tier": "Parameter tier",
         "tiers": {

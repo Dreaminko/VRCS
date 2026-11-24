@@ -25,6 +25,33 @@
 .connections-settings-group > .connections-feature-heading > .connections-heading-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; }
 .connections-settings-group .connections-feature-heading .settings-toggle-row { display: flex; min-height: 0; flex: 0 0 auto; align-items: center; padding: 0; }
 .connections-settings-group .connections-feature-heading h3 { font-size: var(--settings-text-group-title); }
+.connections-heading-title { display: inline-flex; min-width: 0; align-items: center; gap: 4px; }
+.connections-title-link-button {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  margin-block: -3px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-quiet);
+  background: transparent;
+  text-decoration: none;
+  transition: color 140ms ease-out, background-color 140ms ease-out, border-color 140ms ease-out, transform 120ms ease-out;
+}
+.connections-title-link-button:hover {
+  border-color: var(--border);
+  color: var(--primary-ink);
+  background: var(--primary-softer);
+}
+.connections-title-link-button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.connections-title-link-button:active {
+  transform: scale(0.95);
+}
 .system-settings-group > .section-heading,
 .learning-settings-group > .section-heading { margin-bottom: 14px; }
 .system-features-group {

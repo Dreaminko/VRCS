@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { Monitor, Send, Trash2 } from "lucide-react";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { ExternalLink, Monitor, Send, Trash2 } from "lucide-react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { integrationsApi } from "../../integrations/api";
@@ -7,6 +8,8 @@ import type { UniTextRuntimeStatus, UniTextSettings, UniTextTier } from "../../i
 import type { SaveState } from "../settings-types";
 import { PreferenceToggle, Select } from "../SettingsControls";
 import { SettingsDisclosure } from "../components/SettingsDisclosure";
+
+const UNITEXT_REPOSITORY_URL = "https://github.com/Dreaminko/UniText";
 
 export function UniTextSettingsCard({
   config,
@@ -89,6 +92,14 @@ export function UniTextSettingsCard({
     }
   };
 
+  const openRepository = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!isTauri()) return;
+    event.preventDefault();
+    void invoke("open_project_link", { target: UNITEXT_REPOSITORY_URL }).catch((error) => {
+      console.error("Failed to open UniText repository", error);
+    });
+  };
+
   const statusKey = !config.enabled
     ? "disabled"
     : runtime?.status ?? "discovering";
@@ -110,7 +121,20 @@ export function UniTextSettingsCard({
       <div className="section-heading connections-feature-heading">
         <div>
           <Monitor size={18} />
-          <h3 id="connections-unitext-title">{t("settings.unitext.title")}</h3>
+          <div className="connections-heading-title">
+            <h3 id="connections-unitext-title">{t("settings.unitext.title")}</h3>
+            <a
+              className="connections-title-link-button"
+              href={UNITEXT_REPOSITORY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={t("settings.unitext.openRepository")}
+              data-tooltip={t("settings.unitext.openRepository")}
+              onClick={openRepository}
+            >
+              <ExternalLink size={14} aria-hidden="true" />
+            </a>
+          </div>
         </div>
         <div className="connections-heading-actions">
           {config.enabled && (

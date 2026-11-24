@@ -1834,6 +1834,7 @@
       },
       "unitext": {
         "title": "UniText",
+        "openRepository": "開啟 UniText 儲存庫",
         "enable": "啟用 UniText 道具輸出",
         "tier": "參數檔位",
         "tiers": {
