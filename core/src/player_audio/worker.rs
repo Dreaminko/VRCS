@@ -277,14 +277,7 @@ fn run(
             engine.reconcile_voice(&opus_path);
             engine.reconcile_text();
             if selection_poll.elapsed() >= Duration::from_millis(50) {
-                let (
-                    selection,
-                    proximity,
-                    view_priority,
-                    overrides,
-                    allowlist,
-                    self_player_id,
-                ) = {
+                let (selection, proximity, view_priority, overrides, allowlist, self_player_id) = {
                     let config = settings.read().expect("config lock");
                     let player_audio = &config.audio.output.player_audio;
                     (
