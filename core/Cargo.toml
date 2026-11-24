@@ -1,6 +1,6 @@
 [package]
 name = "vrcs-core"
-version = "0.3.12"
+version = "0.4.0"
 description = "VRCS local core service (Rust)"
 authors.workspace = true
 license.workspace = true
