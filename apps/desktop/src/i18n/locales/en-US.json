@@ -1141,6 +1141,7 @@
         "languageDescription": "Use the system language or choose one for VRCS.",
         "followSystem": "Follow system",
         "theme": "Theme",
+        "themeDescription": "Follow the system appearance or choose a theme for VRCS.",
         "themeLight": "Light",
         "themeDark": "Dark",
         "reduceMotion": "Reduce motion",

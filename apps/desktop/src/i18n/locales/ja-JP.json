@@ -1141,6 +1141,7 @@
         "languageDescription": "システム言語に従うか、VRCS 用の言語を選びます。",
         "followSystem": "システム設定に従う",
         "theme": "テーマ",
+        "themeDescription": "システムの外観に従うか、VRCS 用のテーマを選びます。",
         "themeLight": "ライト",
         "themeDark": "ダーク",
         "reduceMotion": "アニメーションを減らす",

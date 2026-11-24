@@ -1141,6 +1141,7 @@
         "languageDescription": "跟随系统语言，或单独指定 VRCS 使用的语言。",
         "followSystem": "跟随系统",
         "theme": "主题",
+        "themeDescription": "跟随系统外观，或单独指定 VRCS 使用的主题。",
         "themeLight": "浅色",
         "themeDark": "深色",
         "reduceMotion": "减少动画效果",

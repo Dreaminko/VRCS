@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 
 import type { DesktopPreferences } from "../../shell/desktop-preferences";
 import { localeCatalog } from "../../i18n/catalog";
-import { useAppTheme } from "../../app/useAppTheme";
 import {
   currentReducedMotionPreference,
   subscribeReducedMotionPreference,
@@ -25,6 +24,7 @@ import { PreferenceToggle, Select } from "../SettingsControls";
 import { StorageSettingsSection } from "./StorageSettingsSection";
 import { FeatureSettingsCard } from "../system/FeatureSettingsCard";
 import { DownloadSourceSettings } from "../system/DownloadSourceSettings";
+import { ThemeSettings } from "../system/ThemeSettings";
 import { SoftwareUpdateSettings } from "../../updates/SoftwareUpdateSettings";
 import type { AppUpdaterState } from "../../updates/useAppUpdater";
 import { ConversationTitleSettingsSection } from "./ConversationTitleSettingsSection";
@@ -70,7 +70,6 @@ export function SystemSettingsSection({
 }) {
   const { t } = useTranslation();
   const { core, desktop } = usePlatformCapabilities();
-  const { themePreference, setThemePreference } = useAppTheme();
   const reducedMotion = useSyncExternalStore(subscribeReducedMotionPreference, currentReducedMotionPreference);
   const [interfaceScaleText, setInterfaceScaleText] = useState(() => String(interfaceScale));
   const [shortcutsBusy, setShortcutsBusy] = useState(false);
@@ -155,28 +154,7 @@ export function SystemSettingsSection({
             onChange={(source) => applySettings((current) => ({
               ...current, storage: { ...current.storage, model_download_source: source },
             }))} />
-          <div className="system-theme-setting">
-            <div>
-              <strong>{t("settings.system.theme")}</strong>
-            </div>
-            <div className="theme-toggle-group" role="group" aria-label={t("settings.system.theme")}>
-              {([
-                ["system", t("settings.system.followSystem")],
-                ["light", t("settings.system.themeLight")],
-                ["dark", t("settings.system.themeDark")],
-              ] as const).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={themePreference === value}
-                  className={themePreference === value ? "active" : ""}
-                  onClick={() => setThemePreference(value)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
+          <ThemeSettings />
           <div className="system-scale-setting">
             <div>
               <strong>{t("settings.system.interfaceScale")}</strong>

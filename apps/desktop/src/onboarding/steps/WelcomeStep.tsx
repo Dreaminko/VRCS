@@ -5,6 +5,7 @@ import type { UiLanguagePreference } from "../../app/ui-language";
 import { localeCatalog } from "../../i18n/catalog";
 import { Select } from "../../settings/SettingsControls";
 import { DownloadSourceSettings } from "../../settings/system/DownloadSourceSettings";
+import { ThemeSettings } from "../../settings/system/ThemeSettings";
 import type { FeatureSettings, ModelDownloadSource } from "../../settings/types";
 import { FeatureModeSection } from "./FeatureModeSection";
 
@@ -49,6 +50,7 @@ export function WelcomeStep({
           onChange={(value) => onUpdateLanguage(value as UiLanguagePreference)}
         />
       </div>
+      <ThemeSettings variant="onboarding" disabled={busy} />
       <DownloadSourceSettings
         source={downloadSource}
         disabled={busy}

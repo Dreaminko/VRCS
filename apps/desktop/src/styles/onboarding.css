@@ -223,6 +223,7 @@
 .onboarding-language-setting > .field { width: min(190px, 100%); justify-self: end; }
 .onboarding-language-setting strong { font-size: 12px; }
 .onboarding-language-setting small { color: var(--text-quiet); font-size: 10px; line-height: 1.5; }
+.onboarding-theme-setting { grid-template-columns: minmax(0, 1fr) auto; }
 .onboarding-feature-section {
   display: flex;
   flex-direction: column;
@@ -446,6 +447,8 @@
   .onboarding-language-setting,
   .onboarding-profile-select { grid-template-columns: 1fr; }
   .onboarding-language-setting { gap: 12px; }
+  .onboarding-theme-setting { grid-template-columns: 1fr; }
+  .onboarding-theme-setting .theme-toggle-group { max-width: 100%; justify-self: start; flex-wrap: wrap; }
   .onboarding-feature-section { padding: 13px; }
   .onboarding-choice.onboarding-feature-choice { grid-template-columns: 24px minmax(0, 1fr) 20px; gap: 9px; padding: 10px 12px; }
   .onboarding-section-heading { align-items: flex-start; flex-direction: column; }
