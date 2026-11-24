@@ -1159,7 +1159,7 @@ mod tests {
 
         let msg = encoder::encode(&OscPacket::Message(OscMessage {
             addr: OSC_PARAM_WIDTH.into(),
-            args: vec![OscType::Float(-0.5)],
+            args: vec![OscType::Float(0.25)],
         }))
         .unwrap();
         sender.send_to(&msg, addr).await.unwrap();
@@ -1171,7 +1171,7 @@ mod tests {
             },
             content: vec![OscPacket::Message(OscMessage {
                 addr: OSC_PARAM_HEIGHT.into(),
-                args: vec![OscType::Float(0.5)],
+                args: vec![OscType::Float(0.75)],
             })],
         }))
         .unwrap();
@@ -1185,8 +1185,8 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(first, LiveOscParamEvent::Width(-0.5));
-        assert_eq!(second, LiveOscParamEvent::Height(0.5));
+        assert_eq!(first, LiveOscParamEvent::Width(0.25));
+        assert_eq!(second, LiveOscParamEvent::Height(0.75));
 
         let _ = enabled_tx.send(false);
         let _ = shutdown_tx.send(true);
@@ -1216,8 +1216,8 @@ mod tests {
                         "UniText_RowPage": { "FULL_PATH": "/avatar/parameters/UniText_RowPage" },
                         "UniText_Rows": { "VALUE": [6] },
                         "UniText_RowPx8": { "VALUE": [48] },
-                        "UniText_Width": { "VALUE": [0.0] },
-                        "UniText_Height": { "VALUE": [0.0] }
+                        "UniText_Width": { "VALUE": [0.5] },
+                        "UniText_Height": { "VALUE": [0.5] }
                     }
                 }
             }
@@ -1281,8 +1281,8 @@ mod tests {
             session.target.read_visual_cells()
         );
 
-        // 1. Narrow width via live OSC (b_px=384, min=192 -> w = -2/3 gives 256 px, rows unchanged = 6).
-        session.handle_live_osc_event(LiveOscParamEvent::Width(-2.0 / 3.0), now);
+        // 1. Narrow width via live OSC (b_px=384, min=192 -> raw=1/6 maps to w=-2/3 -> 256 px, rows unchanged = 6).
+        session.handle_live_osc_event(LiveOscParamEvent::Width(1.0 / 6.0), now);
         assert!(session.pending_viewport.is_some());
         session.flush_pending_resize();
         assert_eq!(session.viewport.rows, 6);
@@ -1300,7 +1300,7 @@ mod tests {
             assert!(session.target.visual_row_px(r) <= 256);
         }
 
-        // 2. Widen via live OSC (w = 1.0 -> 576 px, rows still 6).
+        // 2. Widen via live OSC (raw = 1.0 -> w = +1.0 -> 576 px, rows still 6).
         session.handle_live_osc_event(LiveOscParamEvent::Width(1.0), now);
         session.flush_pending_resize();
         assert_eq!(session.viewport.rows, 6);
@@ -1318,14 +1318,14 @@ mod tests {
             assert!(session.target.visual_row_px(r) <= 576);
         }
 
-        // 3. Stale HTTP poll with old (0.0, 0.0) must NOT snap back live axes.
+        // 3. Stale HTTP poll with old (0.5, 0.5) must NOT snap back live axes.
         session.handle_probe_update(&probe);
         assert_eq!(session.viewport.row_px, 576);
         assert_eq!(session.viewport.rows, 6);
 
-        // 4. Expand height via live OSC (h = 2/3 of 6..12 -> 10 rows): must force CMD_CLEAR_ALL
+        // 4. Expand height via live OSC (raw=5/6 maps to h=+2/3 of 6..12 -> 10 rows): must force CMD_CLEAR_ALL
         //    resetting topRow=0, emit CMD_SET_GEOMETRY (10, 576), and enable UniText_RowPage for rows 6..9.
-        session.handle_live_osc_event(LiveOscParamEvent::Height(2.0 / 3.0), now);
+        session.handle_live_osc_event(LiveOscParamEvent::Height(5.0 / 6.0), now);
         session.flush_pending_resize();
         assert_eq!(session.viewport.rows, 10);
         assert!(session.viewport.send_row_page);
@@ -1420,5 +1420,44 @@ mod tests {
         );
         assert_eq!(read_row(&session.target, 0), "Alice：");
         assert_eq!(read_row(&session.target, 1), "Hello");
+    }
+
+    #[test]
+    fn default_probe_and_avatar_without_resize_axes_use_neutral_center() {
+        let config = UniTextConfig {
+            enabled: true,
+            ..UniTextConfig::default()
+        };
+        let mut session = WorkerSession::new(config, &ProbeState::default());
+        assert_eq!(session.viewport.rows, 6);
+        assert_eq!(session.viewport.row_px, 384);
+
+        let no_resize_tree = serde_json::json!({
+            "CONTENTS": {
+                "change": {
+                    "FULL_PATH": "/avatar/change",
+                    "VALUE": ["avtr_no_resize"]
+                },
+                "parameters": {
+                    "CONTENTS": {
+                        "UniText_ProtoVer": { "VALUE": [2] },
+                        "UniText_D7": { "FULL_PATH": "/avatar/parameters/UniText_D7" },
+                        "UniText_Bank": { "FULL_PATH": "/avatar/parameters/UniText_Bank" },
+                        "UniText_RowPage": { "FULL_PATH": "/avatar/parameters/UniText_RowPage" },
+                        "UniText_Rows": { "VALUE": [8] },
+                        "UniText_RowPx8": { "VALUE": [32] }
+                    }
+                }
+            }
+        });
+        let probe = ProbeState {
+            connection: "connected",
+            avatar: parse_oscquery_avatar(&no_resize_tree),
+            error: None,
+        };
+        session.handle_probe_update(&probe);
+        assert_eq!(session.viewport.rows, 8);
+        assert_eq!(session.viewport.row_px, 256);
+        assert!(session.viewport.send_row_page);
     }
 }

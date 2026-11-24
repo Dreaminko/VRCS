@@ -18,6 +18,7 @@ pub(crate) const MAX_CELLS: usize = WIDE_COLS * MAX_ROWS;
 pub(crate) const MIN_ROW_PX: usize = 192;
 pub(crate) const DEFAULT_ROW_PX: usize = 384;
 pub(crate) const MAX_ROW_PX: usize = 640;
+pub(crate) const DEFAULT_RESIZE_PARAM: f64 = 0.5;
 
 pub(crate) const CTRL_NOP: u8 = 0;
 pub(crate) const CTRL_UTF16_MIN: u8 = 1;
@@ -145,7 +146,7 @@ pub(crate) fn resolve_live_viewport(
     let row_px_max = round_to_8(b_px as f64 * 1.5).clamp(b_px, max_allowed);
 
     let w = if width_param.is_finite() {
-        width_param.clamp(-1.0, 1.0)
+        width_param.clamp(0.0, 1.0) * 2.0 - 1.0
     } else {
         0.0
     };
@@ -157,7 +158,7 @@ pub(crate) fn resolve_live_viewport(
     let live_row_px = round_to_8(raw_px).clamp(MIN_ROW_PX, max_allowed);
 
     let h = if height_param.is_finite() {
-        height_param.clamp(-1.0, 1.0)
+        height_param.clamp(0.0, 1.0) * 2.0 - 1.0
     } else {
         0.0
     };
@@ -1318,7 +1319,7 @@ fn osc_arg_axis(arg: &OscType) -> Option<f64> {
         OscType::Int(v) => f64::from(*v),
         _ => return None,
     };
-    val.is_finite().then_some(val.clamp(-1.0, 1.0))
+    val.is_finite().then_some(val.clamp(0.0, 1.0))
 }
 
 fn osc_arg_bool(arg: &OscType) -> Option<bool> {
@@ -1330,7 +1331,7 @@ fn osc_arg_bool(arg: &OscType) -> Option<bool> {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct OscQueryAvatarInfo {
     pub(crate) tier: Option<UniTextTier>,
     pub(crate) proto_ver: Option<u32>,
@@ -1342,6 +1343,23 @@ pub(crate) struct OscQueryAvatarInfo {
     pub(crate) has_resize_axes: bool,
     pub(crate) avatar_id: Option<String>,
     pub(crate) local_clear: bool,
+}
+
+impl Default for OscQueryAvatarInfo {
+    fn default() -> Self {
+        Self {
+            tier: None,
+            proto_ver: None,
+            base_viewport: BaseViewport::default(),
+            width: DEFAULT_RESIZE_PARAM,
+            height: DEFAULT_RESIZE_PARAM,
+            viewport: ViewportConfig::default(),
+            has_unitext_params: false,
+            has_resize_axes: false,
+            avatar_id: None,
+            local_clear: false,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -1388,8 +1406,14 @@ pub(crate) fn parse_oscquery_avatar(tree: &Value) -> OscQueryAvatarInfo {
                 .clamp(MIN_ROW_PX as i64, max_allowed_px as i64) as usize
         })
         .unwrap_or(DEFAULT_ROW_PX);
-    let width = acc.raw_width.map(|v| v.clamp(-1.0, 1.0)).unwrap_or(0.0);
-    let height = acc.raw_height.map(|v| v.clamp(-1.0, 1.0)).unwrap_or(0.0);
+    let width = acc
+        .raw_width
+        .map(|v| v.clamp(0.0, 1.0))
+        .unwrap_or(DEFAULT_RESIZE_PARAM);
+    let height = acc
+        .raw_height
+        .map(|v| v.clamp(0.0, 1.0))
+        .unwrap_or(DEFAULT_RESIZE_PARAM);
     let base_viewport = BaseViewport {
         cols,
         base_rows,
@@ -1984,8 +2008,8 @@ mod tests {
                 height: 0.40,
                 viewport: ViewportConfig {
                     cols: 64,
-                    rows: 12,
-                    row_px: 288,
+                    rows: 10,
+                    row_px: 224,
                     send_bank: true,
                     send_row_page: true,
                 },
@@ -2026,8 +2050,8 @@ mod tests {
                     base_row_px: 384,
                     has_row_page: true,
                 },
-                width: 0.0,
-                height: 0.0,
+                width: 0.5,
+                height: 0.5,
                 viewport: ViewportConfig {
                     cols: 32,
                     rows: 4,
@@ -2065,8 +2089,8 @@ mod tests {
                     base_row_px: 192,
                     has_row_page: false,
                 },
-                width: 0.0,
-                height: 0.0,
+                width: 0.5,
+                height: 0.5,
                 viewport: ViewportConfig {
                     cols: 32,
                     rows: 12,
@@ -2081,7 +2105,7 @@ mod tests {
             }
         );
 
-        // Wide avatar with base_row_px=512 scales up to 640 at w=1.0 and activates RowPage when h scales >6 rows.
+        // Wide avatar with base_row_px=512 scales up to 640 at w=1.0 and activates RowPage when h=0.75 scales >6 rows.
         let tree_wide_640 = serde_json::json!({
             "CONTENTS": {
                 "parameters": {
@@ -2092,7 +2116,7 @@ mod tests {
                         "UniText_Rows": { "VALUE": [6] },
                         "UniText_RowPx8": { "VALUE": [64] },
                         "UniText_Width": { "VALUE": [1.0] },
-                        "UniText_Height": { "VALUE": [0.5] }
+                        "UniText_Height": { "VALUE": [0.75] }
                     }
                 }
             }
@@ -2109,7 +2133,7 @@ mod tests {
                     has_row_page: true,
                 },
                 width: 1.0,
-                height: 0.5,
+                height: 0.75,
                 viewport: ViewportConfig {
                     cols: 64,
                     rows: 9,
@@ -2124,6 +2148,47 @@ mod tests {
             }
         );
 
+        // Missing UniText_Width / UniText_Height (allowRuntimeResize=false) must fall back to 0.5, preserving (8, 256).
+        let tree_no_resize = serde_json::json!({
+            "CONTENTS": {
+                "parameters": {
+                    "CONTENTS": {
+                        "UniText_D7": { "FULL_PATH": "/avatar/parameters/UniText_D7" },
+                        "UniText_Bank": { "FULL_PATH": "/avatar/parameters/UniText_Bank" },
+                        "UniText_RowPage": { "FULL_PATH": "/avatar/parameters/UniText_RowPage" },
+                        "UniText_Rows": { "VALUE": [8] },
+                        "UniText_RowPx8": { "VALUE": [32] }
+                    }
+                }
+            }
+        });
+        assert_eq!(
+            parse_oscquery_avatar(&tree_no_resize),
+            OscQueryAvatarInfo {
+                tier: Some(UniTextTier::Standard),
+                proto_ver: None,
+                base_viewport: BaseViewport {
+                    cols: 64,
+                    base_rows: 8,
+                    base_row_px: 256,
+                    has_row_page: true,
+                },
+                width: 0.5,
+                height: 0.5,
+                viewport: ViewportConfig {
+                    cols: 64,
+                    rows: 8,
+                    row_px: 256,
+                    send_bank: true,
+                    send_row_page: true,
+                },
+                has_unitext_params: true,
+                has_resize_axes: false,
+                avatar_id: None,
+                local_clear: false,
+            }
+        );
+
         assert_eq!(
             parse_oscquery_avatar(&serde_json::json!({ "CONTENTS": {} })),
             OscQueryAvatarInfo::default()
@@ -2132,25 +2197,32 @@ mod tests {
 
     #[test]
     fn resolves_live_viewport_piecewise_linear_formula() {
-        assert_eq!(resolve_live_viewport(6, 384, -1.0, -1.0, true), (4, 192));
-        assert_eq!(resolve_live_viewport(6, 384, -0.5, -0.5, true), (5, 288));
-        assert_eq!(resolve_live_viewport(6, 384, 0.0, 0.0, true), (6, 384));
-        assert_eq!(resolve_live_viewport(6, 384, 0.5, 0.5, true), (9, 480));
+        assert_eq!(resolve_live_viewport(6, 384, 0.0, 0.0, true), (4, 192));
+        assert_eq!(resolve_live_viewport(6, 384, 0.25, 0.25, true), (5, 288));
+        assert_eq!(resolve_live_viewport(6, 384, 0.5, 0.5, true), (6, 384));
+        assert_eq!(resolve_live_viewport(6, 384, 0.75, 0.75, true), (9, 480));
         assert_eq!(resolve_live_viewport(6, 384, 1.0, 1.0, true), (12, 576));
+        assert_eq!(resolve_live_viewport(6, 384, 0.55, 0.5, true), (6, 400));
+
+        // Base 8 rows, 256 px wide regression cases.
+        assert_eq!(resolve_live_viewport(8, 256, 0.5, 0.5, true), (8, 256));
+        assert_eq!(resolve_live_viewport(8, 256, 0.0, 0.0, true), (4, 192));
+        assert_eq!(resolve_live_viewport(8, 256, 1.0, 1.0, true), (12, 384));
+        assert_eq!(resolve_live_viewport(8, 256, 0.25, 0.75, true), (10, 224));
 
         // Base 8 rows, 512 px wide clamps row_px_max at 640.
-        assert_eq!(resolve_live_viewport(8, 512, -1.0, -1.0, true), (4, 256));
-        assert_eq!(resolve_live_viewport(8, 512, 0.0, -0.5, true), (6, 512));
-        assert_eq!(resolve_live_viewport(8, 512, 0.5, 0.5, true), (10, 576));
+        assert_eq!(resolve_live_viewport(8, 512, 0.0, 0.0, true), (4, 256));
+        assert_eq!(resolve_live_viewport(8, 512, 0.5, 0.25, true), (6, 512));
+        assert_eq!(resolve_live_viewport(8, 512, 0.75, 0.75, true), (10, 576));
         assert_eq!(resolve_live_viewport(8, 512, 1.0, 1.0, true), (12, 640));
 
         // Narrow 32-col mode clamps max width at 384 even for positive w.
-        assert_eq!(resolve_live_viewport(6, 384, -1.0, 0.0, false), (6, 192));
-        assert_eq!(resolve_live_viewport(6, 384, 0.0, 0.0, false), (6, 384));
+        assert_eq!(resolve_live_viewport(6, 384, 0.0, 0.5, false), (6, 192));
+        assert_eq!(resolve_live_viewport(6, 384, 0.5, 0.5, false), (6, 384));
         assert_eq!(resolve_live_viewport(6, 384, 1.0, 1.0, false), (12, 384));
 
         // round_to_8 rounding and NaN/out-of-range safety.
-        assert_eq!(resolve_live_viewport(6, 392, -1.0, 0.0, true), (6, 200));
+        assert_eq!(resolve_live_viewport(6, 392, 0.0, 0.5, true), (6, 200));
         assert_eq!(
             resolve_live_viewport(6, 384, f64::NAN, f64::INFINITY, true),
             (6, 384)
@@ -2163,13 +2235,13 @@ mod tests {
             base_row_px: 384,
             has_row_page: true,
         };
-        assert!(!base.resolve_live(0.0, 0.0).send_row_page);
-        assert!(base.resolve_live(0.0, 0.5).send_row_page);
+        assert!(!base.resolve_live(0.5, 0.5).send_row_page);
+        assert!(base.resolve_live(0.5, 0.75).send_row_page);
         let no_rp = BaseViewport {
             has_row_page: false,
             ..base
         };
-        assert!(!no_rp.resolve_live(0.0, 0.5).send_row_page);
+        assert!(!no_rp.resolve_live(0.5, 0.75).send_row_page);
     }
 
     #[test]
@@ -2184,14 +2256,24 @@ mod tests {
             vec![LiveOscParamEvent::Width(0.75)]
         );
 
-        let msg_clamp = encoder::encode(&OscPacket::Message(OscMessage {
+        let msg_clamp_low = encoder::encode(&OscPacket::Message(OscMessage {
             addr: OSC_PARAM_HEIGHT.into(),
             args: vec![OscType::Double(-2.5)],
         }))
         .unwrap();
         assert_eq!(
-            decode_live_osc_events(&msg_clamp),
-            vec![LiveOscParamEvent::Height(-1.0)]
+            decode_live_osc_events(&msg_clamp_low),
+            vec![LiveOscParamEvent::Height(0.0)]
+        );
+
+        let msg_clamp_high = encoder::encode(&OscPacket::Message(OscMessage {
+            addr: OSC_PARAM_WIDTH.into(),
+            args: vec![OscType::Float(2.5)],
+        }))
+        .unwrap();
+        assert_eq!(
+            decode_live_osc_events(&msg_clamp_high),
+            vec![LiveOscParamEvent::Width(1.0)]
         );
 
         let msg_nan = encoder::encode(&OscPacket::Message(OscMessage {
@@ -2229,7 +2311,7 @@ mod tests {
         assert_eq!(
             decode_live_osc_events(&bundle),
             vec![
-                LiveOscParamEvent::Width(-1.0),
+                LiveOscParamEvent::Width(0.0),
                 LiveOscParamEvent::Height(0.5),
                 LiveOscParamEvent::LocalClear(true),
             ]
