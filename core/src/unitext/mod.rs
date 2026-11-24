@@ -226,7 +226,6 @@ impl WorkerSession {
         let send_geometry = probe_supports_geometry(initial_probe);
         let mut target = VirtualScreen::new(viewport.cols, viewport.rows);
         target.geometry = send_geometry.then_some((viewport.rows, viewport.row_px));
-        let need_visible_sync = config.enabled && active_tier.is_some();
 
         Self {
             config,
@@ -247,7 +246,7 @@ impl WorkerSession {
             idle_ticks: 0,
             active_since_view_refresh: 0,
             needs_nop: false,
-            need_visible_sync,
+            need_visible_sync: false,
             muted: None,
             last_content_at: None,
             overflow_ready_since: None,
@@ -292,7 +291,6 @@ impl WorkerSession {
             }
             self.sync_target_geometry();
             if self.config.enabled && self.active_tier.is_some() {
-                self.need_visible_sync = true;
                 self.force_clear_all = true;
                 self.needs_nop = false;
             }
@@ -386,7 +384,6 @@ impl WorkerSession {
             && self.active_tier.is_some()
             && (avatar_changed || size_changed || tier_changed)
         {
-            self.need_visible_sync = true;
             self.scheduler.reset();
             self.overflow_ready_since = None;
             if size_changed || self.target.is_empty() {
@@ -591,13 +588,21 @@ async fn run_worker(
                     let player_name_changed =
                         session.layout.set_self_player_name(&self_player_id);
                     session.config = next;
-                    let _ = probe_enable_tx.send(session.config.enabled);
+                    probe_enable_tx.send_if_modified(|enabled| {
+                        if *enabled == session.config.enabled {
+                            false
+                        } else {
+                            *enabled = session.config.enabled;
+                            true
+                        }
+                    });
                     if interval_changed {
                         ticker = tokio::time::interval(Duration::from_millis(session.config.interval_ms.max(80) as u64));
                         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                     }
                     let next_tier = resolve_active_tier(&session.config, &probe_rx.borrow());
                     if !session.config.enabled {
+                        session.need_visible_sync = false;
                         session.force_clear_all = false;
                         session.needs_nop = false;
                         session.overflow_ready_since = None;
@@ -606,7 +611,6 @@ async fn run_worker(
                     } else if became_enabled || next_tier != session.active_tier {
                         session.active_tier = next_tier;
                         if session.active_tier.is_some() {
-                            session.need_visible_sync = true;
                             session.scheduler.reset();
                             session.overflow_ready_since = None;
                             if !session.showing_test_screen {
