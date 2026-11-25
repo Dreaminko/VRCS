@@ -6,6 +6,8 @@ import type { AnkiStatus } from "../../anki/types";
 import type { Health } from "../../core-client/types";
 import type { Settings } from "../types";
 import type { ApplySettings, SaveState, SettingOption } from "../settings-types";
+import type { ChatboxMessageFormat } from "../../chatbox/types";
+import { isValidChatboxCustomFormat } from "../../chatbox/chatbox";
 import { PreferenceToggle, Select } from "../SettingsControls";
 import { SettingsDisclosure } from "../components/SettingsDisclosure";
 import { ExternalApiSettingsCard } from "../system/ExternalApiSettingsCard";
@@ -47,11 +49,18 @@ export function ConnectionSettingsSection({
   const { t } = useTranslation();
   const [portText, setPortText] = useState(String(draft.osc.port));
   const [portError, setPortError] = useState("");
+  const oscMessageFormat = draft.osc.message_format ?? "original_newline_translation";
+  const [customFormatText, setCustomFormatText] = useState(draft.osc.custom_format ?? "");
+  const [customFormatError, setCustomFormatError] = useState("");
   const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState("");
   const [testFailed, setTestFailed] = useState(false);
 
   useEffect(() => setPortText(String(draft.osc.port)), [draft.osc.port]);
+  useEffect(() => {
+    setCustomFormatText(draft.osc.custom_format ?? "");
+    setCustomFormatError("");
+  }, [draft.osc.custom_format, oscMessageFormat]);
   useEffect(() => {
     if (!draft.osc.enabled) {
       setTestFailed(false);
@@ -69,6 +78,19 @@ export function ConnectionSettingsSection({
     applySettings((current) => ({
       ...current,
       osc: { ...current.osc, port },
+    }));
+  };
+
+  const commitCustomFormat = () => {
+    if (!isValidChatboxCustomFormat(customFormatText)) {
+      setCustomFormatError(t("chatbox.invalidCustomFormat"));
+      return;
+    }
+    setCustomFormatError("");
+    if (customFormatText === (draft.osc.custom_format ?? "")) return;
+    applySettings((current) => ({
+      ...current,
+      osc: { ...current.osc, message_format: "custom", custom_format: customFormatText },
     }));
   };
 
@@ -188,6 +210,65 @@ export function ConnectionSettingsSection({
                     }))}
                   />
                 </div>
+                <div className="osc-strategy-setting">
+                  <strong>{t("settings.osc.messageFormat")}</strong>
+                  <Select
+                    label={t("settings.osc.messageFormat")}
+                    hideLabel
+                    value={oscMessageFormat}
+                    disabled={false}
+                    options={[
+                      { value: "original_newline_translation", label: t("chatbox.formats.originalFirst") },
+                      { value: "translation_newline_original", label: t("chatbox.formats.translationFirst") },
+                      { value: "slash_separated", label: t("chatbox.formats.slash") },
+                      { value: "custom", label: t("chatbox.formats.custom") },
+                    ]}
+                    onChange={(next) => {
+                      const message_format = next as ChatboxMessageFormat;
+                      if (message_format === "custom" && !isValidChatboxCustomFormat(customFormatText)) {
+                        const nextCustom = "{original} / {translation}";
+                        setCustomFormatText(nextCustom);
+                        setCustomFormatError("");
+                        applySettings((current) => ({
+                          ...current,
+                          osc: { ...current.osc, message_format, custom_format: nextCustom },
+                        }));
+                        return;
+                      }
+                      setCustomFormatError("");
+                      applySettings((current) => ({
+                        ...current,
+                        osc: { ...current.osc, message_format },
+                      }));
+                    }}
+                  />
+                </div>
+                {oscMessageFormat === "custom" && (
+                  <label className="osc-custom-format-setting">
+                    <span>{t("settings.osc.customFormat")}</span>
+                    <input
+                      type="text"
+                      maxLength={200}
+                      placeholder="{original} / {translation}"
+                      value={customFormatText}
+                      aria-invalid={Boolean(customFormatError)}
+                      aria-describedby={customFormatError ? "osc-custom-format-help" : undefined}
+                      onChange={(event) => {
+                        const next = event.target.value;
+                        setCustomFormatText(next);
+                        setCustomFormatError(isValidChatboxCustomFormat(next) ? "" : t("chatbox.invalidCustomFormat"));
+                      }}
+                      onBlur={commitCustomFormat}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                        }
+                      }}
+                    />
+                    {customFormatError && <small id="osc-custom-format-help" className="error">{customFormatError}</small>}
+                  </label>
+                )}
                 <PreferenceToggle
                   title={t("settings.osc.preserveOriginal")}
                   description={t("settings.osc.preserveOriginalDescription")}

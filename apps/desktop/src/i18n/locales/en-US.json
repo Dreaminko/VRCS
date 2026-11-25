@@ -139,8 +139,11 @@
         "custom": "Custom"
       },
       "customFormat": "Custom message format",
+      "invalidCustomFormat": "Custom format must include both {original} and {translation} (max 200 characters).",
       "preview": "Send preview",
       "previewEmpty": "Your final message will appear here",
+      "truncatedBadge": "Truncated",
+      "overLimitHint": "Message exceeds the {{limit}}-character limit. Shorten it or enable smart truncation in Send settings.",
       "smartTruncate": "Send with smart truncation",
       "send": "Send to VRChat",
       "sending": "Sending…",
@@ -1810,6 +1813,8 @@
         "title": "OSC",
         "enable": "Enable OSC",
         "translationStrategy": "OSC multilingual output",
+        "messageFormat": "OSC message format",
+        "customFormat": "Custom message format",
         "translationStrategies": {
           "preferredOnly": "Preferred language only",
           "roundRobin": "Round robin",

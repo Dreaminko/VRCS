@@ -9,6 +9,7 @@ const STORE_KEY = "chatboxSendSettings";
 const WEB_STORAGE_KEY = "vrcs.chatbox-send-settings.v1";
 // Only write to the native store after successfully reading its previous value.
 let nativeStore: Store | null = null;
+let loadGeneration = 0;
 
 async function persistChatboxPreferences(preferences: ChatboxPreferences): Promise<void> {
   try {
@@ -46,15 +47,19 @@ export async function loadChatboxPreferences(
   fallbackTarget = "ja",
 ): Promise<ChatboxPreferences> {
   const fallback = chatboxPreferencesSnapshot(fallbackTarget);
-  nativeStore = null;
+  const generation = ++loadGeneration;
   try {
-    if (!isTauri()) return fallback;
+    if (!isTauri()) {
+      if (generation === loadGeneration) nativeStore = null;
+      return fallback;
+    }
     const { load } = await import("@tauri-apps/plugin-store");
     const store = await load("preferences.json", { autoSave: false });
     const stored = await store.get<unknown>(STORE_KEY);
-    nativeStore = store;
+    if (generation === loadGeneration) nativeStore = store;
     return stored == null ? fallback : normalizeChatboxPreferences(stored, fallbackTarget);
   } catch (error) {
+    if (generation === loadGeneration) nativeStore = null;
     console.warn("Failed to load native chatbox preferences", error);
     return fallback;
   }

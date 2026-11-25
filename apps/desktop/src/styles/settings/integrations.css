@@ -161,6 +161,34 @@
   line-height: var(--settings-leading-label);
 }
 .osc-strategy-setting .field { min-width: 0; }
+.osc-custom-format-setting {
+  display: grid;
+  gap: 7px;
+  padding: 5px 0 8px;
+}
+.osc-custom-format-setting > span {
+  color: var(--text-secondary);
+  font-size: var(--settings-text-label);
+  font-weight: var(--settings-weight-label);
+  line-height: var(--settings-leading-label);
+}
+.osc-custom-format-setting input {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--settings-control-height);
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--control-shadow);
+  font-size: var(--settings-text-label);
+  transition: border-color 140ms ease-out, box-shadow 140ms ease-out;
+}
+.osc-custom-format-setting input:focus { border-color: var(--primary); box-shadow: var(--control-focus-shadow); }
+.osc-custom-format-setting input[aria-invalid="true"] { border-color: var(--error); }
+.osc-custom-format-setting > small.error { color: var(--error); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .anki-connection code,
 .osc-connection code {
   color: var(--text-quiet);

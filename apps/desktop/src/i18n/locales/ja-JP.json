@@ -139,8 +139,11 @@
         "custom": "カスタム"
       },
       "customFormat": "カスタムメッセージ形式",
+      "invalidCustomFormat": "カスタム形式には {original} と {translation} を1回ずつ含め、200文字以内にしてください。",
       "preview": "送信プレビュー",
       "previewEmpty": "入力したメッセージの送信結果がここに表示されます",
+      "truncatedBadge": "短縮済み",
+      "overLimitHint": "{{limit}}文字の上限を超えています。短くするか、送信設定で「適切に短縮して送信」を有効にしてください。",
       "smartTruncate": "適切に短縮して送信",
       "send": "VRChat に送信",
       "sending": "送信中…",
@@ -1810,6 +1813,8 @@
         "title": "OSC",
         "enable": "OSC を有効にする",
         "translationStrategy": "OSC多言語出力",
+        "messageFormat": "OSC 送信形式",
+        "customFormat": "カスタム送信形式",
         "translationStrategies": {
           "preferredOnly": "優先言語のみ",
           "roundRobin": "順番に送信",

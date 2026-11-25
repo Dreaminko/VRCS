@@ -74,6 +74,7 @@ export function useAppWorkspace({
   const chatbox = useChatboxWorkspace(
     settings.value,
     runtime.health?.room_context?.scope_id ?? null,
+    runtime.health?.language_session,
   );
   const conversation = useConversationWorkspace({
     coreReady: runtime.ready,
@@ -111,7 +112,10 @@ export function useAppWorkspace({
     if (usesVrchatNetwork(settings.value)) void captureControl.setCaptureRunning(true);
   }, [captureRuntime.playerAudioStart.resumeRequested, runtime.ready, settings.value, onboardingFlow.status, captureControl.setCaptureRunning]);
   const { interfaceScale, setInterfaceScale } = useInterfaceScale();
-  const chatboxRoute = settings.value?.translation.microphone_targets[0];
+  const activeLanguageSession = runtime.health?.language_session;
+  const chatboxRoute = (activeLanguageSession && activeLanguageSession.kind !== "global"
+    ? activeLanguageSession.translation
+    : settings.value?.translation)?.microphone_targets[0];
   const providerCatalog = useApiProfileViews(
     `${settings.value?.asr.active_profile_id ?? "local"}:${settings.value?.asr.backend ?? ""}:${chatboxRoute?.profile_id ?? ""}`,
     runtime.ready,

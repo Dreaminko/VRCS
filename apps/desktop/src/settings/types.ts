@@ -1,5 +1,6 @@
 import type { AnkiSettings } from "../anki/types";
 import type { AudioOutputSettings, MicrophoneSettings, VadSettings } from "../capture/types";
+import type { ChatboxMessageFormat } from "../chatbox/types";
 import type {
   ExternalApiSettings,
   UniTextSettings,
@@ -50,6 +51,8 @@ export interface Settings {
     mute_sync_enabled: boolean;
     preserve_original_text: boolean;
     translation_strategy: OscTranslationStrategy;
+    message_format?: ChatboxMessageFormat;
+    custom_format?: string | null;
   };
   unitext: UniTextSettings;
   dictionary: {

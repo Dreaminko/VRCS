@@ -6,6 +6,7 @@ import {
   chatboxPreferencesFromDraft,
   clearSentDraft,
   createChatboxDraft,
+  isValidChatboxCustomFormat,
   normalizeChatboxPreferences,
   previewChatboxLocally,
   updateChatboxTranslation,
@@ -31,6 +32,7 @@ test("sent drafts keep language and format preferences", () => {
     ...createChatboxDraft("de"),
     original: "hello",
     translation: "hallo",
+    source_language: "en",
     send_mode: "bilingual" as const,
     message_format: "translation_newline_original" as const,
   };
@@ -39,6 +41,7 @@ test("sent drafts keep language and format preferences", () => {
     original: "",
     translation: null,
     translation_origin: null,
+    source_language: null,
   });
 });
 
@@ -84,8 +87,6 @@ test("Chatbox send settings round-trip without retaining message text", () => {
     original: "hello",
     translation: "hallo",
     send_mode: "translation" as const,
-    message_format: "custom" as const,
-    custom_format: "{translation} | {original}",
     overflow_policy: "smart_truncate" as const,
   };
   const restored = applyChatboxPreferences(
@@ -96,8 +97,6 @@ test("Chatbox send settings round-trip without retaining message text", () => {
   assert.equal(restored.translation, null);
   assert.equal(restored.target_language, "de");
   assert.equal(restored.send_mode, "translation");
-  assert.equal(restored.message_format, "custom");
-  assert.equal(restored.custom_format, "{translation} | {original}");
   assert.equal(restored.overflow_policy, "smart_truncate");
 });
 
@@ -114,14 +113,20 @@ test("new preferences and legacy follow mode follow the current preferred langua
     assert.equal(prefs.follow_translation_settings, true);
     assert.equal(prefs.target_language, "fr");
   }
+  assert.equal(normalizeChatboxPreferences({ target_language: null }, "zh-hans").target_language, "zh-Hans");
+  assert.equal(normalizeChatboxPreferences({ target_language: null }, "$invalid").target_language, "ja");
+});
+
+test("custom Chatbox format accepts up to 200 characters and rejects longer templates", () => {
+  const padding = "x".repeat(200 - "{original}{translation}".length);
+  assert.equal(isValidChatboxCustomFormat(`{original}${padding}{translation}`), true);
+  assert.equal(isValidChatboxCustomFormat(`{original}${padding}x{translation}`), false);
 });
 
 test("invalid persisted Chatbox settings fall back to current defaults", () => {
   assert.deepEqual(normalizeChatboxPreferences({
     target_language: "$invalid",
     send_mode: "invalid",
-    message_format: "invalid",
-    custom_format: 42,
     overflow_policy: "invalid",
   }, "zh-Hant"), chatboxPreferencesFromDraft(createChatboxDraft("zh-Hant")));
 });

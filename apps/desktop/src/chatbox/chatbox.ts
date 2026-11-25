@@ -1,27 +1,19 @@
 import type {
   ChatboxComposeInput,
-  ChatboxMessageFormat,
   ChatboxOverflowPolicy,
   ChatboxPreview,
   ChatboxSendMode,
 } from "./types";
+import { canonicalLanguageTag } from "../translation/translation-languages.ts";
 
 export const CHATBOX_LIMIT = 144;
 const SEND_MODES = new Set<ChatboxSendMode>(["original", "translation", "bilingual"]);
-const MESSAGE_FORMATS = new Set<ChatboxMessageFormat>([
-  "original_newline_translation",
-  "translation_newline_original",
-  "slash_separated",
-  "custom",
-]);
 const OVERFLOW_POLICIES = new Set<ChatboxOverflowPolicy>(["block", "smart_truncate"]);
 
 export interface ChatboxPreferences {
   follow_translation_settings: boolean;
   target_language: string;
   send_mode: ChatboxSendMode;
-  message_format: ChatboxMessageFormat;
-  custom_format: string | null;
   overflow_policy: ChatboxOverflowPolicy;
 }
 
@@ -57,7 +49,7 @@ export function previewChatboxLocally(input: ChatboxComposeInput): ChatboxPrevie
       : original.length > 0 && translation.length > 0;
   const formatValid = input.send_mode !== "bilingual"
     || input.message_format !== "custom"
-    || validCustomFormat(input.custom_format ?? "");
+    || isValidChatboxCustomFormat(input.custom_format ?? "");
   return {
     text,
     char_count: charCount,
@@ -69,7 +61,13 @@ export function previewChatboxLocally(input: ChatboxComposeInput): ChatboxPrevie
 }
 
 export function clearSentDraft(input: ChatboxDraft): ChatboxDraft {
-  return { ...input, original: "", translation: null, translation_origin: null };
+  return {
+    ...input,
+    original: "",
+    translation: null,
+    translation_origin: null,
+    source_language: null,
+  };
 }
 
 export function updateChatboxTranslation(
@@ -88,8 +86,6 @@ export function chatboxPreferencesFromDraft(draft: ChatboxDraft): ChatboxPrefere
     follow_translation_settings: draft.follow_translation_settings,
     target_language: normalizeTargetLanguage(draft.target_language, "ja"),
     send_mode: draft.send_mode,
-    message_format: draft.message_format,
-    custom_format: draft.custom_format,
     overflow_policy: draft.overflow_policy,
   };
 }
@@ -105,7 +101,8 @@ export function normalizeChatboxPreferences(
   value: unknown,
   fallbackTarget: string = "ja",
 ): ChatboxPreferences {
-  const defaults = createChatboxDraft(fallbackTarget);
+  const safeFallback = normalizeTargetLanguage(fallbackTarget, "ja");
+  const defaults = createChatboxDraft(safeFallback);
   const candidate = parseStoredValue(value);
   if (!candidate || typeof candidate !== "object") {
     return chatboxPreferencesFromDraft(defaults);
@@ -117,14 +114,8 @@ export function normalizeChatboxPreferences(
     follow_translation_settings: typeof stored.follow_translation_settings === "boolean"
       ? stored.follow_translation_settings
       : !manualTarget,
-    target_language: manualTarget || fallbackTarget,
+    target_language: manualTarget || safeFallback,
     send_mode: isSetValue(stored.send_mode, SEND_MODES) ? stored.send_mode : defaults.send_mode,
-    message_format: isSetValue(stored.message_format, MESSAGE_FORMATS)
-      ? stored.message_format
-      : defaults.message_format,
-    custom_format: typeof stored.custom_format === "string"
-      ? Array.from(stored.custom_format).slice(0, 200).join("") || null
-      : null,
     overflow_policy: isSetValue(stored.overflow_policy, OVERFLOW_POLICIES)
       ? stored.overflow_policy
       : defaults.overflow_policy,
@@ -154,9 +145,9 @@ function compact(value: string): string {
   return value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().replace(/\s+/g, " ");
 }
 
-function validCustomFormat(value: string): boolean {
+export function isValidChatboxCustomFormat(value: string): boolean {
   const remainder = value.replace("{original}", "").replace("{translation}", "");
-  return value.length <= 80
+  return [...value].length <= 200
     && value.match(/\{original\}/g)?.length === 1
     && value.match(/\{translation\}/g)?.length === 1
     && !/[{}\u0000-\u001f\u007f]/.test(remainder);
@@ -166,15 +157,7 @@ function normalizeTargetLanguage(
   value: unknown,
   fallback: string,
 ): string {
-  if (typeof value !== "string") return fallback;
-  const input = value.trim();
-  if (input.length < 2 || input.length > 35) return fallback;
-  if (!/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{2,8})*$/.test(input)) return fallback;
-  try {
-    return Intl.getCanonicalLocales(input)[0] ?? fallback;
-  } catch {
-    return fallback;
-  }
+  return typeof value === "string" ? canonicalLanguageTag(value) ?? fallback : fallback;
 }
 
 function isSetValue<T extends string>(value: unknown, values: Set<T>): value is T {

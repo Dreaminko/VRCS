@@ -139,8 +139,11 @@
         "custom": "自訂"
       },
       "customFormat": "自訂訊息格式",
+      "invalidCustomFormat": "自訂格式須同時包含 {original} 和 {translation}，且不超過 200 個字元。",
       "preview": "傳送預覽",
       "previewEmpty": "最終訊息會顯示在此處",
+      "truncatedBadge": "已截短",
+      "overLimitHint": "訊息超過 {{limit}} 個字元上限，請精簡內容或在傳送設定中開啟智慧截短。",
       "smartTruncate": "智慧截短後傳送",
       "send": "傳送到 VRChat",
       "sending": "正在傳送…",
@@ -1810,6 +1813,8 @@
         "title": "OSC",
         "enable": "啟用 OSC",
         "translationStrategy": "OSC 多語言傳送",
+        "messageFormat": "OSC 傳送格式",
+        "customFormat": "自訂傳送格式",
         "translationStrategies": {
           "preferredOnly": "僅偏好語言",
           "roundRobin": "輪流傳送",

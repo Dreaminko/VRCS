@@ -8,23 +8,26 @@ import {
   type ChatboxDraft,
   applyChatboxPreferences,
   chatboxPreferencesFromDraft,
+  clearSentDraft,
+  createChatboxDraft,
+  previewChatboxLocally,
 } from "./chatbox";
 import {
   loadChatboxPreferences,
   saveChatboxPreferences,
 } from "./chatbox-preferences";
-import {
-  clearSentDraft,
-  createChatboxDraft,
-  previewChatboxLocally,
-} from "./chatbox";
+import type { ActiveLanguageSession } from "../core-client/types";
 import type {
   ChatboxComposeInput,
   ChatboxPreview,
 } from "./types";
 import type { Settings } from "../settings/types";
 
-export function useChatboxWorkspace(settings: Settings | null, roomScopeId: string | null = null) {
+export function useChatboxWorkspace(
+  settings: Settings | null,
+  roomScopeId: string | null = null,
+  languageSession?: ActiveLanguageSession,
+) {
   const { t } = useTranslation();
   const available = settings !== null;
   const availableRef = useRef(available);
@@ -40,14 +43,24 @@ export function useChatboxWorkspace(settings: Settings | null, roomScopeId: stri
     targetLanguage: string | null;
     roomScopeId: string | null;
   } | null>(null);
-  const preferredTarget = settings?.translation.microphone_targets[0]?.target_language ?? "ja";
+  const effectiveTranslation = languageSession && languageSession.kind !== "global"
+    ? languageSession.translation
+    : settings?.translation;
+  const preferredTarget = effectiveTranslation?.microphone_targets[0]?.target_language ?? "ja";
+  const oscMessageFormat = settings?.osc?.message_format ?? "original_newline_translation";
+  const oscCustomFormat = settings?.osc?.custom_format ?? null;
   const resolvedDraft = useMemo(() => {
     const { follow_translation_settings, ...input } = draft;
-    return { ...input, target_language: follow_translation_settings ? preferredTarget : input.target_language };
-  }, [draft, preferredTarget]);
+    return {
+      ...input,
+      target_language: follow_translation_settings ? preferredTarget : input.target_language,
+      message_format: oscMessageFormat,
+      custom_format: oscMessageFormat === "custom" ? oscCustomFormat : null,
+    };
+  }, [draft, oscCustomFormat, oscMessageFormat, preferredTarget]);
   const targetRef = useRef(resolvedDraft.target_language);
   targetRef.current = resolvedDraft.target_language;
-  const localPreview = useMemo(() => previewChatboxLocally(draft), [draft]);
+  const localPreview = useMemo(() => previewChatboxLocally(resolvedDraft), [resolvedDraft]);
   const [remotePreview, setRemotePreview] = useState<{
     draft: ChatboxComposeInput;
     value: ChatboxPreview;
@@ -67,7 +80,11 @@ export function useChatboxWorkspace(settings: Settings | null, roomScopeId: stri
     if (!settings || preferencesRequested.current) return;
     preferencesRequested.current = true;
     void loadChatboxPreferences(preferredTarget).then((preferences) => {
-      setDraft((current) => applyChatboxPreferences(current, preferences));
+      setDraft((current) => {
+        const next = applyChatboxPreferences(current, preferences);
+        draftRef.current = next;
+        return next;
+      });
       setPreferencesReady(true);
     });
   }, [settings, preferredTarget]);
@@ -104,8 +121,6 @@ export function useChatboxWorkspace(settings: Settings | null, roomScopeId: stri
       currentPreferences.follow_translation_settings !== nextPreferences.follow_translation_settings
       || currentPreferences.target_language !== nextPreferences.target_language
       || currentPreferences.send_mode !== nextPreferences.send_mode
-      || currentPreferences.message_format !== nextPreferences.message_format
-      || currentPreferences.custom_format !== nextPreferences.custom_format
       || currentPreferences.overflow_policy !== nextPreferences.overflow_policy
     ) {
       void saveChatboxPreferences(nextPreferences);
@@ -138,7 +153,11 @@ export function useChatboxWorkspace(settings: Settings | null, roomScopeId: stri
       input.target_language ?? undefined,
     );
     if (!availableRef.current) return null;
-    if (roomScopeRef.current !== requestRoom || targetRef.current !== input.target_language) {
+    if (
+      roomScopeRef.current !== requestRoom
+      || targetRef.current !== input.target_language
+      || draftRef.current.original !== input.original
+    ) {
       setFeedback({ tone: "error", text: t("chatbox.translationContextChanged") });
       return null;
     }
@@ -192,8 +211,8 @@ export function useChatboxWorkspace(settings: Settings | null, roomScopeId: stri
   const send = useCallback(async () => {
     if (!preferencesReady || !availableRef.current || !draft.original.trim() || busy !== null) return false;
     // The core also saves unused translations in send history.
-    let outgoing = draft.send_mode === "original" && !translationFresh
-      ? { ...resolvedDraft, translation: null, translation_origin: null }
+    let outgoing = draft.send_mode === "original"
+      ? { ...resolvedDraft, translation: null, translation_origin: null, source_language: null }
       : resolvedDraft;
     let stage: "translate" | "send" = "send";
     setFeedback(null);
@@ -210,7 +229,9 @@ export function useChatboxWorkspace(settings: Settings | null, roomScopeId: stri
       stage = "send";
       setBusy(stage);
       await chatboxApi.sendChatbox(outgoing);
-      setDraft((current) => clearSentDraft(current));
+      const cleared = clearSentDraft(draftRef.current);
+      draftRef.current = cleared;
+      setDraft(cleared);
       setTranslationBasis(null);
       return true;
     } catch (reason) {
