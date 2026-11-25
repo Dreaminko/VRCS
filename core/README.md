@@ -30,7 +30,7 @@ schema 43 在此基础上迁移为按账号控制语音／Chatbox 来源；升�
 备份、稳定设备键与数值 ID，旧的空玩家选择仍禁止接收未配置来源。
 已启动的默认麦克风／系统输出采集会在设备暂缺、流断开或 PipeWire 服务重启后自动重建，
 保留原 PCM 通道，等待恢复时仍可停止。显式设备失效以及权限、格式等永久错误仍会上报。
-完整范围与实测限制见 [Linux 开发说明](../CONTRIBUTING.md#linux-development-initial-adaptation)。
+完整范围与实测限制见 [Linux 开发说明](../docs/CONTRIBUTING.md#linux-development-initial-adaptation)。
 网络助手尚未完成真实 VRChat/Proton、polkit、EAC 姿态与 AppImage 配套安装的验收，不能
 把构建成功当作接收可用。
 

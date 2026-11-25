@@ -3,7 +3,7 @@
 Thank you for helping improve VRCS.
 
 By contributing, you agree that your contributions are licensed under the
-[GNU Affero General Public License v3.0](LICENSE).
+[GNU Affero General Public License v3.0](../LICENSE).
 
 ## Localization
 
@@ -16,7 +16,7 @@ See the [localization contribution guide](LOCALIZATION.md) for the generator com
 For Windows development, install Node.js 24+, Rustup, Visual Studio Build Tools
 with the **Desktop development with C++** workload, and CMake on `PATH`.
 CPU and Vulkan builds do not require a GPU SDK or shader compiler. See
-[Run from source](README.md#run-from-source) for startup commands.
+[Run from source](../README.md#development) for startup commands.
 Run the commands below from the repository root.
 
 Rust uses the version and components in `rust-toolchain.toml`. Rustup installs
@@ -312,8 +312,7 @@ those builds. Nightly uses it only when creating refs.
 Run **Nightly** from `main` with a completed Beijing date to recover a missed or
 failed run. A rerun can finish publishing a manifest from an existing release.
 After merging the workflow, publish the first Nightly before publishing the
-first stable build that exposes the Nightly switch. See the
-[release plan](docs/plans/nightly-release.zh-CN.md) for versioning and rollout checks.
+first stable build that exposes the Nightly switch.
 
 ## Player audio development
 

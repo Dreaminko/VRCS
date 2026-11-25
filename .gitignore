@@ -88,5 +88,9 @@ Desktop.ini
 # Automatically generated config migration backups
 *.v*.backup.json
 
-# Local documentation
-/docs/
+# Local documentation; keep repository-tracked guides and notices
+/docs/*
+!/docs/CONTRIBUTING.md
+!/docs/LOCALIZATION.md
+!/docs/THIRD_PARTY_NOTICES.md
+!/docs/CHANGELOG.md

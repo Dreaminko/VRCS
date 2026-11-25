@@ -9,7 +9,7 @@
       "resources/vulkan-runtime/vulkan-1.dll": "vulkan-1.dll",
       "resources/vulkan-runtime/VulkanRT-License.txt": "VulkanRT-License.txt",
       "../../../LICENSE": "LICENSE",
-      "../../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+      "../../../docs/THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
     },
     "windows": {
       "webviewInstallMode": {

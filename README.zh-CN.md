@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-    <a href="https://github.com/Dreaminko/VRCS/releases/latest">下载</a> · <a href="https://github.com/Dreaminko/VRCS/issues">问题反馈</a> · <a href="CONTRIBUTING.md">参与贡献</a> · <a href="https://discord.gg/aCDnfX7paC">Discord</a> · <a href="https://qm.qq.com/q/i9kOOxFn44">QQ 群</a>
+    <a href="https://github.com/Dreaminko/VRCS/releases/latest">下载</a> · <a href="https://github.com/Dreaminko/VRCS/issues">问题反馈</a> · <a href="docs/CONTRIBUTING.md">参与贡献</a> · <a href="https://discord.gg/aCDnfX7paC">Discord</a> · <a href="https://qm.qq.com/q/i9kOOxFn44">QQ 群</a>
 </p>
 
 ![](./screenshots/01.png)
@@ -49,7 +49,7 @@
 - **接收并翻译 VRChat Chatbox（实验性）**：可在「设置 › 采集」开启「接收并翻译 VRChat Chatbox」（默认关闭）。实际接收跟随全局开始／停止采集开关，将其他音源和麦克风均设为关闭即可进入纯文字接收模式，无需启动 ASR 或 VAD。自动翻译使用「将对方的语言翻译为」中配置的文字翻译服务（实时音频翻译不能替代文字翻译），接收到的消息不会通过 OSC 回传到 VRChat。
 - **使用前提**：以上两项功能共用实验性的「VRChat 网络采集」后端。
   - **Windows**：需要以管理员权限运行 VRCS、选择实际分页文件所在磁盘并关闭系统内存压缩（修改后需重启电脑生效）。
-  - **Linux（`x86_64`）**：需要通过系统安装包（`.deb`、`.rpm` 或 AUR `vrcs-bin`，会安装 `/usr/bin/vrcs-desktop` 与对应的 polkit 策略），确保图形会话中运行着 polkit 认证代理，并安装系统 Opus 库（`libopus0` / `opus`）用于分玩家音频解码。AppImage 不包含系统二进制与策略文件，请改用系统包或参考 [CONTRIBUTING.md](CONTRIBUTING.md#linux-development-initial-adaptation) 手动配置。
+  - **Linux（`x86_64`）**：需要通过系统安装包（`.deb`、`.rpm` 或 AUR `vrcs-bin`，会安装 `/usr/bin/vrcs-desktop` 与对应的 polkit 策略），确保图形会话中运行着 polkit 认证代理，并安装系统 Opus 库（`libopus0` / `opus`）用于分玩家音频解码。AppImage 不包含系统二进制与策略文件，请改用系统包或参考 [CONTRIBUTING.md](docs/CONTRIBUTING.md#linux-development-initial-adaptation) 手动配置。
   - 开启前请仔细阅读应用内的服务条款、隐私及账号风险提示。
 
 ## 隐私
@@ -75,7 +75,7 @@ npm run dev
 
 默认构建使用 CPU 运行本地 Qwen ASR；如需 Vulkan 加速，可使用 `npm run dev:vulkan`，命令会自动准备加载器，无需安装 GPU SDK 或着色器编译器。本地运行组件与模型可在「设置 › API 与模型 › 本地模型」中下载。独立后端开发见 [Core README](core/README.md)。
 
-在 Linux（`x86_64`）上开发时，可先运行 `bash scripts/install-linux-deps.sh` 安装系统依赖，再执行 `npm ci` 与 `npm run dev`（或 `npm run dev:vulkan`）。完整的 Linux 构建条件及网络采集开发配置说明见 [CONTRIBUTING.md](CONTRIBUTING.md#linux-development-initial-adaptation)。
+在 Linux（`x86_64`）上开发时，可先运行 `bash scripts/install-linux-deps.sh` 安装系统依赖，再执行 `npm ci` 与 `npm run dev`（或 `npm run dev:vulkan`）。完整的 Linux 构建条件及网络采集开发配置说明见 [CONTRIBUTING.md](docs/CONTRIBUTING.md#linux-development-initial-adaptation)。
 
 按改动范围运行检查：
 
@@ -94,8 +94,8 @@ Rust 脚本会对工作区所有 crate 执行格式检查、Clippy 和测试；�
 npm run build
 ```
 
-贡献规范见 [CONTRIBUTING.md](CONTRIBUTING.md)，界面翻译指南见 [LOCALIZATION.md](LOCALIZATION.md)。
+贡献规范见 [CONTRIBUTING.md](docs/CONTRIBUTING.md)，界面翻译指南见 [LOCALIZATION.md](docs/LOCALIZATION.md)。
 
 ## 许可证
 
-[GNU Affero General Public License v3.0](LICENSE)（`AGPL-3.0-only`）。第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+[GNU Affero General Public License v3.0](LICENSE)（`AGPL-3.0-only`）。第三方许可见 [THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md)。

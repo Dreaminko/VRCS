@@ -61,7 +61,7 @@ jobs:
             }
           }
           Copy-Item "$debugRoot/*.dll" -Destination $artifactRoot
-          Copy-Item -LiteralPath "LICENSE", "THIRD_PARTY_NOTICES.md", "apps/desktop/src-tauri/resources/vulkan-runtime/VulkanRT-License.txt" -Destination $artifactRoot
+          Copy-Item -LiteralPath "LICENSE", "docs/THIRD_PARTY_NOTICES.md", "apps/desktop/src-tauri/resources/vulkan-runtime/VulkanRT-License.txt" -Destination $artifactRoot
           $version = (Get-Content -LiteralPath "apps/desktop/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
           @"
           VRCS Preview $version

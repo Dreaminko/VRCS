@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-    <a href="https://github.com/Dreaminko/VRCS/releases/latest">ダウンロード</a> · <a href="https://github.com/Dreaminko/VRCS/issues">問題を報告</a> · <a href="CONTRIBUTING.md">コントリビュート</a> · <a href="https://discord.gg/aCDnfX7paC">Discord</a> · <a href="https://qm.qq.com/q/i9kOOxFn44">QQ グループ</a>
+    <a href="https://github.com/Dreaminko/VRCS/releases/latest">ダウンロード</a> · <a href="https://github.com/Dreaminko/VRCS/issues">問題を報告</a> · <a href="docs/CONTRIBUTING.md">コントリビュート</a> · <a href="https://discord.gg/aCDnfX7paC">Discord</a> · <a href="https://qm.qq.com/q/i9kOOxFn44">QQ グループ</a>
 </p>
 
 ![](./screenshots/01.png)
@@ -49,7 +49,7 @@
 - **VRChat Chatbox を受信して翻訳（実験的）**：「設定 › キャプチャ」で「VRChat Chatbox を受信して翻訳」を有効にできます（デフォルトは無効）。実際の受信は全体のキャプチャ開始・停止ボタンと連動し、他の音声やマイクを無効にすれば ASR や VAD を使わないテキスト専用モードとして動作します。自動翻訳には「相手の発言の翻訳先」に設定されたテキスト翻訳サービスが使われ（リアルタイム音声翻訳は代用不可）、受信したメッセージが OSC 経由で VRChat に送り返されることはありません。
 - **利用要件**：上記 2 機能は実験的な「VRChat ネットワークキャプチャ」バックエンドを共有しています。
   - **Windows**：管理者権限での実行、ページファイルが配置されているドライブの選択、および Windows メモリ圧縮の無効化（変更後に PC の再起動が必要）が求められます。
-  - **Linux（`x86_64`）**：システムパッケージのインストール（`.deb`、`.rpm`、または AUR `vrcs-bin`。`/usr/bin/vrcs-desktop` と polkit ポリシーが導入されます）、グラフィカルセッション内で動作中の polkit 認証エージェント、およびプレイヤー別音声用のシステム Opus（`libopus0` / `opus`）が必要です。AppImage にはシステムバイナリとポリシーが含まれないため、システムパッケージを使用するか [CONTRIBUTING.md](CONTRIBUTING.md#linux-development-initial-adaptation) の手順に従って手動で配置してください。
+  - **Linux（`x86_64`）**：システムパッケージのインストール（`.deb`、`.rpm`、または AUR `vrcs-bin`。`/usr/bin/vrcs-desktop` と polkit ポリシーが導入されます）、グラフィカルセッション内で動作中の polkit 認証エージェント、およびプレイヤー別音声用のシステム Opus（`libopus0` / `opus`）が必要です。AppImage にはシステムバイナリとポリシーが含まれないため、システムパッケージを使用するか [CONTRIBUTING.md](docs/CONTRIBUTING.md#linux-development-initial-adaptation) の手順に従って手動で配置してください。
   - 有効化する前に、アプリ内の利用規約・プライバシー・アカウントリスクに関する案内をご確認ください。
 
 ## プライバシー
@@ -75,7 +75,7 @@ npm run dev
 
 デフォルトのビルドはローカル Qwen ASR に CPU を使用します。Vulkan アクセラレーションを使う場合は `npm run dev:vulkan` を実行してください。ローダーは自動で準備されるため、GPU SDK やシェーダーコンパイラーは不要です。ローカルのランタイムとモデルは「設定 › API とモデル › ローカルモデル」からダウンロードします。独立したバックエンドの開発は [Core README](core/README.md) を参照してください。
 
-Linux（`x86_64`）で開発する場合は、`bash scripts/install-linux-deps.sh` でシステム依存パッケージを導入した上で `npm ci` を実行し、`npm run dev` または `npm run dev:vulkan` で起動してください。Linux ビルドの詳細とネットワークキャプチャ開発手順は [CONTRIBUTING.md](CONTRIBUTING.md#linux-development-initial-adaptation) を参照してください。
+Linux（`x86_64`）で開発する場合は、`bash scripts/install-linux-deps.sh` でシステム依存パッケージを導入した上で `npm ci` を実行し、`npm run dev` または `npm run dev:vulkan` で起動してください。Linux ビルドの詳細とネットワークキャプチャ開発手順は [CONTRIBUTING.md](docs/CONTRIBUTING.md#linux-development-initial-adaptation) を参照してください。
 
 変更に応じたチェックを実行します。
 
@@ -94,8 +94,8 @@ CPU と Vulkan の両方に対応した Windows インストーラーをビル�
 npm run build
 ```
 
-コントリビュートの詳細は [CONTRIBUTING.md](CONTRIBUTING.md)、UI の翻訳については [LOCALIZATION.md](LOCALIZATION.md) を参照してください。
+コントリビュートの詳細は [CONTRIBUTING.md](docs/CONTRIBUTING.md)、UI の翻訳については [LOCALIZATION.md](docs/LOCALIZATION.md) を参照してください。
 
 ## ライセンス
 
-[GNU Affero General Public License v3.0](LICENSE)（`AGPL-3.0-only`）。サードパーティのライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。
+[GNU Affero General Public License v3.0](LICENSE)（`AGPL-3.0-only`）。サードパーティのライセンスは [THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md) を参照してください。

@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-    <a href="https://github.com/Dreaminko/VRCS/releases/latest">下載</a> · <a href="https://github.com/Dreaminko/VRCS/issues">回報問題</a> · <a href="CONTRIBUTING.md">參與貢獻</a> · <a href="https://discord.gg/aCDnfX7paC">Discord</a> · <a href="https://qm.qq.com/q/i9kOOxFn44">QQ 群組</a>
+    <a href="https://github.com/Dreaminko/VRCS/releases/latest">下載</a> · <a href="https://github.com/Dreaminko/VRCS/issues">回報問題</a> · <a href="docs/CONTRIBUTING.md">參與貢獻</a> · <a href="https://discord.gg/aCDnfX7paC">Discord</a> · <a href="https://qm.qq.com/q/i9kOOxFn44">QQ 群組</a>
 </p>
 
 ![](./screenshots/01.png)
@@ -49,7 +49,7 @@
 - **接收並翻譯 VRChat Chatbox（實驗性）**：可在「設定 › 擷取」開啟「接收並翻譯 VRChat Chatbox」（預設關閉）。實際接收會跟隨全域開始／停止擷取開關，若將其他音源與麥克風設為停用即可純接收文字，無須啟動 ASR 或 VAD。自動翻譯使用「將對方的語言翻譯為」中所設定的文字翻譯服務（即時音訊翻譯無法取代文字翻譯），接收到的訊息不會透過 OSC 回傳至 VRChat。
 - **使用條件**：上述兩項功能共用實驗性的「VRChat 網路擷取」後端。
   - **Windows**：須以系統管理員身分執行 VRCS、選擇實際分頁檔案所在磁碟機，並關閉 Windows 記憶體壓縮（變更後須重新啟動電腦）。
-  - **Linux（`x86_64`）**：須透過系統套件安裝（`.deb`、`.rpm` 或 AUR `vrcs-bin`，會提供 `/usr/bin/vrcs-desktop` 與對應的 polkit 策略），確保圖形工作階段中正執行 polkit 認證代理，並安裝系統 Opus 函式庫（`libopus0` / `opus`）以供分玩家音訊解碼。AppImage 不包含系統二進位檔與策略檔案，請改用系統套件或參考 [CONTRIBUTING.md](CONTRIBUTING.md#linux-development-initial-adaptation) 手動設定。
+  - **Linux（`x86_64`）**：須透過系統套件安裝（`.deb`、`.rpm` 或 AUR `vrcs-bin`，會提供 `/usr/bin/vrcs-desktop` 與對應的 polkit 策略），確保圖形工作階段中正執行 polkit 認證代理，並安裝系統 Opus 函式庫（`libopus0` / `opus`）以供分玩家音訊解碼。AppImage 不包含系統二進位檔與策略檔案，請改用系統套件或參考 [CONTRIBUTING.md](docs/CONTRIBUTING.md#linux-development-initial-adaptation) 手動設定。
   - 啟用前請先閱讀應用程式內的服務條款、隱私與帳號風險說明。
 
 ## 隱私
@@ -75,7 +75,7 @@ npm run dev
 
 預設建置以 CPU 執行本機 Qwen ASR；如需 Vulkan 加速可使用 `npm run dev:vulkan`，命令會自動準備載入器，不需安裝 GPU SDK 或著色器編譯器。本機執行元件與模型可於「設定 › API 與模型 › 本機模型」下載。獨立後端開發請見 [Core README](core/README.md)。
 
-在 Linux（`x86_64`）上開發時，可先執行 `bash scripts/install-linux-deps.sh` 安裝系統相依套件，再執行 `npm ci` 與 `npm run dev`（或 `npm run dev:vulkan`）。完整的 Linux 建置條件及網路擷取開發說明請見 [CONTRIBUTING.md](CONTRIBUTING.md#linux-development-initial-adaptation)。
+在 Linux（`x86_64`）上開發時，可先執行 `bash scripts/install-linux-deps.sh` 安裝系統相依套件，再執行 `npm ci` 與 `npm run dev`（或 `npm run dev:vulkan`）。完整的 Linux 建置條件及網路擷取開發說明請見 [CONTRIBUTING.md](docs/CONTRIBUTING.md#linux-development-initial-adaptation)。
 
 依變更範圍執行檢查：
 
@@ -94,8 +94,8 @@ Rust 指令碼會對工作區所有 crate 執行格式檢查、Clippy 與測試�
 npm run build
 ```
 
-貢獻指南見 [CONTRIBUTING.md](CONTRIBUTING.md)，介面翻譯指南見 [LOCALIZATION.md](LOCALIZATION.md)。
+貢獻指南見 [CONTRIBUTING.md](docs/CONTRIBUTING.md)，介面翻譯指南見 [LOCALIZATION.md](docs/LOCALIZATION.md)。
 
 ## 授權
 
-[GNU Affero General Public License v3.0](LICENSE)（`AGPL-3.0-only`）。第三方授權見 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+[GNU Affero General Public License v3.0](LICENSE)（`AGPL-3.0-only`）。第三方授權見 [THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md)。

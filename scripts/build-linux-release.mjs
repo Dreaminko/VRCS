@@ -405,7 +405,7 @@ try {
   if (preview) {
     cpSync(stage, join(artifactRoot, `VRCS-preview-linux-${arch}`), { recursive: true });
     copyFileSync("LICENSE", join(artifactRoot, `VRCS-preview-linux-${arch}/LICENSE`));
-    copyFileSync("THIRD_PARTY_NOTICES.md", join(artifactRoot, `VRCS-preview-linux-${arch}/THIRD_PARTY_NOTICES.md`));
+    copyFileSync("docs/THIRD_PARTY_NOTICES.md", join(artifactRoot, `VRCS-preview-linux-${arch}/THIRD_PARTY_NOTICES.md`));
     writeFileSync(join(artifactRoot, `VRCS-preview-linux-${arch}/README.txt`), "Unsigned development preview. Run usr/bin/vrcs-desktop with the entire directory intact. Requires the Linux system libraries listed in the adjacent runtime report and CJK fonts. This CI native ONNX self-test is not desktop/hardware acceptance or a published release. No automatic updates.\n");
     if (verifyPackages) {
       const verifyRoot = join(work, "verify-packages");
