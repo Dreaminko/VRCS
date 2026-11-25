@@ -305,7 +305,9 @@ mod tests {
         assert_keys(
             &value["osc"],
             [
+                "custom_format",
                 "enabled",
+                "message_format",
                 "mute_sync_enabled",
                 "port",
                 "preserve_original_text",
