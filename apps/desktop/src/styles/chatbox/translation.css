@@ -51,31 +51,3 @@
   border-color: color-mix(in srgb, var(--warning) 46%, var(--border));
 }
 
-.chatbox-format-row {
-  display: grid;
-  grid-template-columns: minmax(170px, 260px);
-  gap: 10px;
-}
-
-.chatbox-format-row.custom {
-  grid-template-columns: minmax(170px, 0.45fr) minmax(0, 1fr);
-}
-
-.chatbox-custom-format {
-  min-width: 0;
-  height: 36px;
-  padding: 0 11px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  background: var(--surface-elevated);
-  font: inherit;
-  font-size: 12px;
-}
-
-.chatbox-custom-format:focus {
-  border-color: var(--primary);
-  outline: 0;
-  box-shadow: var(--control-focus-shadow);
-}
-

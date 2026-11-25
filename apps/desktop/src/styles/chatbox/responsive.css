@@ -2,13 +2,12 @@
   .chatbox-composer {
     width: calc(100vw - 24px);
   }
+}
 
-  .chatbox-controls {
-    grid-template-columns: 1fr;
-  }
-
-  .chatbox-language-control {
-    grid-template-columns: minmax(0, 1fr) max-content;
+@container chatbox-composer (max-width: 460px) {
+  .chatbox-details-header {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .chatbox-segmented {
@@ -18,15 +17,18 @@
   .chatbox-segmented button {
     flex: 1;
   }
-
-  .chatbox-format-row {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .chatbox-composer,
+  .chatbox-composer.closing,
   .chatbox-spinner {
     animation: none;
+  }
+
+  .chatbox-details-reveal,
+  .chatbox-details,
+  .chatbox-expand-chevron {
+    transition: none;
   }
 }

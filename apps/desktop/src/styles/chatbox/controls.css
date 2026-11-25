@@ -1,13 +1,6 @@
-.chatbox-controls {
-  display: grid;
-  grid-template-columns: max-content max-content;
-  justify-content: start;
-  gap: 14px;
-}
-
 .chatbox-language-control {
   display: grid;
-  grid-template-columns: 148px max-content;
+  grid-template-columns: minmax(0, 1fr) max-content;
   gap: 8px;
 }
 
@@ -38,33 +31,12 @@
 }
 
 .chatbox-segmented {
-  display: flex;
   min-width: 0;
-  padding: 3px;
-  border-radius: 10px;
-  background: var(--surface-subtle);
 }
 
 .chatbox-segmented button {
-  min-height: 32px;
+  min-height: 28px;
   padding: 0 11px;
-  border: 0;
-  border-radius: 8px;
-  color: var(--text-secondary);
-  background: transparent;
-  cursor: pointer;
-  font-size: 11px;
-  transition: color 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out;
-}
-
-.chatbox-segmented button:active {
-  transform: scale(0.96);
-}
-
-.chatbox-segmented button.active {
-  color: var(--primary-ink);
-  background: var(--surface);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.09);
-  font-weight: 650;
+  font-size: 12px;
 }
 

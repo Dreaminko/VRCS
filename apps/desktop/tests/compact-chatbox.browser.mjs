@@ -169,7 +169,7 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
         check(!chat.draft.follow_translation_settings&&chat.draft.target_language==='de',
           'Legacy native fixed target takes precedence over the new follow default');
         check(chat.draft.send_mode==='translation'&&chat.draft.overflow_policy==='smart_truncate'
-          &&chat.draft.custom_format===legacyPreferences.custom_format&&!savedPreferences.length,
+          &&!savedPreferences.length,
           'Opening preserves legacy options without writing to the store');
         draft({follow_translation_settings:true});
         await wait(()=>savedPreferences.length===1);
@@ -229,20 +229,26 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
         check(document.querySelector('.chatbox-details').getBoundingClientRect().top>=quickBounds.bottom,'Compact send settings expand below input');
         check(Math.abs(quickBounds.top-quickTop)<1,'Expanding settings keeps input in place');
         check(Boolean(document.querySelector('.chatbox-quick-row').compareDocumentPosition(document.querySelector('.chatbox-details'))&Node.DOCUMENT_POSITION_FOLLOWING),'Keyboard order follows input then settings');
-        const follow=document.querySelector('.chatbox-checkbox input');
+        draft({send_mode:'bilingual'});
         const picker=document.querySelector('.chatbox-language-control .dropdown-trigger');
-        const preferredLabel=picker.textContent;
-        check(follow.checked&&picker.disabled,'New profiles follow settings and disable the language picker');
-        click(follow);check(!picker.disabled,'Unchecking enables manual choice');
-        click(picker);await wait(()=>document.querySelectorAll('[role="option"]').length===2);
-        click(document.querySelectorAll('[role="option"]')[1]);
+        const followLabel=picker.textContent;
+        check(chat.draft.follow_translation_settings&&!picker.disabled&&followLabel.includes(locale.translation.chatbox.followTranslationSettings),
+          'New profiles select Follow translation settings inside the language picker');
+        click(picker);await wait(()=>document.querySelectorAll('[role="option"]').length===3);
+        click(document.querySelectorAll('[role="option"]')[2]);
         const manualLabel=picker.textContent;
-        check(chat.draft.target_language==='ja'&&manualLabel!==preferredLabel,'Manual choice is stored');
-        click(follow);check(picker.disabled&&picker.textContent===preferredLabel,'Following displays the current preferred language');
-        update({preferredTarget:'ja'});check(picker.disabled&&picker.textContent===manualLabel,'Disabled picker updates with translation settings');
-        update({preferredTarget:'en'});click(follow);
-        check(!picker.disabled&&picker.textContent===manualLabel,'Unchecking restores the manual choice');
-        click(follow);
+        check(!chat.draft.follow_translation_settings&&chat.draft.target_language==='ja'&&!manualLabel.includes(locale.translation.chatbox.followTranslationSettings),
+          'Choosing a language switches to manual mode');
+        click(picker);await wait(()=>document.querySelectorAll('[role="option"]').length===3);
+        click(document.querySelectorAll('[role="option"]')[0]);
+        check(chat.draft.follow_translation_settings&&chat.draft.target_language==='ja'&&picker.textContent===followLabel,
+          'Selecting Follow preserves the manual choice and displays the current preferred language');
+        update({preferredTarget:'ja'});
+        check(picker.textContent.includes(locale.translation.chatbox.followTranslationSettings)&&picker.textContent.includes(manualLabel),
+          'Follow option label updates live with translation settings');
+        update({preferredTarget:'en'});
+        check(picker.textContent===followLabel,'Follow option returns when preferred target reverts');
+        draft({send_mode:'original'});
         frames.length=0;recordFrame();key(input(),'Escape');await fitComposer(240);
         cancelAnimationFrame(animationFrame);
         check(frames.every(frame=>Math.abs(frame.top-quickTop)<1),'Collapsing keeps input anchored during native resize');
@@ -404,9 +410,12 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
           'Player updates do not interrupt reading earlier captions');
         for(const index of [2,3])socket.receive({...players[0],utterance_id:'player-live-'+index,
           text:'Player '+index+' speaking',speaker:{id:'player-'+index,index,display_name:'Player '+index}});
+        draft({send_mode:'bilingual'});
         click(expand());await wait(()=>nativeSize.height===720);await settle();
         await wait(()=>{const stack=document.querySelector('.compact-subtitle-stack');return stack.scrollHeight>stack.clientHeight;});
-        await sendOriginal('Visible below all players');
+        draft({original:'Visible below all players',translation:'Translated',send_mode:'bilingual'});
+        const countBeforeVisible=sent.length;
+        key(input(),'Enter');await wait(()=>sent.length===countBeforeVisible+1);finishSend();await wait(()=>chat.busy===null);await settle();
         const newest=document.querySelector('.compact-subtitle-stack .compact-subtitle-row:last-child').getBoundingClientRect();
         const cappedViewport=document.querySelector('.compact-content').getBoundingClientRect();
         check(newest.top>=cappedViewport.top&&newest.bottom<=cappedViewport.bottom+1,

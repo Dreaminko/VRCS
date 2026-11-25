@@ -1,4 +1,6 @@
 .chatbox-composer {
+  container-type: inline-size;
+  container-name: chatbox-composer;
   position: fixed;
   z-index: 300;
   bottom: 100px;
@@ -6,7 +8,7 @@
   display: grid;
   width: min(580px, calc(100vw - var(--dock-sidebar-offset) - var(--dock-sidebar-offset) - 32px));
   max-height: min(440px, calc(100vh - 164px));
-  gap: 8px;
+  gap: 0;
   padding: 8px;
   overflow: hidden;
   transform: translateX(calc(-50% + var(--dock-sidebar-offset)));
@@ -18,26 +20,67 @@
   animation: chatbox-composer-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.chatbox-composer.expanded {
-  grid-template-rows: minmax(0, 1fr) auto;
+.chatbox-composer.closing {
+  pointer-events: none;
+  animation: chatbox-composer-out 130ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.chatbox-details-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 190ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 130ms ease-out;
+}
+
+.chatbox-composer.expanded .chatbox-details-reveal {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 210ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 160ms cubic-bezier(0.16, 1, 0.3, 1) 20ms;
+}
+
+.chatbox-details-clip {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chatbox-details {
   display: flex;
   min-height: 0;
+  max-height: min(360px, calc(100vh - 244px));
   flex-direction: column;
   gap: 10px;
+  margin-bottom: 8px;
   padding: 8px 8px 10px;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  transition: transform 190ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chatbox-composer.expanded .chatbox-details {
+  transition: transform 210ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.chatbox-composer:not(.expanded) .chatbox-details {
+  transform: translateY(6px);
 }
 
 .chatbox-preview-heading,
-.chatbox-controls,
 .chatbox-language-control {
   display: flex;
   align-items: center;
+}
+
+.chatbox-details-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
 }
 
 .chatbox-details-header h2 {

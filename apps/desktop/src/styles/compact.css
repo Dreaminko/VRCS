@@ -50,19 +50,10 @@ html:has(.compact-root) #root {
 }
 .compact-chatbox .chatbox-quick-row,
 .compact-chatbox .chatbox-inline-message { flex: none; }
-.compact-chatbox .chatbox-details-reveal {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 180ms ease-out;
-}
-.compact-chatbox .expanded .chatbox-details-reveal { grid-template-rows: 1fr; }
-.compact-chatbox .chatbox-details-clip { min-height: 0; overflow: hidden; }
-.compact-chatbox .chatbox-details { max-height: 340px; margin-top: 8px; }
+.compact-chatbox .chatbox-details { max-height: 340px; margin-top: 8px; margin-bottom: 0; }
+.compact-chatbox .chatbox-composer:not(.expanded) .chatbox-details { transform: translateY(-6px); }
 .compact-chatbox .chatbox-quick-input textarea { max-height: 56px; }
-.compact-chatbox .chatbox-inline-message { max-height: 32px; margin-top: 6px; overflow-y: auto; }
-@media (prefers-reduced-motion: reduce) {
-  .compact-chatbox .chatbox-details-reveal { transition: none; }
-}
+.compact-chatbox .chatbox-inline-message { max-height: 60px; margin: 6px 4px 0 8px; overflow-y: auto; }
 .compact-shell {
   display: grid;
   grid-template-rows: var(--compact-header-height) minmax(0, 1fr);

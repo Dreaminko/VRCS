@@ -6,6 +6,7 @@ import { ChevronDown, LoaderCircle } from "lucide-react";
 import { useHealth } from "../core-client/health-store";
 
 import type { Page } from "./app-types";
+import { prefersReducedMotion } from "./app-motion";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { PastConversationNotice } from "./components/PastConversationNotice";
 import { WorkspaceFrame } from "./components/WorkspaceFrame";
@@ -166,6 +167,23 @@ export function DesktopShell({
     chatbox.close();
     requestAnimationFrame(() => chatboxButtonRef.current?.focus());
   }, [chatbox.close]);
+  const chatboxVisible = page === "live" && chatbox.open;
+  const [chatboxRetained, setChatboxRetained] = useState(false);
+  const chatboxClosing = !chatboxVisible && chatboxRetained;
+  const chatboxMounted = chatboxVisible || (page === "live" && chatboxRetained);
+  useEffect(() => {
+    if (chatboxVisible) {
+      setChatboxRetained(true);
+      return;
+    }
+    if (page !== "live" || prefersReducedMotion()) {
+      setChatboxRetained(false);
+      return;
+    }
+    if (!chatboxRetained) return;
+    const timer = window.setTimeout(() => setChatboxRetained(false), 180);
+    return () => window.clearTimeout(timer);
+  }, [chatboxVisible, page, chatboxRetained]);
 
   return (
     <div
@@ -428,7 +446,7 @@ export function DesktopShell({
         onCapture={() => void capture.toggleCapture()}
       />
 
-      {page === "live" && chatbox.open && (
+      {chatboxMounted && (
         <ChatboxComposer
           draft={chatbox.draft}
           preferredTarget={chatbox.preferredTarget}
@@ -439,9 +457,12 @@ export function DesktopShell({
           oscEnabled={settings.value?.osc.enabled ?? false}
           languageCodes={providers.translationLanguageCodes}
           allowCustomLanguage={providers.allowCustomTranslationLanguage}
+          closing={chatboxClosing}
+          onCloseComplete={() => setChatboxRetained(false)}
           onDraftChange={chatbox.setDraft}
           onTranslate={chatbox.translate}
           onSend={chatbox.send}
+          onClose={closeChatbox}
         />
       )}
 

@@ -10,6 +10,10 @@
   background: var(--error-soft);
 }
 
+.chatbox-preview.truncated {
+  background: var(--warning-soft);
+}
+
 .chatbox-preview-heading {
   justify-content: space-between;
   color: var(--text-secondary);
@@ -25,6 +29,10 @@
 
 .chatbox-preview.over-limit .chatbox-preview-heading output {
   color: var(--error);
+}
+
+.chatbox-preview.truncated .chatbox-preview-heading output {
+  color: var(--warning);
 }
 
 .chatbox-preview p {
@@ -55,8 +63,13 @@
   accent-color: var(--primary-hover);
 }
 
+.chatbox-checkbox:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
 .chatbox-inline-message {
-  margin: -2px 4px 2px 52px;
+  margin: 6px 4px 2px 52px;
   font-size: 11px;
   line-height: 1.5;
 }

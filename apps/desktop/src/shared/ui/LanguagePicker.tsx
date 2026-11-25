@@ -17,6 +17,7 @@ export function LanguagePicker({
   value,
   placeholder,
   languageCodes,
+  leadingOptions,
   allowCustom = false,
   disabled = false,
   compact = false,
@@ -30,6 +31,7 @@ export function LanguagePicker({
   value: string;
   placeholder?: string;
   languageCodes: readonly string[];
+  leadingOptions?: readonly DropdownOption[];
   allowCustom?: boolean;
   disabled?: boolean;
   compact?: boolean;
@@ -41,9 +43,14 @@ export function LanguagePicker({
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
   const options = useMemo(() => {
-    const codes = Array.from(new Set([value, ...languageCodes].filter(Boolean)));
-    return codes.map((code) => languageOption(code, locale));
-  }, [languageCodes, locale, value]);
+    const leading = leadingOptions ?? [];
+    const leadingValues = new Set(leading.map((option) => option.value));
+    const codes = Array.from(new Set([
+      ...(leadingValues.has(value) ? [] : [value]),
+      ...languageCodes,
+    ].filter(Boolean)));
+    return [...leading, ...codes.map((code) => languageOption(code, locale))];
+  }, [languageCodes, leadingOptions, locale, value]);
 
   const picker = (
     <DropdownField
