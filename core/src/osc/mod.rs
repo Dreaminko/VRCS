@@ -9,7 +9,7 @@ use serde::Serialize;
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::chatbox::{ChatboxTranslationOrigin, NewChatboxMessage};
+use crate::chatbox::{ChatboxMessageFormat, ChatboxTranslationOrigin, NewChatboxMessage};
 use crate::config::OscConfig;
 use crate::db::Database;
 use crate::domain_events::DomainEventHub;
@@ -19,8 +19,8 @@ mod message;
 mod transport;
 
 #[cfg(test)]
-use message::CHATBOX_LIMIT;
-use message::format_chatbox;
+use message::{CHATBOX_LIMIT, format_chatbox};
+use message::format_chatbox_preview;
 #[cfg(test)]
 use transport::CHATBOX_ADDRESS;
 use transport::send_chatbox;
@@ -191,6 +191,9 @@ struct AutomaticMessageOutcome<'a> {
 
 struct AutomaticMessageFormatting<'a> {
     preserve_original_text: bool,
+    message_format: ChatboxMessageFormat,
+    custom_format: Option<&'a str>,
+    truncated: bool,
     translation_strategy: &'a str,
 }
 
@@ -445,8 +448,11 @@ enum OscWorkerInput {
 struct OscSendRequest {
     message: PendingMessage,
     rendered_text: String,
+    truncated: bool,
     port: u16,
     preserve_original_text: bool,
+    message_format: ChatboxMessageFormat,
+    custom_format: Option<String>,
     translation_strategy: String,
 }
 
@@ -772,18 +778,27 @@ fn reduce_tick(state: &mut OscWorkerState, now: Instant) -> Vec<OscEffect> {
     };
     let translation =
         selected_translation_text(&message, &state.config.config.translation_strategy);
-    let rendered_text = message.rendered_text.clone().unwrap_or_else(|| {
-        format_chatbox(
-            selected_original(&message, &state.config.config.translation_strategy),
-            translation.as_deref(),
-            state.config.config.preserve_original_text,
-        )
-    });
+    let (rendered_text, truncated) = match message.rendered_text.clone() {
+        Some(text) => (text, false),
+        None => {
+            let preview = format_chatbox_preview(
+                selected_original(&message, &state.config.config.translation_strategy),
+                translation.as_deref(),
+                state.config.config.preserve_original_text,
+                state.config.config.message_format,
+                state.config.config.custom_format.as_deref(),
+            );
+            (preview.text, preview.truncated)
+        }
+    };
     effects.push(OscEffect::Send(OscSendRequest {
         message,
         rendered_text,
+        truncated,
         port: state.config.config.port,
         preserve_original_text: state.config.config.preserve_original_text,
+        message_format: state.config.config.message_format,
+        custom_format: state.config.config.custom_format.clone(),
         translation_strategy: state.config.config.translation_strategy.clone(),
     }));
     effects
@@ -976,6 +991,9 @@ async fn execute_osc_effect(
                 },
                 formatting: AutomaticMessageFormatting {
                     preserve_original_text: request.preserve_original_text,
+                    message_format: request.message_format,
+                    custom_format: request.custom_format.as_deref(),
+                    truncated: request.truncated,
                     translation_strategy: &request.translation_strategy,
                 },
             })
@@ -1082,12 +1100,14 @@ async fn record_automatic_message(record: AutomaticMessageRecord<'_>) {
     let effective_translation = translation
         .as_deref()
         .filter(|value| !value.is_empty() && *value != original.as_str());
-    let (send_mode, untruncated) = match (effective_translation, formatting.preserve_original_text)
-    {
-        (Some(value), true) => ("bilingual", format!("{original}\n{value}")),
-        (Some(value), false) => ("translation", value.to_owned()),
-        (None, _) => ("original", original),
+    let send_mode = match (effective_translation, formatting.preserve_original_text) {
+        (Some(_), true) => "bilingual",
+        (Some(_), false) => "translation",
+        (None, _) => "original",
     };
+    let custom_format = (formatting.message_format == ChatboxMessageFormat::Custom)
+        .then(|| formatting.custom_format.map(str::to_owned))
+        .flatten();
     let status_is_sent = outcome.status == "sent";
     let record = NewChatboxMessage {
         source: "microphone".into(),
@@ -1096,11 +1116,11 @@ async fn record_automatic_message(record: AutomaticMessageRecord<'_>) {
         source_language: None,
         target_language: selected_target_language(message, formatting.translation_strategy),
         send_mode: send_mode.into(),
-        message_format: "original_newline_translation".into(),
-        custom_format: None,
+        message_format: formatting.message_format.as_str().into(),
+        custom_format,
         rendered_text: rendered_text.into(),
         char_count: rendered_text.chars().count(),
-        truncated: rendered_text != untruncated,
+        truncated: formatting.truncated,
         status: outcome.status.into(),
         error_code: outcome.error_detail.map(|_| "osc.send_failed".into()),
         error_detail: outcome.error_detail.map(str::to_owned),
@@ -1284,6 +1304,7 @@ mod tests {
                 mute_sync_enabled: false,
                 preserve_original_text: true,
                 translation_strategy: "preferred_only".into(),
+                ..OscConfig::default()
             },
             config_revision: 0,
             automatic_revision: 0,
@@ -1840,8 +1861,11 @@ mod tests {
                 responder: None,
             },
             rendered_text: "こんにちは\nHello".into(),
+            truncated: false,
             port: 9000,
             preserve_original_text: true,
+            message_format: ChatboxMessageFormat::OriginalNewlineTranslation,
+            custom_format: None,
             translation_strategy: "preferred_only".into(),
         };
         let mut state = OscWorkerState::new(config_state());
@@ -2056,6 +2080,7 @@ mod tests {
             mute_sync_enabled: true,
             preserve_original_text: true,
             translation_strategy: "preferred_only".into(),
+            ..OscConfig::default()
         });
         dispatcher.update_mute_status(Some(true));
         let send = tokio::spawn(async move { dispatcher.send_manual("手动消息".into()).await });
@@ -2083,6 +2108,7 @@ mod tests {
             mute_sync_enabled: false,
             preserve_original_text: true,
             translation_strategy: "preferred_only".into(),
+            ..OscConfig::default()
         });
         dispatcher.publish_subtitle(subtitle(1, "speaker", "ignored"), false);
         assert!(
@@ -2131,6 +2157,7 @@ mod tests {
             mute_sync_enabled: false,
             preserve_original_text: false,
             translation_strategy: "preferred_only".into(),
+            ..OscConfig::default()
         });
         dispatcher.publish_subtitle(subtitle(3, "microphone", "こんにちは"), true);
         dispatcher.translation_completed(
@@ -2169,6 +2196,7 @@ mod tests {
             mute_sync_enabled: false,
             preserve_original_text: true,
             translation_strategy: "all_languages".into(),
+            ..OscConfig::default()
         });
         dispatcher.publish_subtitle_with_targets(
             subtitle(4, "microphone", "こんにちは"),
@@ -2217,6 +2245,7 @@ mod tests {
             mute_sync_enabled: false,
             preserve_original_text: true,
             translation_strategy: "preferred_only".into(),
+            ..OscConfig::default()
         };
         let dispatcher = OscChatboxDispatcher::new(config.clone());
 
@@ -2247,6 +2276,7 @@ mod tests {
             mute_sync_enabled: true,
             preserve_original_text: true,
             translation_strategy: "preferred_only".into(),
+            ..OscConfig::default()
         });
 
         assert_eq!(dispatcher.queue_test(), Err("osc.blocked_mute_unknown"));
@@ -2262,5 +2292,57 @@ mod tests {
         })
         .await;
         assert!(received.is_err(), "muting must discard queued messages");
+    }
+
+    #[tokio::test]
+    async fn dispatcher_applies_configured_osc_message_formats() {
+        for (message_format, custom_format, expected) in [
+            (
+                ChatboxMessageFormat::SlashSeparated,
+                None,
+                "こんにちは / 你好",
+            ),
+            (
+                ChatboxMessageFormat::Custom,
+                Some("{translation} | {original}".into()),
+                "你好 | こんにちは",
+            ),
+        ] {
+            let receiver = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+            let dispatcher = OscChatboxDispatcher::new(OscConfig {
+                enabled: true,
+                port: receiver.local_addr().unwrap().port(),
+                mute_sync_enabled: false,
+                preserve_original_text: true,
+                message_format,
+                custom_format,
+                ..OscConfig::default()
+            });
+            dispatcher.publish_subtitle(subtitle(10, "microphone", "こんにちは"), true);
+            dispatcher.translation_completed(
+                10,
+                SubtitleTranslation {
+                    source_group: None,
+                    text: "你好".into(),
+                    source_language: Some("ja".into()),
+                    target_language: "zh-Hans".into(),
+                    provider: "local".into(),
+                    model: None,
+                    created_at: now_iso8601(),
+                },
+                true,
+            );
+            let mut buffer = [0u8; 512];
+            let (length, _) =
+                tokio::time::timeout(Duration::from_secs(2), receiver.recv_from(&mut buffer))
+                    .await
+                    .unwrap()
+                    .unwrap();
+            let (_, packet) = rosc::decoder::decode_udp(&buffer[..length]).unwrap();
+            let OscPacket::Message(message) = packet else {
+                panic!("expected OSC message")
+            };
+            assert_eq!(message.args[0], OscType::String(expected.into()));
+        }
     }
 }

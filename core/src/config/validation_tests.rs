@@ -1259,3 +1259,16 @@ fn rejects_invalid_ocr_wrist_settings() {
     config.ocr.wrist.as_mut().unwrap().offset_x_m = f32::NAN;
     assert!(config.validate_settings().is_err());
 }
+
+#[test]
+fn validates_osc_custom_message_format() {
+    let mut config = AppConfig::default();
+    config.osc.message_format = crate::chatbox::ChatboxMessageFormat::SlashSeparated;
+    assert!(config.validate_settings().is_ok());
+    config.osc.message_format = crate::chatbox::ChatboxMessageFormat::Custom;
+    assert!(config.validate_settings().is_err());
+    config.osc.custom_format = Some("{original}".into());
+    assert!(config.validate_settings().is_err());
+    config.osc.custom_format = Some("{translation} / {original}".into());
+    assert!(config.validate_settings().is_ok());
+}

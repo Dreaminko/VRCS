@@ -34,6 +34,10 @@ pub struct OscConfig {
     pub preserve_original_text: bool,
     #[serde(default = "super::language::default_translation_strategy")]
     pub translation_strategy: String,
+    #[serde(default)]
+    pub message_format: crate::chatbox::ChatboxMessageFormat,
+    #[serde(default)]
+    pub custom_format: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -123,6 +127,8 @@ impl Default for OscConfig {
             mute_sync_enabled: default_enabled(),
             preserve_original_text: default_enabled(),
             translation_strategy: super::language::default_translation_strategy(),
+            message_format: crate::chatbox::ChatboxMessageFormat::default(),
+            custom_format: None,
         }
     }
 }

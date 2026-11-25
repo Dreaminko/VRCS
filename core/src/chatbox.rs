@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub const CHATBOX_LIMIT: usize = 144;
 const MAX_TEXT_LENGTH: usize = 5_000;
-const MAX_CUSTOM_FORMAT_LENGTH: usize = 200;
+pub(crate) const MAX_CUSTOM_FORMAT_LENGTH: usize = 200;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -22,9 +22,10 @@ impl ChatboxSendMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatboxMessageFormat {
+    #[default]
     OriginalNewlineTranslation,
     TranslationNewlineOriginal,
     SlashSeparated,
@@ -186,12 +187,14 @@ pub fn preview_chatbox(
     })
 }
 
-pub fn automatic_chatbox(
+pub fn automatic_chatbox_preview(
     original: &str,
     translation: Option<&str>,
     preserve_original_text: bool,
-) -> String {
-    let input = ChatboxComposeInput {
+    message_format: ChatboxMessageFormat,
+    custom_format: Option<&str>,
+) -> ChatboxPreview {
+    let mut input = ChatboxComposeInput {
         original: original.into(),
         translation: translation.map(str::to_owned),
         translation_origin: None,
@@ -202,19 +205,36 @@ pub fn automatic_chatbox(
             (true, false) => ChatboxSendMode::Translation,
             (false, _) => ChatboxSendMode::Original,
         },
-        message_format: ChatboxMessageFormat::OriginalNewlineTranslation,
-        custom_format: None,
+        message_format,
+        custom_format: custom_format.map(str::to_owned),
         overflow_policy: ChatboxOverflowPolicy::SmartTruncate,
     };
-    preview_chatbox(&input)
-        .map(|preview| preview.text)
-        .unwrap_or_default()
+    preview_chatbox(&input).unwrap_or_else(|_| {
+        if input.message_format == ChatboxMessageFormat::Custom {
+            input.message_format = ChatboxMessageFormat::OriginalNewlineTranslation;
+            input.custom_format = None;
+            if let Ok(preview) = preview_chatbox(&input) {
+                return preview;
+            }
+        }
+        ChatboxPreview {
+            text: String::new(),
+            char_count: 0,
+            limit: CHATBOX_LIMIT,
+            over_limit: false,
+            truncated: false,
+            sendable: false,
+        }
+    })
 }
 
 fn validate_input(
     input: &ChatboxComposeInput,
 ) -> Result<(String, Option<String>), ChatboxValidationError> {
-    validate_optional_language(input.source_language.as_deref(), 20)?;
+    validate_optional_language(
+        input.source_language.as_deref(),
+        crate::providers::MAX_TRANSLATION_LANGUAGE_LENGTH,
+    )?;
     validate_optional_language(
         input.target_language.as_deref(),
         crate::providers::MAX_TRANSLATION_LANGUAGE_LENGTH,
@@ -263,10 +283,12 @@ fn validate_optional_language(
     value: Option<&str>,
     limit: usize,
 ) -> Result<(), ChatboxValidationError> {
-    if value.is_some_and(|language| language.chars().count() > limit) {
+    if value.is_some_and(|language| {
+        language.chars().count() > limit || language.chars().any(char::is_control)
+    }) {
         return Err(validation(
             "chatbox.invalid_language",
-            format!("Language code cannot exceed {limit} characters"),
+            format!("Language code cannot contain control characters or exceed {limit} characters"),
         ));
     }
     Ok(())
@@ -294,7 +316,7 @@ fn format_template(
     }
 }
 
-fn validate_custom_format(value: &str) -> Result<String, ChatboxValidationError> {
+pub(crate) fn validate_custom_format(value: &str) -> Result<String, ChatboxValidationError> {
     let length = value.chars().count();
     let original_count = value.matches("{original}").count();
     let translation_count = value.matches("{translation}").count();
@@ -431,9 +453,21 @@ mod tests {
     #[test]
     fn accepts_long_custom_translation_targets() {
         let mut draft = input("hello", Some("translation"));
+        draft.source_language = Some("sl-Latn-SI-rozaj-biske-1994".into());
         draft.target_language = Some("sl-Latn-SI-rozaj-biske-1994".into());
         assert!(preview_chatbox(&draft).unwrap().sendable);
         draft.target_language = Some("a".repeat(36));
+        assert_eq!(
+            preview_chatbox(&draft).unwrap_err().code,
+            "chatbox.invalid_language"
+        );
+        draft.target_language = Some("ja".into());
+        draft.source_language = Some("en\n".into());
+        assert_eq!(
+            preview_chatbox(&draft).unwrap_err().code,
+            "chatbox.invalid_language"
+        );
+        draft.source_language = Some("a".repeat(36));
         assert_eq!(
             preview_chatbox(&draft).unwrap_err().code,
             "chatbox.invalid_language"

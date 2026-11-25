@@ -516,6 +516,17 @@ fn validate_osc(osc: &OscConfig) -> Result<(), String> {
             osc.translation_strategy
         ));
     }
+    if osc.message_format == crate::chatbox::ChatboxMessageFormat::Custom {
+        crate::chatbox::validate_custom_format(osc.custom_format.as_deref().unwrap_or_default())
+            .map_err(|error| error.detail)?;
+    } else if let Some(custom) = osc.custom_format.as_deref()
+        && custom.chars().count() > crate::chatbox::MAX_CUSTOM_FORMAT_LENGTH
+    {
+        return Err(format!(
+            "OSC custom format cannot exceed {} characters",
+            crate::chatbox::MAX_CUSTOM_FORMAT_LENGTH
+        ));
+    }
     Ok(())
 }
 
