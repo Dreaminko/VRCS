@@ -96,6 +96,17 @@
 .dock-button.primary { color: #ffffff; background: var(--primary); }
 .dock-button.primary:hover { color: #ffffff; background: var(--primary-hover); }
 .dock-button:disabled { opacity: 0.5; pointer-events: none; }
+.dock-button-badge {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--primary);
+  pointer-events: none;
+}
 .dock-divider { width: 1px; height: 24px; margin: 0 4px; background: var(--border); }
 .dock-button::before,
 .dock-button::after {

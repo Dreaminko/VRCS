@@ -47,6 +47,7 @@ export function SystemSettingsSection({
   draft,
   applySettings,
   updater,
+  transcriptionRunning = false,
   profiles,
   debugRows,
 }: {
@@ -65,6 +66,7 @@ export function SystemSettingsSection({
   draft: Settings;
   applySettings: ApplySettings;
   updater: AppUpdaterState;
+  transcriptionRunning?: boolean;
   profiles: ApiProfileView[];
   debugRows: DebugRow[];
 }) {
@@ -318,7 +320,7 @@ export function SystemSettingsSection({
           draft={draft}
           applySettings={applySettings}
         />
-        <SoftwareUpdateSettings updater={updater} />
+        <SoftwareUpdateSettings updater={updater} transcriptionRunning={transcriptionRunning} />
         <DebugSettingsSection rows={debugRows} />
       </div>
     </div>

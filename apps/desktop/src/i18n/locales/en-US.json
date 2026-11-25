@@ -685,11 +685,24 @@
       "receiveNightlyUpdates": "Receive Nightly updates",
       "nightlyDescription": "Nightly builds may be unstable.",
       "checkNow": "Check now",
-      "availableTitle": "VRCS {{version}} ({{channel}}) is available",
+      "availableTitle": "{{version}} is available",
       "availableDescription": "A new version of VRCS is ready to install.",
       "downloadAndInstall": "Download and install",
       "openReleasePage": "Open release page",
+      "viewDetails": "View release notes",
+      "viewOnGitHub": "View on GitHub",
       "later": "Later",
+      "skipVersion": "Skip this version",
+      "versionSkipped": "Version skipped",
+      "restartNotice": "VRCS will close and restart automatically after installing.",
+      "noNotes": "No release notes were provided for this version. Open the GitHub release page for details.",
+      "loadingNotes": "Loading release notes…",
+      "lastChecked": "Last checked {{time}}",
+      "versionTransition": "v{{current}} → v{{next}}",
+      "nightlyWaitStableHint": "Your current Nightly build stays active until a higher Stable version is released.",
+      "downloadProgressBytes": "{{downloaded}} / {{total}}",
+      "downloadedBytes": "Downloaded {{downloaded}}",
+      "manualDownloadHint": "Download installer manually",
       "stopTranscriptionFirst": "Stop transcription before installing the update.",
       "status": {
         "ready": "Ready to check for updates.",
@@ -698,7 +711,8 @@
         "upToDate": "VRCS is up to date.",
         "available": "Version {{version}} ({{channel}}) is ready to download.",
         "downloading": "Downloading update…",
-        "installing": "Installing update…"
+        "installing": "Installing update…",
+        "installingRestart": "Installing update and restarting…"
       },
       "errors": {
         "conversations": {
@@ -720,6 +734,10 @@
         "nightly_check_failed": "Could not check for Nightly updates. Try again.",
         "both_checks_failed": "Could not check for Stable or Nightly updates. Try again.",
         "preference_save_failed": "Could not save the Nightly update preference. Try again.",
+        "timeout": "The update request timed out. Check your connection and try again.",
+        "download_failed": "Could not download the update package. Check your network or download manually from GitHub.",
+        "signature_invalid": "Update signature verification failed. Please download the release directly from GitHub.",
+        "install_failed": "Could not launch the update installer. Ensure no installer is locked and try again.",
         "failed": "Could not complete the update operation. Check your connection and try again."
       }
     },

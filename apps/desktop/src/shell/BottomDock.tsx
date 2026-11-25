@@ -4,7 +4,7 @@ import { Eye, GraduationCap, MessageSquare, MessageSquarePlus, Mic, Shrink, Slid
 
 import type { Page } from "../app/app-types";
 
-export function BottomDock({ learningAvailable, chatboxAvailable, page, running, chatboxOpen, captureDisabled, captureReason, chatboxDisabled, chatboxButtonRef, onPageChange, onPageIntent, onCompact, onChatbox, onCapture, onVision, visionDisabled }: {
+export function BottomDock({ learningAvailable, chatboxAvailable, page, running, chatboxOpen, captureDisabled, captureReason, chatboxDisabled, chatboxButtonRef, onPageChange, onPageIntent, onCompact, onChatbox, onCapture, onVision, visionDisabled, updateAvailable = false }: {
   learningAvailable: boolean;
   chatboxAvailable: boolean;
   page: Page;
@@ -21,13 +21,14 @@ export function BottomDock({ learningAvailable, chatboxAvailable, page, running,
   onCapture: () => void;
   onVision?: () => void;
   visionDisabled?: boolean;
+  updateAvailable?: boolean;
 }) {
   const { t } = useTranslation();
   return (
     <nav className={`bottom-dock ${chatboxOpen ? "chatbox-open" : ""}`} aria-label={t("navigation.main")}>
       <DockButton label={t("navigation.live")} active={page === "live"} onClick={() => onPageChange("live")}><MessageSquare /></DockButton>
       {learningAvailable && <DockButton label={t("navigation.learning")} active={page === "learning"} onIntent={() => onPageIntent?.("learning")} onClick={() => onPageChange("learning")}><GraduationCap /></DockButton>}
-      <DockButton label={t("navigation.settings")} active={page === "settings"} onIntent={() => onPageIntent?.("settings")} onClick={() => onPageChange("settings")}><SlidersHorizontal /></DockButton>
+      <DockButton label={t("navigation.settings")} active={page === "settings"} badge={updateAvailable} onIntent={() => onPageIntent?.("settings")} onClick={() => onPageChange("settings")}><SlidersHorizontal /></DockButton>
       <i className="dock-divider" aria-hidden="true" />
       <DockButton label={t("navigation.compact")} tonal onClick={onCompact}><Shrink /></DockButton>
       {chatboxAvailable && <DockButton
@@ -44,13 +45,14 @@ export function BottomDock({ learningAvailable, chatboxAvailable, page, running,
   );
 }
 
-function DockButton({ label, tooltip, active = false, tonal = false, primary = false, disabled = false, expanded, buttonRef, onIntent, onClick, children }: {
+function DockButton({ label, tooltip, active = false, tonal = false, primary = false, disabled = false, badge = false, expanded, buttonRef, onIntent, onClick, children }: {
   label: string;
   tooltip?: string;
   active?: boolean;
   tonal?: boolean;
   primary?: boolean;
   disabled?: boolean;
+  badge?: boolean;
   expanded?: boolean;
   buttonRef?: Ref<HTMLButtonElement>;
   onIntent?: () => void;
@@ -71,6 +73,9 @@ function DockButton({ label, tooltip, active = false, tonal = false, primary = f
       onPointerDown={onIntent}
       onPointerEnter={onIntent}
       onClick={onClick}
-    >{children}</button>
+    >
+      {children}
+      {badge && <span className="dock-button-badge" aria-hidden="true" />}
+    </button>
   );
 }

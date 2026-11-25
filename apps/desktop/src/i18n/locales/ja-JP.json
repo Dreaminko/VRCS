@@ -685,11 +685,24 @@
       "receiveNightlyUpdates": "Nightly の更新を受け取る",
       "nightlyDescription": "Nightly は動作が不安定な場合があります。",
       "checkNow": "今すぐ確認",
-      "availableTitle": "VRCS {{version}}（{{channel}}）を利用できます",
+      "availableTitle": "{{version}} を利用できます",
       "availableDescription": "新しいバージョンをダウンロードしてインストールできます。",
       "downloadAndInstall": "ダウンロードしてインストール",
       "openReleasePage": "リリースページを開く",
+      "viewDetails": "更新内容を見る",
+      "viewOnGitHub": "GitHub で見る",
       "later": "後で",
+      "skipVersion": "このバージョンをスキップ",
+      "versionSkipped": "スキップ済み",
+      "restartNotice": "インストール完了後、VRCS は自動的に再起動します。",
+      "noNotes": "このバージョンの更新内容は記載されていません。詳細は GitHub のリリースページを確認してください。",
+      "loadingNotes": "更新内容を読み込んでいます…",
+      "lastChecked": "最終確認：{{time}}",
+      "versionTransition": "v{{current}} → v{{next}}",
+      "nightlyWaitStableHint": "現在の Nightly ビルドは、より新しい正式版が公開されるまで維持されます。",
+      "downloadProgressBytes": "{{downloaded}} / {{total}}",
+      "downloadedBytes": "{{downloaded}} ダウンロード済み",
+      "manualDownloadHint": "GitHub から手動でダウンロード",
       "stopTranscriptionFirst": "更新をインストールする前に文字起こしを停止してください。",
       "status": {
         "ready": "更新を確認できます。",
@@ -698,7 +711,8 @@
         "upToDate": "VRCS は最新です。",
         "available": "バージョン {{version}}（{{channel}}）をダウンロードできます。",
         "downloading": "更新をダウンロードしています…",
-        "installing": "更新をインストールしています…"
+        "installing": "更新をインストールしています…",
+        "installingRestart": "更新をインストールして再起動しています…"
       },
       "errors": {
         "conversations": {
@@ -720,6 +734,10 @@
         "nightly_check_failed": "Nightly の更新を確認できませんでした。もう一度お試しください。",
         "both_checks_failed": "正式版と Nightly の更新を確認できませんでした。もう一度お試しください。",
         "preference_save_failed": "Nightly の更新設定を保存できませんでした。もう一度お試しください。",
+        "timeout": "更新リクエストがタイムアウトしました。接続を確認して再試行してください。",
+        "download_failed": "更新パッケージのダウンロードに失敗しました。接続を確認するか GitHub から手動で取得してください。",
+        "signature_invalid": "更新パッケージの署名検証に失敗しました。GitHub のリリースページから直接ダウンロードしてください。",
+        "install_failed": "インストーラーを起動または書き込みできませんでした。ファイルが使用中でないか確認して再試行してください。",
         "failed": "更新操作を完了できませんでした。接続を確認して再試行してください。"
       }
     },

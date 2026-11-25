@@ -6,12 +6,82 @@
   padding: 8px 4px;
 }
 .software-update-summary > div { display: grid; min-width: 0; gap: 3px; }
+.software-update-version-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
 .software-update-summary strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 .software-update-summary small { color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .software-update-summary p { margin: 2px 0 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-reading); }
 .software-update-summary p.error { color: var(--error); }
 .software-update-summary .secondary-button { justify-self: end; }
 .software-update-settings .spin { animation: model-spin 900ms linear infinite; }
+
+.software-update-available {
+  display: grid;
+  gap: 10px;
+  margin: 8px 4px 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+}
+.software-update-available-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+.software-update-available-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.software-update-available-title strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.software-update-available-header small {
+  color: var(--text-quiet);
+  font-size: var(--settings-text-caption);
+}
+.software-update-skipped-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  color: var(--text-quiet);
+  background: var(--surface);
+  font-size: 11px;
+}
+.software-update-warning {
+  color: var(--warning);
+  font-size: var(--settings-text-caption);
+  line-height: 1.5;
+}
+.software-update-available-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+.software-update-available-actions :is(.primary-button, .secondary-button) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.software-update-nightly-note {
+  margin: 4px 4px 0;
+  color: var(--text-quiet);
+  font-size: var(--settings-text-caption);
+  line-height: var(--settings-leading-reading);
+}
 
 @media (max-width: 680px) {
   .software-update-summary { grid-template-columns: 1fr; }

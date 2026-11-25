@@ -685,11 +685,24 @@
       "receiveNightlyUpdates": "接收 Nightly 更新",
       "nightlyDescription": "Nightly 可能不稳定。",
       "checkNow": "立即检查",
-      "availableTitle": "VRCS {{version}}（{{channel}}）已发布",
+      "availableTitle": "{{version}} 已发布",
       "availableDescription": "新版本已可下载并安装。",
       "downloadAndInstall": "下载并安装",
       "openReleasePage": "打开发布页面",
+      "viewDetails": "查看更新内容",
+      "viewOnGitHub": "在 GitHub 查看",
       "later": "稍后",
+      "skipVersion": "跳过此版本",
+      "versionSkipped": "已跳过此版本",
+      "restartNotice": "安装完成后，VRCS 将自动关闭并重启。",
+      "noNotes": "此版本暂未提供更新说明，可前往 GitHub 发布页面查看详情。",
+      "loadingNotes": "正在加载更新说明…",
+      "lastChecked": "上次检查：{{time}}",
+      "versionTransition": "v{{current}} → v{{next}}",
+      "nightlyWaitStableHint": "当前 Nightly 版本将保留至更高版本的正式版发布后再升级。",
+      "downloadProgressBytes": "{{downloaded}} / {{total}}",
+      "downloadedBytes": "已下载 {{downloaded}}",
+      "manualDownloadHint": "前往 GitHub 手动下载",
       "stopTranscriptionFirst": "请先停止转写，再安装更新。",
       "status": {
         "ready": "可检查软件更新。",
@@ -698,7 +711,8 @@
         "upToDate": "当前已是最新版本。",
         "available": "版本 {{version}}（{{channel}}）已可下载。",
         "downloading": "正在下载更新…",
-        "installing": "正在安装更新…"
+        "installing": "正在安装更新…",
+        "installingRestart": "正在安装更新并重启…"
       },
       "errors": {
         "conversations": {
@@ -720,6 +734,10 @@
         "nightly_check_failed": "无法检查 Nightly 更新，请重试。",
         "both_checks_failed": "无法检查正式版和 Nightly 更新，请重试。",
         "preference_save_failed": "无法保存 Nightly 更新设置，请重试。",
+        "timeout": "更新请求超时，请检查网络连接或代理设置后重试。",
+        "download_failed": "下载更新包失败，请检查网络连接或前往 GitHub 手动下载。",
+        "signature_invalid": "更新包签名校验失败，请前往 GitHub 发布页面手动下载。",
+        "install_failed": "无法启动或写入更新安装程序，请确认文件未被占用后重试。",
         "failed": "更新操作未能完成，请检查网络连接后重试。"
       }
     },

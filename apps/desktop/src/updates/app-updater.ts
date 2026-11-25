@@ -1,6 +1,10 @@
 import { Channel, invoke, isTauri } from "@tauri-apps/api/core";
 
+import { resolveUpdateErrorKey, stripPlatformNotesSection } from "./update-notes.ts";
+
 const RELEASE_PAGE_URL = "https://github.com/Dreaminko/VRCS/releases/latest";
+const RELEASE_API_BASE = "https://api.github.com/repos/Dreaminko/VRCS/releases/tags";
+const RELEASE_TAG_PATTERN = /^[0-9A-Za-z._-]+$/;
 
 export interface AppBuildInfo {
   version: string;
@@ -16,7 +20,9 @@ export interface AppUpdateMetadata {
   version: string;
   currentVersion: string;
   notes: string | null;
+  publishedAt?: string | null;
   channel: "stable" | "nightly";
+  releaseTag?: string | null;
   releaseUrl?: string | null;
 }
 
@@ -41,9 +47,34 @@ export async function openReleasePage(url?: string | null): Promise<void> {
   window.open(target, "_blank", "noopener,noreferrer");
 }
 
-export async function checkForAppUpdate(): Promise<AppUpdateMetadata | null> {
+export async function checkForAppUpdate(background = false): Promise<AppUpdateMetadata | null> {
   if (!isTauri()) return null;
-  return invoke<AppUpdateMetadata | null>("check_for_update");
+  return invoke<AppUpdateMetadata | null>("check_for_update", { background });
+}
+
+export async function fetchGitHubReleaseNotes(
+  tag: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const trimmedTag = tag.trim();
+  if (!RELEASE_TAG_PATTERN.test(trimmedTag)) return null;
+  try {
+    const timeoutSignal = AbortSignal.timeout(8_000);
+    const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+    const response = await fetch(`${RELEASE_API_BASE}/${encodeURIComponent(trimmedTag)}`, {
+      headers: { Accept: "application/vnd.github+json" },
+      signal: requestSignal,
+    });
+    if (!response.ok) return null;
+    const payload: unknown = await response.json();
+    if (!payload || typeof payload !== "object") return null;
+    const body = (payload as { body?: unknown }).body;
+    if (typeof body !== "string") return null;
+    const stripped = stripPlatformNotesSection(body);
+    return stripped || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function downloadAndInstallAppUpdate(
@@ -57,7 +88,8 @@ export async function downloadAndInstallAppUpdate(
 }
 
 export function updaterErrorCode(reason: unknown): string {
-  return typeof reason === "string" && reason.startsWith("update.")
-    ? reason.slice("update.".length)
-    : "failed";
+  if (typeof reason === "string" && reason.startsWith("update.")) {
+    return resolveUpdateErrorKey(reason.slice("update.".length));
+  }
+  return "failed";
 }

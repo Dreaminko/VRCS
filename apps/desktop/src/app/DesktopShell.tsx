@@ -18,6 +18,7 @@ import type { SettingsCategory } from "../settings/settings-types";
 import { BottomDock } from "../shell/BottomDock";
 import { WindowChrome } from "../shell/WindowChrome";
 import { LiveView, TopStatus } from "../subtitles/components/SubtitleViews";
+import { UpdateDetailsDialog } from "../updates/UpdateDetailsDialog";
 import { UpdateNotice } from "../updates/UpdateNotice";
 import { SelectionToolOverlays } from "./SelectionToolOverlays";
 import type { AppWorkspace } from "./useAppWorkspace";
@@ -433,6 +434,7 @@ export function DesktopShell({
           setPage(next);
         }}
         onPageIntent={preloadPage}
+        updateAvailable={integrations.updater.hasUnreadUpdate}
         onCompact={() => void compact.enterCompact()}
         onChatbox={() => {
           if (page !== "live") {
@@ -475,6 +477,10 @@ export function DesktopShell({
         updater={integrations.updater}
         transcriptionRunning={runtime.health?.capture_requested ?? false}
         hideError={page === "settings"}
+      />
+      <UpdateDetailsDialog
+        updater={integrations.updater}
+        transcriptionRunning={runtime.health?.capture_requested ?? false}
       />
     </div>
   );

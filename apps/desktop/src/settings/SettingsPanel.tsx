@@ -191,6 +191,7 @@ export function SettingsPanel({
           draft={draft}
           applySettings={applySettings}
           updater={updater}
+          transcriptionRunning={health?.capture_requested ?? false}
           profiles={apiProfileCatalog.profiles}
           debugRows={debugRows}
         />
