@@ -43,7 +43,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-store = "2"
 tauri-plugin-updater = "2"
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["macros", "sync"] }
 uuid = { workspace = true, features = ["v4"] }
 vrcs-core = { path = "../../../core", default-features = false }
 png = "0.17"

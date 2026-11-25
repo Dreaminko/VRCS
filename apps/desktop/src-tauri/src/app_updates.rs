@@ -58,11 +58,13 @@ pub(crate) struct UpdateMetadata {
     version: String,
     current_version: String,
     notes: Option<String>,
+    published_at: Option<String>,
     channel: UpdateChannel,
+    release_tag: Option<String>,
     release_url: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum UpdateChannel {
     Stable,
@@ -104,7 +106,7 @@ pub(crate) enum DownloadEvent {
     Finished,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum UpdateError {
     Unavailable,
     Busy,
@@ -112,6 +114,10 @@ pub(crate) enum UpdateError {
     CheckFailed(UpdateChannel),
     BothChecksFailed,
     PreferenceSaveFailed,
+    Timeout,
+    DownloadFailed,
+    SignatureInvalid,
+    InstallFailed,
     Failed,
 }
 
@@ -128,9 +134,64 @@ impl Serialize for UpdateError {
             Self::CheckFailed(UpdateChannel::Nightly) => "update.nightly_check_failed",
             Self::BothChecksFailed => "update.both_checks_failed",
             Self::PreferenceSaveFailed => "update.preference_save_failed",
+            Self::Timeout => "update.timeout",
+            Self::DownloadFailed => "update.download_failed",
+            Self::SignatureInvalid => "update.signature_invalid",
+            Self::InstallFailed => "update.install_failed",
             Self::Failed => "update.failed",
         };
         serializer.serialize_str(code)
+    }
+}
+
+fn release_tag_for(channel: UpdateChannel, version: &str) -> Option<String> {
+    let trimmed = version.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    match channel {
+        UpdateChannel::Stable => Some(trimmed.to_owned()),
+        UpdateChannel::Nightly => {
+            let parsed = Version::parse(trimmed).ok()?;
+            let date = parsed.pre.as_str().strip_prefix("nightly.")?;
+            if date.len() == 8 && date.bytes().all(|digit| digit.is_ascii_digit()) {
+                Some(format!("nightly-{date}"))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+fn release_url_for(channel: UpdateChannel, version: &str) -> String {
+    match release_tag_for(channel, version) {
+        Some(tag) => format!("https://github.com/Dreaminko/VRCS/releases/tag/{tag}"),
+        None => RELEASE_PAGE_URL.to_owned(),
+    }
+}
+
+fn classify_install_error(error: &tauri_plugin_updater::Error) -> UpdateError {
+    match error {
+        tauri_plugin_updater::Error::Reqwest(reqwest_error) if reqwest_error.is_timeout() => {
+            UpdateError::Timeout
+        }
+        tauri_plugin_updater::Error::Reqwest(_)
+        | tauri_plugin_updater::Error::Network(_)
+        | tauri_plugin_updater::Error::Http(_) => UpdateError::DownloadFailed,
+        tauri_plugin_updater::Error::Minisign(_)
+        | tauri_plugin_updater::Error::Base64(_)
+        | tauri_plugin_updater::Error::SignatureUtf8(_)
+        | tauri_plugin_updater::Error::InsecureTransportProtocol => UpdateError::SignatureInvalid,
+        tauri_plugin_updater::Error::Io(_)
+        | tauri_plugin_updater::Error::TempDirNotOnSameMountPoint
+        | tauri_plugin_updater::Error::TempDirNotFound
+        | tauri_plugin_updater::Error::AuthenticationFailed
+        | tauri_plugin_updater::Error::DebInstallFailed
+        | tauri_plugin_updater::Error::PackageInstallFailed
+        | tauri_plugin_updater::Error::InvalidUpdaterFormat
+        | tauri_plugin_updater::Error::FailedToDetermineExtractPath
+        | tauri_plugin_updater::Error::BinaryNotFoundInArchive => UpdateError::InstallFailed,
+        _ => UpdateError::Failed,
     }
 }
 
@@ -312,12 +373,16 @@ async fn check_channel(
 pub(crate) async fn check_for_update(
     app: AppHandle,
     state: State<'_, UpdateState>,
+    background: Option<bool>,
 ) -> Result<Option<UpdateMetadata>, UpdateError> {
     if !updater_available() {
         return Err(UpdateError::Unavailable);
     }
     let _busy = acquire_busy(&state)?;
-    *state.pending.lock().map_err(|_| UpdateError::Failed)? = None;
+    let is_background = background.unwrap_or(false);
+    if !is_background {
+        *state.pending.lock().map_err(|_| UpdateError::Failed)? = None;
+    }
     let receive_nightly = nightly_supported()
         && app
             .store("preferences.json")
@@ -329,11 +394,13 @@ pub(crate) async fn check_for_update(
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
 
-    let stable = check_channel(&app, UpdateChannel::Stable).await;
-    let nightly = if receive_nightly {
-        check_channel(&app, UpdateChannel::Nightly).await
+    let (stable, nightly) = if receive_nightly {
+        tokio::join!(
+            check_channel(&app, UpdateChannel::Stable),
+            check_channel(&app, UpdateChannel::Nightly)
+        )
     } else {
-        Ok(None)
+        (check_channel(&app, UpdateChannel::Stable).await, Ok(None))
     };
     let (update, channel) = match (stable, nightly) {
         (Ok(Some(stable)), Ok(Some(nightly))) => {
@@ -349,16 +416,30 @@ pub(crate) async fn check_for_update(
         }
         (Ok(Some(stable)), _) => (stable, UpdateChannel::Stable),
         (_, Ok(Some(nightly))) => (nightly, UpdateChannel::Nightly),
-        (Ok(None), Ok(None)) => return Ok(None),
+        (Ok(None), Ok(None)) => {
+            *state.pending.lock().map_err(|_| UpdateError::Failed)? = None;
+            return Ok(None);
+        }
         (Err(_), Err(_)) => return Err(UpdateError::BothChecksFailed),
         (Err(error), _) | (_, Err(error)) => return Err(error),
     };
+    let published_at = update
+        .raw_json
+        .get("pub_date")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    let release_tag = release_tag_for(channel, &update.version);
+    let release_url = release_url_for(channel, &update.version);
     let metadata = UpdateMetadata {
         version: update.version.clone(),
         current_version: update.current_version.clone(),
         notes: update.body.clone(),
+        published_at,
         channel,
-        release_url: Some(RELEASE_PAGE_URL.to_owned()),
+        release_tag,
+        release_url: Some(release_url),
     };
     *state.pending.lock().map_err(|_| UpdateError::Failed)? =
         can_install_updates().then_some(update);
@@ -411,7 +492,7 @@ pub(crate) async fn download_and_install_update(
         .ok_or(UpdateError::NoPendingUpdate)?;
     let started = AtomicBool::new(false);
 
-    update
+    let install_result = update
         .download_and_install(
             |chunk_length, content_length| {
                 if !started.swap(true, Ordering::AcqRel) {
@@ -423,11 +504,16 @@ pub(crate) async fn download_and_install_update(
                 let _ = on_event.send(DownloadEvent::Finished);
             },
         )
-        .await
-        .map_err(|error| {
-            tracing::error!(%error, "application update installation failed");
-            UpdateError::Failed
-        })?;
+        .await;
+    if let Err(error) = install_result {
+        tracing::error!(%error, "application update installation failed");
+        if let Ok(mut pending) = state.pending.lock()
+            && pending.is_none()
+        {
+            *pending = Some(update);
+        }
+        return Err(classify_install_error(&error));
+    }
     #[cfg(target_os = "linux")]
     {
         let restart_app = app.clone();
@@ -444,7 +530,11 @@ pub(crate) async fn download_and_install_update(
 
 #[cfg(test)]
 mod tests {
-    use super::{DownloadEvent, target, variant};
+    use super::{
+        DownloadEvent, UpdateChannel, UpdateError, classify_install_error, release_tag_for,
+        release_url_for, target, variant,
+    };
+    use semver::Version;
     use serde_json::json;
 
     #[test]
@@ -472,6 +562,79 @@ mod tests {
                 std::env::consts::OS,
                 std::env::consts::ARCH
             )
+        );
+    }
+
+    #[test]
+    fn release_tag_and_url_match_channel() {
+        assert_eq!(
+            release_tag_for(UpdateChannel::Stable, "0.4.1").as_deref(),
+            Some("0.4.1")
+        );
+        assert_eq!(
+            release_url_for(UpdateChannel::Stable, "0.4.1"),
+            "https://github.com/Dreaminko/VRCS/releases/tag/0.4.1"
+        );
+        assert_eq!(
+            release_tag_for(UpdateChannel::Nightly, "0.4.1-nightly.20261124").as_deref(),
+            Some("nightly-20261124")
+        );
+        assert_eq!(
+            release_url_for(UpdateChannel::Nightly, "0.4.1-nightly.20261124"),
+            "https://github.com/Dreaminko/VRCS/releases/tag/nightly-20261124"
+        );
+        assert_eq!(
+            release_tag_for(UpdateChannel::Nightly, "0.4.1-beta.1"),
+            None
+        );
+    }
+
+    #[test]
+    fn update_channel_matches_versions_strictly() {
+        assert!(UpdateChannel::Stable.matches(&Version::parse("0.4.1").unwrap()));
+        assert!(!UpdateChannel::Stable.matches(&Version::parse("0.4.1-nightly.20261124").unwrap()));
+        assert!(UpdateChannel::Nightly.matches(&Version::parse("0.4.1-nightly.20261124").unwrap()));
+        assert!(!UpdateChannel::Nightly.matches(&Version::parse("0.4.1").unwrap()));
+        assert!(!UpdateChannel::Nightly.matches(&Version::parse("0.4.1-nightly.202611").unwrap()));
+    }
+
+    #[test]
+    fn update_error_serializes_expected_codes() {
+        assert_eq!(
+            serde_json::to_value(UpdateError::Timeout).unwrap(),
+            json!("update.timeout")
+        );
+        assert_eq!(
+            serde_json::to_value(UpdateError::DownloadFailed).unwrap(),
+            json!("update.download_failed")
+        );
+        assert_eq!(
+            serde_json::to_value(UpdateError::SignatureInvalid).unwrap(),
+            json!("update.signature_invalid")
+        );
+        assert_eq!(
+            serde_json::to_value(UpdateError::InstallFailed).unwrap(),
+            json!("update.install_failed")
+        );
+    }
+
+    #[test]
+    fn classify_install_error_maps_error_categories() {
+        assert_eq!(
+            classify_install_error(&tauri_plugin_updater::Error::Network("reset".into())),
+            UpdateError::DownloadFailed
+        );
+        assert_eq!(
+            classify_install_error(&tauri_plugin_updater::Error::SignatureUtf8(
+                "bad sig".into()
+            )),
+            UpdateError::SignatureInvalid
+        );
+        assert_eq!(
+            classify_install_error(&tauri_plugin_updater::Error::Io(std::io::Error::other(
+                "disk full"
+            ))),
+            UpdateError::InstallFailed
         );
     }
 }
