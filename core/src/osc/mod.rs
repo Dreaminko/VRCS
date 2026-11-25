@@ -18,9 +18,9 @@ use crate::models::{Subtitle, SubtitleTranslation, now_iso8601};
 mod message;
 mod transport;
 
+use message::format_chatbox_preview;
 #[cfg(test)]
 use message::{CHATBOX_LIMIT, format_chatbox};
-use message::format_chatbox_preview;
 #[cfg(test)]
 use transport::CHATBOX_ADDRESS;
 use transport::send_chatbox;
