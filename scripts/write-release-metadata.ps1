@@ -4,7 +4,9 @@ param(
     [Parameter(Mandatory)][string]$ArtifactRoot,
     [ValidateSet('stable', 'nightly')][string]$Channel = 'stable',
     [string]$BuildDate,
-    [string]$SourceSha
+    [string]$SourceSha,
+    [string]$Notes,
+    [string]$NotesFile
 )
 
 $ErrorActionPreference = "Stop"
@@ -51,13 +53,25 @@ $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.T
 $checksum = Get-Content -LiteralPath "$($installer.FullName).sha256" -Raw
 if ($checksum.Trim() -cne "$hash  $artifactName") { throw "Installer checksum does not match the artifact" }
 
+$resolvedNotes = $null
+if (-not [string]::IsNullOrWhiteSpace($NotesFile) -and (Test-Path -LiteralPath $NotesFile -PathType Leaf)) {
+    $fileNotes = ([System.IO.File]::ReadAllText($NotesFile, [System.Text.UTF8Encoding]::new($false))).Trim()
+    if (-not [string]::IsNullOrWhiteSpace($fileNotes)) { $resolvedNotes = $fileNotes }
+}
+if (-not $resolvedNotes -and -not [string]::IsNullOrWhiteSpace($Notes)) {
+    $resolvedNotes = $Notes.Trim()
+}
+if (-not $resolvedNotes) {
+    $resolvedNotes = "VRCS $Version Nightly ($BuildDate, commit $($SourceSha.Substring(0, 7)))."
+}
+
 $platform = [ordered]@{
     url = "https://github.com/$repository/releases/download/$tag/$artifactName"
     signature = $signature.Trim()
 }
 $latest = [ordered]@{
     version = $Version
-    notes = "Windows 10/11 x64 Nightly for VRCS $Version, built from the last main update on $BuildDate (Beijing time)."
+    notes = $resolvedNotes
     pub_date = [DateTime]::UtcNow.ToString("o")
     platforms = [ordered]@{
         'windows-x86_64-standard' = $platform

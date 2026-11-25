@@ -90,6 +90,14 @@ try {
         throw "Nightly metadata did not match expected fields"
     }
 
+    $notesFile = Join-Path $testRoot "nightly-notes.md"
+    [System.IO.File]::WriteAllText($notesFile, "### Features`n- Added changelog support", [System.Text.UTF8Encoding]::new($false))
+    $nightlyWithNotesPath = & $metadataScript -Version $nightlyVersion -ArtifactRoot $testRoot -Channel nightly -BuildDate "2026-11-19" -SourceSha $sha -NotesFile $notesFile
+    $nightlyWithNotes = Get-Content -LiteralPath $nightlyWithNotesPath -Raw | ConvertFrom-Json
+    if ($nightlyWithNotes.notes -cne "### Features`n- Added changelog support") {
+        throw "Nightly metadata did not preserve NotesFile content"
+    }
+
     [System.IO.File]::WriteAllText((Join-Path $testRoot "VRCS-$nightlyVersion-windows-x64-extra.exe"), "stale second installer")
     Assert-MetadataFailure -ExpectedError "exactly one standard installer" -TargetVersion $nightlyVersion -ExtraArguments @{ Channel = "nightly"; BuildDate = "2026-11-19"; SourceSha = $sha }
     Remove-Item -LiteralPath (Join-Path $testRoot "VRCS-$nightlyVersion-windows-x64-extra.exe")

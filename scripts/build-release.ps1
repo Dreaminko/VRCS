@@ -5,6 +5,7 @@ param(
     [ValidateSet('stable', 'nightly')][string]$Channel = 'stable',
     [string]$BuildDate,
     [string]$SourceSha,
+    [string]$ReleaseNotesFile,
     [string]$RepoRoot = (Join-Path $PSScriptRoot '..'),
     [switch]$SkipInstall,
     [switch]$SkipTests,
@@ -208,7 +209,7 @@ try {
 
     $releaseBuilds = @(Invoke-ReleaseBuild -Label "standard" -Features @("vulkan"))
     $metadataPath = & (Join-Path $PSScriptRoot "write-release-metadata.ps1") `
-        -Version $Version -ArtifactRoot $artifactRoot -Channel $Channel -BuildDate $BuildDate -SourceSha $SourceSha
+        -Version $Version -ArtifactRoot $artifactRoot -Channel $Channel -BuildDate $BuildDate -SourceSha $SourceSha -NotesFile $ReleaseNotesFile
     Assert-NonEmptyFile $metadataPath
 
     $releaseArtifacts = @($releaseBuilds | ForEach-Object {

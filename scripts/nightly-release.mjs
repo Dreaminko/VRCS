@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { appendFile, readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { formatCommitChangelog } from './changelog-utils.mjs';
 
 const env = process.env;
 const apiRoot = `${env.GITHUB_API_URL}/repos/${env.GITHUB_REPOSITORY}`;
@@ -117,7 +119,61 @@ async function checkHistory(sha) {
   const core = parseVersion(version, stablePattern);
   requireValue(stable.tag_name === version, `Stable updater version ${version} differs from release tag ${stable.tag_name}`);
   await requireAncestor(await refSha(`tags/${version}`), sha, `${sha} does not contain stable tag ${version}`);
-  return core;
+  return { core, stableTag: version };
+}
+
+export function buildNightlyNotes({
+  version,
+  date,
+  sha,
+  commits = [],
+  baseRef,
+  repository = env.GITHUB_REPOSITORY || 'Dreaminko/VRCS',
+}) {
+  const shortSha = typeof sha === 'string' && sha ? sha.slice(0, 7) : '';
+  const heading = shortSha
+    ? `VRCS ${version} Nightly (${date}, \`${shortSha}\`)`
+    : `VRCS ${version} Nightly (${date})`;
+  const compareUrl = baseRef && sha && baseRef !== sha
+    ? `https://github.com/${repository}/compare/${baseRef}...${sha}`
+    : undefined;
+  return formatCommitChangelog(commits, { heading, compareUrl });
+}
+
+async function resolveNightlyBaseline(sha, stableTag) {
+  try {
+    const head = await refSha(updateRef, true);
+    if (head) {
+      const existing = await api(`contents/${manifestName}?ref=${head}`);
+      const previous = JSON.parse(Buffer.from(existing.content, 'base64'));
+      if (shaPattern.test(previous?.source_sha) && previous.source_sha !== sha) {
+        const result = await api(`compare/${previous.source_sha}...${sha}?per_page=1`);
+        if (result?.status === 'ahead' && result?.merge_base_commit?.sha === previous.source_sha) {
+          return previous.source_sha;
+        }
+      }
+    }
+  } catch {
+    // Fall back to the latest stable tag when previous nightly metadata is unavailable.
+  }
+  return stableTag;
+}
+
+async function collectNightlyNotes({ version, date, sha, stableTag }) {
+  try {
+    const baseRef = await resolveNightlyBaseline(sha, stableTag);
+    const compare = await api(`compare/${baseRef}...${sha}?per_page=100`);
+    const commits = Array.isArray(compare?.commits)
+      ? compare.commits.map((entry) => ({
+          sha: entry.sha,
+          subject: String(entry.commit?.message || '').split(/\r?\n/, 1)[0],
+        }))
+      : [];
+    return buildNightlyNotes({ version, date, sha, commits, baseRef });
+  } catch (error) {
+    console.warn(`Could not build detailed Nightly commit summary: ${error.message}`);
+    return buildNightlyNotes({ version, date, sha, commits: [] });
+  }
 }
 
 async function buildVersion(sha, date, stableCore) {
@@ -166,13 +222,15 @@ async function detect() {
 
     const sha = activity.after;
     requireValue(shaPattern.test(sha), 'Repository activity has no valid target SHA');
-    const stableCore = await checkHistory(sha);
+    const { core: stableCore, stableTag } = await checkHistory(sha);
     const tag = tagFor(date);
     const release = await releaseFor(tag);
     const published = Boolean(release && !release.draft);
     await requireTag(tag, sha, !published);
     const version = published ? '' : await buildVersion(sha, date, stableCore);
-    await appendFile(env.GITHUB_OUTPUT, `sha=${sha}\ndate=${date}\nversion=${version}\npublished=${published}\n`);
+    const notes = published ? '' : await collectNightlyNotes({ version, date, sha, stableTag });
+    const notesB64 = notes ? Buffer.from(notes, 'utf8').toString('base64') : '';
+    await appendFile(env.GITHUB_OUTPUT, `sha=${sha}\ndate=${date}\nversion=${version}\npublished=${published}\nnotes_b64=${notesB64}\n`);
     console.log(`Selected ${sha} for ${date}${published ? ' (published release)' : ''}`);
     return;
   }
@@ -274,7 +332,7 @@ async function publish() {
   dateStart(date);
   requireValue(shaPattern.test(sha), 'Publishing requires the selected full source SHA');
   const tag = tagFor(date);
-  const stableCore = await checkHistory(sha);
+  const { core: stableCore } = await checkHistory(sha);
   let release = await releaseFor(tag, true);
   const taggedSha = await requireTag(tag, sha, !release || release.draft);
 
@@ -294,7 +352,7 @@ async function publish() {
     }
     const fields = {
       name: `VRCS ${version}`,
-      body: `Build date: ${date} (Beijing time)\n\nSource commit: \`${sha}\`\n\n[Actions run](${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID})`,
+      body: `${manifest.notes.trim()}\n\n---\n\nBuild date: ${date} (Beijing time)\n\nSource commit: \`${sha}\`\n\n[Actions run](${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID})`,
       target_commitish: sha,
       prerelease: true,
       make_latest: 'false',
@@ -315,7 +373,7 @@ async function publish() {
     requireValue(release.draft, `${tag} published before its assets could be verified`);
     const verified = await verifyRelease(release, tag, date, sha, version);
     requireValue(verified.bytes.equals(bytes), 'Uploaded manifest differs from the build artifact');
-    requireValue(version === await buildVersion(sha, date, await checkHistory(sha)),
+    requireValue(version === await buildVersion(sha, date, (await checkHistory(sha)).core),
       'Stable version changed before the draft could be published');
     await requireTag(tag, sha);
     const published = await api(`releases/${release.id}`, {
@@ -330,8 +388,10 @@ async function publish() {
   await updateManifest(verified.bytes, verified.manifest);
 }
 
-requireValue(env.GITHUB_REF === mainRef, 'Nightly release workflow must run from main');
-const mode = process.argv[2];
-if (mode === 'detect') await detect();
-else if (mode === 'publish') await publish();
-else throw new Error('Expected detect or publish');
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  requireValue(env.GITHUB_REF === mainRef, 'Nightly release workflow must run from main');
+  const mode = process.argv[2];
+  if (mode === 'detect') await detect();
+  else if (mode === 'publish') await publish();
+  else throw new Error('Expected detect or publish');
+}

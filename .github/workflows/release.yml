@@ -238,13 +238,21 @@ jobs:
           path: release-artifacts
       - name: Install package inspection tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends squashfs-tools rpm rpm2cpio cpio
-      - name: Verify every package, architecture, checksum and updater signature
+      - name: Resolve release notes and verify every package, architecture, checksum and updater signature
         env:
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
-        run: node scripts/release-metadata.mjs aggregate release-artifacts "$GITHUB_REF_NAME" release-publish
+        run: |
+          node scripts/release-metadata.mjs release-notes "$GITHUB_REF_NAME" . > "$RUNNER_TEMP/changelog.md"
+          RELEASE_NOTES_FILE="$RUNNER_TEMP/changelog.md" node scripts/release-metadata.mjs aggregate release-artifacts "$GITHUB_REF_NAME" release-publish
       - name: Ensure GitHub release exists
         run: |
-          cat > "$RUNNER_TEMP/release-notes.txt" <<NOTES
+          {
+            cat "$RUNNER_TEMP/changelog.md"
+            printf '\n\n<!-- vrcs-platform-notes-start -->\n'
+            cat <<NOTES
+          <details>
+          <summary>Platform &amp; Installation Notes</summary>
+
           Windows 10/11 x64 and Linux x86_64 (\`.deb\`, \`.rpm\`, and \`.AppImage\`) packages for VRCS.
 
           - \`VRCS-${GITHUB_REF_NAME}-windows-x64.exe\` supports cloud recognition and managed local Qwen ASR on CPU or Vulkan. A compatible GPU and graphics driver are required for Vulkan.
@@ -256,7 +264,11 @@ jobs:
           - Linux player audio needs Opus (\`libopus0\` on Debian/Ubuntu/openSUSE, \`opus\` on Fedora/RHEL); \`.deb\` and \`.rpm\` declare it, AppImage users install it separately.
           - Install CJK fonts (\`fonts-noto-cjk\` / \`google-noto-sans-cjk-fonts\` / \`noto-sans-cjk-fonts\`) when they are not already available.
           - CI ONNX loading and container install checks do not replace real desktop/audio/VR hardware acceptance; consult the compatibility matrix.
+
+          </details>
+          <!-- vrcs-platform-notes-end -->
           NOTES
+          } > "$RUNNER_TEMP/release-notes.txt"
           if gh release view "$GITHUB_REF_NAME" --json isDraft >/dev/null 2>&1; then
             gh release edit "$GITHUB_REF_NAME" --title "VRCS $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.txt"
           else

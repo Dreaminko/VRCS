@@ -5,7 +5,9 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { test } from "node:test";
-import { aggregateRelease, checkProjectVersion, publishAssetNames, releaseTargets, stagePublishAssets, validatePackage, verifyUpdaterSignature, writeTargetManifest } from "./release-metadata.mjs";
+import { aggregateRelease, checkProjectVersion, publishAssetNames, releaseTargets, resolveReleaseNotes, stagePublishAssets, validatePackage, verifyUpdaterSignature, writeTargetManifest } from "./release-metadata.mjs";
+import { extractChangelogSection, formatCommitChangelog } from "./changelog-utils.mjs";
+import { buildNightlyNotes } from "./nightly-release.mjs";
 
 const version = "1.2.3";
 const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -310,4 +312,90 @@ test("aggregateRelease writes SHA256SUMS.txt and stages strictly publishable ass
   assert.throws(() => aggregateRelease({ root: brokenRoot, version, publicKey: encodedKey, publishDir: brokenPublish }), /every release target/);
   assert.ok(!existsSync(join(brokenRoot, "SHA256SUMS.txt")));
   assert.ok(!existsSync(brokenPublish));
+});
+
+test("extractChangelogSection parses matching version blocks cleanly", () => {
+  const markdown = [
+    "# Changelog",
+    "",
+    "## [Unreleased]",
+    "- Pending work",
+    "",
+    "## [0.4.1] - 2026-11-25",
+    "### Features",
+    "- Added rich update dialog",
+    "",
+    "## 0.4.0",
+    "### Fixes",
+    "- Fixed startup crash",
+  ].join("\n");
+
+  assert.equal(
+    extractChangelogSection(markdown, "0.4.1"),
+    "### Features\n- Added rich update dialog",
+  );
+  assert.equal(
+    extractChangelogSection(markdown, "0.4.0"),
+    "### Fixes\n- Fixed startup crash",
+  );
+  assert.equal(extractChangelogSection(markdown, "0.3.9"), null);
+});
+
+test("formatCommitChangelog groups conventional commits and omits noisy entries", () => {
+  const notes = formatCommitChangelog(
+    [
+      { sha: "1234567890abcdef", subject: "feat(desktop): add update details dialog" },
+      { sha: "abcdef1234567890", subject: "fix(core): prevent audio stall" },
+      { sha: "2222222222222222", subject: "style: run rustfmt" },
+      { sha: "3333333333333333", subject: "Merge pull request #99 from test/branch" },
+    ],
+    {
+      heading: "VRCS 0.4.1-nightly.20261125",
+      compareUrl: "https://github.com/Dreaminko/VRCS/compare/0.4.0...abc",
+    },
+  );
+  assert.match(notes, /### Features\n- \*\*desktop\*\*: add update details dialog \(`1234567`\)/);
+  assert.match(notes, /### Fixes\n- \*\*core\*\*: prevent audio stall \(`abcdef1`\)/);
+  assert.doesNotMatch(notes, /rustfmt/);
+  assert.doesNotMatch(notes, /Merge pull request/);
+  assert.match(notes, /\[Full Changelog\]\(https:\/\/github\.com\/Dreaminko\/VRCS\/compare\/0\.4\.0\.\.\.abc\)/);
+});
+
+test("resolveReleaseNotes prefers explicit notes, notesFile, then docs/CHANGELOG.md", (t) => {
+  const root = fixture(t);
+  const changelogDir = join(root, "docs");
+  mkdirSync(changelogDir, { recursive: true });
+  writeFileSync(
+    join(changelogDir, "CHANGELOG.md"),
+    "## [1.2.3] - 2026-11-25\n\n### Features\n- Changelog feature\n",
+  );
+  const notesFile = join(root, "override.md");
+  writeFileSync(notesFile, "### Features\n- File override\n");
+
+  assert.equal(
+    resolveReleaseNotes({ version, repoRoot: root }),
+    "### Features\n- Changelog feature",
+  );
+  assert.equal(
+    resolveReleaseNotes({ version, repoRoot: root, notesFile }),
+    "### Features\n- File override",
+  );
+  assert.equal(
+    resolveReleaseNotes({ version, repoRoot: root, notes: "Direct notes", notesFile }),
+    "Direct notes",
+  );
+});
+
+test("buildNightlyNotes includes build date, commit list, and compare link", () => {
+  const notes = buildNightlyNotes({
+    version: "0.4.1-nightly.20261125",
+    date: "2026-11-25",
+    sha: "0123456789abcdef0123456789abcdef01234567",
+    baseRef: "0.4.0",
+    repository: "Dreaminko/VRCS",
+    commits: [{ sha: "0123456789abcdef", subject: "feat(updates): show real notes" }],
+  });
+  assert.match(notes, /VRCS 0\.4\.1-nightly\.20261125 Nightly \(2026-11-25, `0123456`\)/);
+  assert.match(notes, /\*\*updates\*\*: show real notes/);
+  assert.match(notes, /0\.4\.0\.\.\.0123456789abcdef0123456789abcdef01234567/);
 });

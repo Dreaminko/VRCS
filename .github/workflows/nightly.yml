@@ -31,6 +31,7 @@ jobs:
       version: ${{ steps.detect.outputs.version }}
       published: ${{ steps.detect.outputs.published }}
       reuse: ${{ steps.ci.outputs.reuse }}
+      notes_b64: ${{ steps.detect.outputs.notes_b64 }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -110,12 +111,18 @@ jobs:
           NIGHTLY_SHA: ${{ needs.detect.outputs.sha }}
           NIGHTLY_DATE: ${{ needs.detect.outputs.date }}
           NIGHTLY_VERSION: ${{ needs.detect.outputs.version }}
+          NIGHTLY_NOTES_B64: ${{ needs.detect.outputs.notes_b64 }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
         run: |
+          $notesFile = ""
+          if (-not [string]::IsNullOrWhiteSpace($env:NIGHTLY_NOTES_B64)) {
+            $notesFile = Join-Path $env:RUNNER_TEMP "nightly-notes.md"
+            [System.IO.File]::WriteAllBytes($notesFile, [System.Convert]::FromBase64String($env:NIGHTLY_NOTES_B64))
+          }
           .\.nightly-tools\scripts\build-release.ps1 -RepoRoot $env:GITHUB_WORKSPACE -Channel nightly `
-            -Version $env:NIGHTLY_VERSION -BuildDate $env:NIGHTLY_DATE -SourceSha $env:NIGHTLY_SHA -SkipInstall -SkipTests -KeepOpenVrCache
+            -Version $env:NIGHTLY_VERSION -BuildDate $env:NIGHTLY_DATE -SourceSha $env:NIGHTLY_SHA -ReleaseNotesFile $notesFile -SkipInstall -SkipTests -KeepOpenVrCache
       - uses: actions/upload-artifact@v7
         with:
           name: nightly-windows-x64-${{ needs.detect.outputs.sha }}

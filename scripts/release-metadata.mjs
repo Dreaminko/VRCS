@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { extractChangelogSection, formatCommitChangelog } from "./changelog-utils.mjs";
 
 const versionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 export const releaseTargets = [
@@ -214,7 +215,73 @@ export function stagePublishAssets({ root, version, publishDir }) {
     return destination;
   });
 }
-export function aggregateRelease({ root, version, publicKey, repository = "Dreaminko/VRCS", now = new Date(), publishDir }) {
+export function resolveReleaseNotes({
+  version,
+  notes,
+  notesFile,
+  changelogPath,
+  repoRoot = ".",
+  repository = "Dreaminko/VRCS",
+}) {
+  requireVersion(version);
+  if (typeof notes === "string" && notes.trim()) return notes.trim();
+  if (typeof notesFile === "string" && notesFile.trim() && existsSync(notesFile)) {
+    const fileNotes = readFileSync(notesFile, "utf8").trim();
+    if (fileNotes) return fileNotes;
+  }
+
+  const resolvedChangelog = changelogPath ?? join(repoRoot, "docs", "CHANGELOG.md");
+  if (existsSync(resolvedChangelog)) {
+    const extracted = extractChangelogSection(readFileSync(resolvedChangelog, "utf8"), version);
+    if (extracted) return extracted;
+  }
+
+  try {
+    const tags = execFileSync("git", ["-C", repoRoot, "tag", "-l", "--sort=-v:refname"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .split(/\r?\n/)
+      .map((tag) => tag.trim())
+      .filter((tag) => /^\d+\.\d+\.\d+$/.test(tag) && tag !== version);
+    const previousTag = tags[0];
+    if (previousTag) {
+      const logOutput = execFileSync(
+        "git",
+        ["-C", repoRoot, "log", `${previousTag}..HEAD`, "--no-merges", "--pretty=format:%H%x1f%s"],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+      );
+      const commits = logOutput
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => {
+          const [sha, ...rest] = line.split("\x1f");
+          return { sha, subject: rest.join("\x1f") };
+        });
+      const formatted = formatCommitChangelog(commits, {
+        compareUrl: `https://github.com/${repository}/compare/${previousTag}...${version}`,
+      });
+      if (formatted) return formatted;
+    }
+  } catch {
+    // Non-git fixtures and stripped environments fall through to the minimal release summary.
+  }
+
+  return `VRCS ${version} release.`;
+}
+
+export function aggregateRelease({
+  root,
+  version,
+  publicKey,
+  repository = "Dreaminko/VRCS",
+  now = new Date(),
+  publishDir,
+  notes,
+  notesFile,
+  changelogPath,
+  repoRoot = ".",
+}) {
   requireVersion(version);
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error("Invalid release repository");
   const platforms = {};
@@ -240,7 +307,8 @@ export function aggregateRelease({ root, version, publicKey, repository = "Dream
   }
   checksums.sort((a, b) => (a.artifact < b.artifact ? -1 : a.artifact > b.artifact ? 1 : 0));
   writeFileSync(join(root, "SHA256SUMS.txt"), `${checksums.map(({ artifact, hash }) => `${hash}  ${artifact}`).join("\n")}\n`);
-  const latest = { version, notes: `VRCS ${version}. Windows x64 and Linux x86_64 (deb, rpm, AppImage; Ubuntu 24.04 / glibc 2.39+ baseline). System packages (deb/rpm) update through the package manager; signed AppImage packages support in-app updates. Hardware compatibility is documented separately.`, pub_date: now.toISOString(), platforms };
+  const resolvedNotes = resolveReleaseNotes({ version, notes, notesFile, changelogPath, repoRoot, repository });
+  const latest = { version, notes: resolvedNotes, pub_date: now.toISOString(), platforms };
   const path = join(root, "latest.json");
   writeFileSync(path, `${JSON.stringify(latest, null, 2)}\n`);
   if (publishDir) stagePublishAssets({ root, version, publishDir });
@@ -249,7 +317,8 @@ export function aggregateRelease({ root, version, publicKey, repository = "Dream
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [command, ...args] = process.argv.slice(2);
   if (command === "target") console.log(writeTargetManifest({ root: args[0], version: args[1], os: args[2], arch: args[3], channel: args[4] }));
-  else if (command === "aggregate") console.log(aggregateRelease({ root: args[0], version: args[1], publicKey: process.env.TAURI_UPDATER_PUBLIC_KEY, repository: process.env.GITHUB_REPOSITORY || "Dreaminko/VRCS", publishDir: args[2] }));
+  else if (command === "aggregate") console.log(aggregateRelease({ root: args[0], version: args[1], publicKey: process.env.TAURI_UPDATER_PUBLIC_KEY, repository: process.env.GITHUB_REPOSITORY || "Dreaminko/VRCS", publishDir: args[2], notesFile: args[3] || process.env.RELEASE_NOTES_FILE }));
+  else if (command === "release-notes") console.log(resolveReleaseNotes({ version: args[0], repoRoot: args[1] || ".", repository: process.env.GITHUB_REPOSITORY || "Dreaminko/VRCS" }));
   else if (command === "check-version") checkProjectVersion(args[0], args[1] || ".");
-  else throw new Error("Usage: release-metadata.mjs target ROOT VERSION OS ARCH CHANNEL | aggregate ROOT VERSION [PUBLISH_DIR] | check-version VERSION [ROOT]");
+  else throw new Error("Usage: release-metadata.mjs target ROOT VERSION OS ARCH CHANNEL | aggregate ROOT VERSION [PUBLISH_DIR] [NOTES_FILE] | release-notes VERSION [ROOT] | check-version VERSION [ROOT]");
 }
