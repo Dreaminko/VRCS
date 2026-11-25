@@ -42,7 +42,7 @@
   font-size: 12px;
 }
 
-.chatbox-overflow-choice {
+.chatbox-checkbox {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -51,7 +51,7 @@
   font-size: 11px;
 }
 
-.chatbox-overflow-choice input {
+.chatbox-checkbox input {
   accent-color: var(--primary-hover);
 }
 

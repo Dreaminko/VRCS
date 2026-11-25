@@ -1488,8 +1488,10 @@ pub fn supports_translation_language(profile: &ApiProfile, language: &str) -> bo
     })
 }
 
+pub(crate) const MAX_TRANSLATION_LANGUAGE_LENGTH: usize = 35;
+
 pub fn is_valid_translation_language(language: &str) -> bool {
-    if !(2..=35).contains(&language.len()) {
+    if !(2..=MAX_TRANSLATION_LANGUAGE_LENGTH).contains(&language.len()) {
         return false;
     }
     let mut subtags = language.split('-');

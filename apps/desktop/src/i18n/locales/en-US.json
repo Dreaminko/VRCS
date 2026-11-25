@@ -112,6 +112,7 @@
     "chatbox": {
       "title": "Send to Chatbox",
       "detailsTitle": "Send settings",
+      "followTranslationSettings": "Follow translation settings",
       "expandDetails": "Expand send settings",
       "collapseDetails": "Collapse send settings",
       "translationPreviewPending": "The translation will be generated when you send",
@@ -120,7 +121,8 @@
       "originalPlaceholder": "Write a message to send to VRChat",
       "translation": "Translation",
       "translationPlaceholder": "Edit the translated message here",
-      "translationStale": "Original changed",
+      "translationStale": "Translation is out of date",
+      "translationContextChanged": "The target language or room changed during translation. Please try again.",
       "targetLanguage": "Target language",
       "translate": "Translate",
       "sendMode": "Send content",

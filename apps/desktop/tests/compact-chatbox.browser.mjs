@@ -46,6 +46,8 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
         window.dispatchEvent(new Event('resize'));
       };
       mockWindows('main');
+      let legacyPreferences, finishReadingPreferences, failPreferenceRead=false;
+      const savedPreferences=[];
       mockIPC(async(cmd,args)=>{
         if(cmd==='plugin:window|inner_size')return nativeSize;
         if(cmd==='plugin:window|scale_factor')return 1;
@@ -55,6 +57,16 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
           applySize(args.value.size);return;
         }
         if(cmd==='plugin:window|set_size_constraints'){constraints=args.value;return;}
+        if(legacyPreferences){
+          if(cmd==='plugin:store|load')return 1;
+          if(cmd==='plugin:store|get'&&args.key==='chatboxSendSettings'){
+            if(failPreferenceRead)throw new Error('Native read failed');
+            await new Promise(resolve=>{finishReadingPreferences=resolve;});
+            return [legacyPreferences,true];
+          }
+          if(cmd==='plugin:store|set'){savedPreferences.push(args.value);return;}
+          if(cmd==='plugin:store|save')return;
+        }
         if(cmd.startsWith('plugin:store|'))throw new Error('Use browser preferences');
       });
       localStorage.clear();
@@ -104,13 +116,13 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
       function Fixture(){
         const [state,setState]=useState({ready:true,enabled:true,osc:true,overlay:false,transparent:false,outputMode:'system'});
         flags=state;update=partial=>flushSync(()=>setState(current=>({...current,...partial})));
-        const settings={features:{glossary:state.enabled,learning:state.enabled},osc:{enabled:state.osc},translation:{microphone_targets:[{target_language:'en'}]},audio:{output:{mode:state.outputMode}}};
+        const settings={features:{glossary:state.enabled,learning:state.enabled},osc:{enabled:state.osc},translation:{microphone_targets:[{target_language:state.preferredTarget??'en'}]},audio:{output:{mode:state.outputMode}}};
         controller=useCompactWindow({clearErrorFrom:noop,reportError:reason=>nativeErrors.push(reason)});
-        chat=useChatboxWorkspace(settings);
+        chat=useChatboxWorkspace(settings,state.room);
         stream=useSubtitleStream({coreConfigured:true,clearErrorFrom:noop,reportError:noop});
         useConversationCatalog({coreReady:true,conversationCatalogEvent:stream.conversationCatalogEvent,
           openConversation:stream.openConversation,openConversationAt:stream.openConversationAt,clearErrorFrom:noop,reportError:noop});
-        const props={draft:chat.draft,preview:chat.preview,busy:chat.busy,feedback:chat.feedback,translationStale:chat.translationStale,
+        const props={draft:chat.draft,preferredTarget:chat.preferredTarget,preview:chat.preview,busy:chat.busy,feedback:chat.feedback,translationStale:chat.translationStale,
           oscEnabled:state.osc,languageCodes:['en','ja'],allowCustomLanguage:true,onDraftChange:chat.setDraft,onTranslate:chat.translate,onSend:chat.send};
         return controller.compact?<CompactEntry
           compact={{...controller,transparentBackground:state.transparent,overlayOpen:state.overlay,selectionPanelOpen:false,
@@ -143,6 +155,34 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
         await wait(()=>nativeSize.height===Math.min(720,base+composerSpace()));
       };
       try{
+        function MigrationFixture(){
+          chat=useChatboxWorkspace({translation:{microphone_targets:[{target_language:'en'}]}});
+          return null;
+        }
+        legacyPreferences={target_language:'de',send_mode:'translation',message_format:'custom',
+          custom_format:'{translation} / {original}',overflow_policy:'smart_truncate'};
+        flushSync(()=>root.render(<MigrationFixture/>));
+        await wait(()=>finishReadingPreferences);
+        flushSync(()=>chat.show());
+        check(!chat.open,'Early open waits for saved preferences');
+        finishReadingPreferences();await wait(()=>chat.open);
+        check(!chat.draft.follow_translation_settings&&chat.draft.target_language==='de',
+          'Legacy native fixed target takes precedence over the new follow default');
+        check(chat.draft.send_mode==='translation'&&chat.draft.overflow_policy==='smart_truncate'
+          &&chat.draft.custom_format===legacyPreferences.custom_format&&!savedPreferences.length,
+          'Opening preserves legacy options without writing to the store');
+        draft({follow_translation_settings:true});
+        await wait(()=>savedPreferences.length===1);
+        check(savedPreferences[0].target_language==='de'&&savedPreferences[0].follow_translation_settings,
+          'Following retains the legacy manual target on disk');
+        flushSync(()=>root.render(null));
+        failPreferenceRead=true;
+        flushSync(()=>root.render(<MigrationFixture/>));
+        flushSync(()=>chat.show());await wait(()=>chat.open);
+        draft({send_mode:'original'});
+        await wait(()=>JSON.parse(localStorage.getItem('vrcs.chatbox-send-settings.v1'))?.send_mode==='original');
+        check(savedPreferences.length===1,'Fallback edits cannot overwrite unread native preferences');
+        legacyPreferences=null;localStorage.clear();
         flushSync(()=>root.render(<Fixture/>));
         await settle();
         await controller.enterCompact();await settle();
@@ -189,6 +229,20 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
         check(document.querySelector('.chatbox-details').getBoundingClientRect().top>=quickBounds.bottom,'Compact send settings expand below input');
         check(Math.abs(quickBounds.top-quickTop)<1,'Expanding settings keeps input in place');
         check(Boolean(document.querySelector('.chatbox-quick-row').compareDocumentPosition(document.querySelector('.chatbox-details'))&Node.DOCUMENT_POSITION_FOLLOWING),'Keyboard order follows input then settings');
+        const follow=document.querySelector('.chatbox-checkbox input');
+        const picker=document.querySelector('.chatbox-language-control .dropdown-trigger');
+        const preferredLabel=picker.textContent;
+        check(follow.checked&&picker.disabled,'New profiles follow settings and disable the language picker');
+        click(follow);check(!picker.disabled,'Unchecking enables manual choice');
+        click(picker);await wait(()=>document.querySelectorAll('[role="option"]').length===2);
+        click(document.querySelectorAll('[role="option"]')[1]);
+        const manualLabel=picker.textContent;
+        check(chat.draft.target_language==='ja'&&manualLabel!==preferredLabel,'Manual choice is stored');
+        click(follow);check(picker.disabled&&picker.textContent===preferredLabel,'Following displays the current preferred language');
+        update({preferredTarget:'ja'});check(picker.disabled&&picker.textContent===manualLabel,'Disabled picker updates with translation settings');
+        update({preferredTarget:'en'});click(follow);
+        check(!picker.disabled&&picker.textContent===manualLabel,'Unchecking restores the manual choice');
+        click(follow);
         frames.length=0;recordFrame();key(input(),'Escape');await fitComposer(240);
         cancelAnimationFrame(animationFrame);
         check(frames.every(frame=>Math.abs(frame.top-quickTop)<1),'Collapsing keeps input anchored during native resize');
@@ -211,11 +265,16 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
         finishSend();await wait(()=>chat.busy===null);await settle();
         check(input().value===''&&toggle().getAttribute('aria-expanded')==='true','Success clears text without closing');
         await wait(()=>captions().includes('你好'));
-        draft({original:'需要翻译',send_mode:'bilingual',translation:null});
+        draft({original:'需要翻译',send_mode:'bilingual',translation:'Old translation'});
+        check(!chat.translationStale,'Edited translation matches the initial preferred language');
+        update({preferredTarget:'ja'});
+        check(chat.translationStale,'Changing the preferred language invalidates the translation');
         key(input(),'Enter');await wait(()=>translated.length===1);
+        check(translated[0].target_language==='ja','Translation uses the new preferred language');
         await controller.exitCompact();await settle();
         await controller.enterCompact();await settle();
         finishTranslation();await wait(()=>sent.length===2);
+        check(sent[1].target_language==='ja'&&chat.draft.follow_translation_settings,'Sending resolves the language and retains follow mode');
         check(translated.length===1&&sent[1].translation==='Hello translated','Translation-on-send survives mode switch once');
         failSend=true;finishSend();await wait(()=>chat.busy===null);await settle();
         check(input().value==='需要翻译'&&document.querySelector('[role="status"]'),'Failure retains draft and reports feedback');
@@ -382,9 +441,27 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
             'Earlier Chatbox rows can be read by scrolling instead of being discarded in '+outputMode);
           stack.scrollTop=stack.scrollHeight;await settle();
         }
+        const sentBeforeChange=sent.length;
+        draft({original:'Keep this draft',translation:null,send_mode:'bilingual'});
+        key(input(),'Enter');await wait(()=>chat.busy==='translate');
+        update({preferredTarget:'fr'});finishTranslation();await wait(()=>chat.busy===null);
+        check(sent.length===sentBeforeChange&&chat.draft.original==='Keep this draft'&&chat.draft.translation===null
+          &&chat.feedback?.text===locale.translation.chatbox.translationContextChanged,
+          'Changing target mid-send keeps the draft and explains why nothing was sent');
+        const previousCount=translated.length;
+        void chat.translate();await wait(()=>translated.length>previousCount);
+        update({room:'new-room'});finishTranslation();await wait(()=>chat.busy===null);
+        check(chat.draft.translation===null&&chat.feedback?.text===locale.translation.chatbox.translationContextChanged,
+          'A late translation from the previous room cannot populate the new room');
+        draft({translation:'Bonjour',send_mode:'original'});update({preferredTarget:'en'});
+        key(input(),'Enter');await wait(()=>sent.length===sentBeforeChange+1);
+        check(sent.at(-1).translation===null&&sent.at(-1).target_language==='en'
+          &&!('follow_translation_settings' in sent.at(-1)),
+          'Original-only sends omit stale translation metadata and UI preferences');
+        finishSend();await wait(()=>chat.busy===null);
         check(nativeErrors.length===0,'Native geometry transitions produce no errors');
         document.getElementById('result').textContent='PASS';
-      }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack+'\nGeometry: '+JSON.stringify({nativeSize,base:controller.height,space:composerSpace(),sizes:sizeTrace.slice(-10)});}
+      }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack+'\nGeometry: '+JSON.stringify({nativeSize,base:controller?.height,space:composerSpace(),sizes:sizeTrace.slice(-10)});}
     ` },
     bundle: true, write: false, outfile: "compact-chatbox.js", format: "esm", platform: "browser", jsx: "automatic",
     loader: { ".png": "dataurl" }, define: { "import.meta.env.VITE_VRCS_SESSION_TOKEN": '""' },

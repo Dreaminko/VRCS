@@ -214,8 +214,11 @@ pub fn automatic_chatbox(
 fn validate_input(
     input: &ChatboxComposeInput,
 ) -> Result<(String, Option<String>), ChatboxValidationError> {
-    validate_optional_language(input.source_language.as_deref())?;
-    validate_optional_language(input.target_language.as_deref())?;
+    validate_optional_language(input.source_language.as_deref(), 20)?;
+    validate_optional_language(
+        input.target_language.as_deref(),
+        crate::providers::MAX_TRANSLATION_LANGUAGE_LENGTH,
+    )?;
     validate_text("original", &input.original)?;
     if let Some(translation) = input.translation.as_deref() {
         validate_text("translation", translation)?;
@@ -256,11 +259,14 @@ fn validate_text(label: &str, value: &str) -> Result<(), ChatboxValidationError>
     Ok(())
 }
 
-fn validate_optional_language(value: Option<&str>) -> Result<(), ChatboxValidationError> {
-    if value.is_some_and(|language| language.chars().count() > 20) {
+fn validate_optional_language(
+    value: Option<&str>,
+    limit: usize,
+) -> Result<(), ChatboxValidationError> {
+    if value.is_some_and(|language| language.chars().count() > limit) {
         return Err(validation(
             "chatbox.invalid_language",
-            "Language code cannot exceed 20 characters",
+            format!("Language code cannot exceed {limit} characters"),
         ));
     }
     Ok(())
@@ -420,6 +426,18 @@ mod tests {
         assert_eq!(preview.char_count, 145);
         assert!(preview.over_limit);
         assert!(!preview.sendable);
+    }
+
+    #[test]
+    fn accepts_long_custom_translation_targets() {
+        let mut draft = input("hello", Some("translation"));
+        draft.target_language = Some("sl-Latn-SI-rozaj-biske-1994".into());
+        assert!(preview_chatbox(&draft).unwrap().sendable);
+        draft.target_language = Some("a".repeat(36));
+        assert_eq!(
+            preview_chatbox(&draft).unwrap_err().code,
+            "chatbox.invalid_language"
+        );
     }
 
     #[test]
