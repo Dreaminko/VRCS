@@ -72,13 +72,15 @@ export function previewChatboxLocally(
   const formatValid = input.send_mode !== "bilingual"
     || input.message_format !== "custom"
     || isValidChatboxCustomFormat(input.custom_format ?? "");
+  const overLimit = charCount > CHATBOX_LIMIT;
+  const truncated = overLimit && input.overflow_policy === "smart_truncate";
   return {
     text,
     char_count: charCount,
     limit: CHATBOX_LIMIT,
-    over_limit: charCount > CHATBOX_LIMIT,
-    truncated: false,
-    sendable: hasRequiredText && formatValid && charCount <= CHATBOX_LIMIT,
+    over_limit: overLimit,
+    truncated,
+    sendable: hasRequiredText && formatValid && (!overLimit || truncated),
   };
 }
 
@@ -162,9 +164,10 @@ function renderDraft(
       : input.message_format === "custom"
         ? input.custom_format ?? ""
         : "{original}\n{translation}";
-  return template
-    .replace("{original}", original)
-    .replace("{translation}", translation);
+  return template.replace(
+    /\{original\}|\{translation\}/g,
+    (token) => (token === "{original}" ? original : translation),
+  );
 }
 
 function compact(value: string): string {

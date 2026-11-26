@@ -36,7 +36,7 @@ export interface ChatboxPreview {
 
 export interface ChatboxMessage {
   id: number;
-  source: "manual" | "microphone" | "resend";
+  source: "manual" | "microphone" | "resend" | "osc_inbound";
   original: string;
   translation: string | null;
   source_language: string | null;

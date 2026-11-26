@@ -3,6 +3,7 @@ import type { AudioOutputSettings, MicrophoneSettings, VadSettings } from "../ca
 import type { ChatboxMessageFormat } from "../chatbox/types";
 import type {
   ExternalApiSettings,
+  OscInboundSettings,
   UniTextSettings,
   VrOverlaySettings,
   VrOcrSettings,
@@ -14,7 +15,7 @@ export type ModelDownloadSource = "auto" | "official" | "modelscope";
 export type TranslationBackend = "api" | "plamo_local";
 
 export interface Settings {
-  schema_version: 46;
+  schema_version: 47;
   model_defaults: ModelDefaults;
   learning_ai: LearningAiSettings;
   vrchat_chatbox: VrchatChatboxConfig;
@@ -53,6 +54,7 @@ export interface Settings {
     translation_strategy: OscTranslationStrategy;
     message_format?: ChatboxMessageFormat;
     custom_format?: string | null;
+    inbound?: OscInboundSettings;
   };
   unitext: UniTextSettings;
   dictionary: {

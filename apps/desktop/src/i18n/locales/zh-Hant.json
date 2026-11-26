@@ -210,6 +210,8 @@
       "backgroundMode": "切換至有底模式",
       "compactModeScroll": "切換至捲動字幕模式",
       "compactModeFixed": "切換至固定玩家字幕模式",
+      "alwaysOnTopEnable": "置頂視窗",
+      "alwaysOnTopDisable": "取消置頂視窗",
       "resize": "拖曳調整字幕視窗大小",
       "close": "關閉視窗"
     },
@@ -1888,6 +1890,23 @@
           "error": "OSC 傳送失敗"
         }
       },
+      "oscInbound": {
+        "title": "OSC 輸入接管",
+        "enable": "啟用 OSC 輸入接管",
+        "listenPort": "輸入監聽連線埠",
+        "interceptChatbox": "接管 Chatbox 輸入",
+        "forwardUnmatched": "透傳其他 OSC 訊息",
+        "statusHint": "將第三方 OSC 應用的輸出連線埠改為此監聽連線埠；未攔截訊息將轉發至 127.0.0.1:{{port}}。",
+        "outputRequiredHint": "請至少啟用 OSC 輸出或 UniText 輸出，否則接管的 Chatbox 訊息無法傳送。",
+        "stats": "已接管 {{intercepted}} 則 Chatbox 訊息，已透傳 {{forwarded}} 個封包。",
+        "portConflictOsc": "輸入監聽連線埠不能與 VRChat OSC 輸出連線埠相同。",
+        "portConflictUniText": "輸入監聽連線埠與 UniText 使用的連線埠衝突。",
+        "status": {
+          "disabled": "OSC 輸入接管已關閉",
+          "listening": "正在監聽 OSC 輸入",
+          "error": "OSC 輸入監聽異常"
+        }
+      },
       "unitext": {
         "title": "UniText",
         "openRepository": "開啟 UniText 儲存庫",
@@ -2362,6 +2381,7 @@
         "asr_update_task_failed": "無法啟動辨識更新。",
         "asr_update_failed": "無法更新辨識引擎。",
         "asr_preload_failed": "無法預載語音辨識模型。",
+        "osc_inbound_reload_failed": "無法啟動 OSC 入站監聽。",
         "recovery": "{{apply}} 還原先前設定時發生另一個錯誤：{{recovery}}"
       },
       "window": {
@@ -2407,6 +2427,8 @@
         "invalid_sample_rate": "音訊取樣率無效。",
         "already_running": "轉錄正在進行中。",
         "no_audio_sources": "請至少啟用一個音訊來源。",
+        "network_disabled": "開始前請先在設定中啟用 VRChat 網路擷取。",
+        "networkDisabled": "開始前請先在設定中啟用 VRChat 網路擷取。",
         "network_start_failed": "無法啟動 VRChat 網路擷取。"
       },
       "subtitles": {

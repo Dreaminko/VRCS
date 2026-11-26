@@ -15,11 +15,15 @@ export function UniTextSettingsCard({
   config,
   runtime,
   saveState,
+  oscInboundEnabled = false,
+  oscInboundPort = 9002,
   onChange,
 }: {
   config: UniTextSettings;
   runtime: UniTextRuntimeStatus | undefined;
   saveState: SaveState;
+  oscInboundEnabled?: boolean;
+  oscInboundPort?: number;
   onChange: (patch: Partial<UniTextSettings>) => void;
 }) {
   const { t } = useTranslation();
@@ -32,7 +36,10 @@ export function UniTextSettingsCard({
   const [busyAction, setBusyAction] = useState<"test" | "clear" | null>(null);
   const [feedback, setFeedback] = useState("");
 
-  useEffect(() => setPortText(String(config.port)), [config.port]);
+  useEffect(() => {
+    setPortText(String(config.port));
+    setPortError("");
+  }, [config.port, oscInboundEnabled, oscInboundPort]);
   useEffect(() => setIntervalText(String(config.interval_ms)), [config.interval_ms]);
   useEffect(() => setClearAfterText(String(config.clear_after_seconds)), [config.clear_after_seconds]);
 
@@ -40,6 +47,10 @@ export function UniTextSettingsCard({
     const port = Number(portText);
     if (!Number.isInteger(port) || port < 1 || port > 65_535) {
       setPortError(t("settings.unitext.invalidPort"));
+      return;
+    }
+    if (oscInboundEnabled && port === oscInboundPort) {
+      setPortError(t("settings.oscInbound.portConflictUniText"));
       return;
     }
     setPortError("");
@@ -164,10 +175,19 @@ export function UniTextSettingsCard({
             hideLabel
             checked={config.enabled}
             disabled={false}
-            onChange={(enabled) => onChange({ enabled })}
+            onChange={(enabled) => {
+              if (enabled && oscInboundEnabled && (config.port === oscInboundPort || oscInboundPort === 9001)) {
+                setPortError(t("settings.oscInbound.portConflictUniText"));
+                return;
+              }
+              setPortError("");
+              onChange({ enabled });
+            }}
           />
         </div>
       </div>
+
+      {!config.enabled && portError && <small className="error">{portError}</small>}
 
       <SettingsDisclosure open={config.enabled}>
         <div className={`osc-connection ${statusClass}`} aria-live="polite">

@@ -213,6 +213,26 @@ export interface VrchatMuteStatus {
   last_error: string | null;
 }
 
+export interface OscInboundSettings {
+  enabled: boolean;
+  port: number;
+  intercept_chatbox_input: boolean;
+  forward_unmatched: boolean;
+}
+
+export interface OscInboundRuntimeStatus {
+  enabled: boolean;
+  state: "disabled" | "listening" | "error";
+  listen_address: string | null;
+  received_packets: number;
+  intercepted_chatbox_messages: number;
+  forwarded_packets: number;
+  dropped_messages: number;
+  decode_errors: number;
+  last_received_at: string | null;
+  last_error: string | null;
+}
+
 export interface OscRuntimeStatus {
   enabled: boolean;
   target: string;

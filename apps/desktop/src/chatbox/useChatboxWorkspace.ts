@@ -16,6 +16,8 @@ import {
   loadChatboxPreferences,
   saveChatboxPreferences,
 } from "./chatbox-preferences";
+import { LatestWriteQueue } from "../shared/lib/latest-write-queue";
+import type { ChatboxPreferences } from "./chatbox";
 import type { ActiveLanguageSession } from "../core-client/types";
 import type {
   ChatboxComposeInput,
@@ -63,6 +65,8 @@ export function useChatboxWorkspace(
       custom_format: oscMessageFormat === "custom" ? oscCustomFormat : null,
     };
   }, [draft, oscCustomFormat, oscMessageFormat, preferredTarget]);
+  const resolvedDraftRef = useRef(resolvedDraft);
+  resolvedDraftRef.current = resolvedDraft;
   const targetRef = useRef(resolvedDraft.target_language);
   targetRef.current = resolvedDraft.target_language;
   const localPreview = useMemo(
@@ -74,10 +78,16 @@ export function useChatboxWorkspace(
     enforceOscLimit: boolean;
     value: ChatboxPreview;
   } | null>(null);
-  const preview = remotePreview?.draft === resolvedDraft && remotePreview.enforceOscLimit === enforceOscLimit
-    ? remotePreview.value
-    : localPreview;
   const [busy, setBusy] = useState<"translate" | "send" | null>(null);
+  const busyRef = useRef<"translate" | "send" | null>(null);
+  const updateBusy = useCallback((next: "translate" | "send" | null) => {
+    busyRef.current = next;
+    setBusy(next);
+  }, []);
+  const syncQueueRef = useRef<LatestWriteQueue<ChatboxPreferences> | null>(null);
+  syncQueueRef.current ??= new LatestWriteQueue((preferences) =>
+    chatboxApi.syncPreferences(preferences).then(() => undefined, () => undefined)
+  );
   const [feedback, setFeedback] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const previewRequest = useRef(0);
   const preferencesRequested = useRef(false);
@@ -86,6 +96,17 @@ export function useChatboxWorkspace(
     && translationBasis?.original === draft.original
     && translationBasis.targetLanguage === resolvedDraft.target_language
     && translationBasis.roomScopeId === roomScopeId;
+  const remotePreviewMatchesContext = remotePreview !== null
+    && Boolean(draft.original.trim())
+    && (draft.send_mode === "original" || translationFresh)
+    && remotePreview.enforceOscLimit === enforceOscLimit
+    && remotePreview.draft.send_mode === resolvedDraft.send_mode
+    && remotePreview.draft.output_target === resolvedDraft.output_target
+    && remotePreview.draft.overflow_policy === resolvedDraft.overflow_policy
+    && remotePreview.draft.target_language === resolvedDraft.target_language
+    && remotePreview.draft.message_format === resolvedDraft.message_format
+    && remotePreview.draft.custom_format === resolvedDraft.custom_format;
+  const preview = remotePreviewMatchesContext ? remotePreview.value : localPreview;
 
   useEffect(() => {
     if (!settings || preferencesRequested.current) return;
@@ -97,8 +118,26 @@ export function useChatboxWorkspace(
         return next;
       });
       setPreferencesReady(true);
+    }, () => {
+      preferencesRequested.current = false;
     });
   }, [settings, preferredTarget]);
+
+  const syncedPreferences = useMemo(
+    () => chatboxPreferencesFromDraft(draft),
+    [
+      draft.follow_translation_settings,
+      draft.target_language,
+      draft.send_mode,
+      draft.output_target,
+      draft.overflow_policy,
+    ],
+  );
+
+  useEffect(() => {
+    if (!available || !preferencesReady) return;
+    void syncQueueRef.current?.enqueue(syncedPreferences);
+  }, [available, preferencesReady, syncedPreferences]);
 
   useEffect(() => {
     const requestId = ++previewRequest.current;
@@ -209,8 +248,8 @@ export function useChatboxWorkspace(
   }, []);
 
   const translate = useCallback(async () => {
-    if (!preferencesReady || !availableRef.current || !draft.original.trim() || busy !== null) return;
-    setBusy("translate");
+    if (!preferencesReady || !availableRef.current || !draftRef.current.original.trim() || busyRef.current !== null) return;
+    updateBusy("translate");
     setFeedback(null);
     try {
       const translation = await requestTranslation(resolvedDraft);
@@ -218,34 +257,38 @@ export function useChatboxWorkspace(
     } catch (reason) {
       setFeedback({ tone: "error", text: localizedError(reason, t, "chatbox.errors.translate") });
     } finally {
-      setBusy(null);
+      updateBusy(null);
     }
-  }, [preferencesReady, busy, draft, resolvedDraft, rememberTranslation, requestTranslation, t]);
+  }, [preferencesReady, resolvedDraft, rememberTranslation, requestTranslation, t, updateBusy]);
 
   const send = useCallback(async () => {
-    if (!preferencesReady || !availableRef.current || !draft.original.trim() || busy !== null) return false;
+    const currentDraft = draftRef.current;
+    const currentResolved = resolvedDraftRef.current;
+    if (!preferencesReady || !availableRef.current || !currentDraft.original.trim() || busyRef.current !== null) return false;
     // The core also saves unused translations in send history.
-    let outgoing = draft.send_mode === "original"
-      ? { ...resolvedDraft, translation: null, translation_origin: null, source_language: null }
-      : resolvedDraft;
+    let outgoing = currentDraft.send_mode === "original"
+      ? { ...currentResolved, translation: null, translation_origin: null, source_language: null }
+      : currentResolved;
     let stage: "translate" | "send" = "send";
+    updateBusy("send");
     setFeedback(null);
     try {
-      if (draft.send_mode !== "original" && !translationFresh) {
+      if (currentDraft.send_mode !== "original" && !translationFresh) {
         stage = "translate";
-        setBusy(stage);
-        const translation = await requestTranslation(resolvedDraft);
+        updateBusy(stage);
+        const translation = await requestTranslation(currentResolved);
         if (!translation) return false;
         outgoing = translation;
         rememberTranslation(outgoing);
       }
       if (!availableRef.current) return false;
       stage = "send";
-      setBusy(stage);
+      updateBusy(stage);
       await chatboxApi.sendChatbox(outgoing);
       const cleared = clearSentDraft(draftRef.current);
       draftRef.current = cleared;
       setDraft(cleared);
+      setRemotePreview(null);
       setTranslationBasis(null);
       return true;
     } catch (reason) {
@@ -259,11 +302,13 @@ export function useChatboxWorkspace(
       });
       return false;
     } finally {
-      setBusy(null);
+      updateBusy(null);
     }
-  }, [preferencesReady, busy, draft, resolvedDraft, rememberTranslation, requestTranslation, t, translationFresh]);
+  }, [preferencesReady, rememberTranslation, requestTranslation, t, translationFresh, updateBusy]);
 
-  return {
+  const translationStale = Boolean(draft.translation?.trim()) && !translationFresh;
+
+  return useMemo(() => ({
     open: available && preferencesReady && open,
     draft,
     preferredTarget,
@@ -271,10 +316,25 @@ export function useChatboxWorkspace(
     preview,
     busy,
     feedback,
-    translationStale: Boolean(draft.translation?.trim()) && !translationFresh,
+    translationStale,
     show,
     close,
     translate,
     send,
-  };
+  }), [
+    available,
+    busy,
+    changeDraft,
+    close,
+    draft,
+    feedback,
+    open,
+    preferencesReady,
+    preferredTarget,
+    preview,
+    send,
+    show,
+    translate,
+    translationStale,
+  ]);
 }

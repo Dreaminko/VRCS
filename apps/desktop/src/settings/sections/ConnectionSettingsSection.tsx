@@ -13,6 +13,7 @@ import { SettingsDisclosure } from "../components/SettingsDisclosure";
 import { ExternalApiSettingsCard } from "../system/ExternalApiSettingsCard";
 import { VrcxIntegrationSettingsCard } from "../system/VrcxIntegrationSettingsCard";
 import { AnkiSettingsSection } from "./AnkiSettingsSection";
+import { OscInboundSettingsCard } from "./OscInboundSettingsCard";
 import { UniTextSettingsCard } from "./UniTextSettingsCard";
 
 export function ConnectionSettingsSection({
@@ -56,7 +57,10 @@ export function ConnectionSettingsSection({
   const [message, setMessage] = useState("");
   const [testFailed, setTestFailed] = useState(false);
 
-  useEffect(() => setPortText(String(draft.osc.port)), [draft.osc.port]);
+  useEffect(() => {
+    setPortText(String(draft.osc.port));
+    setPortError("");
+  }, [draft.osc.port, draft.osc.inbound?.enabled, draft.osc.inbound?.port]);
   useEffect(() => {
     setCustomFormatText(draft.osc.custom_format ?? "");
     setCustomFormatError("");
@@ -72,6 +76,10 @@ export function ConnectionSettingsSection({
     const port = Number(portText);
     if (!Number.isInteger(port) || port < 1 || port > 65_535) {
       setPortError(t("settings.osc.invalidPort"));
+      return;
+    }
+    if (draft.osc.inbound?.enabled && port === draft.osc.inbound.port) {
+      setPortError(t("settings.oscInbound.portConflictOsc"));
       return;
     }
     setPortError("");
@@ -142,6 +150,22 @@ export function ConnectionSettingsSection({
     applySettings((current) => ({
       ...current,
       unitext: { ...current.unitext, ...patch },
+    }));
+  };
+  const updateOscInbound = (patch: Partial<NonNullable<Settings["osc"]["inbound"]>>) => {
+    applySettings((current) => ({
+      ...current,
+      osc: {
+        ...current.osc,
+        inbound: {
+          enabled: false,
+          port: 9002,
+          intercept_chatbox_input: true,
+          forward_unmatched: true,
+          ...current.osc.inbound,
+          ...patch,
+        },
+      },
     }));
   };
 
@@ -318,10 +342,21 @@ export function ConnectionSettingsSection({
             </div>
           </SettingsDisclosure>
         </section>
+        <OscInboundSettingsCard
+          config={draft.osc.inbound}
+          runtime={health?.osc_inbound}
+          oscEnabled={draft.osc.enabled}
+          oscPort={draft.osc.port}
+          unitextEnabled={draft.unitext.enabled}
+          unitextPort={draft.unitext.port}
+          onChange={updateOscInbound}
+        />
         <UniTextSettingsCard
           config={draft.unitext}
           runtime={health?.unitext}
           saveState={saveState}
+          oscInboundEnabled={Boolean(draft.osc.inbound?.enabled)}
+          oscInboundPort={draft.osc.inbound?.port ?? 9002}
           onChange={updateUniText}
         />
         {features.anki && <AnkiSettingsSection

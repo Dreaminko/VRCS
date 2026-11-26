@@ -210,6 +210,8 @@
       "backgroundMode": "背景ありモードに切り替え",
       "compactModeScroll": "スクロール字幕モードに切り替え",
       "compactModeFixed": "プレイヤー固定字幕モードに切り替え",
+      "alwaysOnTopEnable": "ウィンドウを最前面に固定",
+      "alwaysOnTopDisable": "最前面表示を解除",
       "resize": "ドラッグして字幕ウィンドウのサイズを変更",
       "close": "ウィンドウを閉じる"
     },
@@ -1888,6 +1890,23 @@
           "error": "OSC 送信エラー"
         }
       },
+      "oscInbound": {
+        "title": "OSC 入力リレー",
+        "enable": "OSC 入力リレーを有効にする",
+        "listenPort": "受信ポート",
+        "interceptChatbox": "Chatbox 入力を取り込む",
+        "forwardUnmatched": "その他の OSC メッセージを転送",
+        "statusHint": "外部 OSC アプリの送信先をこの受信ポートに変更してください。対象外メッセージは 127.0.0.1:{{port}} へ転送されます。",
+        "outputRequiredHint": "取り込んだ Chatbox メッセージを送信するため、OSC 出力または UniText 出力を有効にしてください。",
+        "stats": "Chatbox 取込 {{intercepted}} 件・転送 {{forwarded}} パケット。",
+        "portConflictOsc": "受信ポートは VRChat OSC 送信ポートと同じにできません。",
+        "portConflictUniText": "受信ポートが UniText のポートと競合しています。",
+        "status": {
+          "disabled": "OSC 入力リレーはオフです",
+          "listening": "OSC 入力を待機中",
+          "error": "OSC 入力リレーエラー"
+        }
+      },
       "unitext": {
         "title": "UniText",
         "openRepository": "UniText リポジトリを開く",
@@ -2362,6 +2381,7 @@
         "asr_update_task_failed": "音声認識の更新を開始できませんでした。",
         "asr_update_failed": "音声認識エンジンを更新できませんでした。",
         "asr_preload_failed": "音声認識モデルを事前読み込みできませんでした。",
+        "osc_inbound_reload_failed": "OSC 受信リスナーを開始できませんでした。",
         "recovery": "{{apply}} 以前の設定を復元する際にもエラーが発生しました：{{recovery}}"
       },
       "window": {
@@ -2407,6 +2427,8 @@
         "invalid_sample_rate": "音声のサンプルレートが無効です。",
         "already_running": "文字起こしはすでに実行中です。",
         "no_audio_sources": "音声ソースを1つ以上有効にしてください。",
+        "network_disabled": "開始する前に設定で VRChat ネットワークキャプチャを有効にしてください。",
+        "networkDisabled": "開始する前に設定で VRChat ネットワークキャプチャを有効にしてください。",
         "network_start_failed": "VRChat のネットワークキャプチャを開始できませんでした。"
       },
       "subtitles": {

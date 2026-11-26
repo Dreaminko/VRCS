@@ -11,7 +11,7 @@ import { DEFAULT_VISION_SETTINGS } from "../src/settings/vision-settings.ts";
 import type { Settings } from "../src/settings/types.ts";
 
 const settings: Settings = {
-  schema_version: 46,
+  schema_version: 47,
   model_defaults: {
     text: { profile_id: null, model: "" },
     translation: { profile_id: null, model: "" },

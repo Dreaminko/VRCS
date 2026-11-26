@@ -210,6 +210,8 @@
       "backgroundMode": "Switch to background mode",
       "compactModeScroll": "Switch to scrolling subtitles",
       "compactModeFixed": "Switch to fixed-player subtitles",
+      "alwaysOnTopEnable": "Keep window on top",
+      "alwaysOnTopDisable": "Disable always on top",
       "resize": "Drag to resize the subtitle window",
       "close": "Close window"
     },
@@ -1888,6 +1890,23 @@
           "error": "OSC send failed"
         }
       },
+      "oscInbound": {
+        "title": "OSC Inbound Relay",
+        "enable": "Enable OSC inbound relay",
+        "listenPort": "Listen port",
+        "interceptChatbox": "Intercept Chatbox input",
+        "forwardUnmatched": "Forward other OSC messages",
+        "statusHint": "Point other OSC apps to this listen port. Unhandled messages are forwarded to 127.0.0.1:{{port}}.",
+        "outputRequiredHint": "Enable OSC output or UniText output so intercepted Chatbox messages can be delivered.",
+        "stats": "Intercepted {{intercepted}} Chatbox messages, forwarded {{forwarded}} packets.",
+        "portConflictOsc": "Listen port cannot match the VRChat OSC output port.",
+        "portConflictUniText": "Listen port conflicts with the UniText OSC port.",
+        "status": {
+          "disabled": "OSC inbound relay is off",
+          "listening": "Listening for OSC input",
+          "error": "OSC inbound listener error"
+        }
+      },
       "unitext": {
         "title": "UniText",
         "openRepository": "Open UniText repository",
@@ -2362,6 +2381,7 @@
         "asr_update_task_failed": "Could not start the recognition update.",
         "asr_update_failed": "Could not update the recognition engine.",
         "asr_preload_failed": "Could not preload the speech recognition model.",
+        "osc_inbound_reload_failed": "Could not start the OSC inbound listener.",
         "recovery": "{{apply}} Previous settings were restored with an additional error: {{recovery}}"
       },
       "window": {
@@ -2407,6 +2427,8 @@
         "invalid_sample_rate": "The audio sample rate is invalid.",
         "already_running": "Transcription is already running.",
         "no_audio_sources": "Enable at least one audio source.",
+        "network_disabled": "Enable VRChat network capture in Settings before starting.",
+        "networkDisabled": "Enable VRChat network capture in Settings before starting.",
         "network_start_failed": "Could not start VRChat network capture."
       },
       "subtitles": {
