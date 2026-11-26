@@ -78,6 +78,7 @@ pub struct VrOcrService {
     translation: Arc<crate::translation::TranslationService>,
     local: Arc<LocalOcrRuntime>,
     cache: Arc<std::sync::Mutex<cache::TranslationCache>>,
+    pub(super) config_changed: Option<tokio::sync::watch::Receiver<u64>>,
 }
 
 impl VrOcrService {
@@ -91,7 +92,16 @@ impl VrOcrService {
             translation,
             local,
             cache: Default::default(),
+            config_changed: None,
         }
+    }
+
+    pub(crate) fn with_config_changed(
+        mut self,
+        config_changed: tokio::sync::watch::Receiver<u64>,
+    ) -> Self {
+        self.config_changed = Some(config_changed);
+        self
     }
 
     pub async fn process_scan<const N: usize>(

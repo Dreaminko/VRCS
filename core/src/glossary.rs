@@ -149,6 +149,17 @@ pub struct GlossaryStore {
     subscriptions: RwLock<Vec<SubscriptionState>>,
     llm_snapshot: RwLock<LlmGlossarySnapshot>,
     refresh_control: Mutex<()>,
+    refresh_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+}
+
+impl Drop for GlossaryStore {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.refresh_task.lock()
+            && let Some(task) = guard.take()
+        {
+            task.abort();
+        }
+    }
 }
 
 impl GlossaryStore {
@@ -200,10 +211,31 @@ impl GlossaryStore {
             subscriptions: RwLock::new(subscriptions),
             llm_snapshot: RwLock::new(llm_snapshot),
             refresh_control: Mutex::new(()),
+            refresh_task: std::sync::Mutex::new(None),
         })
     }
 
+    pub fn replace_refresh_task(&self, task: tokio::task::JoinHandle<()>) {
+        let mut guard = self.refresh_task.lock().expect("glossary lock");
+        if let Some(previous) = guard.replace(task) {
+            previous.abort();
+        }
+    }
+
+    #[cfg(test)]
     pub fn set_config(&self, config: GlossaryConfig) -> Vec<String> {
+        let refresh_ids = self.apply_config_in_memory(config);
+        self.save_cache();
+        refresh_ids
+    }
+
+    pub async fn set_config_async(&self, config: GlossaryConfig) -> Vec<String> {
+        let refresh_ids = self.apply_config_in_memory(config);
+        self.save_cache_async().await;
+        refresh_ids
+    }
+
+    fn apply_config_in_memory(&self, config: GlossaryConfig) -> Vec<String> {
         let glossary_sources = &config.sources;
         let mut current_config = self.config.write().expect("glossary config lock");
         let mut current = self
@@ -251,7 +283,6 @@ impl GlossaryStore {
             build_llm_snapshot(&current_config, &current);
         drop(current);
         drop(current_config);
-        self.save_cache();
         refresh_ids
     }
 
@@ -441,19 +472,24 @@ impl GlossaryStore {
             .await;
         match result {
             Ok(FetchResult::NotModified) => {
-                let mut subscriptions = self
-                    .subscriptions
-                    .write()
-                    .expect("glossary subscription lock");
-                let Some(state) =
-                    matching_state_mut(&mut subscriptions, id, &url).filter(|state| state.enabled)
-                else {
-                    return Ok(false);
+                let updated = {
+                    let mut subscriptions = self
+                        .subscriptions
+                        .write()
+                        .expect("glossary subscription lock");
+                    if let Some(state) = matching_state_mut(&mut subscriptions, id, &url)
+                        .filter(|state| state.enabled)
+                    {
+                        state.state = "ready".into();
+                        state.last_success_at = Some(now());
+                        true
+                    } else {
+                        false
+                    }
                 };
-                state.state = "ready".into();
-                state.last_success_at = Some(now());
-                drop(subscriptions);
-                self.save_cache();
+                if updated {
+                    self.save_cache_async().await;
+                }
                 Ok(false)
             }
             Ok(FetchResult::Updated {
@@ -462,27 +498,33 @@ impl GlossaryStore {
                 etag,
                 last_modified,
             }) => {
-                let mut subscriptions = self
-                    .subscriptions
-                    .write()
-                    .expect("glossary subscription lock");
-                let Some(state) =
-                    matching_state_mut(&mut subscriptions, id, &url).filter(|state| state.enabled)
-                else {
+                let entries_changed = {
+                    let mut subscriptions = self
+                        .subscriptions
+                        .write()
+                        .expect("glossary subscription lock");
+                    if let Some(state) = matching_state_mut(&mut subscriptions, id, &url)
+                        .filter(|state| state.enabled)
+                    {
+                        let entries_changed = state.entries != entries;
+                        state.source_name = source_name;
+                        state.entries = entries;
+                        state.etag = etag;
+                        state.last_modified = last_modified;
+                        state.state = "ready".into();
+                        state.last_success_at = Some(now());
+                        Some(entries_changed)
+                    } else {
+                        None
+                    }
+                };
+                let Some(entries_changed) = entries_changed else {
                     return Ok(false);
                 };
-                let entries_changed = state.entries != entries;
-                state.source_name = source_name;
-                state.entries = entries;
-                state.etag = etag;
-                state.last_modified = last_modified;
-                state.state = "ready".into();
-                state.last_success_at = Some(now());
-                drop(subscriptions);
                 if entries_changed {
                     self.rebuild_llm_snapshot();
                 }
-                self.save_cache();
+                self.save_cache_async().await;
                 Ok(entries_changed)
             }
             Err(error) => {
@@ -646,7 +688,7 @@ impl GlossaryStore {
             .collect()
     }
 
-    fn save_cache(&self) {
+    fn prepare_cache_payload(&self) -> Result<Option<Vec<u8>>, ()> {
         let cache = CacheFile {
             subscriptions: self
                 .subscriptions
@@ -667,31 +709,63 @@ impl GlossaryStore {
                 .collect(),
         };
         if cache.subscriptions.is_empty() {
-            match fs::remove_file(&self.cache_path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => {
-                    tracing::warn!(%error, "glossary subscription cache could not be removed");
-                }
-            }
-            return;
+            return Ok(None);
         }
-        let payload = match serde_json::to_vec_pretty(&cache) {
-            Ok(payload) => payload,
+        match serde_json::to_vec_pretty(&cache) {
+            Ok(payload) => Ok(Some(payload)),
             Err(error) => {
                 tracing::warn!(%error, "glossary subscription cache could not be serialized");
-                return;
+                Err(())
             }
-        };
-        if let Some(parent) = self.cache_path.parent()
-            && let Err(error) = fs::create_dir_all(parent)
-        {
-            tracing::warn!(%error, "glossary subscription cache directory could not be created");
+        }
+    }
+
+    #[cfg(test)]
+    fn save_cache(&self) {
+        if let Ok(payload) = self.prepare_cache_payload() {
+            write_cache_atomic(&self.cache_path, payload);
+        }
+    }
+
+    async fn save_cache_async(&self) {
+        let Ok(payload) = self.prepare_cache_payload() else {
             return;
+        };
+        let path = self.cache_path.clone();
+        if let Err(error) =
+            tokio::task::spawn_blocking(move || write_cache_atomic(&path, payload)).await
+        {
+            tracing::warn!(%error, "glossary subscription cache task failed");
         }
-        if let Err(error) = fs::write(&self.cache_path, payload) {
-            tracing::warn!(%error, "glossary subscription cache could not be saved");
+    }
+}
+
+fn write_cache_atomic(cache_path: &std::path::Path, payload: Option<Vec<u8>>) {
+    let Some(payload) = payload else {
+        match fs::remove_file(cache_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                tracing::warn!(%error, "glossary subscription cache could not be removed");
+            }
         }
+        return;
+    };
+    if let Some(parent) = cache_path.parent()
+        && let Err(error) = fs::create_dir_all(parent)
+    {
+        tracing::warn!(%error, "glossary subscription cache directory could not be created");
+        return;
+    }
+    let temp_path = cache_path.with_extension(format!("json.tmp.{}", uuid::Uuid::new_v4()));
+    if let Err(error) = fs::write(&temp_path, payload) {
+        tracing::warn!(%error, "glossary subscription cache could not be written");
+        let _ = fs::remove_file(&temp_path);
+        return;
+    }
+    if let Err(error) = fs::rename(&temp_path, cache_path) {
+        tracing::warn!(%error, "glossary subscription cache could not be replaced");
+        let _ = fs::remove_file(&temp_path);
     }
 }
 

@@ -180,6 +180,30 @@ impl Database {
         Ok(database)
     }
 
+    pub fn open_read_only(path: &Path) -> AppResult<Self> {
+        let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            | rusqlite::OpenFlags::SQLITE_OPEN_URI
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let conn = Connection::open_with_flags(path, flags)?;
+        conn.execute_batch(
+            "PRAGMA query_only = ON;
+             PRAGMA temp_store = MEMORY;
+             PRAGMA cache_size = -16000;
+             PRAGMA mmap_size = 268435456;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+        Ok(Self {
+            conn,
+            subtitle_history_max_bytes: u64::MAX,
+            cached_subtitle_bytes: Cell::new(None),
+            pending_subtitle_bytes: Cell::new(0),
+        })
+    }
+
+    pub fn set_read_only_quota(&mut self, max_bytes: u64) {
+        self.subtitle_history_max_bytes = max_bytes;
+    }
+
     fn initialize(&mut self) -> AppResult<()> {
         let mut version = self
             .conn

@@ -168,6 +168,22 @@ impl ScanSummary {
     }
 }
 
+async fn wait_config_change(rx: &mut Option<tokio::sync::watch::Receiver<u64>>) -> bool {
+    match rx {
+        Some(rx) => rx.changed().await.is_ok(),
+        None => std::future::pending().await,
+    }
+}
+
+async fn wait_fallback_tick(interval: &mut Option<tokio::time::Interval>) {
+    match interval {
+        Some(interval) => {
+            interval.tick().await;
+        }
+        None => std::future::pending().await,
+    }
+}
+
 impl VrOcrService {
     pub fn configuration(&self) -> Result<ScanConfiguration, String> {
         self.config
@@ -281,7 +297,10 @@ impl VrOcrService {
         let mut timed_out = false;
         let mut cache_hits = 0usize;
         let mut first_translation_ms = None;
-        let mut config_check = tokio::time::interval(std::time::Duration::from_millis(200));
+        let mut config_rx = self.config_changed.clone();
+        let mut fallback_config_check = config_rx
+            .is_none()
+            .then(|| tokio::time::interval(std::time::Duration::from_millis(200)));
         futures_util::pin_mut!(images);
         loop {
             if !self.matches_config(config) {
@@ -395,7 +414,13 @@ impl VrOcrService {
                     }
                     pipeline(TranslationProgress::ImageDone(eye));
                 }
-                _ = config_check.tick() => {}
+                keep_watching = wait_config_change(&mut config_rx), if config_rx.is_some() => {
+                    if !keep_watching {
+                        config_rx = None;
+                    }
+                }
+                _ = wait_fallback_tick(&mut fallback_config_check),
+                    if fallback_config_check.is_some() => {}
             }
         }
         drop(pending);

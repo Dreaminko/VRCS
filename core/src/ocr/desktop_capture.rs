@@ -1,10 +1,11 @@
 use std::{
-    sync::{Mutex, OnceLock},
+    sync::{Arc, Condvar, Mutex, OnceLock},
     thread,
     time::{Duration, Instant},
 };
 
 use windows::{
+    Foundation::TypedEventHandler,
     Graphics::{
         Capture::{
             Direct3D11CaptureFramePool, GraphicsCaptureAccess, GraphicsCaptureAccessKind,
@@ -49,7 +50,7 @@ use windows::{
             },
         },
     },
-    core::{BOOL, Error, HRESULT, Interface, factory},
+    core::{BOOL, Error, HRESULT, IInspectable, Interface, factory},
 };
 
 pub struct DesktopCapture {
@@ -127,10 +128,14 @@ impl Drop for ExcludedWindows {
 struct CaptureSession {
     pool: Direct3D11CaptureFramePool,
     session: Option<GraphicsCaptureSession>,
+    frame_token: Option<i64>,
 }
 
 impl Drop for CaptureSession {
     fn drop(&mut self) {
+        if let Some(token) = self.frame_token.take() {
+            let _ = self.pool.RemoveFrameArrived(token);
+        }
         if let Some(session) = &self.session {
             let _ = session.Close();
         }
@@ -307,6 +312,7 @@ fn capture_monitor_into(
     let mut capture_session = CaptureSession {
         pool,
         session: None,
+        frame_token: None,
     };
     let session = capture_session.pool.CreateCaptureSession(item)?;
     capture_session.session = Some(session.clone());
@@ -314,12 +320,27 @@ fn capture_monitor_into(
     if let Err(error) = disable_capture_border(&session) {
         tracing::warn!(%error, "Borderless desktop capture is unavailable; keeping the system border");
     }
+    let frame_signal = Arc::new((Mutex::new(false), Condvar::new()));
+    let signal = Arc::clone(&frame_signal);
+    capture_session.frame_token =
+        Some(capture_session.pool.FrameArrived(&TypedEventHandler::<
+            Direct3D11CaptureFramePool,
+            IInspectable,
+        >::new(move |_, _| {
+            let (lock, cvar) = &*signal;
+            *lock.lock().unwrap() = true;
+            cvar.notify_one();
+            Ok(())
+        }))?);
     let deadline = Instant::now() + Duration::from_secs(2);
     session.StartCapture()?;
     let frame = loop {
+        *frame_signal.0.lock().unwrap() = false;
         match capture_session.pool.TryGetNextFrame() {
             Ok(frame) => break frame,
-            Err(error) if is_pending_frame(&error) => wait_for_frame(deadline)?,
+            Err(error) if is_pending_frame(&error) => {
+                wait_for_frame_signal(&frame_signal, deadline)?
+            }
             Err(error) => return Err(error),
         }
     };
@@ -402,6 +423,27 @@ fn is_pending_frame(error: &Error) -> bool {
     matches!(error.code(), HRESULT(0) | E_POINTER)
 }
 
+fn wait_for_frame_signal(
+    signal: &(Mutex<bool>, Condvar),
+    deadline: Instant,
+) -> windows::core::Result<()> {
+    let (lock, cvar) = signal;
+    let mut guard = lock.lock().unwrap();
+    while !*guard {
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(Error::new(
+                HRESULT::from_win32(ERROR_TIMEOUT.0),
+                "Timed out waiting for a desktop frame",
+            ));
+        }
+        let (next_guard, _) = cvar.wait_timeout(guard, deadline - now).unwrap();
+        guard = next_guard;
+    }
+    *guard = false;
+    Ok(())
+}
+
 fn wait_for_frame(deadline: Instant) -> windows::core::Result<()> {
     if Instant::now() >= deadline {
         return Err(Error::new(
@@ -452,7 +494,6 @@ fn read_pixels_into(
             ) {
                 Ok(()) => break,
                 Err(error) if error.code() == DXGI_ERROR_WAS_STILL_DRAWING => {
-                    graphics.context.Flush();
                     wait_for_frame(deadline)?;
                 }
                 Err(error) => return Err(error),

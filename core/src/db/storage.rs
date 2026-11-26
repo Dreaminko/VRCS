@@ -4,6 +4,7 @@ use super::Database;
 use crate::error::AppResult;
 
 const DELETE_BATCH_SIZE: u64 = 100;
+const DBSTAT_RECHECK_MIN_BYTES: u64 = 32 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct DatabaseStorageStats {
@@ -45,7 +46,14 @@ impl Database {
         transaction.execute("DELETE FROM subtitles", [])?;
         super::conversations::reset_after_history_clear(&transaction)?;
         transaction.commit()?;
-        self.conn.execute_batch("VACUUM")?;
+        if self.pragma_u64("auto_vacuum")? != 2 {
+            // One-time transition enables future non-blocking incremental_vacuum calls.
+            self.conn
+                .execute_batch("PRAGMA auto_vacuum = INCREMENTAL; VACUUM;")?;
+        } else {
+            self.conn
+                .execute_batch("PRAGMA incremental_vacuum; PRAGMA optimize;")?;
+        }
         self.cached_subtitle_bytes.set(None);
         self.pending_subtitle_bytes.set(0);
         self.storage_stats()
@@ -55,12 +63,18 @@ impl Database {
         &self,
         written_bytes_estimate: u64,
     ) -> AppResult<bool> {
+        if self.subtitle_history_max_bytes == u64::MAX {
+            return Ok(false);
+        }
         if self.cached_subtitle_bytes.get().is_some() {
-            self.pending_subtitle_bytes.set(
-                self.pending_subtitle_bytes
-                    .get()
-                    .saturating_add(written_bytes_estimate),
-            );
+            let pending = self
+                .pending_subtitle_bytes
+                .get()
+                .saturating_add(written_bytes_estimate);
+            self.pending_subtitle_bytes.set(pending);
+            if pending < DBSTAT_RECHECK_MIN_BYTES {
+                return Ok(false);
+            }
         }
         self.trim_subtitle_history_to_size()
     }
