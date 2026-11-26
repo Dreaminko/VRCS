@@ -245,7 +245,7 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
               </div>
             )}
           </div>
-          {layout.measurementGroups.length > 0 && !layout.scrollable && (
+          {layout.measurementGroups.length > 0 && (
             <div ref={layout.measureRef} className="compact-measurements" aria-hidden="true" inert>
               {layout.measurementGroups.map((group, index) => (
                 <div key={group.key} className={`compact-subtitle-row ${index === layout.measurementGroups.length - 1 ? "compact-subtitle-current" : "compact-subtitle-history"}`}>

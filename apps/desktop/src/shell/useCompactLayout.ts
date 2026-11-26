@@ -264,22 +264,34 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
       && measuredSelectionRef.current === currentSelectionTarget) return;
     const chatboxStart = currentGroups.findIndex(group => group.source === "chatbox");
     const scrollable = !currentFrozen && (currentScrollStream || chatboxStart >= 0);
-    geometryRef.current = geometry;
-    measuredSelectionRef.current = currentSelectionTarget;
-    if (!currentFrozen && scrollable) {
+    if (!currentFrozen && currentScrollStream) {
+      geometryRef.current = geometry;
+      measuredSelectionRef.current = currentSelectionTarget;
       setLayout(previous => sameGroups(previous.groups, currentGroups) && !previous.parallel
         && previous.scrollable === true && previous.latestBudget === undefined
         ? previous : { groups: currentGroups, latestBudget: undefined, scrollable: true });
       return;
     }
     if (!currentFrozen && currentPerPlayer && chatboxStart !== 0 && currentGroups.length > 1) {
+      geometryRef.current = geometry;
+      measuredSelectionRef.current = currentSelectionTarget;
       const budget = { original: currentPreset.originalLine, translation: currentPreset.translationLine };
       setLayout(previous => sameGroups(previous.groups, currentGroups) && previous.parallel === true && previous.scrollable === scrollable
         && previous.latestBudget?.original === budget.original && previous.latestBudget?.translation === budget.translation
         ? previous : { groups: currentGroups, latestBudget: budget, parallel: true, scrollable });
       return;
     }
+    if (!currentFrozen && scrollable) {
+      geometryRef.current = geometry;
+      measuredSelectionRef.current = currentSelectionTarget;
+      setLayout(previous => sameGroups(previous.groups, currentGroups) && !previous.parallel
+        && previous.scrollable === true && previous.latestBudget === undefined
+        ? previous : { groups: currentGroups, latestBudget: undefined, scrollable: true });
+      return;
+    }
     if (!currentGroups.length) {
+      geometryRef.current = geometry;
+      measuredSelectionRef.current = currentSelectionTarget;
       setLayout((previous) => (!previous.groups.length && !previous.parallel && !previous.scrollable
         && previous.latestBudget === undefined
         ? previous : { groups: [], latestBudget: undefined, scrollable: false }));
@@ -289,6 +301,8 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
     if (!measure) return;
     const rows = Array.from(measure.children) as HTMLElement[];
     if (rows.length !== currentGroups.length) return;
+    geometryRef.current = geometry;
+    measuredSelectionRef.current = currentSelectionTarget;
     const heights = rows.map((row) => row.getBoundingClientRect().height);
     let count = fitRecentGroups(heights, height);
     let latestBudget: CompactTextBudget | undefined;
@@ -319,7 +333,7 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
   const hasChatbox = groups.some((group) => group.source === "chatbox");
   const needsMeasurement = frozen
     || (!scrollStream && !hasChatbox && !(perPlayer && groups.length > 1));
-  const showMeasurements = needsMeasurement && groups.length > 0 && !layout.scrollable;
+  const showMeasurements = needsMeasurement && groups.length > 0;
 
   useLayoutEffect(() => {
     const viewport = contentRef.current;

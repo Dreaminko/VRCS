@@ -110,7 +110,7 @@ export function CompactEntry({
       return;
     }
     const token = ++openTokenRef.current;
-    void resizeCompactWindow(false).finally(() => {
+    void resizeCompactWindow(false).catch(() => undefined).finally(() => {
       if (openTokenRef.current !== token) return;
       const unlock = () => {
         clearUnlockWait();
@@ -188,6 +188,9 @@ export function CompactEntry({
     }, () => {
       if (openTokenRef.current !== token) return;
       animatingRef.current = false;
+      setChatboxMounted(false);
+      setHeightLocked(false);
+      setChatboxHeight(0);
     });
   }, [chatboxVisible, chatboxMounted, chatboxOpen, clearPendingTimer, resizeCompactWindow, syncSteadyHeight]);
 

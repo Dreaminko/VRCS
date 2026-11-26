@@ -27,7 +27,10 @@ export function useDropdownMenu(open: boolean, {
 }) {
   const [floatingPosition, setFloatingPosition] = useState<FloatingMenuPosition | null>(null);
   const [floatingSide, setFloatingSide] = useState<"above" | "below">("below");
-  const { menuRef, mounted: menuMounted } = useDropdownMenuMotion(open);
+  const { menuRef, mounted: menuMounted } = useDropdownMenuMotion(
+    open,
+    !floating || floatingPosition !== null,
+  );
   const onCloseRef = useRef(onClose);
   useEffect(() => {
     onCloseRef.current = onClose;

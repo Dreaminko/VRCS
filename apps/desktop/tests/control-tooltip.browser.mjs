@@ -56,7 +56,7 @@ test("compact controls use themed tooltips instead of native titles", {
           subtitles={[]} subtitleHistory={[]} selectionTarget={null} running={running} vrchatMuted={false}
           captureDisabled={false} onSelect={async()=>{}} onCapture={()=>updateRunning(value=>!value)} onRestore={()=>{}} onClose={()=>{}} onResize={()=>{}} />}
         </div><div hidden><WindowChrome /></div><ControlTooltip />
-        <button className="dock-button" data-tooltip="Existing dock hint" hidden>Dock</button></>;
+        <div className="bottom-dock" hidden><button className="dock-button" data-tooltip="Existing dock hint">Dock</button></div></>;
       }
       createRoot(document.getElementById('root')).render(<Fixture />);
       const check=(condition,message)=>{if(!condition)throw new Error(message)};

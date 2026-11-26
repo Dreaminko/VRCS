@@ -55,6 +55,7 @@ export function useCompactWindow({
   const topmostTaskRef = useRef<Promise<void> | null>(null);
   const topmostPendingRef = useRef(false);
   const compactModeRef = useRef(false);
+  const modeTaskRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const preCompactWindowRef = useRef<{
     width: number;
     height: number;
@@ -147,7 +148,7 @@ export function useCompactWindow({
     task.promise = (async () => {
       let failure: { reason: unknown } | undefined;
       try {
-        while (compactModeRef.current) {
+        for (let attempt = 0; attempt < 4 && compactModeRef.current; attempt += 1) {
           const target = requestedPanelStateRef.current;
           if (atTarget(target)) break;
           try {
@@ -217,109 +218,119 @@ export function useCompactWindow({
     ?? false
   ), []);
 
-  const setCompactMode = useCallback(async (
+  const setCompactMode = useCallback((
     next: boolean,
     onExitCompact: () => void = () => undefined,
   ): Promise<boolean> => {
-    const previousMode = compactModeRef.current;
-    compactModeRef.current = next;
-    try {
-      if (!next) {
-        // Stop new panel work immediately and let any issued native call finish
-        // before restoring the main window. Its caller reports panel failures.
-        await panelTaskRef.current?.promise.catch(() => undefined);
-      }
-      await topmostTaskRef.current?.catch(() => undefined);
-      if (!NATIVE_APP) {
-        panelStateRef.current = false;
-        requestedPanelStateRef.current = false;
-        nativeHeightRef.current = heightRef.current;
-        if (!next) onExitCompact();
+    const run = async (): Promise<boolean> => {
+      if (compactModeRef.current === next) return true;
+      const previousMode = compactModeRef.current;
+      compactModeRef.current = next;
+      try {
+        if (!next) {
+          // Stop new panel work immediately and let any issued native call finish
+          // before restoring the main window. Its caller reports panel failures.
+          await panelTaskRef.current?.promise.catch(() => undefined);
+        }
+        await topmostTaskRef.current?.catch(() => undefined);
+        if (!NATIVE_APP) {
+          panelStateRef.current = false;
+          requestedPanelStateRef.current = false;
+          nativeHeightRef.current = heightRef.current;
+          if (!next) onExitCompact();
+          await applyInterfaceScale(next ? DEFAULT_INTERFACE_SCALE : readInterfaceScale());
+          setCompact(next);
+          clearErrorFrom("window");
+          return true;
+        }
+
+        const { getCurrentWindow, LogicalPosition, LogicalSize } = await import(
+          "@tauri-apps/api/window"
+        );
+        const appWindow = getCurrentWindow();
+        const canTopmost = await resolveCanTopmost();
+        if (next) {
+          try {
+            const [maximized, innerSize, outerPosition, scaleFactor] = await Promise.all([
+              appWindow.isMaximized().catch(() => false),
+              appWindow.innerSize(),
+              appWindow.outerPosition().catch(() => null),
+              appWindow.scaleFactor(),
+            ]);
+            if (maximized) {
+              preCompactWindowRef.current = { width: 1180, height: 760, maximized: true };
+              await appWindow.unmaximize().catch((reason) => console.warn("Failed to unmaximize compact window", reason));
+            } else {
+              const logicalSize = innerSize.toLogical(scaleFactor);
+              const logicalPos = outerPosition?.toLogical(scaleFactor);
+              preCompactWindowRef.current = {
+                width: Math.max(860, Math.round(logicalSize.width)),
+                height: Math.max(620, Math.round(logicalSize.height)),
+                x: logicalPos ? Math.round(logicalPos.x) : undefined,
+                y: logicalPos ? Math.round(logicalPos.y) : undefined,
+                maximized: false,
+              };
+            }
+          } catch {
+            preCompactWindowRef.current = null;
+          }
+          if (canTopmost) {
+            await invoke("set_compact_window_topmost", { enabled: alwaysOnTopEnabledRef.current });
+          }
+          panelStateRef.current = false;
+          requestedPanelStateRef.current = false;
+          const compactSize = compactWindowSize(
+            false,
+            COMPACT_WINDOW_SIZE.width,
+            heightRef.current,
+          );
+          await appWindow.setSizeConstraints(compactWindowConstraints(false));
+          await appWindow.setSize(new LogicalSize(compactSize.width, compactSize.height));
+          nativeHeightRef.current = compactSize.height;
+          await appWindow.setResizable(true);
+          setHeight(compactSize.height);
+        } else {
+          const saved = preCompactWindowRef.current;
+          preCompactWindowRef.current = null;
+          autoCaptionHeightRef.current = null;
+          heightRef.current = userHeightRef.current;
+          if (canTopmost) await invoke("set_compact_window_topmost", { enabled: false });
+          await appWindow.setResizable(true);
+          await appWindow.setSizeConstraints({ minWidth: 860, minHeight: 620 });
+          await appWindow.setSize(new LogicalSize(saved?.width ?? 1180, saved?.height ?? 760));
+          if (saved?.x !== undefined && saved?.y !== undefined) {
+            await appWindow.setPosition(new LogicalPosition(saved.x, saved.y)).catch((reason) =>
+              console.warn("Failed to restore compact window position", reason),
+            );
+          }
+          if (saved?.maximized) {
+            await appWindow.maximize().catch((reason) =>
+              console.warn("Failed to restore compact window maximization", reason),
+            );
+          }
+          panelStateRef.current = false;
+          onExitCompact();
+        }
+
+        await appWindow.setShadow(!next);
         await applyInterfaceScale(next ? DEFAULT_INTERFACE_SCALE : readInterfaceScale());
         setCompact(next);
         clearErrorFrom("window");
         return true;
-      }
-
-      const { getCurrentWindow, LogicalPosition, LogicalSize } = await import(
-        "@tauri-apps/api/window"
-      );
-      const appWindow = getCurrentWindow();
-      const canTopmost = await resolveCanTopmost();
-      if (next) {
-        try {
-          const [maximized, innerSize, outerPosition, scaleFactor] = await Promise.all([
-            appWindow.isMaximized().catch(() => false),
-            appWindow.innerSize(),
-            appWindow.outerPosition().catch(() => null),
-            appWindow.scaleFactor(),
-          ]);
-          if (maximized) {
-            preCompactWindowRef.current = { width: 1180, height: 760, maximized: true };
-            await appWindow.unmaximize().catch(() => undefined);
-          } else {
-            const logicalSize = innerSize.toLogical(scaleFactor);
-            const logicalPos = outerPosition?.toLogical(scaleFactor);
-            preCompactWindowRef.current = {
-              width: Math.max(860, Math.round(logicalSize.width)),
-              height: Math.max(620, Math.round(logicalSize.height)),
-              x: logicalPos ? Math.round(logicalPos.x) : undefined,
-              y: logicalPos ? Math.round(logicalPos.y) : undefined,
-              maximized: false,
-            };
-          }
-        } catch {
-          preCompactWindowRef.current = null;
-        }
-        if (canTopmost) {
-          await invoke("set_compact_window_topmost", { enabled: alwaysOnTopEnabledRef.current });
-        }
-        panelStateRef.current = false;
-        requestedPanelStateRef.current = false;
-        const compactSize = compactWindowSize(
-          false,
-          COMPACT_WINDOW_SIZE.width,
-          heightRef.current,
+      } catch (reason) {
+        compactModeRef.current = previousMode;
+        void applyInterfaceScale(previousMode ? DEFAULT_INTERFACE_SCALE : readInterfaceScale());
+        reportError(
+          typeof reason === "string" ? new Error(reason) : reason,
+          "errors.window.compactToggle",
+          "window",
         );
-        await appWindow.setSizeConstraints(compactWindowConstraints(false));
-        await appWindow.setSize(new LogicalSize(compactSize.width, compactSize.height));
-        nativeHeightRef.current = compactSize.height;
-        await appWindow.setResizable(true);
-        setHeight(compactSize.height);
-      } else {
-        const saved = preCompactWindowRef.current;
-        preCompactWindowRef.current = null;
-        autoCaptionHeightRef.current = null;
-        heightRef.current = userHeightRef.current;
-        if (canTopmost) await invoke("set_compact_window_topmost", { enabled: false });
-        await appWindow.setResizable(true);
-        await appWindow.setSizeConstraints({ minWidth: 860, minHeight: 620 });
-        await appWindow.setSize(new LogicalSize(saved?.width ?? 1180, saved?.height ?? 760));
-        if (saved?.x !== undefined && saved?.y !== undefined) {
-          await appWindow.setPosition(new LogicalPosition(saved.x, saved.y)).catch(() => undefined);
-        }
-        if (saved?.maximized) {
-          await appWindow.maximize().catch(() => undefined);
-        }
-        panelStateRef.current = false;
-        onExitCompact();
+        return false;
       }
-
-      await appWindow.setShadow(!next);
-      await applyInterfaceScale(next ? DEFAULT_INTERFACE_SCALE : readInterfaceScale());
-      setCompact(next);
-      clearErrorFrom("window");
-      return true;
-    } catch (reason) {
-      compactModeRef.current = previousMode;
-      void applyInterfaceScale(previousMode ? DEFAULT_INTERFACE_SCALE : readInterfaceScale());
-      reportError(
-        typeof reason === "string" ? new Error(reason) : reason,
-        "errors.window.compactToggle",
-        "window",
-      );
-      return false;
-    }
+    };
+    const queued = modeTaskRef.current.then(run, run);
+    modeTaskRef.current = queued;
+    return queued;
   }, [clearErrorFrom, reportError, resolveCanTopmost]);
 
   const toggleAlwaysOnTop = useCallback(async (): Promise<boolean> => {

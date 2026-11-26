@@ -10,6 +10,7 @@ const SELECTOR = "[data-tooltip]:not(.bottom-dock .dock-button)";
 export function ControlTooltip() {
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  const hideRef = useRef<() => void>(() => undefined);
   const id = useId();
 
   useEffect(() => {
@@ -22,6 +23,7 @@ export function ControlTooltip() {
       target = null;
       setTooltip(null);
     };
+    hideRef.current = hide;
     const labelFor = (element: HTMLElement) => element.isConnected
       && !element.matches('[aria-haspopup]:not([aria-haspopup="false"])[aria-expanded="true"]')
       ? element.dataset.tooltip?.trim() : undefined;
@@ -47,6 +49,9 @@ export function ControlTooltip() {
         attributes: true,
         attributeFilter: ["data-tooltip", "aria-haspopup", "aria-expanded"],
       });
+      for (let node = element.parentNode; node; node = node.parentNode) {
+        observer.observe(node, { childList: true });
+      }
     };
     const closest = (node: EventTarget | null) => node instanceof Element
       ? node.closest<HTMLElement>(SELECTOR) : null;
@@ -97,7 +102,7 @@ export function ControlTooltip() {
     const { target } = tooltip;
     const position = () => {
       if (!target.isConnected) {
-        setTooltip(null);
+        hideRef.current();
         return;
       }
       const rect = target.getBoundingClientRect();

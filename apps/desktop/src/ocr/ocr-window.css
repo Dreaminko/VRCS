@@ -29,9 +29,6 @@
 }
 .ocr-window-status { min-width: 0; color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
 .ocr-window-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; }
-.ocr-window-actions .dock-button::after { left: auto; right: 0; transform: translateY(3px) scale(0.985); }
-.ocr-window-actions .dock-button:hover::after,
-.ocr-window-actions .dock-button:focus-visible::after { transform: translateY(0) scale(1); }
 .ocr-window-content {
   display: flex;
   min-height: 0;

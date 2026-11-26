@@ -73,6 +73,7 @@ export async function applyInterfaceScale(
       await getCurrentWebview().setZoom(scale);
     } catch (reason) {
       console.warn("Could not apply native webview zoom", reason);
+      return;
     }
   }
   if (requestId !== zoomRequestId) return;
