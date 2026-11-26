@@ -27,6 +27,8 @@ export const LearningWorkspace = memo(function LearningWorkspace({
   loading,
   loadingOlder,
   onLoadOlder,
+  targetViewKey,
+  committedViewKey,
 }: {
   conversation: ConversationSummary | undefined;
   conversations?: ConversationSummary[];
@@ -44,6 +46,8 @@ export const LearningWorkspace = memo(function LearningWorkspace({
   loading: boolean;
   loadingOlder: boolean;
   onLoadOlder: () => Promise<void>;
+  targetViewKey?: string | null;
+  committedViewKey?: string | null;
 }) {
   const { t } = useTranslation();
   const [materialsMounted, setMaterialsMounted] = useState(false);
@@ -164,6 +168,8 @@ export const LearningWorkspace = memo(function LearningWorkspace({
             loading={loading}
             loadingOlder={loadingOlder}
             onLoadOlder={onLoadOlder}
+            targetViewKey={targetViewKey}
+            committedViewKey={committedViewKey}
             onBackToInbox={closeMaterials}
             collectedId={collectedId}
             onOpenCollected={handleOpenCollected}

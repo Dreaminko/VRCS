@@ -9,7 +9,6 @@ import type { SpeakerIdentity, Subtitle } from "../subtitles/types";
 import { contentLanguageTag } from "../app/ui-language";
 import { useSpeakerIdentity } from "../subtitles/speaker-state";
 import { livePartialVisible, subtitleVisible } from "../subtitles/player-history";
-import { useLanguageDetectorReady } from "../subtitles/usePlayerHistoryPreferences";
 import { MessageSourceIcon } from "../subtitles/components/MessageSourceIcon";
 import { selectPlayerHistory, selectPlayerPreviews } from "./player-previews";
 import { compactLivePreview, type CompactDisplayMode } from "./compact-mode";
@@ -61,7 +60,6 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
 }) {
   const { t } = useTranslation();
   const stackRef = useRef<HTMLDivElement>(null);
-  const languageDetectorReady = useLanguageDetectorReady();
   const perPlayerEnabled = playerLimit !== undefined;
   const fixedPlayerMode = perPlayerEnabled && (displayMode ?? "fixed") === "fixed";
   const scrollPlayerMode = perPlayerEnabled && !fixedPlayerMode;
@@ -71,7 +69,7 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
     speakerPartials.map(partial => compactLivePreview(partial, subtitleHistory)!)
       .filter(partial => livePartialVisible(partial, hiddenTracks, hiddenSourceLanguages)),
     microphonePartials.map(partial => compactLivePreview(partial, subtitleHistory)!), playerLimit, scrollPlayerMode),
-    [speakerPartials, microphonePartials, playerLimit, scrollPlayerMode, subtitleHistory, hiddenTracks, hiddenSourceLanguages, languageDetectorReady]);
+    [speakerPartials, microphonePartials, playerLimit, scrollPlayerMode, subtitleHistory, hiddenTracks, hiddenSourceLanguages]);
   const batched = useBatchedPreview(previews, "compact-previews", previews.some(partial => partial.utterance_id.includes("qwen-preview-"))) ?? EMPTY_PREVIEWS;
   // A hidden/currently filtered lane must disappear immediately, even while a
   // previous Qwen snapshot is waiting for its next display batch.
@@ -80,7 +78,7 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
   const visibleSubtitles = useMemo(() => {
     const filtered = subtitles.filter(subtitle => subtitleVisible(subtitle, hiddenTracks, hiddenSourceLanguages));
     return fixedPlayerMode ? selectPlayerHistory(filtered, previews, playerLimit) : filtered;
-  }, [subtitles, previews, playerLimit, fixedPlayerMode, hiddenTracks, hiddenSourceLanguages, languageDetectorReady]);
+  }, [subtitles, previews, playerLimit, fixedPlayerMode, hiddenTracks, hiddenSourceLanguages]);
   const layout = useCompactLayout({
     subtitles: visibleSubtitles,
     previews: visiblePreviews,

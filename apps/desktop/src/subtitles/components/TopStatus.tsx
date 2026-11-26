@@ -101,8 +101,11 @@ function vrchatSendStatus(
     if (unitext.status === "disabled") return { label: t("status.vrchatSendDisabled"), tone: "muted" };
     if (unitext.status === "error") return { label: t("status.vrchatSendError"), tone: "error" };
     if (unitext.status === "ready") return { label: t("status.sendReady"), tone: "" };
-    if (unitext.status === "discovering" || unitext.status === "not_detected") {
-      return { label: t(`settings.unitext.status.${unitext.status}`), tone: "muted" };
+    if (unitext.status === "discovering") {
+      return { label: t("status.vrchatSendDiscovering"), tone: "muted" };
+    }
+    if (unitext.status === "not_detected") {
+      return { label: t("status.vrchatSendNotDetected"), tone: "muted" };
     }
     return { label: t("status.vrchatSendChecking"), tone: "muted" };
   }

@@ -4,10 +4,17 @@ import test from "node:test";
 import {
   activeConversationId,
   catalogAfterRequest,
+  conversationSwitchDirection,
+  conversationViewKey,
+  getCachedConversationPage,
+  MAX_CACHED_CONVERSATIONS,
   normalizeConversationTitle,
   selectedConversationIdForCatalog,
+  setCachedConversationPage,
+  updateCachedConversationPage,
 } from "../src/conversations/conversation-state.ts";
 import type { ConversationCatalog } from "../src/conversations/conversations.ts";
+import type { Subtitle } from "../src/subtitles/types.ts";
 
 test("normalizes whitespace and limits custom titles to forty characters", () => {
   assert.equal(normalizeConversationTitle("  VRChat   study  "), "VRChat study");
@@ -53,4 +60,60 @@ test("a catalog event received during an HTTP request remains authoritative", ()
     sequence: 5,
     catalog: eventCatalog,
   }), response);
+});
+
+function subtitle(id: number, text = `msg-${id}`): Subtitle {
+  return {
+    id,
+    text,
+    language: "en",
+    started_at: null,
+    ended_at: null,
+    created_at: "2026-08-16T00:00:00Z",
+    translations: [],
+  };
+}
+
+test("conversation view keys distinguish latest and focused subtitle views", () => {
+  assert.equal(conversationViewKey(null), null);
+  assert.equal(conversationViewKey("conv-1"), "conv-1:latest");
+  assert.equal(conversationViewKey("conv-1", 42), "conv-1:at:42");
+});
+
+test("conversation switch direction follows sidebar list order", () => {
+  const ordered = ["conv-1", "conv-2", "conv-3"];
+  assert.equal(conversationSwitchDirection(ordered, "conv-1", "conv-2"), "down");
+  assert.equal(conversationSwitchDirection(ordered, "conv-3", "conv-1"), "up");
+  assert.equal(conversationSwitchDirection(ordered, "conv-2", "conv-2"), "neutral");
+  assert.equal(conversationSwitchDirection(ordered, null, "conv-2"), "neutral");
+  assert.equal(conversationSwitchDirection(ordered, "conv-1", "missing"), "neutral");
+});
+
+test("LRU conversation page cache evicts oldest untouched entry and updates in place", () => {
+  const cache = new Map();
+  for (let i = 1; i <= MAX_CACHED_CONVERSATIONS; i += 1) {
+    setCachedConversationPage(cache, `conv-${i}`, {
+      items: [subtitle(i)],
+      hasOlder: false,
+      nextBeforeId: null,
+    });
+  }
+  // Touch conv-1 so conv-2 becomes the oldest entry.
+  assert.equal(getCachedConversationPage(cache, "conv-1")?.items[0]?.id, 1);
+
+  setCachedConversationPage(cache, "conv-extra", {
+    items: [subtitle(99)],
+    hasOlder: true,
+    nextBeforeId: 50,
+  });
+
+  assert.equal(cache.size, MAX_CACHED_CONVERSATIONS);
+  assert.equal(getCachedConversationPage(cache, "conv-2"), undefined);
+  assert.equal(getCachedConversationPage(cache, "conv-1")?.items[0]?.id, 1);
+
+  updateCachedConversationPage(cache, "conv-extra", (items) => [subtitle(100), ...items]);
+  assert.deepEqual(
+    getCachedConversationPage(cache, "conv-extra")?.items.map((item) => item.id),
+    [100, 99],
+  );
 });

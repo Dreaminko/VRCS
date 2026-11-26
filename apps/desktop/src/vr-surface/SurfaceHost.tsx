@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { subscribeLanguageDetector } from "../subtitles/player-history";
 import { connectSurfaceBridge, type SurfaceBridge } from "./bridge";
 import { preloadVisionMarkdown, VrSurface } from "./VrSurface";
 import { markerBits, newerKey, sameKey, serialAtLeast, type Surface, type SurfaceActivity, type SurfaceKey, type SurfaceLayout, type SurfacePointerState, type SurfaceScrollState, type SurfaceState } from "./protocol";
@@ -184,9 +183,6 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
         markPaint();
       }
     };
-    const stopDetector = surface === "headset" || surface === "dialogue"
-      ? subscribeLanguageDetector(() => { if (!disposed) markPaint(); })
-      : null;
     void (async () => {
       const bridge = await connect(surface, abort.signal);
       if (disposed) { bridge.dispose(); return; }
@@ -202,7 +198,6 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
     })().catch((error) => { if (!disposed) console.error("VR surface connection failed", error); });
     return () => {
       disposed = true; mounted.current = false; layoutRequest.current++; cancelScroll();
-      stopDetector?.();
       stopAnimationLoop();
       pressedRef.current = null;
       if (paintFrame.current !== null) cancelAnimationFrame(paintFrame.current);

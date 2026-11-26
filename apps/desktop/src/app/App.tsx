@@ -84,9 +84,8 @@ function App() {
           settings={workspace.settings}
         />
       )}
-      {onboardingComplete && (
+      {onboardingComplete && !compactActive && (
         <DesktopShell
-          hidden={compactActive}
           page={page}
           settingsInitialCategory={settingsInitialCategory}
           setPage={setPage}

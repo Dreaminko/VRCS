@@ -71,13 +71,14 @@ export function useConversationWorkspace({
   const selectedConversation = conversations.find(
     (conversation) => conversation.id === catalogState.selectedConversationId,
   ) ?? activeConversation;
-  const selectedSubtitles = selectedConversation?.id === openedConversationId
+  const displayedConversation = openedConversationId
+    ? conversations.find((conversation) => conversation.id === openedConversationId)
+    : undefined;
+  const selectedSubtitles = openedConversationId !== null
     ? subtitles
     : EMPTY_SUBTITLES;
   const selectedConversationHasOlder = Boolean(
-    selectedConversation
-    && selectedConversation.id === openedConversationId
-    && hasOlderSubtitles,
+    openedConversationId !== null && hasOlderSubtitles,
   );
 
   const focusSearch = useCallback(() => {
@@ -133,6 +134,7 @@ export function useConversationWorkspace({
     conversations,
     activeConversation,
     selectedConversation,
+    displayedConversation,
     selectedSubtitles,
     sidebarOpen,
     setSidebarOpen,

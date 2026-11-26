@@ -45,6 +45,7 @@ use crate::vr_overlay::surface_protocol::{
 };
 
 const WAKE: u32 = WM_APP + 41;
+const IDLE_ENVIRONMENT_TIMEOUT: Duration = Duration::from_secs(30);
 const BROWSER_ARGS: &str = "--disable-features=CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows --disable-renderer-backgrounding";
 const SURFACE_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
@@ -330,6 +331,7 @@ struct Sta {
     creating: [Option<HostId>; 10],
     inflight: usize,
     environment_pending: bool,
+    env_idle_since: Option<Instant>,
     browser_failed: Rc<Cell<bool>>,
     failure: Option<String>,
     last_control_revision: u64,
@@ -517,6 +519,7 @@ fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
         creating: [None; 10],
         inflight: 0,
         environment_pending: false,
+        env_idle_since: None,
         browser_failed: Rc::new(Cell::new(false)),
         failure: None,
         last_control_revision: 0,
@@ -557,11 +560,12 @@ fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
                 let mut state = state.borrow_mut();
                 state.failure = None;
                 state.environment = None;
+                state.env_idle_since = None;
                 state.control_dirty = true;
             }
             start_environment(&state, &profile);
         }
-        let timeout = process(&state);
+        let timeout = process(&state, &profile);
         #[cfg(all(debug_assertions, feature = "vr-preview"))]
         {
             let state = state.borrow();
@@ -579,6 +583,7 @@ fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
             {
                 let mut state = state.borrow_mut();
                 state.environment = None;
+                state.env_idle_since = None;
                 state.browser_failed = Rc::new(Cell::new(false));
                 state.control_dirty = true;
             }
@@ -701,9 +706,9 @@ fn environment_error(state: &mut Sta, error: String) {
     state.failure = Some(error);
 }
 
-fn process(state: &Rc<RefCell<Sta>>) -> u32 {
+fn process(state: &Rc<RefCell<Sta>>, profile: &std::path::Path) -> u32 {
     let mut timeout = u32::MAX;
-    let (revision, last_revision, dirty, browser_failed, has_sleep) = {
+    let (revision, last_revision, dirty, browser_failed, has_sleep, has_env_idle) = {
         let s = state.borrow();
         let revision = crate::vr_overlay::runtime::lock_unpoisoned(&s.shared.control).revision;
         let has_sleep = s.hosts.iter().flatten().any(|host| host.sleep.is_some());
@@ -713,9 +718,10 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
             s.control_dirty,
             s.browser_failed.get(),
             has_sleep,
+            s.env_idle_since.is_some(),
         )
     };
-    if dirty || revision != last_revision || browser_failed || has_sleep {
+    if dirty || revision != last_revision || browser_failed || has_sleep || has_env_idle {
         {
             let mut s = state.borrow_mut();
             s.last_control_revision = revision;
@@ -793,18 +799,25 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
                     host_error(&state.borrow().app, desired.id, error);
                     continue;
                 }
-                let create = {
+                let (create, need_env) = {
                     let s = state.borrow();
                     let hub = s.app.state::<SurfaceHub>();
                     let entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
-                    s.hosts[index].is_none()
+                    let eligible = s.hosts[index].is_none()
                         && s.creating[index].is_none()
-                        && s.environment.is_some()
                         && !s.browser_failed.get()
                         && desired.activity.active
                         && entries[index].host_epoch == desired.id.host_epoch
-                        && entries[index].error.is_none()
+                        && entries[index].error.is_none();
+                    (
+                        eligible && s.environment.is_some(),
+                        eligible && s.environment.is_none() && !s.environment_pending,
+                    )
                 };
+                if need_env {
+                    state.borrow_mut().env_idle_since = None;
+                    start_environment(state, profile);
+                }
                 if create {
                     start_host(state, desired.id);
                 }
@@ -845,6 +858,31 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
                         host_error(&app, host.id, failure("Wake surface view", error));
                     }
                 }
+            }
+        }
+        {
+            let mut s = state.borrow_mut();
+            let all_idle = s.environment.is_some()
+                && s.inflight == 0
+                && s.hosts.iter().all(Option::is_none)
+                && s.creating.iter().all(Option::is_none)
+                && desired.iter().all(Option::is_none);
+            if all_idle {
+                let now = Instant::now();
+                let idle_since = *s.env_idle_since.get_or_insert(now);
+                let elapsed = now.saturating_duration_since(idle_since);
+                if elapsed >= IDLE_ENVIRONMENT_TIMEOUT {
+                    s.environment = None;
+                    s.env_idle_since = None;
+                } else {
+                    let remaining = IDLE_ENVIRONMENT_TIMEOUT
+                        .saturating_sub(elapsed)
+                        .as_millis()
+                        .min(u32::MAX as u128) as u32;
+                    timeout = timeout.min(remaining.max(1));
+                }
+            } else {
+                s.env_idle_since = None;
             }
         }
     }
@@ -1065,6 +1103,7 @@ impl NativeHost {
             self.activity = Some(activity);
             if activity.active {
                 self.sleep = None;
+                crate::webview_memory::resume_webview(&self.webview);
                 self.root.SetIsVisible(true)?;
                 unsafe {
                     self.controller.SetIsVisible(true)?;
@@ -1090,6 +1129,7 @@ impl NativeHost {
                 self.controller.SetIsVisible(false)?;
             }
             self.root.SetIsVisible(false)?;
+            crate::webview_memory::suspend_webview(&self.webview);
             self.sleep = None;
         }
         Ok(())

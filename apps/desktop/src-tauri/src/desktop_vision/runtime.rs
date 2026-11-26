@@ -330,6 +330,7 @@ impl Manager {
                         #[cfg(windows)]
                         let _picker = crate::desktop_capture::reserve_picker()
                             .map_err(|_| "desktop_vision.selection_busy".to_string())?;
+                        crate::webview_memory::resume_window(&window);
                         window
                             .show()
                             .and_then(|_| window.set_focus())
@@ -360,6 +361,7 @@ impl Manager {
                 && let Some(window) = app.get_webview_window("vision")
             {
                 let _ = window.hide();
+                crate::webview_memory::suspend_window(&window);
             }
         });
     }

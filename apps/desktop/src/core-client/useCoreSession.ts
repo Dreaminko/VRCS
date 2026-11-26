@@ -89,6 +89,8 @@ export function useCoreSession(resourcesActive: boolean) {
     dictionary,
     subtitles: {
       openedConversationId: subtitles.openedConversationId,
+      targetViewKey: subtitles.targetViewKey,
+      committedViewKey: subtitles.committedViewKey,
       items: subtitles.subtitles,
       hasOlder: subtitles.hasOlderSubtitles,
       loadingConversation: subtitles.loadingConversationSubtitles,

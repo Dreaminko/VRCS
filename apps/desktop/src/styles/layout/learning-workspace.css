@@ -566,7 +566,60 @@
   scroll-padding-bottom: 88px;
 }
 .learning-material-scroll::-webkit-scrollbar-track { margin: 8px 0 20px; }
-.learning-material-scroll > .empty-state { min-height: 220px; flex: 1; }
+.learning-material-scroll > .empty-state,
+.learning-material-stage > .empty-state { min-height: 220px; flex: 1; }
+.learning-material-stage {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+.learning-material-stage[data-transition-direction="down"] {
+  --stage-exit-y: -8px;
+  --stage-enter-y: 10px;
+}
+.learning-material-stage[data-transition-direction="up"] {
+  --stage-exit-y: 8px;
+  --stage-enter-y: -10px;
+}
+.learning-material-stage[data-transition-direction="neutral"] {
+  --stage-exit-y: 4px;
+  --stage-enter-y: 6px;
+}
+.learning-material-stage[data-transition-phase="exiting"] {
+  pointer-events: none;
+  will-change: opacity, transform;
+  animation: conversation-stage-exit 85ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+.learning-material-stage[data-transition-phase="waiting"] {
+  opacity: 0;
+  pointer-events: none;
+}
+.learning-material-stage[data-transition-phase="entering"] {
+  will-change: opacity, transform;
+  animation: conversation-stage-enter 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.learning-material-skeleton {
+  display: grid;
+  animation: conversation-skeleton-in 120ms ease-out;
+}
+.learning-material-skeleton-row {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) 88px;
+  gap: 14px;
+  align-items: center;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
+}
+.learning-material-skeleton-row:last-child { border-bottom: 0; }
+.learning-material-skeleton-copy { display: grid; gap: 8px; }
+.learning-material-skeleton-bar {
+  display: block;
+  height: 12px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-subtle);
+  animation: conversation-skeleton-pulse 1.3s ease-in-out infinite;
+}
 
 .learning-material-group { border-bottom: 1px solid var(--border); }
 .learning-material-group:last-child { border-bottom: 0; }

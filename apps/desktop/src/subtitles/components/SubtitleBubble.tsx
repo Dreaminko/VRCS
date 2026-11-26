@@ -39,6 +39,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
   onOpenLearningItem,
   onCopyFeedback,
   translating = false,
+  watchTranslationPartials = true,
   learningBusy = false,
   learningCaptured = false,
   selectionLearningBusy = false,
@@ -62,6 +63,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
   onOpenLearningItem?: (itemId: number) => void;
   onCopyFeedback: (tone: "success" | "error", text: string) => void;
   translating?: boolean;
+  watchTranslationPartials?: boolean;
   learningBusy?: boolean;
   learningCaptured?: boolean;
   selectionLearningBusy?: boolean;
@@ -72,7 +74,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
   const source: SubtitleSource = subtitle.source ?? "speaker";
   const speaker = useSpeakerIdentity(subtitle.speaker);
   const mine = !isOtherPlayerSource(source);
-  const translationPartials = useTranslationPartials(subtitle.id);
+  const translationPartials = useTranslationPartials(watchTranslationPartials ? subtitle.id : null);
   const completedTranslations = subtitle.translations.filter(
     (translation) =>
       !translation.source_group || translation.source_group.subtitle_ids.at(-1) === subtitle.id,

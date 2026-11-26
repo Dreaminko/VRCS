@@ -433,10 +433,13 @@ impl Entry {
     }
 
     fn cold(&self, surface: SurfaceId, now: Instant) -> bool {
-        let timeout = if surface == SurfaceId::Dashboard {
-            Duration::from_secs(300)
-        } else {
-            Duration::from_secs(60)
+        let timeout = match surface {
+            SurfaceId::Dashboard => Duration::from_secs(300),
+            SurfaceId::OcrResult
+            | SurfaceId::OcrSelection
+            | SurfaceId::OcrProgress
+            | SurfaceId::PlayerAudio => Duration::from_secs(15),
+            _ => Duration::from_secs(60),
         };
         !self.active
             && self

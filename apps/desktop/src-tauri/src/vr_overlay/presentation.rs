@@ -37,6 +37,8 @@ pub struct CaptionOriginal {
     pub track_id: Option<String>,
     pub text: String,
     pub language: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detected_language: Option<String>,
     pub translation_sources: Vec<String>,
     pub live: bool,
 }
@@ -1033,6 +1035,26 @@ fn caption_original(
     live: bool,
     completed: Option<&PresentationItem>,
 ) -> CaptionOriginal {
+    let text = item
+        .visibility_original
+        .as_ref()
+        .filter(|text| !text.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| {
+            if item.original.trim().is_empty() {
+                completed
+                    .map(|item| item.original.clone())
+                    .unwrap_or_default()
+            } else {
+                item.original.clone()
+            }
+        });
+    let language = completed
+        .and_then(|item| item.language.clone())
+        .or_else(|| item.language.clone());
+    let detected_language = (!vrcs_core::has_explicit_language(language.as_deref()))
+        .then(|| vrcs_core::detect_language(&text).map(str::to_owned))
+        .flatten();
     CaptionOriginal {
         source: item.source.clone(),
         track_id: item
@@ -1040,23 +1062,9 @@ fn caption_original(
             .as_ref()
             .or_else(|| completed.and_then(|item| item.speaker.as_ref()))
             .map(|speaker| speaker.id.clone()),
-        text: item
-            .visibility_original
-            .as_ref()
-            .filter(|text| !text.trim().is_empty())
-            .cloned()
-            .unwrap_or_else(|| {
-                if item.original.trim().is_empty() {
-                    completed
-                        .map(|item| item.original.clone())
-                        .unwrap_or_default()
-                } else {
-                    item.original.clone()
-                }
-            }),
-        language: completed
-            .and_then(|item| item.language.clone())
-            .or_else(|| item.language.clone()),
+        text,
+        language,
+        detected_language,
         translation_sources: completed
             .unwrap_or(item)
             .translation_sources

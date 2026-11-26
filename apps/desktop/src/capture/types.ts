@@ -20,6 +20,7 @@ export interface LiveTranscription {
   source: "speaker" | "microphone";
   text: string;
   language?: string | null;
+  detected_language?: string | null;
   translation?: string;
   target_language?: string;
 }

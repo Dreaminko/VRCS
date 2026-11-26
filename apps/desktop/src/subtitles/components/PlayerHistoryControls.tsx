@@ -7,7 +7,6 @@ import type { SpeakerIdentity, Subtitle } from "../types";
 import { useSpeakerIdentity } from "../speaker-state";
 import { useHealthSelector } from "../../core-client/health-store";
 import { isAudioTrack, type PlayerHistoryPreferences } from "../player-history";
-import { useLanguageDetectorReady } from "../usePlayerHistoryPreferences";
 import { collectPlayerSpeakers, playerLanguageOptions, applyPlayerVisibilityAction, sortPlayerSpeakersByDistance, type PlayerSourceAction, type PlayerVisibilityAction } from "../player-controls";
 import type { PlayerSourceMode, PlayerSourceOverride } from "../../capture/types";
 import { playerUserId } from "../../capture/player-selection";
@@ -108,12 +107,11 @@ export function PlayerHistoryControls({ subtitles, status, roster, useLiveHealth
       active: viewPriority.enabled,
     },
   ].filter((item): item is { key: string; label: string; value: string; active: boolean } => Boolean(item));
-  const languageDetectorReady = useLanguageDetectorReady();
   const languageCodes = useMemo(
     () => panelMounted
       ? playerLanguageOptions(subtitles, defaultLanguages, preferences.hiddenSourceLanguages).filter(language => !languages.includes(language))
       : [],
-    [panelMounted, subtitles, defaultLanguages, preferences.hiddenSourceLanguages, languages, languageDetectorReady],
+    [panelMounted, subtitles, defaultLanguages, preferences.hiddenSourceLanguages, languages],
   );
   const languageName = (language: string) => localizedLanguageName(language, i18n.resolvedLanguage ?? "en-US");
   const display = (action: PlayerVisibilityAction) => onPreferences(value => applyPlayerVisibilityAction(value, action, defaultLanguages));

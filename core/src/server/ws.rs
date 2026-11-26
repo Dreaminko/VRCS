@@ -155,7 +155,11 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
                         if matches!(subtitle.source.as_str(), "speaker" | "microphone") {
                             continue;
                         }
-                        let payload = json!({ "type": "subtitle", "subtitle": subtitle }).to_string();
+                        let mut subtitle_json = json!(subtitle);
+                        if subtitle.source != "world" {
+                            crate::attach_detected_language_json(&mut subtitle_json, &subtitle.text);
+                        }
+                        let payload = json!({ "type": "subtitle", "subtitle": subtitle_json }).to_string();
                         if !enqueue_text(&outbound_tx, payload, false) {
                             kicked_slow_client = true;
                             break;
@@ -285,6 +289,20 @@ fn recognition_payload(event: DomainEvent) -> Option<Value> {
             let mut payload = event.payload;
             payload["type"] = json!("live_translation_updated");
             payload["source"] = json!(event.source);
+            let sample = [
+                payload
+                    .pointer("/conversation_preview/text")
+                    .and_then(Value::as_str),
+                payload.get("text").and_then(Value::as_str),
+                payload.get("completed_original").and_then(Value::as_str),
+            ]
+            .into_iter()
+            .flatten()
+            .find(|text| !text.trim().is_empty())
+            .map(str::to_owned);
+            if let Some(sample) = sample {
+                crate::attach_detected_language_json(&mut payload, &sample);
+            }
             Some(payload)
         }
         "asr.partial" => {
@@ -298,13 +316,31 @@ fn recognition_payload(event: DomainEvent) -> Option<Value> {
             if let Some(speaker) = event.payload.get("speaker") {
                 payload["speaker"] = speaker.clone();
             }
+            if let Some(text) = payload
+                .get("text")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+            {
+                crate::attach_detected_language_json(&mut payload, &text);
+            }
             Some(payload)
         }
-        "asr.final" => Some(json!({
-            "type": "subtitle",
-            "utterance_id": event.message_id,
-            "subtitle": event.payload.get("subtitle")?,
-        })),
+        "asr.final" => {
+            let mut subtitle = event.payload.get("subtitle")?.clone();
+            if subtitle.get("source").and_then(Value::as_str) != Some("world")
+                && let Some(text) = subtitle
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            {
+                crate::attach_detected_language_json(&mut subtitle, &text);
+            }
+            Some(json!({
+                "type": "subtitle",
+                "utterance_id": event.message_id,
+                "subtitle": subtitle,
+            }))
+        }
         "asr.cancelled" => Some(json!({
             "type": "recognition_cancelled",
             "utterance_id": event.message_id,

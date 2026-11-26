@@ -209,7 +209,17 @@ pub(super) async fn subtitles(
         .await
         .map_err(conversation_error("conversations.subtitles_failed"))?
         .ok_or_else(conversation_not_found)?;
-    Ok(Json(json!(page)))
+    let mut value = json!(page);
+    if let Some(items) = value.get_mut("items").and_then(Value::as_array_mut) {
+        for item in items {
+            if item.get("source").and_then(Value::as_str) != Some("world")
+                && let Some(text) = item.get("text").and_then(Value::as_str).map(str::to_owned)
+            {
+                crate::attach_detected_language_json(item, &text);
+            }
+        }
+    }
+    Ok(Json(value))
 }
 
 pub(super) async fn subtitle_context(
@@ -226,7 +236,17 @@ pub(super) async fn subtitle_context(
         .await
         .map_err(conversation_error("conversations.subtitle_context_failed"))?
         .ok_or_else(conversation_not_found)?;
-    Ok(Json(json!(context)))
+    let mut value = json!(context);
+    if let Some(items) = value.get_mut("items").and_then(Value::as_array_mut) {
+        for item in items {
+            if item.get("source").and_then(Value::as_str) != Some("world")
+                && let Some(text) = item.get("text").and_then(Value::as_str).map(str::to_owned)
+            {
+                crate::attach_detected_language_json(item, &text);
+            }
+        }
+    }
+    Ok(Json(value))
 }
 
 fn patch_value_as_deref(value: &Option<Option<String>>) -> Option<Option<&str>> {

@@ -4,9 +4,9 @@ import { createPortal } from "react-dom";
 import { Globe2, LoaderCircle, SlidersHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { subtitleVisible } from "../player-history";
-import { useLanguageDetectorReady } from "../usePlayerHistoryPreferences";
 
 import type { LookupOrigin } from "../../app/app-types";
+import type { ConversationTransitionPhase } from "../../conversations/useConversationTransition";
 import type { SubtitleAnalysisOutcome } from "../subtitle-actions";
 import type { Subtitle } from "../types";
 import { usePrependScrollAnchor } from "../hooks/usePrependScrollAnchor";
@@ -14,6 +14,7 @@ import {
   useSubtitleBoxSelection,
   type SubtitleSelectionRect,
 } from "../hooks/useSubtitleBoxSelection";
+import { ConversationSkeleton } from "./ConversationSkeleton";
 import { EmptyLiveView, LivePartials } from "./LivePartials";
 import { SubtitleBubble } from "./SubtitleBubble";
 
@@ -50,6 +51,7 @@ export const LiveView = memo(function LiveView({
   isLearningSelectionCaptured,
   translatingSubtitleIds = EMPTY_TRANSLATING_IDS,
   focusedSubtitleId = null,
+  transitionPhase,
 }: {
   subtitles: Subtitle[];
   playerName?: string;
@@ -76,9 +78,9 @@ export const LiveView = memo(function LiveView({
   isLearningSelectionCaptured?: (subtitles: Subtitle[]) => boolean;
   translatingSubtitleIds?: number[];
   focusedSubtitleId?: number | null;
+  transitionPhase?: ConversationTransitionPhase;
 }) {
   const { t } = useTranslation();
-  const languageDetectorReady = useLanguageDetectorReady();
   const chronological = useMemo(() => {
     const visible: Subtitle[] = [];
     for (let index = subtitles.length - 1; index >= 0; index -= 1) {
@@ -86,7 +88,7 @@ export const LiveView = memo(function LiveView({
       if (subtitleVisible(subtitle, hiddenTracks, hiddenSourceLanguages)) visible.push(subtitle);
     }
     return visible;
-  }, [subtitles, hiddenTracks, hiddenSourceLanguages, languageDetectorReady]);
+  }, [subtitles, hiddenTracks, hiddenSourceLanguages]);
   const selectableIds = useMemo(
     () => chronological.flatMap((subtitle) => (
       subtitle.id === null || subtitle.source === "world" ? [] : [subtitle.id]
@@ -140,11 +142,17 @@ export const LiveView = memo(function LiveView({
   }, [multiSelectionActive]);
 
   useLayoutEffect(() => {
-    if (focusedSubtitleId === null || loading) return;
+    if (
+      focusedSubtitleId === null
+      || loading
+      || transitionPhase === "exiting"
+      || transitionPhase === "waiting"
+      || transitionPhase === "skeleton"
+    ) return;
     containerRef.current
       ?.querySelector<HTMLElement>(`[data-subtitle-id="${focusedSubtitleId}"]`)
       ?.scrollIntoView({ block: "center" });
-  }, [containerRef, focusedSubtitleId, loading]);
+  }, [containerRef, focusedSubtitleId, loading, transitionPhase]);
 
   const showCopyFeedback = useCallback((tone: "success" | "error", text: string) => {
     if (feedbackTimerRef.current !== null) window.clearTimeout(feedbackTimerRef.current);
@@ -177,7 +185,7 @@ export const LiveView = memo(function LiveView({
           {copyFeedback.text}
         </div>
       )}
-      {hasOlder && (
+      {hasOlder && transitionPhase !== "waiting" && transitionPhase !== "skeleton" && (
             <div className="conversation-load-older">
               <button
                 className="secondary-button"
@@ -192,7 +200,9 @@ export const LiveView = memo(function LiveView({
               </button>
             </div>
           )}
-      {chronological.length ? (
+      {transitionPhase === "waiting" ? null : transitionPhase === "skeleton" ? (
+        <ConversationSkeleton />
+      ) : chronological.length ? (
         <>
           {chronological.map((subtitle, index) => {
             if (subtitle.source === "world") {
@@ -212,6 +222,7 @@ export const LiveView = memo(function LiveView({
               );
             }
             const selected = subtitle.id !== null && selectedIds.has(subtitle.id);
+            const translating = subtitle.id !== null && translatingIds.has(subtitle.id);
             return (
               <SubtitleBubble
                 key={subtitle.id ?? `${subtitle.created_at}-${index}`}
@@ -235,16 +246,14 @@ export const LiveView = memo(function LiveView({
                 learningCaptured={isLearningCaptured?.(subtitle)}
                 selectionLearningBusy={selectionLearningBusy}
                 selectionLearningCaptured={selectionLearningCaptured}
-                translating={subtitle.id !== null && translatingIds.has(subtitle.id)}
+                translating={translating}
+                watchTranslationPartials={translating || index >= chronological.length - 20}
               />
             );
           })}
         </>
       ) : loading ? (
-        <div className="empty-state" role="status">
-          <LoaderCircle className="spinning" size={22} />
-          <p>{t("common.loading")}</p>
-        </div>
+        <ConversationSkeleton />
       ) : subtitles.length ? (
         <div className="empty-state">
           <SlidersHorizontal size={22} aria-hidden="true" />
@@ -253,7 +262,9 @@ export const LiveView = memo(function LiveView({
       ) : (
         <EmptyLiveView running={running} />
       )}
-      {running && <LivePartials subtitles={subtitles} playerName={playerName} hiddenTracks={hiddenTracks} hiddenSourceLanguages={hiddenSourceLanguages} />}
+      {running && transitionPhase !== "exiting" && transitionPhase !== "waiting" && transitionPhase !== "skeleton" && (
+        <LivePartials subtitles={subtitles} playerName={playerName} hiddenTracks={hiddenTracks} hiddenSourceLanguages={hiddenSourceLanguages} />
+      )}
     </section>
   );
 });

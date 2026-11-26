@@ -3,6 +3,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { subtitlesApi } from "../subtitles/api";
 import { conversationsApi } from "./api";
 import {
+  conversationViewKey,
+  getCachedConversationPage,
+  setCachedConversationPage,
+  updateCachedConversationPage,
+  type CachedConversationPage,
+} from "./conversation-state";
+import {
   conversationSubtitlePage,
   isAbortError,
   isConversationRequestCurrent,
@@ -78,6 +85,8 @@ export function useConversationHistory({
   clearErrorFrom: (source: string) => void;
 }) {
   const [openedConversationId, setOpenedConversationId] = useState<string | null>(null);
+  const [targetViewKey, setTargetViewKey] = useState<string | null>(null);
+  const [committedViewKey, setCommittedViewKey] = useState<string | null>(null);
   const [subtitles, setSubtitles] = useState<Subtitle[]>([]);
   const [hasOlderSubtitles, setHasOlderSubtitles] = useState(false);
   const [loadingConversationSubtitles, setLoadingConversationSubtitles] = useState(false);
@@ -85,6 +94,7 @@ export function useConversationHistory({
   const [focusedSubtitleId, setFocusedSubtitleId] = useState<number | null>(null);
   const [translatingSubtitleIds, setTranslatingSubtitleIds] = useState<number[]>([]);
   const currentConversationIdRef = useRef<string | null>(null);
+  const openedConversationIdRef = useRef<string | null>(null);
   const focusedSubtitleIdRef = useRef<number | null>(null);
   const nextBeforeIdRef = useRef<number | null>(null);
   const requestVersionRef = useRef(0);
@@ -92,6 +102,8 @@ export function useConversationHistory({
   const loadingOlderSubtitlesRef = useRef(false);
   const openRequestControllerRef = useRef<AbortController | null>(null);
   const olderRequestControllerRef = useRef<AbortController | null>(null);
+  const cacheRef = useRef<Map<string, CachedConversationPage>>(new Map());
+  const pendingLiveSubtitlesRef = useRef<Subtitle[]>([]);
 
   const requestIsCurrent = useCallback((request: ConversationRequestToken) => (
     isConversationRequestCurrent(
@@ -108,32 +120,118 @@ export function useConversationHistory({
     olderRequestControllerRef.current = null;
   }, []);
 
+  const commitConversation = useCallback(({
+    conversationId,
+    items,
+    hasOlder,
+    nextBeforeId,
+    focusedSubtitleId: nextFocusedId,
+    viewKey,
+  }: {
+    conversationId: string | null;
+    items: Subtitle[];
+    hasOlder: boolean;
+    nextBeforeId: number | null;
+    focusedSubtitleId: number | null;
+    viewKey: string | null;
+  }) => {
+    openedConversationIdRef.current = conversationId;
+    nextBeforeIdRef.current = nextBeforeId;
+    paginationInitializedRef.current = conversationId !== null;
+    focusedSubtitleIdRef.current = nextFocusedId;
+    loadingOlderSubtitlesRef.current = false;
+    setOpenedConversationId(conversationId);
+    setSubtitles(items);
+    setHasOlderSubtitles(hasOlder);
+    setLoadingOlderSubtitles(false);
+    setFocusedSubtitleId(nextFocusedId);
+    setTranslatingSubtitleIds([]);
+    setCommittedViewKey(viewKey);
+  }, []);
+
   const clearPool = useCallback((conversationId: string | null) => {
     abortRequests();
     currentConversationIdRef.current = conversationId;
     requestVersionRef.current += 1;
-    nextBeforeIdRef.current = null;
-    paginationInitializedRef.current = false;
-    loadingOlderSubtitlesRef.current = false;
-    setOpenedConversationId(conversationId);
-    setSubtitles([]);
-    setHasOlderSubtitles(false);
+    cacheRef.current.clear();
+    pendingLiveSubtitlesRef.current = [];
+    setTargetViewKey(conversationViewKey(conversationId, null));
     setLoadingConversationSubtitles(false);
-    setLoadingOlderSubtitles(false);
-    focusedSubtitleIdRef.current = null;
-    setFocusedSubtitleId(null);
-    setTranslatingSubtitleIds([]);
-  }, [abortRequests]);
+    commitConversation({
+      conversationId,
+      items: [],
+      hasOlder: false,
+      nextBeforeId: null,
+      focusedSubtitleId: null,
+      viewKey: conversationViewKey(conversationId, null),
+    });
+  }, [abortRequests, commitConversation]);
 
   const openConversation = useCallback(async (conversationId: string | null) => {
-    clearPool(conversationId);
-    if (!coreConfigured || conversationId === null) return;
+    if (!coreConfigured || conversationId === null) {
+      clearPool(null);
+      return;
+    }
 
-    setLoadingConversationSubtitles(true);
+    abortRequests();
+    currentConversationIdRef.current = conversationId;
+    requestVersionRef.current += 1;
+    pendingLiveSubtitlesRef.current = [];
+    const viewKey = conversationViewKey(conversationId, null);
+    setTargetViewKey(viewKey);
+
     const request: ConversationRequestToken = {
       conversationId,
       version: requestVersionRef.current,
     };
+    const cached = getCachedConversationPage(cacheRef.current, conversationId);
+    if (cached) {
+      commitConversation({
+        conversationId,
+        items: cached.items,
+        hasOlder: cached.hasOlder,
+        nextBeforeId: cached.nextBeforeId,
+        focusedSubtitleId: null,
+        viewKey,
+      });
+      setLoadingConversationSubtitles(false);
+
+      const controller = new AbortController();
+      openRequestControllerRef.current = controller;
+      try {
+        const response = await conversationsApi.conversationSubtitles(conversationId, {
+          limit: SUBTITLE_HISTORY_PAGE_SIZE,
+          signal: controller.signal,
+        });
+        if (!requestIsCurrent(request)) return;
+        const page = conversationSubtitlePage(response);
+        setSubtitles((current) => {
+          const merged = mergeSubtitleHistory(current, page.items);
+          const hasOlder = page.hasOlder || nextBeforeIdRef.current !== null;
+          const nextBeforeId = nextBeforeIdRef.current ?? page.nextBeforeId;
+          setHasOlderSubtitles(hasOlder);
+          nextBeforeIdRef.current = nextBeforeId;
+          setCachedConversationPage(cacheRef.current, conversationId, {
+            items: merged,
+            hasOlder,
+            nextBeforeId,
+          });
+          return merged;
+        });
+        clearErrorFrom("subtitle-history");
+      } catch (reason) {
+        if (!isAbortError(reason)) {
+          console.warn("Failed to revalidate cached conversation history", reason);
+        }
+      } finally {
+        if (openRequestControllerRef.current === controller) {
+          openRequestControllerRef.current = null;
+        }
+      }
+      return;
+    }
+
+    setLoadingConversationSubtitles(true);
     const controller = new AbortController();
     openRequestControllerRef.current = controller;
     try {
@@ -143,14 +241,33 @@ export function useConversationHistory({
       });
       if (!requestIsCurrent(request)) return;
       const page = conversationSubtitlePage(response);
-      setSubtitles((current) => mergeSubtitleHistory(current, page.items));
-      setHasOlderSubtitles(page.hasOlder);
-      nextBeforeIdRef.current = page.nextBeforeId;
-      paginationInitializedRef.current = true;
+      const merged = mergeSubtitleHistory(pendingLiveSubtitlesRef.current, page.items);
+      pendingLiveSubtitlesRef.current = [];
+      setCachedConversationPage(cacheRef.current, conversationId, {
+        items: merged,
+        hasOlder: page.hasOlder,
+        nextBeforeId: page.nextBeforeId,
+      });
+      commitConversation({
+        conversationId,
+        items: merged,
+        hasOlder: page.hasOlder,
+        nextBeforeId: page.nextBeforeId,
+        focusedSubtitleId: null,
+        viewKey,
+      });
       clearErrorFrom("subtitle-history");
     } catch (reason) {
       if (!isAbortError(reason) && requestIsCurrent(request)) {
         reportError(reason, "errors.core.connect", "subtitle-history");
+        commitConversation({
+          conversationId,
+          items: [],
+          hasOlder: false,
+          nextBeforeId: null,
+          focusedSubtitleId: null,
+          viewKey,
+        });
       }
     } finally {
       if (openRequestControllerRef.current === controller) {
@@ -158,18 +275,25 @@ export function useConversationHistory({
       }
       if (requestIsCurrent(request)) setLoadingConversationSubtitles(false);
     }
-  }, [clearErrorFrom, clearPool, coreConfigured, reportError, requestIsCurrent]);
+  }, [abortRequests, clearErrorFrom, clearPool, commitConversation, coreConfigured, reportError, requestIsCurrent]);
 
   const openConversationAt = useCallback(async (
     conversationId: string,
     subtitleId: number,
   ) => {
-    clearPool(conversationId);
-    if (!coreConfigured) return;
+    if (!coreConfigured) {
+      clearPool(null);
+      return;
+    }
 
-    focusedSubtitleIdRef.current = subtitleId;
-    setFocusedSubtitleId(subtitleId);
+    abortRequests();
+    currentConversationIdRef.current = conversationId;
+    requestVersionRef.current += 1;
+    pendingLiveSubtitlesRef.current = [];
+    const viewKey = conversationViewKey(conversationId, subtitleId);
+    setTargetViewKey(viewKey);
     setLoadingConversationSubtitles(true);
+
     const request: ConversationRequestToken = {
       conversationId,
       version: requestVersionRef.current,
@@ -183,16 +307,26 @@ export function useConversationHistory({
         { signal: controller.signal },
       );
       if (!requestIsCurrent(request)) return;
-      setSubtitles(context.items);
-      setHasOlderSubtitles(context.has_older);
-      nextBeforeIdRef.current = context.has_older
-        ? context.items.at(-1)?.id ?? null
-        : null;
-      paginationInitializedRef.current = true;
+      commitConversation({
+        conversationId,
+        items: context.items,
+        hasOlder: context.has_older,
+        nextBeforeId: context.has_older ? context.items.at(-1)?.id ?? null : null,
+        focusedSubtitleId: subtitleId,
+        viewKey,
+      });
       clearErrorFrom("subtitle-history");
     } catch (reason) {
       if (!isAbortError(reason) && requestIsCurrent(request)) {
         reportError(reason, "errors.core.connect", "subtitle-history");
+        commitConversation({
+          conversationId,
+          items: [],
+          hasOlder: false,
+          nextBeforeId: null,
+          focusedSubtitleId: subtitleId,
+          viewKey,
+        });
       }
     } finally {
       if (openRequestControllerRef.current === controller) {
@@ -200,7 +334,7 @@ export function useConversationHistory({
       }
       if (requestIsCurrent(request)) setLoadingConversationSubtitles(false);
     }
-  }, [clearErrorFrom, clearPool, coreConfigured, reportError, requestIsCurrent]);
+  }, [abortRequests, clearErrorFrom, clearPool, commitConversation, coreConfigured, reportError, requestIsCurrent]);
 
   const refreshOpenConversation = useCallback(async () => {
     const conversationId = currentConversationIdRef.current;
@@ -224,12 +358,26 @@ export function useConversationHistory({
       });
       if (!requestIsCurrent(request)) return;
       const page = conversationSubtitlePage(response);
-      setSubtitles((current) => mergeSubtitleHistory(current, page.items));
+      const nextHasOlder = !paginationInitializedRef.current
+        ? page.hasOlder
+        : page.hasOlder || nextBeforeIdRef.current !== null;
+      const nextBeforeId = !paginationInitializedRef.current
+        ? page.nextBeforeId
+        : nextBeforeIdRef.current ?? page.nextBeforeId;
       if (!paginationInitializedRef.current) {
-        setHasOlderSubtitles(page.hasOlder);
-        nextBeforeIdRef.current = page.nextBeforeId;
+        setHasOlderSubtitles(nextHasOlder);
+        nextBeforeIdRef.current = nextBeforeId;
         paginationInitializedRef.current = true;
       }
+      setSubtitles((current) => {
+        const merged = mergeSubtitleHistory(current, page.items);
+        setCachedConversationPage(cacheRef.current, conversationId, {
+          items: merged,
+          hasOlder: nextHasOlder,
+          nextBeforeId,
+        });
+        return merged;
+      });
       clearErrorFrom("subtitle-history");
     } catch (reason) {
       // A reconnect refresh must not replace or clear the current pool.
@@ -247,10 +395,11 @@ export function useConversationHistory({
     && subtitles.length < MAX_SUBTITLE_HISTORY_ITEMS;
 
   const loadOlderSubtitles = useCallback(async () => {
-    const conversationId = currentConversationIdRef.current;
+    const conversationId = openedConversationIdRef.current;
     const beforeId = nextBeforeIdRef.current;
     if (
       conversationId === null
+      || conversationId !== currentConversationIdRef.current
       || !canLoadOlderSubtitles
       || beforeId === null
       || loadingOlderSubtitlesRef.current
@@ -272,9 +421,19 @@ export function useConversationHistory({
       });
       if (!requestIsCurrent(request)) return;
       const page = conversationSubtitlePage(response);
-      setSubtitles((current) => mergeSubtitleHistory(current, page.items));
       setHasOlderSubtitles(page.hasOlder);
       nextBeforeIdRef.current = page.nextBeforeId;
+      setSubtitles((current) => {
+        const merged = mergeSubtitleHistory(current, page.items);
+        if (focusedSubtitleIdRef.current === null) {
+          setCachedConversationPage(cacheRef.current, conversationId, {
+            items: merged,
+            hasOlder: page.hasOlder,
+            nextBeforeId: page.nextBeforeId,
+          });
+        }
+        return merged;
+      });
       clearErrorFrom("subtitle-history");
     } catch (reason) {
       if (!isAbortError(reason) && requestIsCurrent(request)) {
@@ -292,9 +451,38 @@ export function useConversationHistory({
   }, [canLoadOlderSubtitles, clearErrorFrom, reportError, requestIsCurrent]);
 
   const receiveSubtitle = useCallback((subtitle: Subtitle) => {
-    if (focusedSubtitleIdRef.current !== null) return;
-    if (subtitle.conversation_id !== currentConversationIdRef.current) return;
-    setSubtitles((current) => upsertSubtitleHistory(current, subtitle));
+    const subtitleConversationId = subtitle.conversation_id;
+    if (!subtitleConversationId) return;
+
+    if (
+      focusedSubtitleIdRef.current === null
+      && subtitleConversationId === openedConversationIdRef.current
+    ) {
+      setSubtitles((current) => upsertSubtitleHistory(current, subtitle));
+      updateCachedConversationPage(
+        cacheRef.current,
+        subtitleConversationId,
+        (items) => upsertSubtitleHistory(items, subtitle),
+      );
+      return;
+    }
+
+    if (
+      subtitleConversationId === currentConversationIdRef.current
+      && currentConversationIdRef.current !== openedConversationIdRef.current
+    ) {
+      pendingLiveSubtitlesRef.current = upsertSubtitleHistory(
+        pendingLiveSubtitlesRef.current,
+        subtitle,
+      );
+      return;
+    }
+
+    updateCachedConversationPage(
+      cacheRef.current,
+      subtitleConversationId,
+      (items) => upsertSubtitleHistory(items, subtitle),
+    );
   }, []);
 
   const translationStarted = useCallback((subtitleId: number) => {
@@ -310,6 +498,14 @@ export function useConversationHistory({
     preferred: boolean,
   ) => {
     setSubtitles((current) => withTranslation(current, subtitleId, translation, preferred));
+    const conversationId = openedConversationIdRef.current;
+    if (conversationId !== null && focusedSubtitleIdRef.current === null) {
+      updateCachedConversationPage(
+        cacheRef.current,
+        conversationId,
+        (items) => withTranslation(items, subtitleId, translation, preferred),
+      );
+    }
     setTranslatingSubtitleIds((current) => current.filter((id) => id !== subtitleId));
   }, []);
 
@@ -327,7 +523,14 @@ export function useConversationHistory({
       const translation = await subtitlesApi.translateSubtitle(subtitleId);
       clearTranslationPartial(subtitleId);
       setSubtitles((current) => withTranslation(current, subtitleId, translation, true));
-
+      const conversationId = openedConversationIdRef.current;
+      if (conversationId !== null && focusedSubtitleIdRef.current === null) {
+        updateCachedConversationPage(
+          cacheRef.current,
+          conversationId,
+          (items) => withTranslation(items, subtitleId, translation, true),
+        );
+      }
     } catch (reason) {
       clearTranslationPartial(subtitleId);
       setSubtitles((current) => withoutTranslationPartial(current, subtitleId));
@@ -348,6 +551,7 @@ export function useConversationHistory({
   useEffect(() => {
     if (!coreConfigured) return;
     const refreshHistory = () => {
+      cacheRef.current.clear();
       void openConversation(currentConversationIdRef.current);
     };
     window.addEventListener("vrcs:subtitle-history-refresh", refreshHistory);
@@ -358,6 +562,8 @@ export function useConversationHistory({
 
   return {
     openedConversationId,
+    targetViewKey,
+    committedViewKey,
     subtitles,
     hasOlderSubtitles: canLoadOlderSubtitles,
     loadingConversationSubtitles,

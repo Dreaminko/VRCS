@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defaultHiddenSourceLanguages, ensureLanguageDetector, parsePlayerHistory, trackVisible, sourceLanguageVisible, subtitleVisible, subtitleSourceLanguage, livePartialSourceLanguage, historySpeakers, isAudioTrack } from "../src/subtitles/player-history.ts";
+import { defaultHiddenSourceLanguages, parsePlayerHistory, trackVisible, sourceLanguageVisible, subtitleVisible, subtitleSourceLanguage, livePartialSourceLanguage, historySpeakers, isAudioTrack } from "../src/subtitles/player-history.ts";
 import type { LiveTranscription } from "../src/capture/types.ts";
 import type { TranslationSettings } from "../src/settings/types.ts";
 import type { Subtitle } from "../src/subtitles/types.ts";
-
-await ensureLanguageDetector();
 
 test("history visibility is per track, preserves other tracks and does not hide the microphone", () => {
   const first = { id:"vrc:track-a", index:0, display_name:"Same name" };
@@ -77,9 +75,9 @@ test("source-language filtering never uses a translation target as the original 
   assert.equal(subtitleSourceLanguage(row), null);
 });
 
-test("Chinese originals without provider language metadata hide the whole saved record", () => {
+test("backend detected_language fallback hides records without provider metadata", () => {
   for (const text of ["这是一段用于测试的中文", "今天我们准备检查中文过滤功能", "這是繁體中文的測試", "你好", "谢谢"]) {
-    const row: Subtitle = {id:1, source:"speaker", text, language:null, created_at:"", started_at:null, ended_at:null,
+    const row: Subtitle = {id:1, source:"speaker", text, language:null, detected_language:"zh", created_at:"", started_at:null, ended_at:null,
       translations:[{text:"中文翻译", source_language:null, target_language:"zh-Hans", provider:"local", model:null, created_at:""}]};
     assert.equal(subtitleSourceLanguage(row), "zh", text);
     assert.equal(sourceLanguageVisible(row.source, subtitleSourceLanguage(row), ["zh-Hans"]), false, text);
@@ -88,45 +86,37 @@ test("Chinese originals without provider language metadata hide the whole saved 
   }
 });
 
-test("text fallback preserves other originals and does not infer from a Chinese translation", () => {
+test("detected_language fallback preserves other originals and ignores translation text", () => {
   const examples: [string, string | null][] = [
-    ["同時通訳ってすごいですね", "ja"], ["今日は友達と話しています", "ja"], ["大丈夫", "ja"],
-    ["오늘 친구들과 이야기하고 있어요", "ko"], ["Thank you very much", "en"],
-    ["Ceci est une phrase française pour tester la traduction.", "fr"],
-    ["東京", null], ["漢字", null], ["okay", null], ["… 123 🙂", null], ["", null],
-    ["你好こんにちは", null],
+    ["同時通訳ってすごいですね", "ja"],
+    ["오늘 친구들과 이야기하고 있어요", "ko"],
+    ["Thank you very much", "en"],
+    ["東京", null],
   ];
   for (const [text, expected] of examples) {
-    const row: Subtitle = {id:1, source:"speaker", text, language:null, created_at:"", started_at:null, ended_at:null,
+    const row: Subtitle = {id:1, source:"speaker", text, language:null, detected_language:expected, created_at:"", started_at:null, ended_at:null,
       translations:[{text:"今天我们准备检查中文过滤功能", source_language:null, target_language:"zh-Hans", provider:"local", model:null, created_at:""}]};
     assert.equal(subtitleSourceLanguage(row), expected, text);
     assert.equal(sourceLanguageVisible(row.source, subtitleSourceLanguage(row), ["zh"]), true, text);
     if (expected) assert.equal(sourceLanguageVisible(row.source, subtitleSourceLanguage(row), ["zh", expected]), false, text);
     row.language = "yue-Hant";
-    assert.equal(subtitleSourceLanguage(row), "yue", "provider language always wins over text inference");
+    assert.equal(subtitleSourceLanguage(row), "yue", "provider language always wins over detected_language");
   }
 });
 
-test("live filtering uses the full original preview and re-evaluates language as it arrives", () => {
+test("live filtering uses detected_language until provider language arrives", () => {
   const partial: LiveTranscription = {type:"partial", source:"speaker", utterance_id:"qwen-preview", language:null,
     text:"…", translation:"中文译文", target_language:"zh-Hans"};
   assert.equal(livePartialSourceLanguage(partial), null, "translation-only updates cannot identify the original language");
   partial.text = "这是一段用于测试的中文";
+  partial.detected_language = "zh";
   assert.equal(livePartialSourceLanguage(partial), "zh");
   assert.equal(sourceLanguageVisible(partial.source, livePartialSourceLanguage(partial), ["zh"]), false);
-  partial.text = "…";
-  partial.conversation_preview = {text:"今天我们准备检查中文过滤功能", translation:"中文译文"};
-  assert.equal(livePartialSourceLanguage(partial), "zh", "use the full original even when the condensed tail is ambiguous");
-  partial.conversation_preview.text = "同時通訳ってすごいですね";
+  partial.detected_language = "ja";
   assert.equal(livePartialSourceLanguage(partial), "ja");
   assert.equal(sourceLanguageVisible(partial.source, livePartialSourceLanguage(partial), ["zh"]), true);
   partial.language = "ko";
-  assert.equal(livePartialSourceLanguage(partial), "ko", "late provider metadata takes precedence over the text cache");
-  partial.language = null;
-  partial.conversation_preview = null;
-  partial.text = "";
-  partial.completed_original = "这是一段用于测试的中文";
-  assert.equal(livePartialSourceLanguage(partial), "zh");
+  assert.equal(livePartialSourceLanguage(partial), "ko", "late provider metadata takes precedence over detected_language");
 });
 
 test("history roster preserves distinct tracks with the same name and discovers unidentified records", () => {

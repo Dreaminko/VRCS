@@ -6,56 +6,6 @@ import { TRANSLATION_LANGUAGES } from "../translation/translation-languages.ts";
 
 const languageNames = new Map(TRANSLATION_LANGUAGES.flatMap(({ code, englishName }) =>
   [englishName, englishName.replace(/\s*\([^)]*\)$/, "")].map((name) => [name.toLowerCase(), code] as const)));
-const textLanguages = new Map<string, string | null>();
-type DetectAll = typeof import("tinyld").detectAll;
-let detectAllFn: DetectAll | null = null;
-let detectorPromise: Promise<void> | null = null;
-const detectorListeners = new Set<() => void>();
-
-export function isLanguageDetectorReady(): boolean {
-  return detectAllFn !== null;
-}
-
-export function subscribeLanguageDetector(listener: () => void): () => void {
-  detectorListeners.add(listener);
-  return () => {
-    detectorListeners.delete(listener);
-  };
-}
-
-export function ensureLanguageDetector(): Promise<void> {
-  if (detectAllFn) return Promise.resolve();
-  if (!detectorPromise) {
-    detectorPromise = import("tinyld").then((module) => {
-      detectAllFn = module.detectAll;
-      textLanguages.clear();
-      for (const listener of detectorListeners) listener();
-    }).catch((error) => {
-      detectorPromise = null;
-      throw error;
-    });
-  }
-  return detectorPromise;
-}
-
-function inferOriginalLanguage(original: string): string | null {
-  // Only the original is sampled. Bound work and cache size for growing live previews.
-  const text = original.trim().slice(0, 512);
-  if (!/\p{Letter}/u.test(text)) return null;
-  if (!detectAllFn) {
-    void ensureLanguageDetector().catch(() => undefined);
-    return null;
-  }
-  if (textLanguages.has(text)) return textLanguages.get(text)!;
-  const [first, second] = detectAllFn(text);
-  let language = first && first.accuracy >= 0.6 && first.accuracy - (second?.accuracy ?? 0) >= 0.2
-    ? sourceLanguageKey(first.lang) : null;
-  // Shared Han characters are insufficient evidence for hiding Japanese or mixed speech.
-  if (language === "zh" && /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(text)) language = null;
-  if (textLanguages.size >= 512) textLanguages.delete(textLanguages.keys().next().value!);
-  textLanguages.set(text, language);
-  return language;
-}
 
 export function defaultHiddenSourceLanguages(translation?: TranslationSettings, session?: ActiveLanguageSession): string[] {
   const targets = session && session.kind !== "global" ? session.translation.speaker_targets : translation?.speaker_targets ?? [];
@@ -125,20 +75,28 @@ export function sourceLanguageKey(value: string | null | undefined): string | nu
   return result;
 }
 
-export function originalSourceLanguage(original: string, explicit?: string | null, translationSources: readonly (string | null | undefined)[] = []): string | null {
+export function originalSourceLanguage(
+  explicit?: string | null,
+  translationSources: readonly (string | null | undefined)[] = [],
+  detectedLanguage?: string | null,
+): string | null {
   const language = sourceLanguageKey(explicit);
   if (language) return language;
   const detected = new Set(translationSources.map(sourceLanguageKey)
     .filter((value): value is string => value !== null));
-  return detected.size === 1 ? [...detected][0] : detected.size > 1 ? null : inferOriginalLanguage(original);
+  return detected.size === 1 ? [...detected][0] : detected.size > 1 ? null : sourceLanguageKey(detectedLanguage);
 }
 
 export function subtitleSourceLanguage(subtitle: Subtitle): string | null {
-  return originalSourceLanguage(subtitle.text, subtitle.language, subtitle.translations.map(translation => translation.source_language));
+  return originalSourceLanguage(
+    subtitle.language,
+    subtitle.translations.map(translation => translation.source_language),
+    subtitle.detected_language,
+  );
 }
 
 export function livePartialSourceLanguage(partial: LiveTranscription): string | null {
-  return originalSourceLanguage(partial.conversation_preview?.text || partial.text || partial.completed_original || "", partial.language);
+  return originalSourceLanguage(partial.language, [], partial.detected_language);
 }
 
 export function sourceLanguageVisible(source: string | undefined, language: string | null | undefined, hidden: readonly string[] = []): boolean {

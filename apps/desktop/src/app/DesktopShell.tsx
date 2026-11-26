@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, LoaderCircle } from "lucide-react";
@@ -11,7 +11,9 @@ import { ErrorBanner } from "./components/ErrorBanner";
 import { PastConversationNotice } from "./components/PastConversationNotice";
 import { WorkspaceFrame } from "./components/WorkspaceFrame";
 import { ChatboxComposer } from "../chatbox/ChatboxComposer";
+import { conversationViewKey } from "../conversations/conversation-state";
 import { ConversationSidebar } from "../conversations/ConversationSidebar";
+import { useConversationTransition } from "../conversations/useConversationTransition";
 import { useLiveConversationScroll } from "../conversations/useLiveConversationScroll";
 
 import type { SettingsCategory } from "../settings/settings-types";
@@ -105,14 +107,43 @@ export function DesktopShell({
     locale,
     playerDisplay,
   } = workspace;
+  const conversationIds = useMemo(
+    () => conversations.conversations.map((item) => item.id),
+    [conversations.conversations],
+  );
+  const liveTargetKey = subtitles.targetViewKey ?? conversationViewKey(
+    conversations.selectedConversation?.id ?? null,
+    subtitles.focusedSubtitleId ?? null,
+  );
+  const liveCommittedKey = subtitles.committedViewKey ?? conversationViewKey(
+    subtitles.openedConversationId ?? null,
+    subtitles.focusedSubtitleId ?? null,
+  );
+  const liveStage = useConversationTransition({
+    targetKey: liveTargetKey,
+    committedKey: liveCommittedKey,
+    targetId: conversations.selectedConversation?.id ?? null,
+    committedId: conversations.displayedConversation?.id ?? subtitles.openedConversationId ?? null,
+    orderedIds: conversationIds,
+    loading: conversations.selectedLoading,
+    data: {
+      conversation: conversations.displayedConversation ?? conversations.selectedConversation,
+      subtitles: conversations.selectedSubtitles,
+      hasOlder: conversations.selectedConversationHasOlder,
+      focusedSubtitleId: subtitles.focusedSubtitleId,
+    },
+  });
+  const stageWaiting = liveStage.phase === "waiting" || liveStage.phase === "skeleton";
+  const stageTransitioning = liveStage.phase === "exiting" || stageWaiting;
+  const displayedConversation = liveStage.displayedData.conversation;
   const liveScroll = useLiveConversationScroll({
     page,
     activeConversationId: conversations.activeConversation?.id ?? null,
-    selectedConversationId: conversations.selectedConversation?.id ?? null,
-    openedConversationId: subtitles.openedConversationId,
-    loadingConversationSubtitles: subtitles.loadingConversation,
-    selectedConversationUpdatedAt: conversations.selectedConversation?.updatedAt ?? null,
-    focusedSubtitleId: subtitles.focusedSubtitleId,
+    selectedConversationId: displayedConversation?.id ?? conversations.selectedConversation?.id ?? null,
+    openedConversationId: displayedConversation?.id ?? subtitles.openedConversationId,
+    loadingConversationSubtitles: stageTransitioning,
+    selectedConversationUpdatedAt: displayedConversation?.updatedAt ?? null,
+    focusedSubtitleId: liveStage.displayedData.focusedSubtitleId,
   });
   const features = settings.value?.features;
   const titleConfig = settings.value?.conversation_titles;
@@ -161,20 +192,6 @@ export function DesktopShell({
     if (runtime.health?.capture_requested) return;
     onboarding.restart();
   }, [onboarding.restart, runtime.health?.capture_requested]);
-
-  useEffect(() => {
-    if (hidden) return;
-    const preloadDeferredPages = () => {
-      if (features?.learning) preloadPage("learning");
-      preloadPage("settings");
-    };
-    if ("requestIdleCallback" in window) {
-      const idleCallback = window.requestIdleCallback(preloadDeferredPages, { timeout: 1500 });
-      return () => window.cancelIdleCallback(idleCallback);
-    }
-    const timer = globalThis.setTimeout(preloadDeferredPages, 250);
-    return () => globalThis.clearTimeout(timer);
-  }, [features?.learning, hidden]);
 
   const selectConversation = useCallback((id: string) => {
     conversations.selectConversation(id);
@@ -319,13 +336,18 @@ export function DesktopShell({
             )}
 
             {page === "live" && (
-              <>
-                {conversations.selectedConversation
+              <div
+                className="conversation-stage"
+                data-transition-phase={liveStage.phase}
+                data-transition-direction={liveStage.direction}
+              >
+                {!stageWaiting
+                  && displayedConversation
                   && conversations.activeConversation
-                  && conversations.selectedConversation.id !== conversations.activeConversation.id
+                  && displayedConversation.id !== conversations.activeConversation.id
                   && (
                     <PastConversationNotice
-                      conversation={conversations.selectedConversation}
+                      conversation={displayedConversation}
                       locale={locale}
                       onReturnCurrent={() => conversations.selectConversation(
                         conversations.activeConversation!.id,
@@ -333,18 +355,19 @@ export function DesktopShell({
                     />
                   )}
                 <LiveView
-                  subtitles={conversations.selectedSubtitles}
+                  subtitles={liveStage.displayedData.subtitles}
                   playerName={settings.value?.vrchat_player_id?.trim() || undefined}
                   hiddenTracks={playerDisplay.hiddenTracks}
                   hiddenSourceLanguages={playerDisplay.hiddenSourceLanguages}
                   scrollContainerRef={liveScroll.liveScrollRef}
                   running={
                     (runtime.health?.capture_requested ?? false)
-                    && conversations.selectedConversation?.id === conversations.activeConversation?.id
-                    && subtitles.focusedSubtitleId === null
+                    && !stageTransitioning
+                    && displayedConversation?.id === conversations.activeConversation?.id
+                    && liveStage.displayedData.focusedSubtitleId === null
                   }
-                  hasOlder={conversations.selectedConversationHasOlder}
-                  loading={conversations.selectedLoading}
+                  hasOlder={liveStage.displayedData.hasOlder}
+                  loading={liveStage.phase === "skeleton"}
                   loadingOlder={subtitles.loadingOlder}
                   onLoadOlder={subtitles.loadOlder}
                   onSelect={selection.selectText}
@@ -361,9 +384,10 @@ export function DesktopShell({
                   isLearningSelectionBusy={learning.actions.isSubtitleSelectionLearningBusy}
                   isLearningSelectionCaptured={learning.actions.isSubtitleSelectionLearningCaptured}
                   translatingSubtitleIds={subtitles.translatingIds}
-                  focusedSubtitleId={subtitles.focusedSubtitleId}
+                  focusedSubtitleId={liveStage.displayedData.focusedSubtitleId}
+                  transitionPhase={liveStage.phase}
                 />
-              </>
+              </div>
             )}
 
             {page === "learning" && features?.learning && (
@@ -385,6 +409,8 @@ export function DesktopShell({
                   loading={conversations.selectedLoading}
                   loadingOlder={subtitles.loadingOlder}
                   onLoadOlder={subtitles.loadOlder}
+                  targetViewKey={subtitles.targetViewKey}
+                  committedViewKey={subtitles.committedViewKey}
                 />
               </Suspense>
             )}
@@ -422,7 +448,7 @@ export function DesktopShell({
         </WorkspaceFrame>
       </div>
 
-      {page === "live" && !liveScroll.followingLiveSubtitles && !chatbox.open && (
+      {page === "live" && !stageTransitioning && !liveScroll.followingLiveSubtitles && !chatbox.open && (
         <button
           className="live-scroll-to-bottom"
           type="button"

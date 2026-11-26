@@ -8,8 +8,7 @@ import { playerUserId } from "../capture/player-selection";
 import { getCurrentHealth, useHealth } from "../core-client/health-store";
 import type { PlayerAudioStatus } from "../core-client/types";
 import { collectPlayerSpeakers, playerLanguageOptions, sourceMode } from "../subtitles/player-controls";
-import { defaultHiddenSourceLanguages, isAudioTrack, isLanguageDetectorReady } from "../subtitles/player-history";
-import { useLanguageDetectorReady } from "../subtitles/usePlayerHistoryPreferences";
+import { defaultHiddenSourceLanguages, isAudioTrack } from "../subtitles/player-history";
 import { useSpeakerIdentities } from "../subtitles/speaker-state";
 import type { SpeakerIdentity, Subtitle } from "../subtitles/types";
 import { localizedLanguageName } from "../translation/translation-languages";
@@ -28,7 +27,6 @@ interface CachedPlayerLists {
   names: Record<string, string>;
   defaultLanguages: string[];
   hiddenSourceLanguages: string[] | null;
-  languageDetectorReady: boolean;
   observedSpeakers: SpeakerIdentity[];
   languageOptions: string[];
 }
@@ -70,7 +68,6 @@ function playerDisplayState(workspace: AppWorkspace, optimistic = false, cached?
     && cached.subtitles === workspace.subtitles.items
     && cached.defaultLanguages === defaultLanguages
     && cached.hiddenSourceLanguages === preferences.hiddenSourceLanguages
-    && cached.languageDetectorReady === isLanguageDetectorReady()
     ? cached.languageOptions
     : playerLanguageOptions(workspace.subtitles.items, defaultLanguages, preferences.hiddenSourceLanguages);
   return {
@@ -104,14 +101,13 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
 
   const currentSpeakers = useMemo(() => (active ? roster.map((player) => player.speaker) : EMPTY_SPEAKERS), [active, roster]);
   const savedIds = useMemo(() => (active ? Object.keys(overrides) : EMPTY_LANGUAGES), [active, overrides]);
-  const languageDetectorReady = useLanguageDetectorReady();
   const observedSpeakers = useMemo(
     () => (active ? collectPlayerSpeakers(subtitles, currentSpeakers, savedIds, names) : EMPTY_SPEAKERS),
     [active, subtitles, currentSpeakers, savedIds, names],
   );
   const languageOptions = useMemo(
     () => (active ? playerLanguageOptions(subtitles, defaultLanguages, hiddenSourceLanguages) : EMPTY_LANGUAGES),
-    [active, subtitles, defaultLanguages, hiddenSourceLanguages, languageDetectorReady],
+    [active, subtitles, defaultLanguages, hiddenSourceLanguages],
   );
   const identities = useSpeakerIdentities(observedSpeakers);
   const cachedRef = useRef<CachedPlayerLists | undefined>(undefined);
@@ -123,7 +119,6 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
         names,
         defaultLanguages,
         hiddenSourceLanguages,
-        languageDetectorReady,
         observedSpeakers,
         languageOptions,
       }

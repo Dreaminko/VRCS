@@ -46,6 +46,8 @@ export function useSubtitleStream({
   return {
     connection: stream.connection,
     openedConversationId: history.openedConversationId,
+    targetViewKey: history.targetViewKey,
+    committedViewKey: history.committedViewKey,
     subtitles: history.subtitles,
     hasOlderSubtitles: history.hasOlderSubtitles,
     loadingConversationSubtitles: history.loadingConversationSubtitles,

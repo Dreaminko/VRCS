@@ -1,14 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { visibleCaptionMessages } from "../src/vr-surface/caption-visibility.ts";
-import { ensureLanguageDetector } from "../src/subtitles/player-history.ts";
 import type { CaptionMessage, SurfaceView } from "../src/vr-surface/protocol.ts";
 
-await ensureLanguageDetector();
-
-const message = (track: string, language: string | null, text = "Hello everyone", live = true, source = "speaker"): CaptionMessage => ({
+const message = (track: string, language: string | null, text = "Hello everyone", live = true, source = "speaker", detected_language: string | null = null): CaptionMessage => ({
   speaker: track, text: `${text}\nTranslated text`, side: source === "speaker" ? "left" : "right",
-  original: { source, track_id: track, text, language, translation_sources: [], live },
+  original: { source, track_id: track, text, language, ...(detected_language ? { detected_language } : {}), translation_sources: [], live },
 });
 const view = (messages: CaptionMessage[], kind: "headset" | "dialogue" = "headset") => ({
   kind, messages, max_visible_players: 2, max_entries: 3,
@@ -22,7 +19,7 @@ for (const kind of ["headset", "dialogue"] as const) {
     assert.deepEqual(visibleCaptionMessages(view(messages, kind)).map(item => item.speaker), ["english", "french", "self"]);
   });
   test(`${kind} filters missing source metadata from originals, including translation-only display`, () => {
-    const chinese = message("chinese", null, "今天我们准备检查中文过滤功能。");
+    const chinese = message("chinese", null, "今天我们准备检查中文过滤功能。", true, "speaker", "zh");
     chinese.text = "This is a synthetic translation for a filter test";
     const english = message("english", "en");
     english.text = "中文译文不决定原文语言";

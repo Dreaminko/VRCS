@@ -19,7 +19,7 @@ export function visibleCaptionMessages(view: CaptionView): CaptionMessage[] {
       if (!trackVisible(original.source, speaker, hidden.hidden_tracks)) continue;
       if (hidden.hidden_source_languages.length && isOtherPlayerSource(original.source)
         && !sourceLanguageVisible(original.source,
-          originalSourceLanguage(original.text, original.language, original.translation_sources),
+          originalSourceLanguage(original.language, original.translation_sources, original.detected_language),
           hidden.hidden_source_languages)) continue;
     }
     messages.push(message);

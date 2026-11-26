@@ -13,6 +13,7 @@ mod downloads;
 mod error;
 mod external_api;
 mod glossary;
+mod language_detect;
 mod language_session;
 mod learning;
 mod llm;
@@ -55,6 +56,9 @@ use crate::startup::{RuntimeAssembly, RuntimeTasks, StartupPlan};
 pub use crate::config::{
     FeatureConfig, FeatureKey, VisionConfig, VrOcrConfig, VrOcrDisplayMode, VrOcrWristConfig,
     VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig, VrOverlayWristMenuConfig,
+};
+pub use crate::language_detect::{
+    attach_detected_language_json, detect_language, has_explicit_language,
 };
 pub use crate::models::{
     LiveTranslation, LiveTranslationPreview, SpeakerIdentity, Subtitle, SubtitleTranslation,

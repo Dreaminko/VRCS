@@ -30,6 +30,7 @@ export interface CaptionOriginal {
   track_id: string | null;
   text: string;
   language: string | null;
+  detected_language?: string | null;
   translation_sources: string[];
   live: boolean;
 }

@@ -14,6 +14,7 @@ export interface Subtitle {
   id: number | null;
   text: string;
   language: string | null;
+  detected_language?: string | null;
   started_at: number | null;
   ended_at: number | null;
   created_at: string;

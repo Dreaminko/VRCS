@@ -1,5 +1,66 @@
 .conversation { display: flex; flex-direction: column; gap: 22px; }
-.workspace-live > .conversation { flex: 1; }
+.workspace-live > .conversation,
+.conversation-stage > .conversation { flex: 1; }
+.conversation-stage {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+.conversation-stage[data-transition-direction="down"] {
+  --stage-exit-y: -8px;
+  --stage-enter-y: 10px;
+}
+.conversation-stage[data-transition-direction="up"] {
+  --stage-exit-y: 8px;
+  --stage-enter-y: -10px;
+}
+.conversation-stage[data-transition-direction="neutral"] {
+  --stage-exit-y: 4px;
+  --stage-enter-y: 6px;
+}
+.conversation-stage[data-transition-phase="exiting"] {
+  pointer-events: none;
+  will-change: opacity, transform;
+  animation: conversation-stage-exit 85ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+.conversation-stage[data-transition-phase="waiting"] {
+  opacity: 0;
+  pointer-events: none;
+}
+.conversation-stage[data-transition-phase="entering"] {
+  will-change: opacity, transform;
+  animation: conversation-stage-enter 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.conversation-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  animation: conversation-skeleton-in 120ms ease-out;
+}
+.conversation-skeleton-meta {
+  width: 96px;
+  height: 11px;
+  margin: 0 8px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-subtle);
+  animation: conversation-skeleton-pulse 1.3s ease-in-out infinite;
+}
+.conversation-skeleton-bubble {
+  display: grid;
+  width: min(360px, 100%);
+  gap: 9px;
+  min-width: 190px;
+}
+.conversation-skeleton-line {
+  display: block;
+  height: 13px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-subtle);
+  animation: conversation-skeleton-pulse 1.3s ease-in-out infinite;
+}
+.source-microphone .conversation-skeleton-line {
+  background: color-mix(in srgb, var(--primary-soft) 72%, var(--surface) 28%);
+}
 .world-marker {
   display: flex;
   align-items: center;
@@ -150,6 +211,7 @@ button.subtitle-analysis-feedback:active { transform: scale(0.96); }
   text-align: center;
 }
 .empty-state p { margin: 0; font-size: 13px; }
-.workspace-live > .conversation > .empty-state { flex: 1; transform: translateY(-12px); }
+.workspace-live > .conversation > .empty-state,
+.conversation-stage > .conversation > .empty-state { flex: 1; transform: translateY(-12px); }
 
 .bubble-translation-group { display: block; margin-bottom: 4px; color: var(--text-quiet); font-size: 0.8em; }

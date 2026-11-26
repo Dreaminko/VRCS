@@ -6,6 +6,34 @@
 
 # Changelog
 
+## [0.4.3] - 2026-11-26
+
+#### Features & Improvements
+
+- **Smooth conversation switching & history caching**: Added directional exit/enter transition animations (respecting reduced-motion preferences) and delayed pulsing loading skeletons when switching conversations in the Live view and Learning Materials browser. Added an in-memory LRU cache (up to 8 conversations) with background revalidation and live-subtitle buffering during switches to eliminate blank flashes when revisiting recent conversations.
+- **Concise VRChat / UniText send status labels**: Shortened top status bar labels for VRChat Chatbox and UniText sending states (including **Discovering** and **Not detected**) across all supported locales (`en-US`, `zh-CN`, `zh-Hant`, `ja-JP`) for cleaner status presentation.
+
+#### Bug Fixes & Improvements
+
+- **WebView2 memory management & idle VR surface reclamation**: Added Windows WebView2 low-memory mode when the main window is minimized to the system tray (restoring on show) and WebView2 suspend/resume for hidden OCR/Vision windows and sleeping VR overlay surfaces. Automatically tears down idle VR overlay WebView2 environments after 30 seconds of inactivity (re-initializing on demand) and shortens cold-eviction timeouts to 15 seconds for transient VR surfaces (OCR and Player Audio).
+- **Core-side source language detection**: Moved fallback source-language detection from the desktop frontend (`tinyld`, removed from the frontend bundle) to the Rust core (`whatlang` with CJK/Kana/Hangul heuristics), attaching `detected_language` to WebSocket live partials/finals, conversation subtitle history APIs, and VR overlay captions to eliminate async detector loading races and extra re-renders.
+- **Desktop memory & rendering optimizations**: Unmounted the full desktop shell while Compact mode is active, removed eager idle preloading of Learning and Settings chunks, loaded only the active UI locale bundle (unloading the previous bundle on language switch), tightened in-memory subtitle history limits (400 items / 1M characters), cleared inactive Learning inbox state, reset stale material selection on conversation switch, scoped speaker identity subscriptions per speaker, and limited live translation-partial subscriptions to actively translating or the 20 most recent messages.
+
+---
+
+#### 新功能与体验优化
+
+- **平滑对话切换与历史缓存**：在实时界面与学习素材浏览中切换对话时，新增带方向感的退出／进入过渡动画（遵循系统减少动态效果偏好）与延迟显示的骨架屏占位。同时新增最多缓存 8 个对话的内存 LRU 历史缓存，支持后台静默刷新与切换期间实时字幕暂存，消除来回切换近期对话时的白屏闪烁。
+- **精简 VRChat / UniText 发送状态文案**：缩短顶部状态栏中 VRChat 聊天框与 UniText 的发送状态提示（含 **发现中**、**未检测到** 等状态），覆盖全部界面语言（`en-US`、`zh-CN`、`zh-Hant`、`ja-JP`），使状态栏展示更紧凑清晰。
+
+#### 问题修复与体验改进
+
+- **WebView2 内存管理与空闲 VR 表面回收**：在 Windows 端为主窗口最小化至托盘时启用 WebView2 低内存模式（恢复显示时还原），并为隐藏的 OCR／视觉选择窗口及休眠的 VR 覆盖层表面启用 WebView2 挂起／恢复；当所有 VR 覆盖层表面空闲超过 30 秒时自动回收 WebView2 环境（需要时按需重建），并将 OCR 与玩家音频等临时 VR 表面的冷回收超时缩短至 15 秒。
+- **核心侧源语言检测**：将备用源语言检测从桌面前端迁移至 Rust 核心服务（移除前端 `tinyld` 依赖，改为核心侧 `whatlang` 结合中日韩字符启发式规则），直接在 WebSocket 实时事件、对话字幕历史接口及 VR 覆盖层字幕中附带 `detected_language`，减小前端包体并消除异步加载检测器带来的竞态与二次刷新。
+- **桌面端内存与渲染优化**：进入紧凑模式时卸载主桌面壳层而非仅隐藏，移除学习与设置页面的空闲预加载；启动与切换界面语言时仅保留当前生效的语言包并卸载旧语言包；收紧内存字幕历史上限（400 条／100 万字符），离开学习页面时清理收件箱缓存，切换对话时重置过期素材选中状态，将发言人身份订阅细化到单个发言人，并将实时译文预览订阅限制在正在翻译或最近 20 条消息范围内。
+
+**Full Changelog / 完整变更** · [0.4.2...0.4.3](https://github.com/Dreaminko/VRCS/compare/0.4.2...0.4.3)
+
 ## [0.4.2] - 2026-11-26
 
 #### Features & Improvements

@@ -9,7 +9,6 @@ import {
   CheckCheck,
   Headphones,
   Languages,
-  LoaderCircle,
   MessageSquare,
   Mic,
   PlusCircle,
@@ -20,7 +19,9 @@ import {
 
 import { conversationTime, timestamp } from "../../app/app-utils";
 import type { LookupOrigin } from "../../app/app-types";
+import { conversationViewKey } from "../../conversations/conversation-state";
 import type { ConversationSummary } from "../../conversations/conversations";
+import { useConversationTransition } from "../../conversations/useConversationTransition";
 import type { LearningWorkspaceController } from "../hooks/useLearningWorkspace";
 import type { LearningItem } from "../types";
 import { subtitleLearningKey, subtitleSelectionLearningKey } from "../learning";
@@ -53,6 +54,8 @@ export const LearningSourceBrowser = memo(function LearningSourceBrowser({
   loading,
   loadingOlder,
   onLoadOlder,
+  targetViewKey,
+  committedViewKey,
   onBackToInbox,
   collectedId = null,
   onOpenCollected,
@@ -73,6 +76,8 @@ export const LearningSourceBrowser = memo(function LearningSourceBrowser({
   loading: boolean;
   loadingOlder: boolean;
   onLoadOlder: () => Promise<void>;
+  targetViewKey?: string | null;
+  committedViewKey?: string | null;
   onBackToInbox: () => void;
   collectedId?: number | null;
   onOpenCollected?: () => void;
@@ -89,9 +94,32 @@ export const LearningSourceBrowser = memo(function LearningSourceBrowser({
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const lastSelectedIndexRef = useRef<number | null>(null);
 
+  const conversationIds = useMemo(
+    () => conversations.map((item) => item.id),
+    [conversations],
+  );
+  const effectiveTargetKey = targetViewKey !== undefined
+    ? targetViewKey
+    : conversationViewKey(conversation?.id ?? null);
+  const effectiveCommittedKey = committedViewKey !== undefined
+    ? committedViewKey
+    : conversationViewKey(loading ? null : (conversation?.id ?? null));
+  const stage = useConversationTransition({
+    targetKey: effectiveTargetKey,
+    committedKey: effectiveCommittedKey,
+    targetId: conversation?.id ?? null,
+    committedId: effectiveCommittedKey === null || loading ? null : (conversation?.id ?? null),
+    orderedIds: conversationIds,
+    loading,
+    data: { conversation, subtitles, hasOlder },
+  });
+  const displayedConversation = stage.displayedData.conversation;
+  const displayedSubtitles = stage.displayedData.subtitles;
+  const displayedHasOlder = stage.displayedData.hasOlder;
+
   const languageOptions = useMemo(() => {
     const codes = new Set<string>(["ja", "en", "zh", "ko"]);
-    for (const subtitle of subtitles) {
+    for (const subtitle of displayedSubtitles) {
       if (subtitle.language) codes.add(subtitle.language);
     }
     return [
@@ -101,12 +129,12 @@ export const LearningSourceBrowser = memo(function LearningSourceBrowser({
         label: KNOWN_LANGUAGE_LABEL_KEYS[code] ? t(KNOWN_LANGUAGE_LABEL_KEYS[code]) : code.toUpperCase(),
       })),
     ];
-  }, [subtitles, t]);
+  }, [displayedSubtitles, t]);
 
   const filtered = useMemo(() => {
     const now = Date.now();
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    return subtitles.filter((subtitle) => {
+    return displayedSubtitles.filter((subtitle) => {
       if (subtitle.id === null) return false;
       if (language !== "all" && subtitle.language !== language) return false;
       if (source !== "all" && (subtitle.source ?? "speaker") !== source) return false;
@@ -120,7 +148,7 @@ export const LearningSourceBrowser = memo(function LearningSourceBrowser({
       }
       return true;
     });
-  }, [language, query, range, source, subtitles]);
+  }, [displayedSubtitles, language, query, range, source]);
   const indexById = useMemo(
     () => new Map(filtered.map((subtitle, index) => [subtitle.id as number, index])),
     [filtered],
@@ -130,14 +158,18 @@ export const LearningSourceBrowser = memo(function LearningSourceBrowser({
   // and only prune IDs that no longer exist in the conversation's subtitle list.
   useEffect(() => {
     const available = new Set(
-      subtitles.flatMap((subtitle) => (subtitle.id === null ? [] : [subtitle.id])),
+      displayedSubtitles.flatMap((subtitle) => (subtitle.id === null ? [] : [subtitle.id])),
     );
     setSelectedIds((current) => {
       const next = new Set([...current].filter((id) => available.has(id)));
       const unchanged = next.size === current.size && [...next].every((id) => current.has(id));
       return unchanged ? current : next;
     });
-  }, [subtitles]);
+  }, [displayedSubtitles]);
+
+  useEffect(() => {
+    setSelectedIds((current) => (current.size === 0 ? current : new Set()));
+  }, [conversation?.id]);
 
   useEffect(() => {
     lastSelectedIndexRef.current = null;
@@ -346,7 +378,7 @@ export const LearningSourceBrowser = memo(function LearningSourceBrowser({
             className="primary-button"
             type="button"
             disabled={!selectedIds.size || selectionBusy}
-            onClick={() => void workspace.collectSubtitles(subtitles, selectedIds).then((item) => {
+            onClick={() => void workspace.collectSubtitles(displayedSubtitles, selectedIds).then((item) => {
               if (!item) return;
               setSelectedIds(new Set());
               onCollected(item);
@@ -355,41 +387,58 @@ export const LearningSourceBrowser = memo(function LearningSourceBrowser({
         </div>
       </div>
       <div className="learning-material-scroll" data-floating-boundary>
-        {conversation && filtered.length ? (
-          <div className="history-list learning-material-list">
-            <section className="learning-material-group">
-              <div>
-                {filtered.map((subtitle) => (
-                  <LearningMaterialRow
-                    key={subtitle.id ?? subtitle.created_at}
-                    subtitle={subtitle}
-                    index={subtitle.id === null ? 0 : indexById.get(subtitle.id) ?? 0}
-                    locale={locale}
-                    selected={subtitle.id !== null && selectedIds.has(subtitle.id)}
-                    onToggle={toggleSelection}
-                    onSelect={onSelect}
-                    onTranslate={onTranslate}
-                    translating={subtitle.id !== null && translatingIds.has(subtitle.id)}
-                    collectSubtitle={workspace.collectSubtitle}
-                    isCollecting={workspace.isCollecting}
-                    isCaptured={workspace.isCaptured}
-                    onOpenItem={onOpenItem}
-                    onCollected={onCollected}
-                  />
-                ))}
-              </div>
-            </section>
-          </div>
-        ) : loading ? (
-          <div className="empty-state" role="status"><LoaderCircle className="spinning" size={22} /><p>{t("common.loading")}</p></div>
-        ) : <div className="empty-state"><BookOpenText size={22} /><p>{t("learning.empty")}</p></div>}
-        {hasOlder && (
-          <div className="history-load-older">
-            <button className="secondary-button" type="button" disabled={loadingOlder} onClick={() => void onLoadOlder()}>
-              {t(loadingOlder ? "learning.loadingEarlier" : "learning.loadEarlier")}
-            </button>
-          </div>
-        )}
+        <div
+          className="learning-material-stage"
+          data-transition-phase={stage.phase}
+          data-transition-direction={stage.direction}
+        >
+          {stage.phase === "waiting" ? null : stage.phase === "skeleton" ? (
+            <div className="learning-material-skeleton" role="status" aria-label={t("common.loading")}>
+              {["64%", "48%", "70%", "54%"].map((width, index) => (
+                <div key={index} className="learning-material-skeleton-row" aria-hidden="true">
+                  <span className="learning-material-skeleton-bar" style={{ width: "58px" }} />
+                  <div className="learning-material-skeleton-copy">
+                    <span className="learning-material-skeleton-bar" style={{ width }} />
+                    <span className="learning-material-skeleton-bar" style={{ width: "38%" }} />
+                  </div>
+                  <span className="learning-material-skeleton-bar" style={{ width: "68px" }} />
+                </div>
+              ))}
+            </div>
+          ) : displayedConversation && filtered.length ? (
+            <div className="history-list learning-material-list">
+              <section className="learning-material-group">
+                <div>
+                  {filtered.map((subtitle) => (
+                    <LearningMaterialRow
+                      key={subtitle.id ?? subtitle.created_at}
+                      subtitle={subtitle}
+                      index={subtitle.id === null ? 0 : indexById.get(subtitle.id) ?? 0}
+                      locale={locale}
+                      selected={subtitle.id !== null && selectedIds.has(subtitle.id)}
+                      onToggle={toggleSelection}
+                      onSelect={onSelect}
+                      onTranslate={onTranslate}
+                      translating={subtitle.id !== null && translatingIds.has(subtitle.id)}
+                      collectSubtitle={workspace.collectSubtitle}
+                      isCollecting={workspace.isCollecting}
+                      isCaptured={workspace.isCaptured}
+                      onOpenItem={onOpenItem}
+                      onCollected={onCollected}
+                    />
+                  ))}
+                </div>
+              </section>
+            </div>
+          ) : <div className="empty-state"><BookOpenText size={22} /><p>{t("learning.empty")}</p></div>}
+          {displayedHasOlder && stage.phase !== "waiting" && stage.phase !== "skeleton" && (
+            <div className="history-load-older">
+              <button className="secondary-button" type="button" disabled={loadingOlder} onClick={() => void onLoadOlder()}>
+                {t(loadingOlder ? "learning.loadingEarlier" : "learning.loadEarlier")}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );

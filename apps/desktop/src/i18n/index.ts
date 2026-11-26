@@ -44,10 +44,7 @@ async function syncNativeLabels(): Promise<void> {
 export async function initializeI18n({ nativePreferences = true }: { nativePreferences?: boolean } = {}): Promise<void> {
   selectedPreference = nativePreferences ? await loadUiLanguagePreference(catalog.supportedUiLocales) : "system";
   const locale = resolveUiLocale(selectedPreference, catalog.supportedUiLocales);
-  const localesToLoad = locale === "en-US" ? ["en-US"] : [locale, "en-US"];
-  const loaded = await Promise.all(
-    localesToLoad.map(async (code) => [code, { translation: await loadLocaleTranslation(code) }] as const),
-  );
+  const loaded = [[locale, { translation: await loadLocaleTranslation(locale) }] as const];
 
   await i18n
     .use(initReactI18next)
@@ -78,6 +75,7 @@ export async function changeUiLanguage(
   preference: UiLanguagePreference,
 ): Promise<void> {
   const previous = selectedPreference;
+  const previousLocale = resolveUiLocale(previous, catalog.supportedUiLocales);
   selectedPreference = preference;
   const locale = resolveUiLocale(preference, catalog.supportedUiLocales);
 
@@ -91,9 +89,11 @@ export async function changeUiLanguage(
       console.warn("Failed to sync native UI labels", reason);
     });
     await saveUiLanguagePreference(preference);
+    if (previousLocale !== locale && i18n.hasResourceBundle(previousLocale, "translation")) {
+      i18n.removeResourceBundle(previousLocale, "translation");
+    }
   } catch (error) {
     selectedPreference = previous;
-    const previousLocale = resolveUiLocale(previous, catalog.supportedUiLocales);
     if (!i18n.hasResourceBundle(previousLocale, "translation")) {
       try {
         i18n.addResourceBundle(

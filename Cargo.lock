@@ -56,6 +56,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "allocator-api2"
+version = "0.2.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57b212daf2e827b1ccdd778b7eb48ba433e58cb0e4f27b43cd6b7a608425a014"
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1888,6 +1894,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 dependencies = [
  "ahash",
+ "allocator-api2",
 ]
 
 [[package]]
@@ -5750,7 +5757,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vrcs-core"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -5788,6 +5795,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "wasapi",
+ "whatlang",
  "windows",
  "zeroize",
  "zip",
@@ -5795,7 +5803,7 @@ dependencies = [
 
 [[package]]
 name = "vrcs-desktop"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "ash",
  "ashpd",
@@ -6082,6 +6090,16 @@ dependencies = [
  "thiserror 2.0.19",
  "windows",
  "windows-core",
+]
+
+[[package]]
+name = "whatlang"
+version = "0.16.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "471d1c1645d361eb782a1650b1786a8fb58dd625e681a04c09f5ff7c8764a7b0"
+dependencies = [
+ "hashbrown 0.14.5",
+ "once_cell",
 ]
 
 [[package]]

@@ -8,6 +8,7 @@ pub mod platform_capabilities;
 mod player_audio_elevation;
 mod vision_image;
 mod vr_overlay;
+mod webview_memory;
 
 use std::net::TcpListener;
 use std::path::PathBuf;
@@ -618,6 +619,7 @@ fn reassert_compact_topmost(window: &tauri::WebviewWindow, reason: &'static str)
 
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        webview_memory::set_window_memory_low(&window, false);
         let _ = window.unminimize();
         let _ = window.show();
         reassert_compact_topmost(&window, "window_shown");
@@ -1048,6 +1050,9 @@ pub fn run() {
                     && minimize_to_tray_enabled(window.app_handle()) {
                         api.prevent_close();
                         let _ = window.hide();
+                        if let Some(webview) = window.app_handle().get_webview_window("main") {
+                            webview_memory::set_window_memory_low(&webview, true);
+                        }
                     }
             }
         })

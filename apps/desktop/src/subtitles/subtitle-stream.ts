@@ -11,8 +11,8 @@ import type {
 } from "./types";
 
 export const SUBTITLE_HISTORY_PAGE_SIZE = 100;
-export const MAX_SUBTITLE_HISTORY_ITEMS = 2_000;
-export const MAX_SUBTITLE_HISTORY_TEXT_CHARS = 4_000_000;
+export const MAX_SUBTITLE_HISTORY_ITEMS = 400;
+export const MAX_SUBTITLE_HISTORY_TEXT_CHARS = 1_000_000;
 const MAX_STREAM_TEXT_LENGTH = 100_000;
 
 export interface ConversationSubtitlePage {
@@ -182,6 +182,7 @@ function isSubtitle(value: unknown): value is Subtitle {
     && isText(value.text)
     && isSpeaker(value.speaker)
     && isNullableText(value.language)
+    && (value.detected_language === undefined || isNullableText(value.detected_language))
     && isNullableFiniteNumber(value.started_at)
     && isNullableFiniteNumber(value.ended_at)
     && isText(value.created_at)
@@ -241,7 +242,9 @@ export function parseSubtitleStreamMessage(
         && (value.conversation_preview === undefined || value.conversation_preview === null
           || (isObject(value.conversation_preview) && isText(value.conversation_preview.text)
             && isText(value.conversation_preview.translation)))
-        && isText(value.translation) && isText(value.target_language) && isNullableText(value.language) && isSpeaker(value.speaker)
+        && isText(value.translation) && isText(value.target_language) && isNullableText(value.language)
+        && (value.detected_language === undefined || isNullableText(value.detected_language))
+        && isSpeaker(value.speaker)
         ? value as SubtitleStreamMessage : null;
     case "partial":
       return isSource(value.source)
@@ -251,6 +254,10 @@ export function parseSubtitleStreamMessage(
         && (
           value.language === undefined
           || isNullableText(value.language)
+        )
+        && (
+          value.detected_language === undefined
+          || isNullableText(value.detected_language)
         )
         ? value as SubtitleStreamMessage
         : null;

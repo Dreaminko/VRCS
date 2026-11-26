@@ -35,6 +35,7 @@ export function useLearningInbox(ready: boolean) {
   const listRequestRef = useRef(0);
   const pageCursorRef = useRef<number | undefined>(undefined);
   const statusFilterRef = useRef(statusFilter);
+  const wasReadyRef = useRef(ready);
 
   const selectedItem = useMemo(
     () => items.find((item) => item.id === selectedId) ?? null,
@@ -86,14 +87,28 @@ export function useLearningInbox(ready: boolean) {
   }, [statusFilter, t]);
 
   useEffect(() => {
-    if (!ready) return;
-    void loadItems(false);
+    if (ready) {
+      wasReadyRef.current = true;
+      void loadItems(false);
+      return;
+    }
+    if (wasReadyRef.current) {
+      wasReadyRef.current = false;
+      listRequestRef.current += 1;
+      pageCursorRef.current = undefined;
+      setItems([]);
+      setHasMore(false);
+      setLoading(false);
+      setLoadingMore(false);
+      setItemErrors({});
+    }
   }, [ready, statusFilter]);
 
   useEffect(() => {
+    if (!ready && items.length === 0) return;
     if (selectedId !== null && items.some((item) => item.id === selectedId)) return;
     setSelectedId(items[0]?.id ?? null);
-  }, [items, selectedId]);
+  }, [items, ready, selectedId]);
 
   useEffect(() => () => {
     listRequestRef.current += 1;

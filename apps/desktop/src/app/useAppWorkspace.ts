@@ -142,7 +142,10 @@ export function useAppWorkspace({
     : translateVisibleSubtitle;
   const selectedConversationLoading = Boolean(
     subtitles.loadingConversation
-    && conversation.selectedConversation?.id === subtitles.openedConversationId,
+    || (
+      conversation.selectedConversation
+      && conversation.selectedConversation.id !== subtitles.openedConversationId
+    ),
   );
   const compactSubtitles = useMemo(() => (
     compactWindow.compact

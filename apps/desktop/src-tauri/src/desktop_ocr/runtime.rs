@@ -213,6 +213,7 @@ impl Manager {
                 }
                 #[cfg(not(windows))]
                 let _ = window.hide();
+                crate::webview_memory::suspend_window(&window);
             }
         });
     }
@@ -273,6 +274,7 @@ impl Manager {
                 }
                 match window {
                     Ok(window) => {
+                        crate::webview_memory::resume_window(&window);
                         #[cfg(windows)]
                         if let Ok(hwnd) = window.hwnd() {
                             unsafe {
