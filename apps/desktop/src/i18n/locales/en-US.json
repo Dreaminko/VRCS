@@ -285,7 +285,26 @@
         "termsTitle": "Service terms and account risks",
         "terms": "Capturing, decrypting or processing VRChat voice and room traffic may violate VRChat terms of service and may lead to account restrictions or bans. Review the applicable rules and decide whether to accept these risks.",
         "anticheatTitle": "Anti-cheat and compatibility",
-        "anticheat": "This tool does not directly read game process memory or modify game files. However, using any third-party tool carries a risk of being flagged as abnormal by Easy Anti-Cheat (EAC). This project does not guarantee account safety."
+        "anticheat": "This tool does not directly read game process memory or modify game files. However, using any third-party tool carries a risk of being flagged as abnormal by Easy Anti-Cheat (EAC). This project does not guarantee account safety.",
+        "linux": {
+          "title": "Start VRChat network capture",
+          "intro": "Per-player voice and Chatbox share an experimental Linux network capture session. Read the requirements and risks carefully before continuing.",
+          "principleTitle": "How it works",
+          "principle": "The main VRCS app runs with normal user privileges. Once a VRChat process is detected, VRCS starts a session-scoped network helper through system polkit (pkexec) to passively receive local VRChat traffic using a kernel packet filter. After the first world finishes loading following login, the helper performs a read-only scan of VRChat process memory (/proc/<pid>/mem) to recover and verify the network session key. Voice is decoded into separate PCM tracks via the system Opus library only when enabled; Chatbox text goes directly to subtitles and text translation.",
+          "privileges": "This feature requires the root-installed VRCS system package (/usr/bin/vrcs-desktop and its polkit policy), a running polkit authentication agent in your desktop session, and kernel.yama.ptrace_scope not set to 3. After startup, the helper drops to your user account, permanently drops packet-capture capabilities once its filter is locked, retains only CAP_SYS_PTRACE for key scanning, and exits automatically when capture stops, VRCS closes, or the game exits.",
+          "termsTitle": "Service terms and account risks",
+          "terms": "Capturing, decrypting or processing VRChat voice and room traffic may violate VRChat terms of service and may lead to account restrictions or bans. Review the applicable rules and decide whether to accept these risks.",
+          "anticheatTitle": "Anti-cheat and compatibility",
+          "anticheat": "The Linux network helper directly reads VRChat (Wine/Proton) process memory in read-only mode through /proc using CAP_SYS_PTRACE. Although this tool does not modify game memory or game files and does not inject code into the game, directly reading game process memory and using third-party tools carry an elevated risk of being flagged as abnormal by Easy Anti-Cheat (EAC). Distribution differences, kernel security policies, or Proton updates may also break capture. This project does not guarantee account safety or ongoing compatibility.",
+          "privacyTitle": "Audio and data handling",
+          "privacy": "Enabled voice tracks go to the configured recognition and translation services. Received Chatbox text goes to the configured text translation service when translation is requested. Cloud services receive this data and concurrent requests may increase charges. The helper disables core dumps and clears scan buffers after use; the main app never receives raw process memory, and VRCS does not save raw audio or session keys to disk. Text, translations and player display names are saved in history. Voice tracks do not apply in-game distance attenuation, volume or mute filtering.",
+          "privacyConsent": "Inform all participants, obtain their consent and follow applicable privacy requirements. Do not use this feature for nonconsensual monitoring, harassment or infringement.",
+          "disclaimerTitle": "Experimental feature disclaimer",
+          "disclaimer": "Linux network capture is an experimental adaptation provided as is, without guarantees of accuracy, stability, compatibility or fitness. Authorization failures, dropped packets, delays, missing names or recognition errors may occur due to system configuration, security policies or game updates. To the extent permitted by applicable law, developers are not liable for account penalties, data loss, system instability or other losses arising from its use. Follow the terms and licenses of third-party services and resources. If you disagree, cancel and stop using this feature.",
+          "countdown": "Please read; continue in {{seconds}} seconds",
+          "ready": "Continue only after reviewing the information above.",
+          "confirm": "I understand; continue"
+        }
       },
       "vrchat": {
         "title": "VRChat is not running",

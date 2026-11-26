@@ -20,6 +20,40 @@ test("VR consent contains the full desktop explanation and shares its reading de
   assert.equal(playerAudioPrompt(null, 4_000, t), null);
 });
 
+test("Linux VR consent uses standalone Linux disclaimer keys without Windows paging", () => {
+  const notice = { requestId: 13, openedAt: 100 };
+  const prompt = playerAudioPrompt(notice, 2_999, t, "linux")!;
+  assert.equal(prompt.title, "warnings.playerAudio.linux.title");
+  assert.equal(prompt.intro, "warnings.playerAudio.linux.intro");
+  assert.equal(prompt.sections.length, 5);
+  assert.deepEqual(prompt.sections[0], {
+    title: "warnings.playerAudio.linux.principleTitle",
+    paragraphs: [
+      "warnings.playerAudio.linux.principle",
+      "warnings.playerAudio.linux.privileges",
+      "settings.audio.players.nameHint",
+    ],
+  });
+  assert.deepEqual(prompt.sections[2], {
+    title: "warnings.playerAudio.linux.anticheatTitle",
+    paragraphs: ["warnings.playerAudio.linux.anticheat"],
+  });
+  assert.deepEqual(prompt.sections[3], {
+    title: "warnings.playerAudio.linux.privacyTitle",
+    paragraphs: [
+      "warnings.playerAudio.linux.privacy",
+      "warnings.playerAudio.linux.privacyConsent",
+    ],
+  });
+  assert.equal(prompt.reading_status, "warnings.playerAudio.linux.countdown:1");
+  assert.equal(playerAudioPrompt(notice, 3_100, t, "linux")!.reading_status, "warnings.playerAudio.linux.ready");
+  assert.equal(prompt.confirm, "warnings.playerAudio.linux.confirm");
+  const serialized = JSON.stringify(prompt);
+  assert.equal(serialized.includes("warnings.playerAudio.paging"), false);
+  assert.equal(serialized.includes("warnings.playerAudio.principle"), false);
+  assert.equal(serialized.includes("warnings.playerAudio.anticheat"), false);
+});
+
 test("VR preparation uses the OCR stages for prerequisites and the actual player audio phases", () => {
   const build = (phase: PlayerAudioStatus["phase"]) => playerAudioProgress(null, { ...status, phase }, true, t)!;
   assert.deepEqual(playerAudioProgress({ stage: "privileges", detail: null }, null, false, t)!.stages,

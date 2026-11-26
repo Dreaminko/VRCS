@@ -25,11 +25,13 @@ function App() {
   const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>("system");
   useAppTheme();
   const workspace = useAppWorkspace({ page, setPage, setSettingsInitialCategory });
+  const platformOs = workspace.runtime.capabilities.desktop?.os ?? workspace.runtime.capabilities.core?.os;
   const vrSceneCapture = workspace.runtime.capabilities.desktop?.vr.scene_capture.supported === true;
   const networkAvailable = workspace.runtime.ready && workspace.onboarding.status === "complete"
     && workspace.runtime.capabilities.desktop?.vr.controller_input.supported === true
     && workspace.capture.networkCaptureVisible;
   const controlEpoch = useVrControlBridge({
+    os: platformOs,
     settings: workspace.settings.value,
     getSettings: workspace.settings.getCurrent,
     update: workspace.settings.update,
@@ -109,7 +111,7 @@ function App() {
       {controlEpoch > 0 && <VrPlayerDisplayBridge epoch={controlEpoch} workspace={workspace} />}
       {view}
       {workspace.capture.playerAudioStart.notice && <PlayerAudioStartDialog
-        openedAt={workspace.capture.playerAudioStart.notice.openedAt} onDecision={workspace.capture.playerAudioStart.decide} />}
+        openedAt={workspace.capture.playerAudioStart.notice.openedAt} os={platformOs} onDecision={workspace.capture.playerAudioStart.decide} />}
       {workspace.capture.playerAudioStart.memory.dialog && <MemoryCompressionDialog memory={workspace.capture.playerAudioStart.memory} />}
       <RuntimeWarningDialogs
         vrchatWarningOpen={workspace.capture.vrchatWarningOpen}

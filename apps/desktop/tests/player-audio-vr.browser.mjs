@@ -39,7 +39,7 @@ test("VR consent shares the pending start, enforces the reading gate and publish
       const settings = { features: { vr_overlay: true },
         vr_overlay: { enabled: true, wrist: { enabled: true }, headset: { enabled: true } },
         osc: { enabled: false }, ocr: { hand_gesture_enabled: false, master_enabled: false },
-        audio: { output: { mode: 'vrchat_players' } } };
+        audio: { output: { mode: 'vrchat_players', player_audio: { enabled: true } } } };
       const passed = [];
       const check = (condition, message) => { if (!condition) throw Error(message); passed.push(message); };
       const frames = new Map();
@@ -206,19 +206,21 @@ test("VR consent shares the pending start, enforces the reading gate and publish
         let layout;
         for (const language of Object.keys(resources)) {
           await i18next.changeLanguage(language);
-          const notice = playerAudioPrompt({ requestId: 99, openedAt: 0 }, 5000, i18next.t.bind(i18next));
-          for (const kind of ['player_audio', 'dashboard']) {
-            flushSync(() => surface.render(<VrSurface state={show(kind, notice)} onLayout={value => layout = value} />));
-            await sleep(40);
-            const panel = document.querySelector('.vr-player-audio-panel');
-            const bounds = document.querySelector('.vr-surface').getBoundingClientRect();
-            const footer = panel.querySelector('footer').getBoundingClientRect();
-            check(footer.bottom <= bounds.bottom && footer.left >= bounds.left && footer.right <= bounds.right && viewport().clientHeight > 200,
-              language + ' ' + kind + ' keeps content and actions within the texture');
-            check(layout.regions.length === 4 && layout.regions.every(region => region.bounds.every(value => value >= 0 && value <= 1)),
-              language + ' ' + kind + ' publishes reachable native hit regions');
-            viewport().scrollTop = viewport().scrollHeight;
-            check(viewport().scrollTop + viewport().clientHeight >= viewport().scrollHeight - 1, language + ' ' + kind + ' exposes the full disclaimer');
+          for (const os of ['windows', 'linux']) {
+            const notice = playerAudioPrompt({ requestId: 99, openedAt: 0 }, 5000, i18next.t.bind(i18next), os);
+            for (const kind of ['player_audio', 'dashboard']) {
+              flushSync(() => surface.render(<VrSurface state={show(kind, notice)} onLayout={value => layout = value} />));
+              await sleep(40);
+              const panel = document.querySelector('.vr-player-audio-panel');
+              const bounds = document.querySelector('.vr-surface').getBoundingClientRect();
+              const footer = panel.querySelector('footer').getBoundingClientRect();
+              check(footer.bottom <= bounds.bottom && footer.left >= bounds.left && footer.right <= bounds.right && viewport().clientHeight > 200,
+                language + ' ' + os + ' ' + kind + ' keeps content and actions within the texture');
+              check(layout.regions.length === 4 && layout.regions.every(region => region.bounds.every(value => value >= 0 && value <= 1)),
+                language + ' ' + os + ' ' + kind + ' publishes reachable native hit regions');
+              viewport().scrollTop = viewport().scrollHeight;
+              check(viewport().scrollTop + viewport().clientHeight >= viewport().scrollHeight - 1, language + ' ' + os + ' ' + kind + ' exposes the full disclaimer');
+            }
           }
         }
         await i18next.changeLanguage('zh-CN');
@@ -256,7 +258,7 @@ test("VR consent shares the pending start, enforces the reading gate and publish
       ` }));
     } }],
     bundle: true, write: false, outfile: "player-audio-vr.js", format: "esm", platform: "browser", jsx: "automatic",
-    minify: true, loader: { ".png": "dataurl" },
+    minify: true, loader: { ".png": "dataurl" }, define: { "import.meta.env.VITE_VRCS_SESSION_TOKEN": '""' },
   });
   const directory = mkdtempSync(join(testDirectory, ".player-audio-vr-"));
   try {

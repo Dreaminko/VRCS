@@ -19,6 +19,7 @@ let previousBodyOverflow = "";
 export function SettingsDialog({
   label,
   saving,
+  closing = false,
   returnFocusRef,
   className,
   autoFocus = false,
@@ -27,6 +28,7 @@ export function SettingsDialog({
 }: {
   label: string;
   saving: boolean;
+  closing?: boolean;
   returnFocusRef: RefObject<HTMLButtonElement | null>;
   className?: string;
   autoFocus?: boolean;
@@ -36,15 +38,16 @@ export function SettingsDialog({
   const { t } = useTranslation();
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef(onClose);
-  const savingRef = useRef(saving);
+  const busy = saving || closing;
+  const savingRef = useRef(busy);
 
   useEffect(() => {
     closeRef.current = onClose;
   }, [onClose]);
 
   useEffect(() => {
-    savingRef.current = saving;
-  }, [saving]);
+    savingRef.current = busy;
+  }, [busy]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -103,9 +106,9 @@ export function SettingsDialog({
 
   return createPortal(
     <div
-      className="api-profile-dialog-backdrop"
+      className={["api-profile-dialog-backdrop", closing ? "closing" : ""].filter(Boolean).join(" ")}
       onMouseDown={(event) => {
-        if (!saving && event.target === event.currentTarget) onClose();
+        if (!busy && event.target === event.currentTarget) onClose();
       }}
     >
       <section
@@ -119,7 +122,7 @@ export function SettingsDialog({
           className="api-profile-dialog-close"
           type="button"
           aria-label={t("common.close")}
-          disabled={saving}
+          disabled={busy}
           onClick={onClose}
         >
           <X size={18} aria-hidden="true" />

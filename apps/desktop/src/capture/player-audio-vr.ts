@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 import type { PlayerAudioStatus } from "../core-client/types";
 import type { ProgressView } from "../vr-surface/protocol";
+import { playerAudioDisclaimer } from "./player-audio-disclaimer.ts";
 
 export const PLAYER_AUDIO_READING_MS = 3_000;
 export interface PlayerAudioPreparation {
@@ -22,21 +23,17 @@ export interface PlayerAudioPrompt {
 }
 export interface PlayerAudioDecision { owner_epoch: number; request_id: number; accepted: boolean }
 
-export function playerAudioPrompt(notice: { requestId: number; openedAt: number } | null, now: number, t: TFunction): PlayerAudioPrompt | null {
+export function playerAudioPrompt(notice: { requestId: number; openedAt: number } | null, now: number, t: TFunction, os?: string): PlayerAudioPrompt | null {
   if (!notice) return null;
   const remaining = Math.max(0, Math.ceil((PLAYER_AUDIO_READING_MS - (now - notice.openedAt)) / 1_000));
+  const disclaimer = playerAudioDisclaimer(t, os);
   return {
     request_id: notice.requestId,
-    title: t("warnings.playerAudio.title"), intro: t("warnings.playerAudio.intro"),
-    sections: ["principle", "terms", "anticheat", "privacy", "disclaimer"].map(key => ({
-      title: t(`warnings.playerAudio.${key}Title`),
-      paragraphs: [t(`warnings.playerAudio.${key}`),
-        ...(key === "principle" ? [t("warnings.playerAudio.paging"), t("settings.audio.players.nameHint")] : []),
-        ...(key === "privacy" ? [t("warnings.playerAudio.privacyConsent")] : [])],
-    })),
+    title: disclaimer.title, intro: disclaimer.intro,
+    sections: disclaimer.sections.map(({ title, paragraphs }) => ({ title, paragraphs })),
     remaining_seconds: remaining,
-    reading_status: remaining ? t("warnings.playerAudio.countdown", { seconds: remaining }) : t("warnings.playerAudio.ready"),
-    confirm: t("warnings.playerAudio.confirm"), cancel: t("common.cancel"),
+    reading_status: disclaimer.readingStatus(remaining),
+    confirm: disclaimer.confirm, cancel: t("common.cancel"),
     previous: t("wristReader.previousPage"), next: t("wristReader.nextPage"),
     scroll_hint: t("warnings.playerAudio.vrPreparation.scrollHint"),
   };

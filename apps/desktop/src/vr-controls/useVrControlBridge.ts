@@ -16,6 +16,7 @@ const CONTROL_LABEL_KEYS = [
 ] as const;
 
 interface VrControlBridgeOptions {
+  os?: string;
   settings: Settings | null;
   getSettings: () => Settings | null;
   update: (apply: (settings: Settings) => Settings) => Promise<Settings>;
@@ -175,7 +176,7 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
   }, [epoch, options.playerAudioStart.notice]);
 
   const settings = options.getSettings();
-  const notice = epoch ? playerAudioPrompt(options.playerAudioStart.notice, now, t) : null;
+  const notice = epoch ? playerAudioPrompt(options.playerAudioStart.notice, now, t, options.os) : null;
   // A missing health snapshot is not a confirmed stop.
   const chatbox = settings?.audio.output.mode !== "vrchat_players" && Boolean(settings?.vrchat_chatbox.enabled);
   const networkRequested = options.getNetworkRequested?.() ?? Boolean(options.networkRequested);

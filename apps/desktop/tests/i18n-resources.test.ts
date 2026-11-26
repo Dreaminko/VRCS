@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { createInstance } from "i18next";
 
+import { playerAudioDisclaimer } from "../src/capture/player-audio-disclaimer.ts";
 import { validateLocalization } from "../../../scripts/check-i18n.mjs";
 
 type JsonObject = Record<string, unknown>;
@@ -133,5 +134,51 @@ test("every locale translates recognition runtime status values", async () => {
       const value = i18n.t(key);
       assert.ok(value && value !== key, `${locale}:${key} must have a translation`);
     }
+  }
+});
+
+test("every locale provides standalone Windows and Linux network capture disclaimers", async () => {
+  const i18n = createInstance();
+  await i18n.init({
+    resources: Object.fromEntries(localeNames.map((name) => [name, {
+      translation: loadLocale(name).translation as JsonObject,
+    }])),
+    lng: "en-US",
+    fallbackLng: "en-US",
+    interpolation: { escapeValue: false },
+  });
+
+  for (const locale of localeNames) {
+    await i18n.changeLanguage(locale);
+    const t = i18n.t.bind(i18n);
+    const windows = playerAudioDisclaimer(t, "windows");
+    const linux = playerAudioDisclaimer(t, "linux");
+
+    for (const [os, disclaimer] of [["windows", windows], ["linux", linux]] as const) {
+      assert.ok(disclaimer.title.trim() && !disclaimer.title.startsWith("warnings.playerAudio."), `${locale}:${os}:title`);
+      assert.ok(disclaimer.intro.trim() && !disclaimer.intro.startsWith("warnings.playerAudio."), `${locale}:${os}:intro`);
+      assert.ok(disclaimer.confirm.trim() && !disclaimer.confirm.startsWith("warnings.playerAudio."), `${locale}:${os}:confirm`);
+      const counting = disclaimer.readingStatus(2);
+      const ready = disclaimer.readingStatus(0);
+      assert.ok(counting.includes("2") && !counting.startsWith("warnings.playerAudio."), `${locale}:${os}:countdown`);
+      assert.ok(ready.trim() && !ready.startsWith("warnings.playerAudio."), `${locale}:${os}:ready`);
+      assert.equal(disclaimer.sections.length, 5);
+      for (const section of disclaimer.sections) {
+        assert.ok(section.title.trim() && !section.title.startsWith("warnings.playerAudio."), `${locale}:${os}:${section.key}:title`);
+        for (const paragraph of section.paragraphs) {
+          assert.ok(paragraph.trim() && !paragraph.startsWith("warnings.playerAudio.") && !paragraph.startsWith("settings."), `${locale}:${os}:${section.key}:paragraph`);
+        }
+      }
+    }
+
+    assert.notEqual(linux.sections[0].paragraphs[0], windows.sections[0].paragraphs[0]);
+    assert.notEqual(linux.sections[0].paragraphs[1], windows.sections[0].paragraphs[1]);
+    assert.notEqual(linux.sections[2].paragraphs[0], windows.sections[2].paragraphs[0]);
+    const linuxText = [linux.intro, ...linux.sections.flatMap((section) => section.paragraphs)].join("\n");
+    assert.match(linuxText, /polkit/i);
+    assert.match(linuxText, /pkexec/i);
+    assert.match(linuxText, /\/proc\/<pid>\/mem/);
+    assert.match(linuxText, /CAP_SYS_PTRACE/);
+    assert.doesNotMatch(linuxText, /windows|pagefile|分页文件|分頁檔|ページファイル/i);
   }
 });

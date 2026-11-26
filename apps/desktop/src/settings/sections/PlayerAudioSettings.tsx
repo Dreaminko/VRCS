@@ -1,8 +1,11 @@
-import { FlaskConical } from "lucide-react";
+import { useState } from "react";
+import { CircleHelp, FlaskConical } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { PlayerAudioSettings as Options } from "../../capture/types";
 import { MemoryCompressionControls } from "../../capture/MemoryCompressionControls";
+import { PlayerAudioStartDialog } from "../../capture/PlayerAudioStartDialog";
+import { playerAudioDisclaimer } from "../../capture/player-audio-disclaimer";
 import type { PlayerAudioStart } from "../../capture/usePlayerAudioStart";
 import { usePlatformCapabilities } from "../../core-client/capabilities";
 import type { PlayerAudioStatus } from "../../core-client/types";
@@ -23,7 +26,11 @@ export function PlayerAudioSettings({ value, status, memory, disabled, showUnsup
   onChange: (patch: Partial<Options>) => void;
 }) {
   const { t } = useTranslation();
-  const linux = usePlatformCapabilities().core?.os === "linux";
+  const capabilities = usePlatformCapabilities();
+  const os = capabilities.desktop?.os ?? capabilities.core?.os;
+  const linux = capabilities.core?.os === "linux";
+  const [disclaimerOpen, setDisclaimerOpen] = useState(false);
+  const disclaimerTitle = playerAudioDisclaimer(t, os).title;
   const options = value ?? DEFAULT_PLAYER_AUDIO;
   const fieldsDisabled = disabled || !options.enabled;
   const phase = status?.phase ?? "stopped";
@@ -34,7 +41,13 @@ export function PlayerAudioSettings({ value, status, memory, disabled, showUnsup
     && !Object.values(options.source_overrides ?? {}).some(rule => !rule.voice_disabled);
   return <section className="vr-overlay-card player-audio-settings" aria-labelledby="player-audio-title">
     <div className="vr-overlay-card-heading vr-overlay-feature-heading"><div><FlaskConical size={18} />
-      <span><strong id="player-audio-title">{t("settings.capture.networkTitle")}</strong></span>
+      <span className="player-audio-title-row">
+        <strong id="player-audio-title">{t("settings.capture.networkTitle")}</strong>
+        <button type="button" className="player-audio-help-button" aria-label={disclaimerTitle} title={disclaimerTitle}
+          onClick={() => setDisclaimerOpen(true)}>
+          <CircleHelp size={16} aria-hidden="true" />
+        </button>
+      </span>
     </div>
       <PreferenceToggle title={t("settings.capture.networkEnable")} hideLabel
         checked={options.enabled === true} disabled={disabled && !options.enabled} onChange={(enabled) => onChange({ enabled })} />
@@ -78,5 +91,6 @@ export function PlayerAudioSettings({ value, status, memory, disabled, showUnsup
       </p>}
       {status?.detail && <p className="settings-validation-error">{status.detail}</p>}
     </div>
+    {disclaimerOpen && <PlayerAudioStartDialog readOnly os={os} onDecision={() => setDisclaimerOpen(false)} />}
   </section>;
 }

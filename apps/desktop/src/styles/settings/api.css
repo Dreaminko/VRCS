@@ -171,6 +171,27 @@
   from { opacity: 0; transform: translateY(10px) scale(0.96); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
+.api-profile-dialog-backdrop.closing {
+  pointer-events: none;
+  animation: api-dialog-backdrop-out 160ms ease-in forwards;
+}
+.api-profile-dialog-backdrop.closing .api-profile-dialog {
+  animation: api-dialog-card-out 160ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes api-dialog-backdrop-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes api-dialog-card-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(8px) scale(0.96); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .api-profile-dialog-backdrop,
+  .api-profile-dialog,
+  .api-profile-dialog-backdrop.closing,
+  .api-profile-dialog-backdrop.closing .api-profile-dialog { animation: none; }
+}
 .api-profile-editor-heading { display: grid; gap: 4px; }
 .api-profile-editor-heading strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 

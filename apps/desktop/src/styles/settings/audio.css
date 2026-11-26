@@ -167,6 +167,22 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+.player-audio-settings .player-audio-title-row { display: inline-flex; align-items: center; gap: 6px; }
+.player-audio-help-button {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--text-quiet);
+  background: transparent;
+  cursor: pointer;
+  transition: color 140ms ease, background-color 140ms ease;
+}
+.player-audio-help-button:hover,
+.player-audio-help-button:focus-visible { color: var(--primary-ink); background: var(--primary-softer); }
 .player-audio-start-dialog { width: min(680px, 100%); }
 .player-audio-start-dialog .api-profile-editor-heading { display: flex; align-items: center; gap: 9px; }
 .player-audio-start-copy { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 10px; color: var(--text-secondary); font-size: 13px; line-height: 1.75; }
