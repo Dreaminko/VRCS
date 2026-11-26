@@ -2,38 +2,26 @@ import { useEffect, useState } from "react";
 
 import {
   applyInterfaceScale,
+  DEFAULT_INTERFACE_SCALE,
   interfaceScaleShortcutStep,
   normalizeInterfaceScale,
   readInterfaceScale,
-  syncInterfaceViewportProperties,
   writeInterfaceScale,
 } from "./interface-scale";
 
-export function useInterfaceScale() {
+export function useInterfaceScale(compact = false) {
   const [interfaceScale, setInterfaceScale] = useState(readInterfaceScale);
 
   useEffect(() => {
     writeInterfaceScale(interfaceScale);
-    applyInterfaceScale(interfaceScale);
   }, [interfaceScale]);
 
   useEffect(() => {
-    let resizeFrame: number | null = null;
-    const onResize = () => {
-      if (resizeFrame !== null) return;
-      resizeFrame = window.requestAnimationFrame(() => {
-        resizeFrame = null;
-        syncInterfaceViewportProperties();
-      });
-    };
-    window.addEventListener("resize", onResize);
-    return () => {
-      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
-      window.removeEventListener("resize", onResize);
-    };
-  }, []);
+    void applyInterfaceScale(compact ? DEFAULT_INTERFACE_SCALE : interfaceScale);
+  }, [compact, interfaceScale]);
 
   useEffect(() => {
+    if (compact) return;
     const handleInterfaceScaleShortcut = (event: KeyboardEvent) => {
       const step = interfaceScaleShortcutStep(event);
       if (step === 0) return;
@@ -42,7 +30,7 @@ export function useInterfaceScale() {
     };
     window.addEventListener("keydown", handleInterfaceScaleShortcut);
     return () => window.removeEventListener("keydown", handleInterfaceScaleShortcut);
-  }, []);
+  }, [compact]);
 
   return { interfaceScale, setInterfaceScale };
 }

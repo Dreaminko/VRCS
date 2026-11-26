@@ -1,11 +1,11 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { INTERFACE_LAYOUT_CHANGE_EVENT, interfaceLayoutPixels } from "../../app/interface-scale";
+import { INTERFACE_LAYOUT_CHANGE_EVENT } from "../../app/interface-scale";
 
 type Tooltip = { target: HTMLElement; label: string; keyboard: boolean };
 
-// Dock buttons already paint their own tooltips with CSS.
-const SELECTOR = "[data-tooltip]:not(.dock-button)";
+// Bottom dock buttons paint their own tooltips with CSS.
+const SELECTOR = "[data-tooltip]:not(.bottom-dock .dock-button)";
 
 export function ControlTooltip() {
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
@@ -47,9 +47,6 @@ export function ControlTooltip() {
         attributes: true,
         attributeFilter: ["data-tooltip", "aria-haspopup", "aria-expanded"],
       });
-      for (let node = element.parentNode; node; node = node.parentNode) {
-        observer.observe(node, { childList: true });
-      }
     };
     const closest = (node: EventTarget | null) => node instanceof Element
       ? node.closest<HTMLElement>(SELECTOR) : null;
@@ -99,19 +96,23 @@ export function ControlTooltip() {
     if (!tooltip || !element) return;
     const { target } = tooltip;
     const position = () => {
+      if (!target.isConnected) {
+        setTooltip(null);
+        return;
+      }
       const rect = target.getBoundingClientRect();
       const gutter = 8;
       const gap = 10;
-      const viewportWidth = interfaceLayoutPixels(window.innerWidth);
-      const viewportHeight = interfaceLayoutPixels(window.innerHeight);
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
       const maxWidth = target.hasAttribute("data-tooltip-prose") ? 320 : 220;
       element.style.maxWidth = `${Math.max(0, Math.min(maxWidth, viewportWidth - gutter * 2))}px`;
       element.style.setProperty("--tooltip-max-height", `${Math.max(0, viewportHeight - gutter * 2)}px`);
       const width = element.offsetWidth;
       const height = element.offsetHeight;
-      const center = interfaceLayoutPixels(rect.left + rect.width / 2);
-      const above = interfaceLayoutPixels(rect.top) - gap - height;
-      const below = interfaceLayoutPixels(rect.bottom) + gap;
+      const center = rect.left + rect.width / 2;
+      const above = rect.top - gap - height;
+      const below = rect.bottom + gap;
       const side = below + height <= viewportHeight - gutter || above < gutter ? "bottom" : "top";
       const left = Math.max(gutter, Math.min(center - width / 2, viewportWidth - width - gutter));
       const top = Math.max(gutter, Math.min(side === "bottom" ? below : above, viewportHeight - height - gutter));

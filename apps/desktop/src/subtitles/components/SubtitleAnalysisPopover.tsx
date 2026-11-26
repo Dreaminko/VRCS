@@ -4,11 +4,8 @@ import { createPortal } from "react-dom";
 import { BookOpenText, Sparkles, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import {
-  interfaceLayoutPixels,
-  readAppliedInterfaceScaleFactor,
-} from "../../app/interface-scale";
 import { isLookupAnchorVisible, placeLookupPopover } from "../../shared/lib/popover-placement";
+import { useDismissibleLayer } from "../../shared/hooks/use-dismissible-layer";
 import type { LearningAnalysis } from "../../learning/types";
 import { LearningAnalysisView } from "../../learning/components/LearningAnalysisView";
 
@@ -28,26 +25,20 @@ export function SubtitleAnalysisPopover({
   const { t } = useTranslation();
   const popoverRef = useRef<HTMLDivElement>(null);
   const [anchor, setAnchor] = useState(() => anchorForElement(anchorRef.current));
-  const scale = readAppliedInterfaceScaleFactor();
-  const viewportWidth = interfaceLayoutPixels(window.innerWidth, scale);
-  const viewportHeight = interfaceLayoutPixels(window.innerHeight, scale);
-  const layoutAnchor = {
-    top: interfaceLayoutPixels(anchor.top, scale),
-    bottom: interfaceLayoutPixels(anchor.bottom, scale),
-    centerX: interfaceLayoutPixels(anchor.centerX, scale),
-  };
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
   const width = Math.min(440, viewportWidth - 24);
   const placement = placeLookupPopover({
-    anchor: layoutAnchor,
+    anchor,
     popoverHeight: ANALYSIS_POPOVER_HEIGHT,
     viewportHeight,
     viewportTop: 40,
   });
   const left = Math.min(
-    Math.max(12, layoutAnchor.centerX - width / 2),
+    Math.max(12, anchor.centerX - width / 2),
     viewportWidth - width - 12,
   );
-  const arrowLeft = Math.min(Math.max(22, layoutAnchor.centerX - left - 8), width - 38);
+  const arrowLeft = Math.min(Math.max(22, anchor.centerX - left - 8), width - 38);
 
   useEffect(() => {
     const updateAnchor = () => {
@@ -67,20 +58,7 @@ export function SubtitleAnalysisPopover({
     };
   }, [anchorRef, onClose]);
 
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    const closeOnOutside = (event: PointerEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) onClose();
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    document.addEventListener("pointerdown", closeOnOutside);
-    return () => {
-      document.removeEventListener("keydown", closeOnEscape);
-      document.removeEventListener("pointerdown", closeOnOutside);
-    };
-  }, [onClose]);
+  useDismissibleLayer(true, popoverRef, onClose);
 
   return createPortal(
     <div

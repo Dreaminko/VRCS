@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { prefersReducedMotion } from "../../app/app-motion";
 
-export function useDropdownMenuMotion(open: boolean, ready = true) {
+export function useDropdownMenuMotion(open: boolean) {
   const [retained, setRetained] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const animationRef = useRef<Animation | null>(null);
@@ -44,7 +44,7 @@ export function useDropdownMenuMotion(open: boolean, ready = true) {
         setRetained(false);
       }
     }, () => {});
-  }, [mounted, open, ready]);
+  }, [mounted, open]);
 
   useLayoutEffect(() => () => animationRef.current?.cancel(), []);
 

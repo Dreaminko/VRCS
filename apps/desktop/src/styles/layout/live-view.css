@@ -24,9 +24,13 @@
   flex-direction: column;
   align-items: flex-start;
 }
-.conversation > .message-group:not(:nth-last-child(-n+20)) {
+.conversation > .message-group:not(:nth-last-child(-n+20)):not(.subtitle-search-focused):not(.subtitle-selected):not(:focus-within):not([data-popover-open]) {
   content-visibility: auto;
-  contain-intrinsic-size: auto 96px;
+  contain-intrinsic-block-size: auto 72px;
+}
+.conversation > .world-marker:not(:nth-last-child(-n+20)):not(.subtitle-search-focused) {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 24px;
 }
 .conversation-load-older { display: flex; min-height: 36px; align-items: center; justify-content: center; }
 .conversation-load-older .secondary-button { min-height: 34px; padding-inline: 13px; border-radius: var(--radius-pill); font-size: 12px; }

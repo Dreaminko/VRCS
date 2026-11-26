@@ -207,7 +207,7 @@
 .model-selection-dialog-shell {
   display: grid;
   min-height: 0;
-  max-height: calc(var(--interface-layout-height, 100vh) - var(--api-dialog-gutter) - var(--api-dialog-gutter));
+  max-height: calc(100vh - var(--api-dialog-gutter) - var(--api-dialog-gutter));
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 .model-selection-dialog-heading {

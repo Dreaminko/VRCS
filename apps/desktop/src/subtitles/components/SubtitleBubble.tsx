@@ -4,10 +4,6 @@ import { useTranslation } from "react-i18next";
 
 import { timestamp } from "../../app/app-utils";
 import type { LookupOrigin } from "../../app/app-types";
-import {
-  interfaceLayoutPixels,
-  readAppliedInterfaceScaleFactor,
-} from "../../app/interface-scale";
 import { contentLanguageTag } from "../../app/ui-language";
 import { useTranslationPartials } from "../../core-client/realtime-state";
 import {
@@ -191,6 +187,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
     <article
       ref={articleRef}
       data-subtitle-id={subtitle.id ?? undefined}
+      data-popover-open={menuPosition !== null || analysisPopoverOpen ? "true" : undefined}
       className={`message-group source-${source} ${selected ? "subtitle-selected" : ""} ${focused ? "subtitle-search-focused" : ""}`}
       aria-selected={selected}
       aria-current={focused ? "true" : undefined}
@@ -317,18 +314,13 @@ function selectedTextWithin(root: HTMLElement | null): string {
 }
 
 function subtitleContextMenuPosition(clientX: number, clientY: number) {
-  const scale = readAppliedInterfaceScaleFactor();
-  const x = interfaceLayoutPixels(clientX, scale);
-  const y = interfaceLayoutPixels(clientY, scale);
-  const viewportWidth = interfaceLayoutPixels(window.innerWidth, scale);
-  const viewportHeight = interfaceLayoutPixels(window.innerHeight, scale);
   const width = 236;
   const expectedHeight = 330;
   const gap = 4;
-  const side = viewportHeight - y >= expectedHeight ? "below" : "above";
+  const side = window.innerHeight - clientY >= expectedHeight ? "below" : "above";
   return {
-    top: side === "below" ? y + gap : y - gap,
-    left: Math.max(8, Math.min(x + gap, viewportWidth - width - 8)),
+    top: side === "below" ? clientY + gap : clientY - gap,
+    left: Math.max(8, Math.min(clientX + gap, window.innerWidth - width - 8)),
     side,
   } as const;
 }

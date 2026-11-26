@@ -3,12 +3,10 @@ import test from "node:test";
 
 import {
   applyInterfaceScale,
-  COMPACT_OVERLAY_HEIGHT,
   DEFAULT_INTERFACE_SCALE,
-  interfaceLayoutPixels,
-  interfaceScaleFactors,
+  INTERFACE_LAYOUT_CHANGE_EVENT,
+  interfaceScaleFactor,
   interfaceScaleShortcutStep,
-  interfaceViewportMetrics,
   normalizeInterfaceScale,
 } from "../src/app/interface-scale.ts";
 
@@ -44,70 +42,44 @@ test("recognizes Ctrl plus and minus on the main keyboard and numpad", () => {
   assert.equal(shortcut("=", "Equal", { altKey: true }), 0);
 });
 
-test("keeps layout coordinates stable while scaling interface lengths", () => {
-  assert.deepEqual(interfaceScaleFactors(150), {
-    scale: 1.5,
-    inverse: 2 / 3,
-  });
-  assert.equal(interfaceLayoutPixels(1180, 1.5), 1180 / 1.5);
-  assert.equal(interfaceLayoutPixels(760, 0.75), 760 / 0.75);
+test("computes normalized interface scale factor", () => {
+  assert.equal(interfaceScaleFactor(150), 1.5);
+  assert.equal(interfaceScaleFactor(75), 0.75);
+  assert.equal(interfaceScaleFactor(null), 1);
 });
 
-test("derives scale-aware overlay viewport metrics", () => {
-  assert.deepEqual(interfaceViewportMetrics(1180, 760, 1), {
-    width: 1180,
-    height: 760,
-    overlayGutter: 24,
-  });
-  assert.deepEqual(interfaceViewportMetrics(1180, 760, 1.5), {
-    width: 1180 / 1.5,
-    height: 760 / 1.5,
-    overlayGutter: 12,
-  });
-  assert.equal(
-    interfaceViewportMetrics(860, COMPACT_OVERLAY_HEIGHT, 1).overlayGutter,
-    24,
-  );
-});
-
-test("applies interface scale through CSS factors", async () => {
-  const properties = new Map<string, string>();
+test("applies native zoom and ignores stale out-of-order requests", async () => {
   const dispatchedEvents: string[] = [];
-  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const applied: number[] = [];
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
-  Object.defineProperty(globalThis, "document", {
-    configurable: true,
-    value: {
-      documentElement: {
-        style: {
-          getPropertyValue: (name: string) => properties.get(name) ?? "",
-          setProperty: (name: string, value: string) => properties.set(name, value),
-        },
-      },
-    },
-  });
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
-      innerWidth: 1180,
-      innerHeight: 760,
       dispatchEvent: (event: Event) => dispatchedEvents.push(event.type),
     },
   });
 
   try {
-    await applyInterfaceScale(150);
+    await applyInterfaceScale(150, async (scale) => {
+      applied.push(scale);
+    });
+    assert.deepEqual(applied, [1.5]);
+    assert.deepEqual(dispatchedEvents, [INTERFACE_LAYOUT_CHANGE_EVENT]);
+
+    let resolveStale!: () => void;
+    const stale = applyInterfaceScale(75, () => new Promise<void>((resolve) => {
+      resolveStale = resolve;
+    }));
+    await applyInterfaceScale(100, async (scale) => {
+      applied.push(scale);
+    });
+    resolveStale();
+    await stale;
+
+    assert.deepEqual(applied, [1.5, 1]);
+    assert.deepEqual(dispatchedEvents, [INTERFACE_LAYOUT_CHANGE_EVENT, INTERFACE_LAYOUT_CHANGE_EVENT]);
   } finally {
-    if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
-    else delete (globalThis as { document?: unknown }).document;
     if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
     else delete (globalThis as { window?: unknown }).window;
   }
-
-  assert.equal(properties.get("--interface-scale"), "1.5");
-  assert.equal(Number(properties.get("--interface-scale-inverse")), 2 / 3);
-  assert.equal(properties.get("--interface-layout-width"), `${1180 / 1.5}px`);
-  assert.equal(properties.get("--interface-layout-height"), `${760 / 1.5}px`);
-  assert.equal(properties.get("--interface-overlay-gutter"), "12px");
-  assert.deepEqual(dispatchedEvents, ["vrcs:interface-layout-change"]);
 });

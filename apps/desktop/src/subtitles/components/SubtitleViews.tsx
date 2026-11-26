@@ -7,10 +7,6 @@ import { subtitleVisible } from "../player-history";
 import { useLanguageDetectorReady } from "../usePlayerHistoryPreferences";
 
 import type { LookupOrigin } from "../../app/app-types";
-import {
-  interfaceLayoutPixels,
-  readAppliedInterfaceScaleFactor,
-} from "../../app/interface-scale";
 import type { SubtitleAnalysisOutcome } from "../subtitle-actions";
 import type { Subtitle } from "../types";
 import { usePrependScrollAnchor } from "../hooks/usePrependScrollAnchor";
@@ -23,10 +19,15 @@ import { SubtitleBubble } from "./SubtitleBubble";
 
 export { TopStatus } from "./TopStatus";
 
+const EMPTY_SUBTITLE_SELECTION: Subtitle[] = [];
+const EMPTY_NUMBER_SET = new Set<number>();
+const EMPTY_TRANSLATING_IDS: number[] = [];
+const EMPTY_HIDDEN_TRACKS: readonly string[] = [];
+
 export const LiveView = memo(function LiveView({
   subtitles,
   playerName,
-  hiddenTracks = [],
+  hiddenTracks = EMPTY_HIDDEN_TRACKS,
   hiddenSourceLanguages,
   scrollContainerRef,
   running,
@@ -47,7 +48,7 @@ export const LiveView = memo(function LiveView({
   isLearningCaptured,
   isLearningSelectionBusy,
   isLearningSelectionCaptured,
-  translatingSubtitleIds = [],
+  translatingSubtitleIds = EMPTY_TRANSLATING_IDS,
   focusedSubtitleId = null,
 }: {
   subtitles: Subtitle[];
@@ -78,8 +79,14 @@ export const LiveView = memo(function LiveView({
 }) {
   const { t } = useTranslation();
   const languageDetectorReady = useLanguageDetectorReady();
-  const chronological = useMemo(() => [...subtitles].reverse().filter((subtitle) =>
-    subtitleVisible(subtitle, hiddenTracks, hiddenSourceLanguages)), [subtitles, hiddenTracks, hiddenSourceLanguages, languageDetectorReady]);
+  const chronological = useMemo(() => {
+    const visible: Subtitle[] = [];
+    for (let index = subtitles.length - 1; index >= 0; index -= 1) {
+      const subtitle = subtitles[index];
+      if (subtitleVisible(subtitle, hiddenTracks, hiddenSourceLanguages)) visible.push(subtitle);
+    }
+    return visible;
+  }, [subtitles, hiddenTracks, hiddenSourceLanguages, languageDetectorReady]);
   const selectableIds = useMemo(
     () => chronological.flatMap((subtitle) => (
       subtitle.id === null || subtitle.source === "world" ? [] : [subtitle.id]
@@ -100,16 +107,22 @@ export const LiveView = memo(function LiveView({
     containerRef,
   );
   const translatingIds = useMemo(
-    () => new Set(translatingSubtitleIds),
+    () => (translatingSubtitleIds.length ? new Set(translatingSubtitleIds) : EMPTY_NUMBER_SET),
     [translatingSubtitleIds],
   );
   const selectedSubtitles = useMemo(
-    () => chronological.filter((subtitle) => subtitle.id !== null && selectedIds.has(subtitle.id)),
+    () => (selectedIds.size > 1
+      ? chronological.filter((subtitle) => subtitle.id !== null && selectedIds.has(subtitle.id))
+      : EMPTY_SUBTITLE_SELECTION),
     [chronological, selectedIds],
   );
   const multiSelectionActive = selectedSubtitles.length > 1;
-  const selectionLearningBusy = isLearningSelectionBusy?.(selectedSubtitles) ?? false;
-  const selectionLearningCaptured = isLearningSelectionCaptured?.(selectedSubtitles) ?? false;
+  const selectionLearningBusy = multiSelectionActive
+    ? (isLearningSelectionBusy?.(selectedSubtitles) ?? false)
+    : false;
+  const selectionLearningCaptured = multiSelectionActive
+    ? (isLearningSelectionCaptured?.(selectedSubtitles) ?? false)
+    : false;
   const feedbackTimerRef = useRef<number | null>(null);
   const feedbackSequenceRef = useRef(0);
   const [copyFeedback, setCopyFeedback] = useState<{
@@ -246,11 +259,10 @@ export const LiveView = memo(function LiveView({
 });
 
 function selectionOverlayStyle(rect: SubtitleSelectionRect): CSSProperties {
-  const scale = readAppliedInterfaceScaleFactor();
   return {
-    top: interfaceLayoutPixels(rect.top, scale),
-    left: interfaceLayoutPixels(rect.left, scale),
-    width: interfaceLayoutPixels(rect.width, scale),
-    height: interfaceLayoutPixels(rect.height, scale),
+    top: rect.top,
+    left: rect.left,
+    width: rect.width,
+    height: rect.height,
   };
 }

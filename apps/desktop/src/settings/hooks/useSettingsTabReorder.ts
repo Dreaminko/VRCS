@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
 import { prefersReducedMotion } from "../../app/app-motion";
-import { INTERFACE_LAYOUT_CHANGE_EVENT, interfaceLayoutPixels } from "../../app/interface-scale";
+import { INTERFACE_LAYOUT_CHANGE_EVENT } from "../../app/interface-scale";
 import { moveSettingsTab, readSettingsTabOrder, saveSettingsTabOrder } from "../settings-tab-order";
 import type { SettingsCategory } from "../settings-types";
 
@@ -61,7 +61,7 @@ export function useSettingsTabReorder() {
     for (const tab of tabs) {
       const from = previous.get(tab);
       if (from === undefined || tab === pressRef.current?.target || !tab.animate) continue;
-      const offset = interfaceLayoutPixels(from - barLeft) - bar.clientLeft - tab.offsetLeft;
+      const offset = from - barLeft - bar.clientLeft - tab.offsetLeft;
       if (Math.abs(offset) < 0.5) continue;
       const animation = tab.animate([
         { transform: `translateX(${offset}px)` },
@@ -124,10 +124,9 @@ export function useSettingsTabReorder() {
     const bar = tabbarRef.current;
     if (!bar) return null;
     const bounds = bar.getBoundingClientRect();
-    const scale = 1 / interfaceLayoutPixels(1);
-    const width = press.target.offsetWidth * scale;
+    const width = press.target.offsetWidth;
     const left = Math.max(bounds.left, Math.min(press.clientX - press.grabOffset, bounds.right - width));
-    const offset = interfaceLayoutPixels(left - bounds.left) - bar.clientLeft - press.target.offsetLeft;
+    const offset = left - bounds.left - bar.clientLeft - press.target.offsetLeft;
     press.target.style.setProperty("--settings-tab-drag-x", `${offset}px`);
     return left + width / 2;
   }
@@ -144,12 +143,12 @@ export function useSettingsTabReorder() {
       ? -Math.min(12, (bounds.left + edge - press.clientX) / 2)
       : press.clientX > bounds.right - edge
         ? Math.min(12, (press.clientX - bounds.right + edge) / 2) : 0;
-    scroller.scrollLeft += interfaceLayoutPixels(speed);
+    scroller.scrollLeft += speed;
     const center = positionDragged(press);
     if (center !== null) {
       const tabs = [...bar.querySelectorAll<HTMLButtonElement>("[role=tab]")];
       const from = tabs.indexOf(press.target);
-      const layoutCenter = interfaceLayoutPixels(center - bar.getBoundingClientRect().left);
+      const layoutCenter = center - bar.getBoundingClientRect().left;
       // Use layout positions so animated neighbors do not move the drop target.
       const to = tabs.filter(tab => {
         if (tab === press.target) return false;
@@ -224,7 +223,7 @@ export function useSettingsTabReorder() {
           suppressClickRef.current = true;
         }
         if (press.scrolling && press.pointerType === "touch" && scrollRef.current) {
-          scrollRef.current.scrollLeft = press.startScrollLeft - interfaceLayoutPixels(event.clientX - press.startX);
+          scrollRef.current.scrollLeft = press.startScrollLeft - (event.clientX - press.startX);
         }
       }
       if (press.started && event.cancelable) event.preventDefault();

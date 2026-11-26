@@ -334,7 +334,7 @@ for (const scenario of scenarios) {
           window.finishAnalysis(); await settle();
           await click(button('learning.detail.saveWorkingText'));
           const captureTarget = document.querySelector('${scenario.capture === "segments" ? ".learning-analysis-segments" : scenario.capture === "examples" ? ".learning-analysis-examples" : ".learning-ai-section"}');
-          detail().scrollTop += (rect(captureTarget).top - rect(detail()).top) / ${scenario.scale / 100} - 12;
+          detail().scrollTop += rect(captureTarget).top - rect(detail()).top - 12;
           await settle();
           check(detail().scrollWidth <= detail().clientWidth + 1 && document.documentElement.scrollWidth <= innerWidth + 1, 'Expanded analysis remains inside the work area at this width and scale');
           document.getElementById('result').textContent = 'PASS';

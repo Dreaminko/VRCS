@@ -5,10 +5,6 @@ import type {
 } from "react";
 
 import {
-  interfaceLayoutPixels,
-  readAppliedInterfaceScaleFactor,
-} from "../app/interface-scale";
-import {
   MAX_CONVERSATION_SIDEBAR_WIDTH,
   MIN_CONVERSATION_SIDEBAR_WIDTH,
   normalizeConversationSidebarWidth,
@@ -52,11 +48,10 @@ export function useConversationSidebarResize({
     if (!event.isPrimary || event.button !== 0) return;
     event.preventDefault();
     onBeforeStart();
-    const scale = readAppliedInterfaceScaleFactor();
     previewWidthRef.current = null;
     resizeStartRef.current = {
       pointerId: event.pointerId,
-      pointerX: interfaceLayoutPixels(event.clientX, scale),
+      pointerX: event.clientX,
       width,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -68,12 +63,8 @@ export function useConversationSidebarResize({
     const initial = resizeStartRef.current;
     if (!initial || initial.pointerId !== event.pointerId) return;
     event.preventDefault();
-    const pointerX = interfaceLayoutPixels(
-      event.clientX,
-      readAppliedInterfaceScaleFactor(),
-    );
     const nextWidth = normalizeConversationSidebarWidth(
-      initial.width + pointerX - initial.pointerX,
+      initial.width + event.clientX - initial.pointerX,
     );
     if (onPreviewWidth) {
       previewWidthRef.current = nextWidth;

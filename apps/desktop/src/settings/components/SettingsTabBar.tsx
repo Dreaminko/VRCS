@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { INTERFACE_LAYOUT_CHANGE_EVENT, interfaceLayoutPixels } from "../../app/interface-scale";
+import { INTERFACE_LAYOUT_CHANGE_EVENT } from "../../app/interface-scale";
 import type { SettingsCategory } from "../settings-types";
 import { useSettingsTabReorder } from "../hooks/useSettingsTabReorder";
 
@@ -39,8 +39,8 @@ export function SettingsTabBar({
     const rect = target.getBoundingClientRect();
     setTooltip({
       label,
-      top: interfaceLayoutPixels(rect.bottom) + 13,
-      left: interfaceLayoutPixels(rect.left + rect.width / 2),
+      top: rect.bottom + 13,
+      left: rect.left + rect.width / 2,
       keyboard,
     });
   };
@@ -53,7 +53,7 @@ export function SettingsTabBar({
     const element = tooltipRef.current;
     if (!tooltip || !element) return;
     const width = element.offsetWidth;
-    const left = Math.max(12, Math.min(tooltip.left - width / 2, interfaceLayoutPixels(window.innerWidth) - width - 12));
+    const left = Math.max(12, Math.min(tooltip.left - width / 2, window.innerWidth - width - 12));
     element.style.left = `${left}px`;
     element.style.setProperty("--tooltip-arrow-left", `${tooltip.left - left}px`);
   }, [tooltip]);
@@ -151,7 +151,7 @@ export function SettingsTabBar({
           className={`settings-tab-tooltip${tooltip.keyboard ? " keyboard" : ""}`}
           role="tooltip"
           aria-hidden="true"
-          style={{ top: tooltip.top, left: tooltip.left, maxWidth: Math.min(220, interfaceLayoutPixels(window.innerWidth) - 24) }}
+          style={{ top: tooltip.top, left: tooltip.left, maxWidth: Math.min(220, window.innerWidth - 24) }}
         >
           {tooltip.label}
         </div>,

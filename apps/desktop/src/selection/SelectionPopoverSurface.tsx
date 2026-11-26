@@ -3,13 +3,10 @@ import type { CSSProperties, ReactNode } from "react";
 
 import type { SelectionTarget } from "../app/app-types";
 import {
-  interfaceLayoutPixels,
-  readAppliedInterfaceScaleFactor,
-} from "../app/interface-scale";
-import {
   isLookupAnchorVisible,
   placeLookupPopover,
 } from "../shared/lib/popover-placement";
+import { useDismissibleLayer } from "../shared/hooks/use-dismissible-layer";
 
 export function SelectionPopoverSurface({
   target,
@@ -32,27 +29,21 @@ export function SelectionPopoverSurface({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [anchor, setAnchor] = useState(target.anchor);
-  const scale = compact ? 1 : readAppliedInterfaceScaleFactor();
-  const viewportWidth = interfaceLayoutPixels(window.innerWidth, scale);
-  const viewportHeight = interfaceLayoutPixels(window.innerHeight, scale);
-  const layoutAnchor = compact ? anchor : {
-    top: interfaceLayoutPixels(anchor.top, scale),
-    bottom: interfaceLayoutPixels(anchor.bottom, scale),
-    centerX: interfaceLayoutPixels(anchor.centerX, scale),
-  };
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
   const panelWidth = Math.min(width, viewportWidth - 24);
   const placement = placeLookupPopover({
-    anchor: layoutAnchor,
+    anchor,
     popoverHeight: height,
     viewportHeight,
     viewportTop: 40,
   });
   const left = Math.min(
-    Math.max(12, layoutAnchor.centerX - panelWidth / 2),
+    Math.max(12, anchor.centerX - panelWidth / 2),
     viewportWidth - panelWidth - 12,
   );
   const arrowLeft = Math.min(
-    Math.max(22, layoutAnchor.centerX - left - 8),
+    Math.max(22, anchor.centerX - left - 8),
     panelWidth - 38,
   );
   const style = compact ? undefined : {
@@ -90,19 +81,15 @@ export function SelectionPopoverSurface({
     };
   }, [compact, onClose, target.range]);
 
+  useDismissibleLayer(!compact, ref, onClose);
+
   useEffect(() => {
+    if (!compact) return;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
-    const closeOnOutside = (event: PointerEvent) => {
-      if (!compact && ref.current && !ref.current.contains(event.target as Node)) onClose();
-    };
     document.addEventListener("keydown", closeOnEscape);
-    document.addEventListener("pointerdown", closeOnOutside);
-    return () => {
-      document.removeEventListener("keydown", closeOnEscape);
-      document.removeEventListener("pointerdown", closeOnOutside);
-    };
+    return () => document.removeEventListener("keydown", closeOnEscape);
   }, [compact, onClose]);
 
   return (

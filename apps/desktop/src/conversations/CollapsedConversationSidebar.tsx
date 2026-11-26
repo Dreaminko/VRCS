@@ -3,10 +3,6 @@ import { createPortal } from "react-dom";
 import { PanelLeftOpen, Plus, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import {
-  interfaceLayoutPixels,
-  readAppliedInterfaceScaleFactor,
-} from "../app/interface-scale";
 import type { ConversationSummary } from "./conversations";
 import { RailConversationButton } from "./ConversationSidebarItems";
 
@@ -90,17 +86,14 @@ export function CollapsedConversationSidebar({
     clearTooltipFrame();
     const reveal = () => {
       const rect = target.getBoundingClientRect();
-      const scale = readAppliedInterfaceScaleFactor();
-      const viewportWidth = interfaceLayoutPixels(window.innerWidth, scale);
-      const viewportHeight = interfaceLayoutPixels(window.innerHeight, scale);
-      const left = interfaceLayoutPixels(rect.right, scale) + 10;
+      const left = rect.right + 10;
       setTooltip({
         top: Math.max(30, Math.min(
-          interfaceLayoutPixels(rect.top + rect.height / 2, scale),
-          viewportHeight - 30,
+          rect.top + rect.height / 2,
+          window.innerHeight - 30,
         )),
         left,
-        maxWidth: Math.max(140, Math.min(240, viewportWidth - left - 12)),
+        maxWidth: Math.max(140, Math.min(240, window.innerWidth - left - 12)),
         title,
         detail,
         current,

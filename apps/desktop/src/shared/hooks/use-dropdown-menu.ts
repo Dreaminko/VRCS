@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
 
-import {
-  INTERFACE_LAYOUT_CHANGE_EVENT,
-  interfaceLayoutPixels,
-  readAppliedInterfaceScaleFactor,
-} from "../../app/interface-scale";
+import { INTERFACE_LAYOUT_CHANGE_EVENT } from "../../app/interface-scale";
 import { placeLookupPopover } from "../lib/popover-placement";
 import { useDropdownMenuMotion } from "./use-dropdown-menu-motion";
 
@@ -17,9 +13,7 @@ const FLOATING_MENU_MAX_HEIGHT = 216;
 
 // Owns the dropdown menu ref/motion plus optional fixed-position placement.
 // Floating menus are portaled by the caller so they can escape ancestor
-// clipping and stacking contexts (for example the overflow on
-// `::details-content`). The ready flag handed to the motion hook keeps the
-// open animation pending until the position has been computed.
+// clipping and stacking contexts (for example the overflow on `::details-content`).
 export function useDropdownMenu(open: boolean, {
   floating,
   floatingWidth,
@@ -33,7 +27,7 @@ export function useDropdownMenu(open: boolean, {
 }) {
   const [floatingPosition, setFloatingPosition] = useState<FloatingMenuPosition | null>(null);
   const [floatingSide, setFloatingSide] = useState<"above" | "below">("below");
-  const { menuRef, mounted: menuMounted } = useDropdownMenuMotion(open, !floating || floatingPosition !== null);
+  const { menuRef, mounted: menuMounted } = useDropdownMenuMotion(open);
   const onCloseRef = useRef(onClose);
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -42,7 +36,6 @@ export function useDropdownMenu(open: boolean, {
   const updateFloatingPosition = useCallback(() => {
     if (!floating || !open || !anchorRef.current) return;
 
-    const scale = readAppliedInterfaceScaleFactor();
     const rect = anchorRef.current.getBoundingClientRect();
     const boundary = anchorRef.current.closest<HTMLElement>("[data-floating-boundary]");
     if (boundary) {
@@ -52,15 +45,14 @@ export function useDropdownMenu(open: boolean, {
         return;
       }
     }
-    const viewportWidth = interfaceLayoutPixels(window.innerWidth, scale);
-    const viewportHeight = interfaceLayoutPixels(window.innerHeight, scale);
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
     const width = Math.min(
-      Math.max(interfaceLayoutPixels(rect.width, scale), floatingWidth ?? 0),
+      Math.max(rect.width, floatingWidth ?? 0),
       viewportWidth - FLOATING_MENU_MARGIN * 2,
     );
-    const triggerLeft = interfaceLayoutPixels(rect.left, scale);
     const left = Math.min(
-      Math.max(FLOATING_MENU_MARGIN, triggerLeft),
+      Math.max(FLOATING_MENU_MARGIN, rect.left),
       viewportWidth - FLOATING_MENU_MARGIN - width,
     );
     const menuHeight = menuRef.current
@@ -68,9 +60,9 @@ export function useDropdownMenu(open: boolean, {
       : FLOATING_MENU_MAX_HEIGHT;
     const placement = placeLookupPopover({
       anchor: {
-        top: interfaceLayoutPixels(rect.top, scale),
-        bottom: interfaceLayoutPixels(rect.bottom, scale),
-        centerX: triggerLeft + width / 2,
+        top: rect.top,
+        bottom: rect.bottom,
+        centerX: rect.left + width / 2,
       },
       popoverHeight: menuHeight,
       viewportHeight,

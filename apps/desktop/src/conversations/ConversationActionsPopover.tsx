@@ -13,10 +13,6 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import {
-  interfaceLayoutPixels,
-  readAppliedInterfaceScaleFactor,
-} from "../app/interface-scale";
 import { useDismissibleLayer } from "../shared/hooks/use-dismissible-layer";
 import { CONVERSATION_ICON_KEYS } from "./conversations";
 import type { ConversationIcon, ConversationSummary } from "./conversations";
@@ -32,18 +28,13 @@ export function conversationActionsPosition(
   clientX: number,
   clientY: number,
 ): ConversationActionsPosition {
-  const scale = readAppliedInterfaceScaleFactor();
-  const x = interfaceLayoutPixels(clientX, scale);
-  const y = interfaceLayoutPixels(clientY, scale);
-  const viewportWidth = interfaceLayoutPixels(window.innerWidth, scale);
-  const viewportHeight = interfaceLayoutPixels(window.innerHeight, scale);
   const width = 186;
   const expectedHeight = 360;
   const gap = 4;
-  const side = viewportHeight - y >= expectedHeight ? "below" : "above";
+  const side = window.innerHeight - clientY >= expectedHeight ? "below" : "above";
   return {
-    top: side === "below" ? y + gap : y - gap,
-    left: Math.max(8, Math.min(x + gap, viewportWidth - width - 8)),
+    top: side === "below" ? clientY + gap : clientY - gap,
+    left: Math.max(8, Math.min(clientX + gap, window.innerWidth - width - 8)),
     side,
   };
 }

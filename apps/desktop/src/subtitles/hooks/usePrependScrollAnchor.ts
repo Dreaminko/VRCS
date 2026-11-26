@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type { RefObject } from "react";
 
-import {
-  interfaceLayoutPixels,
-  readAppliedInterfaceScaleFactor,
-} from "../../app/interface-scale";
 import { prependScrollAdjustment } from "../../shared/lib/prepend-scroll";
 
 type SubtitleAnchor = {
@@ -22,14 +18,13 @@ function firstVisibleSubtitle(
   list: HTMLElement,
 ): SubtitleAnchor | null {
   const viewportTop = scrollRegion.getBoundingClientRect().top;
-  const scale = readAppliedInterfaceScaleFactor();
   const rows = list.querySelectorAll<HTMLElement>("[data-subtitle-id]");
   for (const row of rows) {
     const rect = row.getBoundingClientRect();
     if (rect.bottom <= viewportTop) continue;
     const id = row.dataset.subtitleId;
     return id
-      ? { id, offset: interfaceLayoutPixels(rect.top - viewportTop, scale) }
+      ? { id, offset: rect.top - viewportTop }
       : null;
   }
   return null;
@@ -64,12 +59,8 @@ export function usePrependScrollAnchor(
     const list = listRef.current;
     if (scrollRegion && list) {
       const row = pending.anchor ? subtitleRow(list, pending.anchor.id) : null;
-      const scale = readAppliedInterfaceScaleFactor();
       const currentOffset = row
-        ? interfaceLayoutPixels(
-            row.getBoundingClientRect().top - scrollRegion.getBoundingClientRect().top,
-            scale,
-          )
+        ? row.getBoundingClientRect().top - scrollRegion.getBoundingClientRect().top
         : null;
       scrollRegion.scrollTop += prependScrollAdjustment(
         pending.anchor?.offset ?? null,
