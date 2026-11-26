@@ -43,7 +43,9 @@ for (const mode of ["compact", "compact-qwen", "compact-filter", "headset", "wri
       const preset=COMPACT_FONT_PRESETS.medium;
       const vars={...Object.fromEntries(Object.entries(COMPACT_LAYOUT).map(([key,value])=>['--compact-'+key.replace(/[A-Z]/g,letter=>'-'+letter.toLowerCase()),value+'px'])),
         '--compact-original-size':preset.original+'px','--compact-original-line':preset.originalLine+'px','--compact-translation-size':preset.translation+'px','--compact-translation-line':preset.translationLine+'px',width:720,height:playerCaptionMinimumHeight(4,'medium')};
-      const compact=(limit)=>flushSync(()=>root.render(<div className="compact-root" style={vars}><CompactView {...compactProps} playerLimit={limit}/></div>));
+      let displayMode='fixed';
+      const toggleMode=()=>{displayMode=displayMode==='fixed'?'scroll':'fixed';};
+      const compact=(limit)=>flushSync(()=>root.render(<div className="compact-root" style={vars}><CompactView {...compactProps} playerLimit={limit} displayMode={limit!==undefined?displayMode:undefined} onToggleDisplayMode={limit!==undefined?()=>{toggleMode();compact(limit);}:undefined}/></div>));
       let revision=0;
       const surface=(messages,notice=null,dark=false,selection={})=>{
         const labels={me:'我',other:'其他人'};
@@ -90,9 +92,13 @@ for (const mode of ["compact", "compact-qwen", "compact-filter", "headset", "wri
           check(!visible().includes('Bob')&&!visible().includes('今天我们准备')&&!visible().includes('late'),'Hidden completed source cannot return through a late translation');
           clearLivePartials();clearTranslationPartials();
         }else if(isCompact){
+          compact(undefined);
+          check(!document.querySelector('.compact-display-mode-toggle'),'Display mode toggle stays hidden when per-player audio is disabled');
           for(let i=0;i<8;i++)publishLivePartial(preview(i));
           compact(4);
           await wait(()=>document.querySelectorAll('.compact-parallel .compact-subtitle-row').length===4);
+          const modeToggle=()=>document.querySelector('.compact-display-mode-toggle');
+          check(modeToggle()&&modeToggle().getAttribute('aria-pressed')==='true','Display mode toggle appears in per-player mode and defaults to fixed');
           const cards=()=>[...document.querySelectorAll('.compact-subtitle-stack .compact-subtitle-row')];
           check(cards().map(card=>card.querySelector('.compact-speaker').textContent).join(',')==='Alice,Bob,千夏,小明','All visible players have names in stable order');
           await wait(()=>heightRequests.includes(playerCaptionMinimumHeight(4,'medium')));
@@ -148,6 +154,48 @@ for (const mode of ["compact", "compact-qwen", "compact-filter", "headset", "wri
             await wait(()=>cards().length===3&&cards().some(card=>card.textContent.includes('Finished '+players[index].display_name)));
             check(cards().some(card=>card.textContent.includes('C final translation')),'Finished translations survive as other players stop speaking');
           }
+          clearLivePartials();compactProps.subtitles=[];compactProps.subtitleHistory=[];
+          const fixedRowOriginal={id:2001,utterance_id:'fixed-alice-1',source:'speaker',speaker:players[0],text:'Alice fixed first',language:'en',created_at:'2026-10-25T00:00:00Z',translations:[]};
+          compactProps.subtitles=[fixedRowOriginal];compactProps.subtitleHistory=[fixedRowOriginal];
+          compact(4);await wait(()=>cards().length===1&&cards()[0].textContent.includes('Alice fixed first'));
+          const aliceRowNode=cards()[0];
+          const fixedRowSecond={...fixedRowOriginal,id:2002,utterance_id:'fixed-alice-2',text:'Alice fixed second',created_at:'2026-10-25T00:00:05Z'};
+          compactProps.subtitles=[fixedRowOriginal,fixedRowSecond];compactProps.subtitleHistory=compactProps.subtitles;
+          compact(4);await wait(()=>cards()[0].textContent.includes('Alice fixed second'));
+          check(cards()[0]===aliceRowNode,'Fixed player mode updates content in place without remounting the player row');
+
+          const scrollHistory=[
+            {id:3001,utterance_id:'s-1',source:'speaker',speaker:players[0],text:'Scroll A1',language:'en',created_at:'2026-10-25T00:01:00Z',translations:[]},
+            {id:3002,utterance_id:'s-2',source:'speaker',speaker:players[0],text:'Scroll A2',language:'en',created_at:'2026-10-25T00:01:01Z',translations:[]},
+            {id:3003,utterance_id:'s-3',source:'speaker',speaker:players[1],text:'Scroll B1',language:'en',created_at:'2026-10-25T00:01:02Z',translations:[]},
+            {id:3004,utterance_id:'s-4',source:'speaker',speaker:players[2],text:'Scroll C1',language:'en',created_at:'2026-10-25T00:01:03Z',translations:[]},
+            {id:3005,utterance_id:'s-5',source:'speaker',speaker:players[3],text:'Scroll D1',language:'en',created_at:'2026-10-25T00:01:04Z',translations:[]},
+            {id:3006,utterance_id:'s-6',source:'speaker',speaker:players[4],text:'Scroll E1',language:'en',created_at:'2026-10-25T00:01:05Z',translations:[]},
+            {id:3007,utterance_id:'s-7',source:'speaker',speaker:players[0],text:'Scroll A3',language:'en',created_at:'2026-10-25T00:01:06Z',translations:[]},
+            {id:3008,utterance_id:'s-8',source:'speaker',speaker:players[1],text:'Scroll B2',language:'en',created_at:'2026-10-25T00:01:07Z',translations:[]},
+          ];
+          compactProps.subtitles=scrollHistory;compactProps.subtitleHistory=scrollHistory;
+          publishLivePartial(preview(2,'Scroll C live'));
+          await new Promise(resolve=>setTimeout(resolve,10));
+          publishLivePartial(preview(1,'Scroll B live'));
+          const heightCountBeforeScroll=heightRequests.length;
+          modeToggle().click();
+          await wait(()=>!document.querySelector('.compact-parallel')&&document.querySelector('.compact-scrollable')&&cards().length===10);
+          check(modeToggle().getAttribute('aria-pressed')==='false','Toggle reflects scrolling subtitle mode');
+          check(heightRequests.length===heightCountBeforeScroll,'Scrolling mode does not request window auto-expansion');
+          check(cards().slice(0,8).map(card=>card.querySelector('.compact-original').textContent).join(',')==='Scroll A1,Scroll A2,Scroll B1,Scroll C1,Scroll D1,Scroll E1,Scroll A3,Scroll B2','Scrolling mode preserves all chronological rows across more than playerLimit speakers');
+          check(cards().slice(8).map(card=>card.querySelector('.compact-original').textContent).join(',')==='Scroll C live,Scroll B live','Scrolling mode keeps concurrent live previews in arrival order');
+          const scrollStack=document.querySelector('.compact-subtitle-stack');
+          check(getComputedStyle(scrollStack).scrollbarWidth==='auto','Compact scrollbar relies on custom WebKit styling instead of native scrollbar-width');
+          await wait(()=>scrollStack.scrollHeight>scrollStack.clientHeight);
+          scrollStack.scrollTop=0;await new Promise(resolve=>setTimeout(resolve,40));
+          const extraLine={id:3009,utterance_id:'s-9',source:'speaker',speaker:players[5],text:'Scroll F1',language:'en',created_at:'2026-10-25T00:01:08Z',translations:[]};
+          compactProps.subtitles=[...scrollHistory,extraLine];compactProps.subtitleHistory=compactProps.subtitles;
+          compact(4);await wait(()=>cards().length===11);
+          check(scrollStack.scrollTop===0,'Manual scroll-up in scrolling mode is not interrupted by incoming subtitles');
+
+          modeToggle().click();
+          await wait(()=>document.querySelector('.compact-parallel')&&modeToggle().getAttribute('aria-pressed')==='true');
           clearLivePartials();compactProps.subtitles=[];compactProps.subtitleHistory=[];
           for(let i=0;i<4;i++)publishLivePartial(preview(i));compact(4);await wait(()=>cards().length===4);
         }else{

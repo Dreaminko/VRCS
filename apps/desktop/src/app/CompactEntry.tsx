@@ -59,6 +59,9 @@ export function CompactEntry({
     requestAnimationFrame(() => chatboxButtonRef.current?.focus());
   };
   const preset = COMPACT_FONT_PRESETS[compact.fontSize];
+  const playerLimit = settings.value?.audio.output.mode === "vrchat_players"
+    ? settings.value.audio.output.player_audio?.max_visible_players ?? 4
+    : undefined;
   const style = {
     ...layoutVariables,
     "--compact-caption-height": `${Math.min(compact.height, COMPACT_WINDOW_MAX_HEIGHT - chatboxHeight)}px`,
@@ -80,7 +83,9 @@ export function CompactEntry({
         onBackgroundOpacityChange={compact.setBackgroundOpacity}
         fontSize={compact.fontSize}
         onFontSizeChange={compact.setFontSize}
-        playerLimit={settings.value?.audio.output.mode === "vrchat_players" ? settings.value.audio.output.player_audio?.max_visible_players ?? 4 : undefined}
+        playerLimit={playerLimit}
+        displayMode={playerLimit !== undefined ? compact.displayMode : undefined}
+        onToggleDisplayMode={playerLimit !== undefined ? compact.toggleDisplayMode : undefined}
         onCaptionHeight={compact.ensureCaptionHeight}
         subtitles={compact.subtitles}
         subtitleHistory={compact.subtitleHistory}

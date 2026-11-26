@@ -208,6 +208,8 @@
       "backgroundOpacityCurrent": "背景不透明度：{{percent}}%",
       "subtitleOnlyMode": "切换到纯字幕模式",
       "backgroundMode": "显示背景底色",
+      "compactModeScroll": "切换到滚动字幕模式",
+      "compactModeFixed": "切换到固定玩家字幕模式",
       "resize": "拖动调整字幕窗口大小",
       "close": "关闭窗口"
     },

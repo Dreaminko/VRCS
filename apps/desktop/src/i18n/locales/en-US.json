@@ -208,6 +208,8 @@
       "backgroundOpacityCurrent": "Background opacity: {{percent}}%",
       "subtitleOnlyMode": "Switch to subtitle-only mode",
       "backgroundMode": "Switch to background mode",
+      "compactModeScroll": "Switch to scrolling subtitles",
+      "compactModeFixed": "Switch to fixed-player subtitles",
       "resize": "Drag to resize the subtitle window",
       "close": "Close window"
     },

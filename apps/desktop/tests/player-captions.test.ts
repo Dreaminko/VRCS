@@ -19,6 +19,19 @@ test("parallel previews respect the display limit without counting the microphon
   assert.equal(players.length, 40);
   assert.deepEqual(selectPlayerPreviews([...players.slice(1), { ...players[0], text: "new delta" }], [], 4).map(item => item.speaker!.index), [0, 1, 2, 3]);
   assert.deepEqual(selectPlayerPreviews(players, [microphone]), [microphone]);
+
+  const timedPlayers = [
+    { ...preview(0), received_at: 300 },
+    { ...preview(1), received_at: 100 },
+    { ...preview(2), received_at: 200 },
+    { ...preview(3), received_at: 200 },
+    { ...preview(4), received_at: 50 },
+  ];
+  const timedMic = { ...microphone, received_at: 150 };
+  assert.deepEqual(
+    selectPlayerPreviews(timedPlayers, [timedMic], 4, true).map(item => item.speaker!.index),
+    [1, 99, 2, 3, 0],
+  );
 });
 
 test("live previews replace only their own track while other players retain their latest completed caption", () => {

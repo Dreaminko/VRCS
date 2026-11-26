@@ -6,6 +6,30 @@ export const COMPACT_WINDOW_SIZE = { width: 720, height: 160 } as const;
 export const COMPACT_PANEL_WINDOW_SIZE = { width: 720, height: 520 } as const;
 export const COMPACT_WINDOW_MIN_WIDTH = 480;
 export const COMPACT_WINDOW_MAX_HEIGHT = 720;
+export const COMPACT_DISPLAY_MODE_KEY = "vrcs.compact-display-mode.v1";
+export const COMPACT_SCROLL_HISTORY_LIMIT = 50;
+
+export type CompactDisplayMode = "scroll" | "fixed";
+
+export function parseCompactDisplayMode(value: string | null | undefined): CompactDisplayMode {
+  return value === "scroll" ? "scroll" : "fixed";
+}
+
+export function readCompactDisplayMode(): CompactDisplayMode {
+  try {
+    return parseCompactDisplayMode(globalThis.localStorage?.getItem(COMPACT_DISPLAY_MODE_KEY));
+  } catch {
+    return "fixed";
+  }
+}
+
+export function writeCompactDisplayMode(mode: CompactDisplayMode): void {
+  try {
+    globalThis.localStorage?.setItem(COMPACT_DISPLAY_MODE_KEY, mode);
+  } catch {
+    /* Keep compact mode usable when browser storage is unavailable. */
+  }
+}
 
 export function compactPreviewText(text: string): string {
   return text.trimEnd();

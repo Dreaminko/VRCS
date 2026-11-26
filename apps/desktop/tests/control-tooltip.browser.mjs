@@ -44,13 +44,14 @@ test("compact controls use themed tooltips instead of native titles", {
         '--compact-'+name.replace(/[A-Z]/g,letter=>'-'+letter.toLowerCase()),value+'px'])),
         '--compact-original-size':preset.original+'px','--compact-original-line':preset.originalLine+'px',
         '--compact-translation-size':preset.translation+'px','--compact-translation-line':preset.translationLine+'px'};
-      let setTransparent, setRunning, setMounted;
+      let setTransparent, setRunning, setMounted, setPerPlayer;
       function Fixture(){
-        const [transparent,updateTransparent]=useState(false), [running,updateRunning]=useState(false), [mounted,updateMounted]=useState(true);
-        setTransparent=updateTransparent;setRunning=updateRunning;setMounted=updateMounted;
+        const [transparent,updateTransparent]=useState(false), [running,updateRunning]=useState(false), [mounted,updateMounted]=useState(true), [perPlayer,updatePerPlayer]=useState(false), [displayMode,setDisplayMode]=useState('fixed');
+        setTransparent=updateTransparent;setRunning=updateRunning;setMounted=updateMounted;setPerPlayer=updatePerPlayer;
         return <><div className={'compact-root'+(transparent?' compact-root-transparent':'')} style={layoutVariables}>
         {mounted && <CompactView transparentBackground={transparent} onToggleBackground={()=>updateTransparent(value=>!value)} backgroundOpacity={75}
           onBackgroundOpacityChange={()=>{}} fontSize="medium" onFontSizeChange={()=>{}}
+          playerLimit={perPlayer?4:undefined} displayMode={perPlayer?displayMode:undefined} onToggleDisplayMode={perPlayer?()=>setDisplayMode(mode=>mode==='fixed'?'scroll':'fixed'):undefined}
           subtitles={[]} subtitleHistory={[]} selectionTarget={null} running={running} vrchatMuted={false}
           captureDisabled={false} onSelect={async()=>{}} onCapture={()=>updateRunning(value=>!value)} onRestore={()=>{}} onClose={()=>{}} onResize={()=>{}} />}
         </div><div hidden><WindowChrome /></div><ControlTooltip />
@@ -127,6 +128,18 @@ test("compact controls use themed tooltips instead of native titles", {
         await applyInterfaceScale(100);await hover(document.querySelector('.compact-font-button'));
         for(const animation of tooltip().getAnimations()) animation.finish();
         check(getComputedStyle(tooltip()).opacity==='1'&&getComputedStyle(tooltip()).visibility==='visible','Hints are visible after the reveal animation');
+        leave(document.querySelector('.compact-font-button'));await wait(()=>!tooltip());
+        setTransparent(false);await wait(()=>document.querySelector('.compact-opacity-control'));
+        setPerPlayer(true);await wait(()=>document.querySelector('.compact-display-mode-toggle'));
+        check(document.querySelectorAll('.compact-root [data-tooltip]').length===9,'Per-player mode adds the display mode toggle hint');
+        const modeToggle=document.querySelector('.compact-display-mode-toggle');
+        check(!modeToggle.hasAttribute('title'),'Display mode toggle has no native title');
+        await hover(modeToggle);
+        check(tooltip()?.textContent===locale.translation.window.compactModeScroll,'Mode toggle shows scroll mode hint initially');
+        modeToggle.click();await wait(()=>!tooltip());
+        await hover(modeToggle);
+        check(tooltip()?.textContent===locale.translation.window.compactModeFixed,'Mode toggle updates hint to fixed mode after click');
+        leave(modeToggle);await wait(()=>!tooltip());
         document.getElementById('result').textContent='PASS';
       } catch(error) {document.getElementById('result').textContent='FAIL: '+error.message}
     ` },

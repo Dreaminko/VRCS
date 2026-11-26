@@ -5,7 +5,11 @@ import type { LiveTranscription } from "../capture/types";
 import { useTranslationPartialsForSubtitles } from "../core-client/realtime-state";
 import { useBatchedPreview } from "../shared/hooks/streaming-preview";
 import type { SpeakerIdentity, Subtitle } from "../subtitles/types";
-import { compactPartialMatchesSubtitle, compactPreviewText } from "./compact-mode";
+import {
+  COMPACT_SCROLL_HISTORY_LIMIT,
+  compactPartialMatchesSubtitle,
+  compactPreviewText,
+} from "./compact-mode";
 import { latestCaptionsByTrack } from "./player-previews";
 import {
   allocateLatestLines, COMPACT_FONT_PRESETS, fitRecentGroups,
@@ -89,7 +93,9 @@ function useCandidateGroups(subtitles: Subtitle[], previews: LiveTranscription[]
         : pending;
       const translation = preview ?? subtitle.translations[0];
       return {
-        key: `subtitle:${subtitle.id ?? `${subtitle.source}:${subtitle.created_at}`}`,
+        key: perPlayer && subtitle.source !== "chatbox"
+          ? `track:${subtitle.source ?? "speaker"}:${subtitle.speaker?.id ?? "unidentified"}`
+          : `subtitle:${subtitle.id ?? `${subtitle.source}:${subtitle.created_at}`}`,
         speaker: subtitle.speaker, source: subtitle.source,
         context: subtitle.text,
         text: compactPreviewText(subtitle.text),
@@ -106,9 +112,11 @@ function useCandidateGroups(subtitles: Subtitle[], previews: LiveTranscription[]
     for (const live of lives) {
       const completed = subtitles.find((subtitle) => compactPartialMatchesSubtitle(live, subtitle));
       const group: CompactGroup = {
-        key: completed
-          ? `subtitle:${completed.id ?? `${completed.source}:${completed.created_at}`}`
-          : `partial:${live.source}:${live.source_utterance_id ?? live.utterance_id}`,
+        key: perPlayer
+          ? `track:${live.source}:${live.speaker?.id ?? "unidentified"}`
+          : completed
+            ? `subtitle:${completed.id ?? `${completed.source}:${completed.created_at}`}`
+            : `partial:${live.source}:${live.source_utterance_id ?? live.utterance_id}`,
         speaker: live.speaker, source: live.source, live: true,
         context: live.text,
         text: compactPreviewText(live.text),
@@ -135,20 +143,22 @@ function useCandidateGroups(subtitles: Subtitle[], previews: LiveTranscription[]
   }, [candidates, partials, batched, lives, subtitles, perPlayer]);
 }
 
-export function useCompactLayout({ subtitles, previews, fontSize, selectionTarget, transparentBackground, perPlayer = false }: {
+export function useCompactLayout({ subtitles, previews, fontSize, selectionTarget, transparentBackground, perPlayer = false, scrollStream = false }: {
   subtitles: Subtitle[];
   previews: LiveTranscription[];
   fontSize: CompactFontSize;
   selectionTarget: SelectionTarget | null;
   transparentBackground: boolean;
   perPlayer?: boolean;
+  scrollStream?: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const [availableHeight, setAvailableHeight] = useState(window.innerHeight);
   const preset = COMPACT_FONT_PRESETS[fontSize];
   // A nonempty group takes at least one line. This only bounds DOM work.
-  const limit = Math.ceil(availableHeight / Math.min(preset.originalLine, preset.translationLine)) + 1;
+  const viewportLimit = Math.ceil(availableHeight / Math.min(preset.originalLine, preset.translationLine)) + 1;
+  const limit = scrollStream ? Math.max(viewportLimit, COMPACT_SCROLL_HISTORY_LIMIT) : viewportLimit;
   const candidates = useCandidateGroups(subtitles, previews, limit, perPlayer);
   const [selectionFrozen, setSelectionFrozen] = useState(false);
   const frozen = Boolean(selectionTarget) || selectionFrozen;
@@ -222,8 +232,8 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
     };
   }, [freezeSelection]);
 
-  const layoutInputsRef = useRef({ groups, fontSize, preset, frozen, selectionTarget, transparentBackground, perPlayer });
-  layoutInputsRef.current = { groups, fontSize, preset, frozen, selectionTarget, transparentBackground, perPlayer };
+  const layoutInputsRef = useRef({ groups, fontSize, preset, frozen, selectionTarget, transparentBackground, perPlayer, scrollStream });
+  layoutInputsRef.current = { groups, fontSize, preset, frozen, selectionTarget, transparentBackground, perPlayer, scrollStream };
 
   const reflow = useCallback(() => {
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
@@ -239,20 +249,27 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
       selectionTarget: currentSelectionTarget,
       transparentBackground: currentTransparentBackground,
       perPlayer: currentPerPlayer,
+      scrollStream: currentScrollStream,
     } = layoutInputsRef.current;
     const width = viewport.clientWidth;
     const height = viewport.clientHeight;
     setAvailableHeight((previous) => previous === height ? previous : height);
     if (!width || !height) return;
-    const geometry = `${width}:${height}:${currentFontSize}:${currentTransparentBackground}`;
+    const geometry = `${width}:${height}:${currentFontSize}:${currentTransparentBackground}:${currentPerPlayer}:${currentScrollStream}`;
     if ((currentFrozen || freezeRef.current) && geometryRef.current === geometry
       && measuredSelectionRef.current === currentSelectionTarget) return;
     const rows = Array.from(measure.children) as HTMLElement[];
     if (rows.length !== currentGroups.length) return;
     const chatboxStart = currentGroups.findIndex(group => group.source === "chatbox");
-    const scrollable = !currentFrozen && chatboxStart >= 0;
+    const scrollable = !currentFrozen && (currentScrollStream || chatboxStart >= 0);
     geometryRef.current = geometry;
     measuredSelectionRef.current = currentSelectionTarget;
+    if (!currentFrozen && currentScrollStream) {
+      setLayout(previous => sameGroups(previous.groups, currentGroups) && !previous.parallel
+        && previous.scrollable === true && previous.latestBudget === undefined
+        ? previous : { groups: currentGroups, latestBudget: undefined, scrollable: true });
+      return;
+    }
     if (!currentFrozen && currentPerPlayer && chatboxStart !== 0 && currentGroups.length > 1) {
       const budget = { original: currentPreset.originalLine, translation: currentPreset.translationLine };
       setLayout(previous => sameGroups(previous.groups, currentGroups) && previous.parallel === true && previous.scrollable === scrollable
@@ -317,7 +334,7 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
     // changed the viewport yet. A frozen list must never hide the lookup target.
     if (measuredSelectionRef.current !== selectionTarget) reflow();
     else scheduleReflow();
-  }, [groups, fontSize, frozen, selectionTarget, transparentBackground, perPlayer, reflow, scheduleReflow]);
+  }, [groups, fontSize, frozen, selectionTarget, transparentBackground, perPlayer, scrollStream, reflow, scheduleReflow]);
 
   return {
     contentRef, measureRef, measurementGroups: groups,

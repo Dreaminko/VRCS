@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  COMPACT_DISPLAY_MODE_KEY,
   COMPACT_PANEL_WINDOW_SIZE,
   COMPACT_WINDOW_MAX_HEIGHT,
   COMPACT_WINDOW_MIN_WIDTH,
@@ -11,7 +12,10 @@ import {
   compactLivePreview,
   compactWindowConstraints,
   compactWindowSize,
+  parseCompactDisplayMode,
+  readCompactDisplayMode,
   subtitlesForCompactView,
+  writeCompactDisplayMode,
 } from "../src/shell/compact-mode.ts";
 import type { Subtitle } from "../src/subtitles/types.ts";
 
@@ -259,4 +263,32 @@ test("streaming and complete compact text both retain the latest translated tail
   const text = "非常长的技术说明。".repeat(100) + "这是最后一句。";
   assert.equal(compactPreviewText(text), compactPreviewText(text + "\n"));
   assert.ok(compactPreviewText(text + "补充。 ").endsWith("这是最后一句。补充。"));
+});
+
+test("compact display mode defaults to fixed and persists scroll mode", () => {
+  assert.equal(parseCompactDisplayMode(null), "fixed");
+  assert.equal(parseCompactDisplayMode("invalid"), "fixed");
+  assert.equal(parseCompactDisplayMode("scroll"), "scroll");
+  assert.equal(parseCompactDisplayMode("fixed"), "fixed");
+
+  const stored = new Map<string, string>();
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => { stored.set(key, value); },
+    },
+  });
+  try {
+    assert.equal(readCompactDisplayMode(), "fixed");
+    writeCompactDisplayMode("scroll");
+    assert.equal(stored.get(COMPACT_DISPLAY_MODE_KEY), "scroll");
+    assert.equal(readCompactDisplayMode(), "scroll");
+    stored.set(COMPACT_DISPLAY_MODE_KEY, "unexpected");
+    assert.equal(readCompactDisplayMode(), "fixed");
+  } finally {
+    if (originalStorage) Object.defineProperty(globalThis, "localStorage", originalStorage);
+    else delete (globalThis as { localStorage?: Storage }).localStorage;
+  }
 });

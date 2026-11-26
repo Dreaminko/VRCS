@@ -35,7 +35,12 @@ export function selectPlayerHistory(subtitles: Subtitle[], previews: LiveTranscr
   return subtitles.filter(item => item.source === "microphone" || item.source === "chatbox" || selected.has(item.speaker?.id ?? "speaker"));
 }
 
-export function selectPlayerPreviews(speaker: LiveTranscription[], microphone: LiveTranscription[], limit?: number): LiveTranscription[] {
+export function selectPlayerPreviews(
+  speaker: LiveTranscription[],
+  microphone: LiveTranscription[],
+  limit?: number,
+  chronological = false,
+): LiveTranscription[] {
   if (limit === undefined) {
     const latest = microphone.at(-1) ?? speaker.at(-1);
     return latest ? [latest] : [];
@@ -44,5 +49,9 @@ export function selectPlayerPreviews(speaker: LiveTranscription[], microphone: L
   // the visible players on every streamed delta.
   const players = speaker.filter(item => item.text.trim() || item.translation?.trim() || item.completed_original?.trim())
     .slice().sort(compareCaptionTracks);
-  return [...(limit > 0 ? players.slice(0, limit) : players), ...microphone];
+  const combined = [...(limit > 0 ? players.slice(0, limit) : players), ...microphone];
+  if (!chronological) return combined;
+  return combined.sort((left, right) =>
+    (left.received_at ?? Number.MAX_SAFE_INTEGER) - (right.received_at ?? Number.MAX_SAFE_INTEGER)
+    || compareCaptionTracks(left, right));
 }

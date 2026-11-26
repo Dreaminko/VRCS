@@ -208,6 +208,8 @@
       "backgroundOpacityCurrent": "背景の不透明度：{{percent}}%",
       "subtitleOnlyMode": "字幕のみモードに切り替え",
       "backgroundMode": "背景ありモードに切り替え",
+      "compactModeScroll": "スクロール字幕モードに切り替え",
+      "compactModeFixed": "プレイヤー固定字幕モードに切り替え",
       "resize": "ドラッグして字幕ウィンドウのサイズを変更",
       "close": "ウィンドウを閉じる"
     },

@@ -9,6 +9,9 @@ import {
   compactWindowConstraints,
   COMPACT_WINDOW_SIZE,
   compactWindowSize,
+  readCompactDisplayMode,
+  writeCompactDisplayMode,
+  type CompactDisplayMode,
   type CompactPanelState,
 } from "./compact-mode";
 
@@ -22,6 +25,14 @@ export function useCompactWindow({
   reportError: (reason: unknown, fallbackKey: string, source?: string) => void;
 }) {
   const [compact, setCompact] = useState(false);
+  const [displayMode, setDisplayMode] = useState<CompactDisplayMode>(() => readCompactDisplayMode());
+  const toggleDisplayMode = useCallback(() => {
+    setDisplayMode((previous) => {
+      const next: CompactDisplayMode = previous === "fixed" ? "scroll" : "fixed";
+      writeCompactDisplayMode(next);
+      return next;
+    });
+  }, []);
   const [fontSize, setFontSize] = useState<CompactFontSize>("medium");
   const [transparentBackground, setTransparentBackground] = useState(false);
   const [backgroundOpacity, setBackgroundOpacity] = useState(100);
@@ -265,6 +276,8 @@ export function useCompactWindow({
 
   return {
     compact,
+    displayMode,
+    toggleDisplayMode,
     fontSize,
     setFontSize,
     transparentBackground,

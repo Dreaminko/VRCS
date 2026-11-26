@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
-import { Check, Maximize2, MessageSquare, Mic, Radar, Square, X } from "lucide-react";
+import { Check, Maximize2, MessageSquare, Mic, Radar, ScrollText, Square, Users, X } from "lucide-react";
 
 import type { LookupOrigin, SelectionTarget } from "../app/app-types";
 import type { LiveTranscription } from "../capture/types";
@@ -12,7 +12,7 @@ import { livePartialVisible, subtitleVisible } from "../subtitles/player-history
 import { useLanguageDetectorReady } from "../subtitles/usePlayerHistoryPreferences";
 import { MessageSourceIcon } from "../subtitles/components/MessageSourceIcon";
 import { selectPlayerHistory, selectPlayerPreviews } from "./player-previews";
-import { compactLivePreview } from "./compact-mode";
+import { compactLivePreview, type CompactDisplayMode } from "./compact-mode";
 import { useBatchedPreview } from "../shared/hooks/streaming-preview";
 import { playerCaptionMinimumHeight, type CompactFontSize, type CompactTextBudget } from "./compact-layout";
 import { useCompactLayout, type CompactGroup } from "./useCompactLayout";
@@ -21,7 +21,7 @@ import { CompactBackgroundControls, CompactWindowIcon } from "./CompactBackgroun
 const EMPTY_PREVIEWS: LiveTranscription[] = [];
 const EMPTY_FILTER: readonly string[] = [];
 
-export function CompactView({ transparentBackground, onToggleBackground, backgroundOpacity, onBackgroundOpacityChange, fontSize, onFontSizeChange, subtitles, subtitleHistory, playerName, selectionTarget, playerLimit, hiddenTracks = EMPTY_FILTER, hiddenSourceLanguages = EMPTY_FILTER, onCaptionHeight, running, vrchatMuted, captureDisabled, captureReason, networkCaptureVisible = false, networkCaptureRunning = false, networkCaptureDisabled = false, onNetworkCapture, chatboxOpen, chatboxDisabled, chatboxButtonRef, onChatbox, onSelect, onCapture, onRestore, onClose, onResize }: {
+export function CompactView({ transparentBackground, onToggleBackground, backgroundOpacity, onBackgroundOpacityChange, fontSize, onFontSizeChange, subtitles, subtitleHistory, playerName, selectionTarget, playerLimit, displayMode, onToggleDisplayMode, hiddenTracks = EMPTY_FILTER, hiddenSourceLanguages = EMPTY_FILTER, onCaptionHeight, running, vrchatMuted, captureDisabled, captureReason, networkCaptureVisible = false, networkCaptureRunning = false, networkCaptureDisabled = false, onNetworkCapture, chatboxOpen, chatboxDisabled, chatboxButtonRef, onChatbox, onSelect, onCapture, onRestore, onClose, onResize }: {
   transparentBackground: boolean;
   onToggleBackground: () => void;
   backgroundOpacity: number;
@@ -33,6 +33,8 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
   playerName?: string;
   selectionTarget: SelectionTarget | null;
   playerLimit?: number;
+  displayMode?: CompactDisplayMode;
+  onToggleDisplayMode?: () => void;
   hiddenTracks?: readonly string[];
   hiddenSourceLanguages?: readonly string[];
   onCaptionHeight?: (minimum: number) => Promise<void> | void;
@@ -57,22 +59,34 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
   const { t } = useTranslation();
   const stackRef = useRef<HTMLDivElement>(null);
   const languageDetectorReady = useLanguageDetectorReady();
+  const perPlayerEnabled = playerLimit !== undefined;
+  const fixedPlayerMode = perPlayerEnabled && (displayMode ?? "fixed") === "fixed";
+  const scrollPlayerMode = perPlayerEnabled && !fixedPlayerMode;
   const microphonePartials = useLivePartials("microphone");
   const speakerPartials = useLivePartials("speaker");
   const previews = useMemo(() => selectPlayerPreviews(
     speakerPartials.map(partial => compactLivePreview(partial, subtitleHistory)!)
       .filter(partial => livePartialVisible(partial, hiddenTracks, hiddenSourceLanguages)),
-    microphonePartials.map(partial => compactLivePreview(partial, subtitleHistory)!), playerLimit),
-    [speakerPartials, microphonePartials, playerLimit, subtitleHistory, hiddenTracks, hiddenSourceLanguages, languageDetectorReady]);
+    microphonePartials.map(partial => compactLivePreview(partial, subtitleHistory)!), playerLimit, scrollPlayerMode),
+    [speakerPartials, microphonePartials, playerLimit, scrollPlayerMode, subtitleHistory, hiddenTracks, hiddenSourceLanguages, languageDetectorReady]);
   const batched = useBatchedPreview(previews, "compact-previews", previews.some(partial => partial.utterance_id.includes("qwen-preview-"))) ?? EMPTY_PREVIEWS;
   // A hidden/currently filtered lane must disappear immediately, even while a
   // previous Qwen snapshot is waiting for its next display batch.
   const visiblePreviews = useMemo(() => batched.filter(partial => previews.some(current =>
     current.source === partial.source && current.utterance_id === partial.utterance_id)), [batched, previews]);
-  const visibleSubtitles = useMemo(() => selectPlayerHistory(
-    subtitles.filter(subtitle => subtitleVisible(subtitle, hiddenTracks, hiddenSourceLanguages)), previews, playerLimit),
-    [subtitles, previews, playerLimit, hiddenTracks, hiddenSourceLanguages, languageDetectorReady]);
-  const layout = useCompactLayout({ subtitles: visibleSubtitles, previews: visiblePreviews, fontSize, selectionTarget, transparentBackground, perPlayer: playerLimit !== undefined });
+  const visibleSubtitles = useMemo(() => {
+    const filtered = subtitles.filter(subtitle => subtitleVisible(subtitle, hiddenTracks, hiddenSourceLanguages));
+    return fixedPlayerMode ? selectPlayerHistory(filtered, previews, playerLimit) : filtered;
+  }, [subtitles, previews, playerLimit, fixedPlayerMode, hiddenTracks, hiddenSourceLanguages, languageDetectorReady]);
+  const layout = useCompactLayout({
+    subtitles: visibleSubtitles,
+    previews: visiblePreviews,
+    fontSize,
+    selectionTarget,
+    transparentBackground,
+    perPlayer: fixedPlayerMode,
+    scrollStream: scrollPlayerMode,
+  });
   const captionTracks = layout.visibleGroups.filter(group => group.source !== "chatbox").length;
   const minimumRows = captionTracks + Number(layout.visibleGroups.some(group => group.source === "chatbox"));
   useEffect(() => {
@@ -81,12 +95,20 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
     }
   }, [layout.parallel, layout.frozen, minimumRows, fontSize, onCaptionHeight]);
   const latest = layout.visibleGroups.at(-1);
+  const followingRef = useRef(true);
+  const previousLatestKeyRef = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (layout.scrollable) followingRef.current = true;
+  }, [fixedPlayerMode, scrollPlayerMode, layout.scrollable]);
   useLayoutEffect(() => {
     const stack = stackRef.current;
     if (!layout.scrollable || layout.frozen || !stack) return;
-    let following = true;
-    const followTail = () => { if (following) stack.scrollTop = stack.scrollHeight; };
-    const trackScroll = () => { following = stack.scrollHeight - stack.scrollTop - stack.clientHeight <= 1; };
+    if (previousLatestKeyRef.current !== latest?.key) {
+      previousLatestKeyRef.current = latest?.key;
+      if (latest?.source === "chatbox") followingRef.current = true;
+    }
+    const followTail = () => { if (followingRef.current) stack.scrollTop = stack.scrollHeight; };
+    const trackScroll = () => { followingRef.current = stack.scrollHeight - stack.scrollTop - stack.clientHeight <= 4; };
     followTail();
     const observer = new ResizeObserver(followTail);
     observer.observe(stack);
@@ -96,10 +118,11 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
       observer.disconnect();
       stack.removeEventListener("scroll", trackScroll);
     };
-  }, [layout.scrollable, layout.frozen, latest?.key]);
+  }, [layout.scrollable, layout.frozen, latest?.key, latest?.source, layout.visibleGroups.length]);
   const statusLabel = vrchatMuted ? t("status.pausedVrchatMuted") : latest?.language?.toUpperCase() ?? "AUTO";
   const captureLabel = t(running ? "capture.pause" : "capture.start");
   const networkLabel = t(networkCaptureRunning ? "capture.networkStop" : "capture.networkStart");
+  const displayModeLabel = t(fixedPlayerMode ? "window.compactModeScroll" : "window.compactModeFixed");
   return (
     <div className="compact-shell">
       <header className="compact-header" data-tauri-drag-region>
@@ -113,6 +136,18 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
             aria-controls={chatboxOpen ? "compact-chatbox" : undefined} disabled={chatboxDisabled} onClick={onChatbox}>
             <CompactWindowIcon icon={MessageSquare} />
           </button>}
+          {perPlayerEnabled && onToggleDisplayMode && (
+            <button
+              type="button"
+              className="compact-display-mode-toggle"
+              aria-label={displayModeLabel}
+              data-tooltip={displayModeLabel}
+              aria-pressed={fixedPlayerMode}
+              onClick={onToggleDisplayMode}
+            >
+              <CompactWindowIcon icon={fixedPlayerMode ? Users : ScrollText} />
+            </button>
+          )}
           <CompactFontMenu value={fontSize} onChange={onFontSizeChange} />
           <CompactBackgroundControls transparentBackground={transparentBackground} onToggleBackground={onToggleBackground}
             opacity={backgroundOpacity} onOpacityChange={onBackgroundOpacityChange} />
@@ -124,7 +159,10 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
         <div ref={layout.contentRef} className="compact-content">
           <div ref={stackRef} className={`compact-subtitle-stack${layout.parallel ? " compact-parallel" : ""}${layout.scrollable ? " compact-scrollable" : ""}`}>
             {layout.visibleGroups.map((group, index) => (
-              <CompactSubtitleRow key={group.key} group={group} playerName={playerName} current={(Boolean(layout.parallel) && group.source !== "chatbox") || index === layout.visibleGroups.length - 1}
+              <CompactSubtitleRow key={group.key} group={group} playerName={playerName}
+                current={(Boolean(layout.parallel) && group.source !== "chatbox")
+                  || (scrollPlayerMode && Boolean(group.live))
+                  || index === layout.visibleGroups.length - 1}
                 budget={layout.parallel || index === layout.visibleGroups.length - 1 ? layout.latestBudget : undefined}
                 frozen={layout.frozen} onSelect={onSelect} />
             ))}
