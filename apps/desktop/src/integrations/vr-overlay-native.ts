@@ -46,6 +46,8 @@ export interface VrDashboardViewModel {
     master: string;
     capture_start: string;
     capture_stop: string;
+    network_capture_start?: string;
+    network_capture_stop?: string;
     headset: string;
     wrist: string;
     ocr: string;
@@ -107,6 +109,7 @@ export interface VrDashboardViewModel {
   };
   enabled: boolean;
   capture: { running: boolean; available: boolean };
+  network_capture?: { visible: boolean; running: boolean; available: boolean };
   content: VrDashboardChoice;
   ocr_available: boolean;
   vision_available: boolean;

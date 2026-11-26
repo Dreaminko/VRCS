@@ -29,6 +29,8 @@ function shellHealthKey(health: Health | null): string | null {
     config_schema: health.config_schema,
     capture_running: health.capture_running,
     capture_requested: health.capture_requested,
+    network_capture_requested: health.network_capture_requested ?? false,
+    network_capture_running: health.network_capture_running ?? false,
     microphone_capture_state: health.microphone_capture_state,
     audio_device: health.audio_device,
     microphone_device: health.microphone_device,
@@ -42,6 +44,14 @@ function shellHealthKey(health: Health | null): string | null {
     vrchat_mute_sync: health.vrchat_mute_sync,
     language_session: health.language_session,
     room_scope_id: health.room_context?.scope_id ?? null,
+    network_capture: health.network_capture
+      ? {
+          phase: health.network_capture.phase,
+          active_players: health.network_capture.active_players,
+          detail: health.network_capture.detail,
+          key_scan: health.network_capture.key_scan ?? null,
+        }
+      : null,
     player_audio: health.player_audio
       ? {
           phase: health.player_audio.phase,

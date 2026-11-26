@@ -212,7 +212,7 @@ export function SettingsPanel({
       {activeCategory === "audio" && (
         <CaptureSettingsSection
           draft={draft}
-          playerAudioStatus={health?.player_audio}
+          playerAudioStatus={health?.network_capture ?? health?.player_audio}
           playerAudioStart={playerAudioStart}
           chatboxStatus={health?.vrchat_chatbox}
           translation={sessionTranslation}

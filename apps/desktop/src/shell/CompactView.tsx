@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
-import { Check, Maximize2, MessageSquare, Mic, Square, X } from "lucide-react";
+import { Check, Maximize2, MessageSquare, Mic, Radar, Square, X } from "lucide-react";
 
 import type { LookupOrigin, SelectionTarget } from "../app/app-types";
 import type { LiveTranscription } from "../capture/types";
@@ -21,7 +21,7 @@ import { CompactBackgroundControls, CompactWindowIcon } from "./CompactBackgroun
 const EMPTY_PREVIEWS: LiveTranscription[] = [];
 const EMPTY_FILTER: readonly string[] = [];
 
-export function CompactView({ transparentBackground, onToggleBackground, backgroundOpacity, onBackgroundOpacityChange, fontSize, onFontSizeChange, subtitles, subtitleHistory, playerName, selectionTarget, playerLimit, hiddenTracks = EMPTY_FILTER, hiddenSourceLanguages = EMPTY_FILTER, onCaptionHeight, running, vrchatMuted, captureDisabled, captureReason, chatboxOpen, chatboxDisabled, chatboxButtonRef, onChatbox, onSelect, onCapture, onRestore, onClose, onResize }: {
+export function CompactView({ transparentBackground, onToggleBackground, backgroundOpacity, onBackgroundOpacityChange, fontSize, onFontSizeChange, subtitles, subtitleHistory, playerName, selectionTarget, playerLimit, hiddenTracks = EMPTY_FILTER, hiddenSourceLanguages = EMPTY_FILTER, onCaptionHeight, running, vrchatMuted, captureDisabled, captureReason, networkCaptureVisible = false, networkCaptureRunning = false, networkCaptureDisabled = false, onNetworkCapture, chatboxOpen, chatboxDisabled, chatboxButtonRef, onChatbox, onSelect, onCapture, onRestore, onClose, onResize }: {
   transparentBackground: boolean;
   onToggleBackground: () => void;
   backgroundOpacity: number;
@@ -40,6 +40,10 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
   vrchatMuted: boolean;
   captureDisabled: boolean;
   captureReason?: string | null;
+  networkCaptureVisible?: boolean;
+  networkCaptureRunning?: boolean;
+  networkCaptureDisabled?: boolean;
+  onNetworkCapture?: () => void;
   chatboxOpen?: boolean;
   chatboxDisabled?: boolean;
   chatboxButtonRef?: Ref<HTMLButtonElement>;
@@ -95,6 +99,7 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
   }, [layout.scrollable, layout.frozen, latest?.key]);
   const statusLabel = vrchatMuted ? t("status.pausedVrchatMuted") : latest?.language?.toUpperCase() ?? "AUTO";
   const captureLabel = t(running ? "capture.pause" : "capture.start");
+  const networkLabel = t(networkCaptureRunning ? "capture.networkStop" : "capture.networkStart");
   return (
     <div className="compact-shell">
       <header className="compact-header" data-tauri-drag-region>
@@ -140,6 +145,19 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
           </div>
         </div>
         <div className="compact-actions">
+          {networkCaptureVisible && onNetworkCapture && (
+            <button
+              className={`compact-network-button${networkCaptureRunning ? " active" : ""}`}
+              type="button"
+              aria-label={networkLabel}
+              aria-pressed={networkCaptureRunning}
+              data-tooltip={networkLabel}
+              disabled={networkCaptureDisabled}
+              onClick={onNetworkCapture}
+            >
+              <Radar size={15} />
+            </button>
+          )}
           <button className="compact-capture-button" type="button" aria-label={captureLabel} aria-pressed={running} data-tooltip={!running && captureReason ? t(captureReason) : captureLabel} disabled={captureDisabled} onClick={onCapture}>
             {running ? <Square size={15} /> : <Mic size={16} />}
           </button>

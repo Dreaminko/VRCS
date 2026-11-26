@@ -35,7 +35,15 @@ export function useVrDashboardBridge(
   settings: Settings | null,
   save: (apply: (settings: Settings) => Settings) => Promise<Settings>,
   profiles: ApiProfileView[],
-  capture: { running: boolean; available: boolean; toggle: () => Promise<boolean>; playerAudio?: PlayerAudioStatus | null },
+  capture: {
+    running: boolean;
+    available: boolean;
+    toggle: () => Promise<boolean>;
+    playerAudio?: PlayerAudioStatus | null;
+    networkVisible?: boolean;
+    networkRunning?: boolean;
+    networkAvailable?: boolean;
+  },
   display: { hiddenTracks: readonly string[]; hiddenSourceLanguages: readonly string[] },
   sceneCapture: boolean,
 ): void {
@@ -86,8 +94,8 @@ export function useVrDashboardBridge(
     const handleAction = async (action: VrDashboardAction) => {
       const current = settingsRef.current;
       if (!current?.features.vr_overlay) return;
-      // The four shared controls are routed by Rust to the application coordinator.
-      if (action === "toggle_capture" || action === "toggle_wrist" || action === "toggle_headset" || action === "toggle_osc") return;
+      // The shared controls are routed by Rust to the application coordinator.
+      if (action === "toggle_capture" || action === "toggle_network_capture" || action === "toggle_wrist" || action === "toggle_headset" || action === "toggle_osc") return;
       if (action === "open_ocr_bindings" && !current.features.ocr && !current.features.visual_question_answering) return;
       if (action === "preview_headset" || action === "preview_wrist") {
         const kind = action === "preview_headset" ? "headset" : "wrist";
@@ -204,6 +212,8 @@ export function useVrDashboardBridge(
         master: t("settings.vrDashboard.master"),
         capture_start: t("capture.start"),
         capture_stop: t("capture.stop"),
+        network_capture_start: t("capture.networkStart"),
+        network_capture_stop: t("capture.networkStop"),
         headset: t("settings.vrDashboard.headset"),
         wrist: t("settings.vrDashboard.wrist"),
         ocr: t("settings.vrDashboard.ocr"),
@@ -265,6 +275,11 @@ export function useVrDashboardBridge(
       },
       enabled: overlay.enabled,
       capture: { running: capture.running, available: capture.available },
+      network_capture: {
+        visible: capture.networkVisible ?? false,
+        running: capture.networkRunning ?? false,
+        available: capture.networkAvailable ?? false,
+      },
       content: {
         value: t(overlay.translation_display === "all_languages" ? "settings.vrOverlay.translationDisplays.allLanguages" : "settings.vrOverlay.translationDisplays.preferredOnly"),
         options: ["preferred_only", "all_languages"].map((value) => ({ value, label: t(`settings.vrOverlay.translationDisplays.${value === "all_languages" ? "allLanguages" : "preferredOnly"}`) })),
@@ -341,5 +356,5 @@ export function useVrDashboardBridge(
     if (serialized === lastPublishedRef.current) return;
     lastPublishedRef.current = serialized;
     void updateVrDashboardView(model);
-  }, [capture.running, capture.available, captionNoticeKey, display.hiddenTracks, display.hiddenSourceLanguages, headsetSampleVisible, i18n.resolvedLanguage, profiles, saveError, saveState, sceneCapture, settings, statusState, t, wristSampleVisible]);
+  }, [capture.running, capture.available, capture.networkVisible, capture.networkRunning, capture.networkAvailable, captionNoticeKey, display.hiddenTracks, display.hiddenSourceLanguages, headsetSampleVisible, i18n.resolvedLanguage, profiles, saveError, saveState, sceneCapture, settings, statusState, t, wristSampleVisible]);
 }

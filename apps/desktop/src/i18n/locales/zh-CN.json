@@ -162,7 +162,10 @@
     "capture": {
       "start": "开始转写",
       "stop": "停止转写",
-      "pause": "暂停转写"
+      "pause": "暂停转写",
+      "networkStart": "开启网络捕获",
+      "networkStop": "停止网络捕获",
+      "networkDisabled": "请先在设置中启用网络采集"
     },
     "date": {
       "today": "今天",
@@ -227,6 +230,7 @@
       "networkVerifyingKey": "验证语音连接",
       "networkAcquiringKey": "获取语音密钥",
       "networkRetryingKey": "重试语音密钥",
+      "networkStandbyReady": "网络捕获就绪 · 待转写",
       "networkReceivingPlayers": "接收 {{players}} 位玩家",
       "networkWaitingPlayers": "等待玩家语音",
       "networkReceivingChatbox": "接收 Chatbox",

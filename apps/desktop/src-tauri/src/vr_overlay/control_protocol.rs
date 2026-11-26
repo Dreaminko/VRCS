@@ -17,6 +17,7 @@ pub enum ControlAction {
     SetOscEnabled(bool),
     SetCaptureRunning(bool),
     SetOcrGestureEnabled(bool),
+    SetNetworkCaptureRunning(bool),
 }
 
 impl ControlAction {
@@ -27,14 +28,16 @@ impl ControlAction {
             Self::SetOscEnabled(_) => 2,
             Self::SetCaptureRunning(_) => 3,
             Self::SetOcrGestureEnabled(_) => 4,
+            Self::SetNetworkCaptureRunning(_) => 5,
         }
     }
 
     #[cfg(any(windows, linux_vr, test))]
     pub fn region_id(self) -> u8 {
         match self {
-            // Keep personnel navigation and pages at 4 and above; reserve 30 for this gesture.
+            // Keep personnel navigation and pages at 4 and above; reserve 30+ for auxiliary buttons.
             Self::SetOcrGestureEnabled(_) => 30,
+            Self::SetNetworkCaptureRunning(_) => 32,
             _ => self.index() as u8,
         }
     }
@@ -46,7 +49,8 @@ impl ControlAction {
             | Self::SetHeadsetEnabled(v)
             | Self::SetOscEnabled(v)
             | Self::SetCaptureRunning(v)
-            | Self::SetOcrGestureEnabled(v) => v,
+            | Self::SetOcrGestureEnabled(v)
+            | Self::SetNetworkCaptureRunning(v) => v,
         }
     }
 }
@@ -84,7 +88,7 @@ pub struct ControlItem {
 pub struct ControlSnapshot {
     pub owner_epoch: u32,
     pub revision: u32,
-    pub items: [ControlItem; 5],
+    pub items: [ControlItem; 6],
     pub dark: bool,
     #[serde(default)]
     pub labels: std::collections::BTreeMap<String, String>,
@@ -97,8 +101,8 @@ pub struct ControlHub {
     version: u64,
     #[cfg(any(windows, linux_vr, test))]
     sequence: u32,
-    pending: [Option<ControlRequest>; 5],
-    failures: [Option<String>; 5],
+    pending: [Option<ControlRequest>; 6],
+    failures: [Option<String>; 6],
     overlay_effective: Option<[bool; 2]>,
     player_audio: super::player_audio_ui::View,
     player_audio_revision: u32,

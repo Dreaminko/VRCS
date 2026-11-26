@@ -162,7 +162,10 @@
     "capture": {
       "start": "開始轉錄",
       "stop": "停止轉錄",
-      "pause": "暫停轉錄"
+      "pause": "暫停轉錄",
+      "networkStart": "開啟網路擷取",
+      "networkStop": "停止網路擷取",
+      "networkDisabled": "請先在設定中啟用網路擷取"
     },
     "date": {
       "today": "今天",
@@ -227,6 +230,7 @@
       "networkVerifyingKey": "驗證語音連線",
       "networkAcquiringKey": "取得語音金鑰",
       "networkRetryingKey": "重試語音金鑰",
+      "networkStandbyReady": "網路擷取就緒 · 待轉錄",
       "networkReceivingPlayers": "接收 {{players}} 位玩家",
       "networkWaitingPlayers": "等待玩家語音",
       "networkReceivingChatbox": "接收 Chatbox",

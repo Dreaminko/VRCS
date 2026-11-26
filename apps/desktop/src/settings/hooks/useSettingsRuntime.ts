@@ -111,10 +111,11 @@ export function useSettingsRuntime({
 
   const persistSettings = useCallback(async (next: Settings): Promise<Settings> => {
     const previous = persistedSettingsRef.current;
+    const networkActive = Boolean(health.getCurrent()?.network_capture_requested);
     const switchToPlayers = previous !== null && previous.audio.output.mode !== "vrchat_players"
-      && next.audio.output.mode === "vrchat_players" && health.getCurrent()?.capture_requested;
+      && next.audio.output.mode === "vrchat_players" && health.getCurrent()?.capture_requested && !networkActive;
     const enableNetwork = previous !== null && !usesVrchatNetwork(previous) && usesVrchatNetwork(next)
-      && health.getCurrent()?.capture_requested;
+      && health.getCurrent()?.capture_requested && !networkActive;
     if (enableNetwork && !switchToPlayers) {
       // Core hot-enables Chatbox on save. Never submit it before preparation succeeds.
       if (!await playerAudioStart.confirm() || !await playerAudioStart.ensurePrivileges()) return previous;
@@ -216,7 +217,7 @@ export function useSettingsRuntime({
       .catch(() => { /* Shared settings errors report failures; the next health update retries. */ })
       .finally(() => { refreshingPlayerNames.current = false; });
   }, []);
-  const observedPlayersFrom = (current: Health | null) => current?.network_players ?? current?.player_audio?.players;
+  const observedPlayersFrom = (current: Health | null) => current?.network_players ?? current?.network_capture?.players ?? current?.player_audio?.players;
   const observedPlayers = observedPlayersFrom(health.value);
   useEffect(() => {
     syncObservedPlayers(observedPlayers);

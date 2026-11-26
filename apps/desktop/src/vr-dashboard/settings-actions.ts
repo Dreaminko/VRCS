@@ -26,6 +26,7 @@ import { patchVision, supportsVision } from "../settings/vision-settings.ts";
 export type VrDashboardAction =
   | "toggle_master"
   | "toggle_capture"
+  | "toggle_network_capture"
   | "toggle_headset"
   | "cycle_headset_content"
   | "headset_width_down"
@@ -250,6 +251,7 @@ export function applyVrDashboardAction(settings: Settings, action: VrDashboardAc
       return patchOcr(settings, { hand_gesture_enabled: !settings.ocr.hand_gesture_enabled });
     case "preview_headset":
     case "toggle_capture":
+    case "toggle_network_capture":
     case "preview_wrist":
     case "open_ocr_bindings":
       return settings;

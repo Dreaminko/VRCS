@@ -4,7 +4,7 @@ import type { TFunction } from "i18next";
 
 import type { Health } from "../src/core-client/types.ts";
 import type { Settings } from "../src/settings/types.ts";
-import { usesVrchatNetwork } from "../src/capture/vrchat-network.ts";
+import { networkCaptureFeatureEnabled, usesVrchatNetwork } from "../src/capture/vrchat-network.ts";
 import { vrchatNetworkStatus } from "../src/capture/vrchat-network-status.ts";
 
 test("network preparation requires the master switch and a voice or Chatbox consumer", () => {
@@ -88,5 +88,16 @@ test("the status bar reports the active VRChat network capture phase", () => {
   });
   assert.deepEqual(vrchatNetworkStatus(health("failed"), settings, t), {
     label: "status.networkFailed", tone: "error",
+  });
+  assert.equal(networkCaptureFeatureEnabled(settings), true);
+  assert.deepEqual(vrchatNetworkStatus({
+    capture_requested: false,
+    network_capture_requested: true,
+    network_capture: { phase: "streaming", active_players: 0 },
+  } as Health, {
+    audio: { output: { mode: "system", player_audio: { enabled: true } } },
+    vrchat_chatbox: { enabled: false },
+  } as Settings, t), {
+    label: "status.networkStandbyReady", tone: "active",
   });
 });

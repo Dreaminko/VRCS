@@ -6,7 +6,8 @@ import { runtimeApi } from "../core-client/runtime-api";
 import { PLAYER_AUDIO_READING_MS, type PlayerAudioPreparation } from "./player-audio-vr";
 export { PLAYER_AUDIO_READING_MS } from "./player-audio-vr";
 
-type ElevationAction = "start_capture" | "inspect_memory_compression" | "disable_memory_compression" | "enable_memory_compression";
+type ElevationAction = "start_capture" | "start_network_capture" | "inspect_memory_compression" | "disable_memory_compression" | "enable_memory_compression";
+export type CaptureResumeAction = "start_capture" | "start_network_capture";
 export interface MemoryCompressionStatus {
   supported: boolean;
   elevated: boolean;
@@ -23,8 +24,8 @@ export function usePlayerAudioStart(options?: { os?: string; beforeMemoryChange:
   const sequence = useRef(0);
   const pending = useRef<{ requestId: number; openedAt: number; promise: Promise<boolean>; resolve: (value: boolean) => void } | null>(null);
   const [preparation, setPreparation] = useState<PlayerAudioPreparation | null>(null);
-  const [resumeRequested, setResumeRequested] = useState(false);
-  const resumeApproved = useRef(false);
+  const [resumeAction, setResumeAction] = useState<CaptureResumeAction | null>(null);
+  const resumeApproved = useRef<CaptureResumeAction | null>(null);
   const [memoryStatus, setMemoryStatus] = useState<MemoryCompressionStatus | null>(null);
   const [memoryDialog, setMemoryDialog] = useState<MemoryDialog>(null);
   const memoryChangeReturnDialog = useRef<"manage" | null>("manage");
@@ -87,9 +88,9 @@ export function usePlayerAudioStart(options?: { os?: string; beforeMemoryChange:
     void refreshMemory().catch(() => undefined);
     if (isTauri()) void invoke<ElevationAction | null>("player_audio_pending_action").then(async (action) => {
       if (!active || !action) return;
-      if (action === "start_capture") {
-        resumeApproved.current = true;
-        setResumeRequested(true);
+      if (action === "start_capture" || action === "start_network_capture") {
+        resumeApproved.current = action;
+        setResumeAction(action);
       } else {
         const accepted = await invoke<ElevationAction | null>("player_audio_consume_action");
         if (accepted !== action) return;
@@ -146,10 +147,10 @@ export function usePlayerAudioStart(options?: { os?: string; beforeMemoryChange:
     return false;
   }, [refreshMemory, t]);
 
-  const ensurePrivileges = useCallback(async () => {
+  const ensurePrivileges = useCallback(async (action: CaptureResumeAction = "start_capture") => {
     setPreparation({ stage: "privileges", detail: null });
     try {
-      if (!await elevate("start_capture")) {
+      if (!await elevate(action)) {
         setPreparation({ stage: "relaunching", detail: null });
         return false;
       }
@@ -168,17 +169,17 @@ export function usePlayerAudioStart(options?: { os?: string; beforeMemoryChange:
     return () => window.clearTimeout(timer);
   }, [preparation]);
 
-  const prepare = useCallback(async () => {
-    if (resumeApproved.current) {
-      resumeApproved.current = false;
+  const prepare = useCallback(async (action: CaptureResumeAction = "start_capture") => {
+    if (resumeApproved.current === action) {
+      resumeApproved.current = null;
       // Consumed only after Core and settings are ready, not during React's mount probe.
-      return isTauri() && await invoke<ElevationAction | null>("player_audio_consume_action") === "start_capture"
+      return isTauri() && await invoke<ElevationAction | null>("player_audio_consume_action") === action
         && await checkMemoryBeforeStart();
     }
-    return await confirm() && await ensurePrivileges();
+    return await confirm() && await ensurePrivileges(action);
   }, [confirm, ensurePrivileges, checkMemoryBeforeStart]);
 
-  return { notice, preparation, decide, confirm, ensurePrivileges, prepare, resumeRequested, memory: {
+  return { notice, preparation, decide, confirm, ensurePrivileges, prepare, resumeAction, resumeRequested: resumeAction !== null, memory: {
     status: memoryStatus, dialog: memoryDialog, error: memoryError, busy: refreshing || changing,
     changing, refresh: () => { void refreshMemory().catch(() => undefined); },
     open: () => { setMemoryDialog("manage"); void refreshMemory().catch(() => undefined); },

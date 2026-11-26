@@ -39,6 +39,7 @@ pub(crate) enum Outcome {
 pub(crate) enum Action {
     LaunchApp,
     StartCapture,
+    StartNetworkCapture,
     InspectMemoryCompression,
     DisableMemoryCompression,
     EnableMemoryCompression,
@@ -48,6 +49,7 @@ impl Action {
         match self {
             Self::LaunchApp => "launch_app",
             Self::StartCapture => "start_capture",
+            Self::StartNetworkCapture => "start_network_capture",
             Self::InspectMemoryCompression => "inspect_memory_compression",
             Self::DisableMemoryCompression => "disable_memory_compression",
             Self::EnableMemoryCompression => "enable_memory_compression",
@@ -57,6 +59,7 @@ impl Action {
         [
             Self::LaunchApp,
             Self::StartCapture,
+            Self::StartNetworkCapture,
             Self::InspectMemoryCompression,
             Self::DisableMemoryCompression,
             Self::EnableMemoryCompression,
@@ -445,6 +448,7 @@ mod tests {
         for action in [
             Action::LaunchApp,
             Action::StartCapture,
+            Action::StartNetworkCapture,
             Action::InspectMemoryCompression,
             Action::DisableMemoryCompression,
             Action::EnableMemoryCompression,
@@ -473,6 +477,7 @@ mod tests {
         assert_eq!(Action::LaunchApp.pending_action(), None);
         for action in [
             Action::StartCapture,
+            Action::StartNetworkCapture,
             Action::InspectMemoryCompression,
             Action::DisableMemoryCompression,
             Action::EnableMemoryCompression,

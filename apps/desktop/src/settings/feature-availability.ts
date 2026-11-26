@@ -23,6 +23,13 @@ export function resolveSettingsCategory(requested: SettingsCategory, features: F
   return visibleSettingsCategories(features).includes(category) ? category : "system";
 }
 
+export function networkCaptureUnavailableReason(settings: Settings | null, capabilities: CoreCapabilities | null): string | null {
+  if (!settings || !capabilities) return "common.checking";
+  if (settings.audio.output.player_audio?.enabled !== true) return "capture.networkDisabled";
+  const capability = capabilities.chatbox.network_receive;
+  return capability.available ? null : (capability.reason_code ?? "platform.capture_unavailable");
+}
+
 export function captureUnavailableReason(settings: Settings | null, capabilities: CoreCapabilities | null): string | null {
   if (!settings || !capabilities) return "common.checking";
   const output = settings.audio.output.mode;

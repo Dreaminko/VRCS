@@ -14,6 +14,9 @@ export interface Health {
   config_schema?: number;
   capture_running: boolean;
   capture_requested: boolean;
+  network_capture_requested?: boolean;
+  network_capture_running?: boolean;
+  network_capture?: PlayerAudioStatus | null;
   microphone_capture_state: "running" | "stopped" | "paused_vrchat_muted";
   audio_device: AudioDevice | null;
   microphone_device?: AudioDevice | null;

@@ -90,6 +90,10 @@ export function CompactEntry({
         vrchatMuted={runtime.vrchatMuteStatus?.muted === true}
         captureDisabled={!runtime.ready || capture.pending || (!runtime.health?.capture_requested && !capture.available)}
         captureReason={capture.unavailableReason}
+        networkCaptureVisible={capture.networkCaptureVisible}
+        networkCaptureRunning={runtime.health?.network_capture_requested ?? false}
+        networkCaptureDisabled={!runtime.ready || capture.networkPending || (!runtime.health?.network_capture_requested && !capture.networkAvailable)}
+        onNetworkCapture={() => void capture.toggleNetworkCapture()}
         chatboxOpen={chatboxVisible}
         chatboxDisabled={!runtime.ready || overlayOpen}
         chatboxButtonRef={chatboxButtonRef}

@@ -425,6 +425,9 @@ export function DesktopShell({
         running={runtime.health?.capture_requested ?? false}
         captureDisabled={!runtime.ready || capture.pending || (!runtime.health?.capture_requested && !capture.available)}
         captureReason={capture.unavailableReason}
+        networkCaptureVisible={capture.networkCaptureVisible}
+        networkCaptureRunning={runtime.health?.network_capture_requested ?? false}
+        networkCaptureDisabled={!runtime.ready || capture.networkPending || (!runtime.health?.network_capture_requested && !capture.networkAvailable)}
         chatboxOpen={page === "live" && chatbox.open}
         chatboxDisabled={!runtime.ready || settings.value === null}
         chatboxButtonRef={chatboxButtonRef}
@@ -446,6 +449,7 @@ export function DesktopShell({
           else openChatbox();
         }}
         onCapture={() => void capture.toggleCapture()}
+        onNetworkCapture={() => void capture.toggleNetworkCapture()}
       />
 
       {chatboxMounted && (

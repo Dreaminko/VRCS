@@ -26,6 +26,8 @@ pub struct DashboardViewModel {
     pub enabled: bool,
     #[serde(default)]
     pub capture: DashboardCapture,
+    #[serde(default)]
+    pub network_capture: DashboardNetworkCapture,
     pub content: DashboardChoice,
     #[serde(default = "available_by_default")]
     pub ocr_available: bool,
@@ -70,6 +72,10 @@ pub struct DashboardLabels {
     pub capture_start: String,
     #[serde(default)]
     pub capture_stop: String,
+    #[serde(default)]
+    pub network_capture_start: String,
+    #[serde(default)]
+    pub network_capture_stop: String,
     pub headset: String,
     pub wrist: String,
     pub ocr: String,
@@ -145,6 +151,13 @@ pub struct DashboardLabels {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct DashboardCapture {
+    pub running: bool,
+    pub available: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DashboardNetworkCapture {
+    pub visible: bool,
     pub running: bool,
     pub available: bool,
 }
@@ -310,6 +323,7 @@ pub enum DashboardSaveState {
 pub enum DashboardAction {
     ToggleMaster,
     ToggleCapture,
+    ToggleNetworkCapture,
     ToggleHeadset,
     HeadsetWidthDown,
     HeadsetWidthUp,
@@ -626,7 +640,9 @@ impl DashboardState {
                 if self.ui.picker.is_some()
                     && !matches!(
                         action,
-                        DashboardAction::ToggleMaster | DashboardAction::ToggleCapture
+                        DashboardAction::ToggleMaster
+                            | DashboardAction::ToggleCapture
+                            | DashboardAction::ToggleNetworkCapture
                     )
                 {
                     return None;
@@ -686,8 +702,10 @@ impl DashboardState {
     fn action_allowed(&self, action: &DashboardAction, view: &DashboardViewModel) -> bool {
         use DashboardAction::*;
         let page = match action {
-            ToggleMaster | ToggleCapture => {
-                return !matches!(action, ToggleCapture) || view.capture.available;
+            ToggleMaster => return true,
+            ToggleCapture => return view.capture.available,
+            ToggleNetworkCapture => {
+                return view.network_capture.visible && view.network_capture.available;
             }
             SetRecognitionLanguage(_)
             | SetTranslationMode(_)
@@ -839,6 +857,7 @@ mod tests {
                 running: false,
                 available: true,
             },
+            network_capture: DashboardNetworkCapture::default(),
             content: choice.clone(),
             ocr_available: true,
             vision_available: true,

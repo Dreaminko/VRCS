@@ -22,7 +22,12 @@ export function useCoreSession(resourcesActive: boolean) {
   });
   const playerAudioStart = usePlayerAudioStart({
     os: runtime.capabilities.desktop?.os ?? runtime.capabilities.core?.os,
-    beforeMemoryChange: async () => !runtime.health.getCurrent()?.capture_requested || await capture.setRunning(false),
+    beforeMemoryChange: async () => {
+      const current = runtime.health.getCurrent();
+      if (current?.capture_requested && !await capture.setRunning(false)) return false;
+      if (current?.network_capture_requested && !await capture.setNetworkRunning(false)) return false;
+      return true;
+    },
   });
   const settings = useSettingsRuntime({
     active: resourcesActive,

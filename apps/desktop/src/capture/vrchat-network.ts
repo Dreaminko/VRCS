@@ -3,7 +3,11 @@ type NetworkCaptureSettings = {
   vrchat_chatbox?: { enabled: boolean };
 };
 
+export function networkCaptureFeatureEnabled(settings: NetworkCaptureSettings | null | undefined): boolean {
+  return settings?.audio.output.player_audio?.enabled === true;
+}
+
 export function usesVrchatNetwork(settings: NetworkCaptureSettings | null | undefined): boolean {
-  return settings?.audio.output.player_audio?.enabled === true
-    && (settings.audio.output.mode === "vrchat_players" || settings.vrchat_chatbox?.enabled === true);
+  return networkCaptureFeatureEnabled(settings)
+    && (settings?.audio.output.mode === "vrchat_players" || settings?.vrchat_chatbox?.enabled === true);
 }

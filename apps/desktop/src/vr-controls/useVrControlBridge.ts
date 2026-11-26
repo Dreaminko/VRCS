@@ -8,7 +8,7 @@ import type { ControlRequest, ControlSnapshot, PlacementRequest } from "./protoc
 import type { PlayerAudioStart } from "../capture/usePlayerAudioStart";
 import type { ChatboxStatus, PlayerAudioStatus } from "../core-client/types";
 import { playerAudioProgress, playerAudioPrompt, type PlayerAudioDecision } from "../capture/player-audio-vr";
-import { usesVrchatNetwork } from "../capture/vrchat-network";
+import { networkCaptureFeatureEnabled, usesVrchatNetwork } from "../capture/vrchat-network";
 
 const CONTROL_LABEL_KEYS = [
   "emptyDialogue", "dragHint", "anchorWrist", "anchorWorld", "followView",
@@ -26,6 +26,12 @@ interface VrControlBridgeOptions {
   running: boolean;
   busy: boolean;
   setCaptureRunning: (target: boolean) => Promise<boolean>;
+  networkVisible?: boolean;
+  networkRequested?: boolean | undefined;
+  getNetworkRequested?: () => boolean;
+  networkRunning?: boolean;
+  networkBusy?: boolean;
+  setNetworkCaptureRunning?: (target: boolean) => Promise<boolean>;
   playerAudioStart: PlayerAudioStart;
   playerAudioStatus?: PlayerAudioStatus | null;
   chatboxStatus?: ChatboxStatus | null;
@@ -42,6 +48,8 @@ function buildControlView(
   const item = (requested: boolean, effective: boolean, available: boolean, label: string, busy = false, reason: string | null = null, hidden = false) =>
     ({ requested, effective, available, busy, label, reason, hidden });
   const requested = options.getRequested();
+  const networkVisible = options.networkVisible ?? networkCaptureFeatureEnabled(settings);
+  const networkRequested = options.getNetworkRequested?.() ?? Boolean(options.networkRequested);
   const gesture = photoGestureControlState(settings);
   return {
     owner_epoch: ownerEpoch,
@@ -55,6 +63,7 @@ function buildControlView(
       item(requested, options.running, options.available, t(requested ? "capture.stop" : "capture.start"), options.busy),
       item(settings?.ocr.hand_gesture_enabled ?? false, settings?.ocr.hand_gesture_enabled ?? false,
         options.available && options.sceneCapture && gesture.available, t("settings.vrDashboard.gesture"), false, null, gesture.hidden),
+      item(networkRequested, options.networkRunning ?? false, options.available && networkVisible, t(networkRequested ? "capture.networkStop" : "capture.networkStart"), options.networkBusy ?? false, null, !networkVisible),
     ],
   };
 }
@@ -94,6 +103,7 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
     const execute = createControlExecutor({
       update: (apply) => current.current.update(apply),
       setCaptureRunning: (target) => current.current.setCaptureRunning(target),
+      setNetworkCaptureRunning: (target) => current.current.setNetworkCaptureRunning?.(target) ?? Promise.resolve(false),
     });
     void (async () => {
       const receive = (request: ControlRequest) => {
@@ -168,8 +178,10 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
   const notice = epoch ? playerAudioPrompt(options.playerAudioStart.notice, now, t) : null;
   // A missing health snapshot is not a confirmed stop.
   const chatbox = settings?.audio.output.mode !== "vrchat_players" && Boolean(settings?.vrchat_chatbox.enabled);
-  const requested = usesVrchatNetwork(settings) && (options.requested ?? lastAudio.current.requested);
+  const networkRequested = options.getNetworkRequested?.() ?? Boolean(options.networkRequested);
+  const requested = networkRequested || (usesVrchatNetwork(settings) && (options.requested ?? lastAudio.current.requested));
   const status = (chatbox ? options.chatboxStatus : options.playerAudioStatus)
+    ?? options.playerAudioStatus
     ?? (lastAudio.current.chatbox === chatbox ? lastAudio.current.status : null);
   lastAudio.current = { requested, status: requested ? status : null, chatbox };
   const ready = !notice && !options.playerAudioStart.preparation && requested && status?.phase === "streaming";
@@ -206,6 +218,7 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
   const ocrGestureEnabled = Boolean(settings?.ocr.hand_gesture_enabled);
   const { hidden: ocrGestureHidden, available: ocrGestureAvailable } = photoGestureControlState(settings);
   const captureRequested = options.getRequested();
+  const networkVisible = options.networkVisible ?? networkCaptureFeatureEnabled(settings);
 
   useEffect(() => {
     if (!epoch) return;
@@ -234,9 +247,13 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
     ocrGestureHidden,
     ocrGestureAvailable,
     captureRequested,
+    networkVisible,
+    networkRequested,
     options.available,
     options.running,
     options.busy,
+    options.networkRunning,
+    options.networkBusy,
     options.sceneCapture,
     t,
   ]);

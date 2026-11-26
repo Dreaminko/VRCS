@@ -26,6 +26,9 @@ function App() {
   useAppTheme();
   const workspace = useAppWorkspace({ page, setPage, setSettingsInitialCategory });
   const vrSceneCapture = workspace.runtime.capabilities.desktop?.vr.scene_capture.supported === true;
+  const networkAvailable = workspace.runtime.ready && workspace.onboarding.status === "complete"
+    && workspace.runtime.capabilities.desktop?.vr.controller_input.supported === true
+    && workspace.capture.networkCaptureVisible;
   const controlEpoch = useVrControlBridge({
     settings: workspace.settings.value,
     getSettings: workspace.settings.getCurrent,
@@ -38,16 +41,25 @@ function App() {
     running: workspace.runtime.health?.capture_running ?? false,
     busy: workspace.capture.pending,
     setCaptureRunning: workspace.capture.setCaptureRunning,
+    networkVisible: workspace.capture.networkCaptureVisible,
+    networkRequested: workspace.runtime.health?.network_capture_requested,
+    getNetworkRequested: workspace.capture.getNetworkRunning,
+    networkRunning: workspace.runtime.health?.network_capture_running ?? false,
+    networkBusy: workspace.capture.networkPending,
+    setNetworkCaptureRunning: workspace.capture.setNetworkCaptureRunning,
     playerAudioStart: workspace.capture.playerAudioStart,
-    playerAudioStatus: workspace.runtime.health?.player_audio,
+    playerAudioStatus: workspace.runtime.health?.network_capture ?? workspace.runtime.health?.player_audio,
     chatboxStatus: workspace.runtime.health?.vrchat_chatbox,
   });
   useVrDashboardBridge(workspace.settings.value, workspace.settings.update, workspace.providers.catalog.profiles, {
-    playerAudio: workspace.runtime.health?.player_audio,
+    playerAudio: workspace.runtime.health?.network_capture ?? workspace.runtime.health?.player_audio,
     running: workspace.runtime.health?.capture_requested ?? false,
     available: workspace.runtime.ready && !workspace.capture.pending && workspace.onboarding.status === "complete"
       && workspace.runtime.capabilities.desktop?.vr.controller_input.supported === true,
     toggle: workspace.capture.toggleCapture,
+    networkVisible: workspace.capture.networkCaptureVisible,
+    networkRunning: workspace.runtime.health?.network_capture_requested ?? false,
+    networkAvailable: networkAvailable && !workspace.capture.networkPending && (Boolean(workspace.runtime.health?.network_capture_requested) || workspace.capture.networkAvailable),
   }, workspace.playerDisplay, vrSceneCapture);
 
   useEffect(() => {

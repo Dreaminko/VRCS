@@ -33,6 +33,17 @@ test("OSC remains available without optional feature switches", () => {
   assert.equal(current.osc.enabled, false);
 });
 
+test("network capture control invokes setNetworkCaptureRunning without touching settings", async () => {
+  let called: boolean | null = null;
+  const execute = createControlExecutor({
+    update: async () => { throw new Error("Network capture control must not mutate settings"); },
+    setCaptureRunning: async () => { throw new Error("Must not toggle transcription"); },
+    setNetworkCaptureRunning: async (target) => { called = target; return true; },
+  });
+  await execute({ set_network_capture_running: true });
+  assert.equal(called, true);
+});
+
 test("the photo gesture control saves either state without changing OCR or other layers", async () => {
   let current = settings();
   const original = current;

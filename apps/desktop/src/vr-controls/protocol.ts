@@ -3,7 +3,8 @@ export type ControlAction =
   | { set_headset_enabled: boolean }
   | { set_osc_enabled: boolean }
   | { set_capture_running: boolean }
-  | { set_ocr_gesture_enabled: boolean };
+  | { set_ocr_gesture_enabled: boolean }
+  | { set_network_capture_running: boolean };
 
 export type ControlSource = "dashboard" | "wrist_menu" | "dev_preview";
 

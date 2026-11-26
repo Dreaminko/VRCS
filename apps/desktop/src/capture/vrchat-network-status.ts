@@ -2,7 +2,7 @@ import type { TFunction } from "i18next";
 
 import type { Health } from "../core-client/types";
 import type { Settings } from "../settings/types";
-import { usesVrchatNetwork } from "./vrchat-network.ts";
+import { networkCaptureFeatureEnabled, usesVrchatNetwork } from "./vrchat-network.ts";
 
 export type VrchatNetworkTone = "active" | "waiting" | "idle" | "error";
 
@@ -16,13 +16,15 @@ export function vrchatNetworkStatus(
   settings: Settings | null,
   t: TFunction,
 ): VrchatNetworkStatus | null {
-  if (!usesVrchatNetwork(settings)) return null;
+  if (!usesVrchatNetwork(settings) && !health?.network_capture_requested) return null;
   if (!health) return { label: t("status.networkChecking"), tone: "waiting" };
-  if (!health.capture_requested) return { label: t("status.networkStopped"), tone: "idle" };
+  if (!health.network_capture_requested && !health.capture_requested) {
+    return { label: t("status.networkStopped"), tone: "idle" };
+  }
 
   const voice = health.player_audio;
   const chatbox = health.vrchat_chatbox;
-  const status = voice ?? chatbox;
+  const status = health.network_capture ?? voice ?? chatbox;
   if (!status) return { label: t("status.networkStarting"), tone: "waiting" };
 
   switch (status.phase) {
@@ -41,6 +43,9 @@ export function vrchatNetworkStatus(
     case "retrying_key":
       return { label: t("status.networkRetryingKey"), tone: "waiting" };
     case "streaming":
+      if (!health.capture_requested && networkCaptureFeatureEnabled(settings)) {
+        return { label: t("status.networkStandbyReady"), tone: "active" };
+      }
       if (chatbox && !voice) return { label: t("status.networkReceivingChatbox"), tone: "active" };
       return voice && voice.active_players > 0
         ? { label: t("status.networkReceivingPlayers", { players: voice.active_players }), tone: "active" }

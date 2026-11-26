@@ -101,7 +101,7 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-surface-button[data-status="unavailable"]::after { position: absolute; top: 4px; right: 4px; width: 12px; height: 12px; border: 2px solid var(--surface); border-radius: 50%; background: var(--error); content: ""; }
 .vr-surface-button.pressed > svg { transform: scale(0.95); }
 .vr-surface-tooltip { position: absolute; z-index: 5; bottom: calc(100% + 12px); left: 50%; width: max-content; max-width: 350px; padding: 8px 14px; transform: translateX(-50%); border: 1px solid var(--border); border-radius: 12px; color: var(--text); background: var(--surface); font-size: 22px; line-height: 1.4; text-align: center; overflow-wrap: anywhere; }
-.vr-menu-capsule .vr-surface-button { width: 160px; height: 160px; flex-basis: 160px; }
+.vr-menu-capsule .vr-surface-button { width: 160px; height: auto; aspect-ratio: 1; flex: 0 1 160px; }
 .vr-menu-capsule .vr-surface-button:not(.primary) { background: transparent; }
 .vr-menu-capsule .vr-surface-button:not(.primary).hovered { background: var(--primary-softer); }
 .vr-menu-capsule .vr-surface-button svg { width: 80px; height: 80px; }

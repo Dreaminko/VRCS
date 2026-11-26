@@ -162,7 +162,10 @@
     "capture": {
       "start": "文字起こしを開始",
       "stop": "文字起こしを停止",
-      "pause": "文字起こしを一時停止"
+      "pause": "文字起こしを一時停止",
+      "networkStart": "ネットワーク取得を開始",
+      "networkStop": "ネットワーク取得を停止",
+      "networkDisabled": "先に設定でネットワーク取得を有効にしてください"
     },
     "date": {
       "today": "今日",
@@ -227,6 +230,7 @@
       "networkVerifyingKey": "音声接続を確認中",
       "networkAcquiringKey": "音声キーを取得中",
       "networkRetryingKey": "音声キーを再試行中",
+      "networkStandbyReady": "ネットワーク取得準備完了 · 待機中",
       "networkReceivingPlayers": "{{players}} 名のトラックを受信中",
       "networkWaitingPlayers": "プレイヤー音声を待機中",
       "networkReceivingChatbox": "Chatbox を受信中",

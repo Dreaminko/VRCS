@@ -21,8 +21,8 @@ import {
 import { useAppUpdater } from "../updates/useAppUpdater";
 import { useInterfaceScale } from "./useInterfaceScale";
 import { usePlayerHistoryPreferences } from "../subtitles/usePlayerHistoryPreferences";
-import { usesVrchatNetwork } from "../capture/vrchat-network";
-import { captureUnavailableReason } from "../settings/feature-availability";
+import { networkCaptureFeatureEnabled, usesVrchatNetwork } from "../capture/vrchat-network";
+import { captureUnavailableReason, networkCaptureUnavailableReason } from "../settings/feature-availability";
 import type { Subtitle } from "../subtitles/types";
 
 const EMPTY_COMPACT_SUBTITLES: Subtitle[] = [];
@@ -89,16 +89,22 @@ export function useAppWorkspace({
     clearErrorFrom: runtime.clearErrorFrom,
   });
   const captureReason = captureUnavailableReason(settings.value, runtime.capabilities.core);
+  const networkReason = networkCaptureUnavailableReason(settings.value, runtime.capabilities.core);
+  const networkCaptureVisible = networkCaptureFeatureEnabled(settings.value)
+    && runtime.capabilities.core?.chatbox.network_receive.available === true;
   const captureControl = useCaptureControl({
     coreReady: runtime.ready,
     unavailableReason: captureReason,
+    networkUnavailableReason: networkReason,
     getRunning: captureRuntime.getRunning,
+    getNetworkRunning: captureRuntime.getNetworkRunning,
     outputMode: settings.value?.audio.output.mode,
     networkCaptureEnabled: usesVrchatNetwork(settings.value),
     preparePlayerAudioStart: captureRuntime.playerAudioStart.prepare,
     createConversation: conversation.createConversation,
     clearLookup: selection.clear,
     setCoreCaptureRunning: captureRuntime.setRunning,
+    setCoreNetworkRunning: captureRuntime.setNetworkRunning,
     clearErrorFrom: runtime.clearErrorFrom,
     reportError: runtime.reportError,
   });
@@ -107,10 +113,15 @@ export function useAppWorkspace({
     || captureRuntime.playerAudioStart.memory.dialog !== null;
   const resumedPlayerAudio = useRef(false);
   useEffect(() => {
-    if (!captureRuntime.playerAudioStart.resumeRequested || resumedPlayerAudio.current || !runtime.ready || !settings.value || onboardingFlow.status !== "complete") return;
+    const resumeAction = captureRuntime.playerAudioStart.resumeAction;
+    if (!resumeAction || resumedPlayerAudio.current || !runtime.ready || !settings.value || onboardingFlow.status !== "complete") return;
     resumedPlayerAudio.current = true;
-    if (usesVrchatNetwork(settings.value)) void captureControl.setCaptureRunning(true);
-  }, [captureRuntime.playerAudioStart.resumeRequested, runtime.ready, settings.value, onboardingFlow.status, captureControl.setCaptureRunning]);
+    if (resumeAction === "start_network_capture") {
+      if (networkCaptureFeatureEnabled(settings.value)) void captureControl.setNetworkCaptureRunning(true);
+    } else if (usesVrchatNetwork(settings.value)) {
+      void captureControl.setCaptureRunning(true);
+    }
+  }, [captureRuntime.playerAudioStart.resumeAction, runtime.ready, settings.value, onboardingFlow.status, captureControl.setCaptureRunning, captureControl.setNetworkCaptureRunning]);
   const { interfaceScale, setInterfaceScale } = useInterfaceScale();
   const activeLanguageSession = runtime.health?.language_session;
   const chatboxRoute = (activeLanguageSession && activeLanguageSession.kind !== "global"
@@ -168,6 +179,9 @@ export function useAppWorkspace({
       ...captureControl,
       available: captureReason === null,
       unavailableReason: captureReason,
+      networkCaptureVisible,
+      networkAvailable: networkReason === null,
+      networkUnavailableReason: networkReason,
     },
     compact: {
       ...compactWindow,

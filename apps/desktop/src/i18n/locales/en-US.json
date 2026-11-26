@@ -162,7 +162,10 @@
     "capture": {
       "start": "Start transcription",
       "stop": "Stop transcription",
-      "pause": "Pause transcription"
+      "pause": "Pause transcription",
+      "networkStart": "Start network capture",
+      "networkStop": "Stop network capture",
+      "networkDisabled": "Enable network capture in Settings first"
     },
     "date": {
       "today": "Today",
@@ -227,6 +230,7 @@
       "networkVerifyingKey": "Verifying voice connection",
       "networkAcquiringKey": "Acquiring voice key",
       "networkRetryingKey": "Retrying voice key",
+      "networkStandbyReady": "Network capture ready · Standby",
       "networkReceivingPlayers": "Receiving {{players}} player tracks",
       "networkWaitingPlayers": "Waiting for player voice",
       "networkReceivingChatbox": "Receiving Chatbox",

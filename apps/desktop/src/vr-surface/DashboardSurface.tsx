@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ArrowDown, ArrowUp, Bookmark, Check, ChevronLeft, ChevronRight, Eye, Hand, Languages, Mic, Minus, Monitor, Pin, Plus, Power, Radio, RotateCcw, ScanEye, Settings2, SlidersHorizontal, Square, Trash2, TriangleAlert, Volume2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Bookmark, Check, ChevronLeft, ChevronRight, Eye, Hand, Languages, Mic, Minus, Monitor, Pin, Plus, Power, Radar, Radio, RotateCcw, ScanEye, Settings2, SlidersHorizontal, Square, Trash2, TriangleAlert, Volume2, X } from "lucide-react";
 import type { VrDashboardAppearanceField, VrDashboardChoice, VrDashboardViewModel } from "../integrations/vr-overlay-native";
 import type { VrOverlayAppearanceField, VrOverlayPositionField } from "../settings/vr-overlay-settings";
 import dashboardThumbnail from "../../src-tauri/icons/128x128@2x.png";
@@ -268,6 +268,7 @@ export function DashboardSurface({ dashboard: view, ui, hovered, pressed }: {
       </div>
       <div className="vr-dashboard-global">
         {action("toggle_master", <><Power /><span>{labels.master}</span><span className="vr-dashboard-toggle" aria-hidden="true"><i /></span></>, { active: view.enabled, disabled: Boolean(ui.confirmation), className: "vr-dashboard-master" })}
+        {view.network_capture?.visible && action("toggle_network_capture", <><Radar /><span>{view.network_capture.running ? (labels.network_capture_stop || labels.capture_stop) : (labels.network_capture_start || labels.capture_start)}</span></>, { active: view.network_capture.running, disabled: !view.network_capture.available || Boolean(ui.confirmation), className: "vr-dashboard-capture" })}
         {action("toggle_capture", <>{view.capture.running ? <Square /> : <Mic />}<span>{view.capture.running ? labels.capture_stop : labels.capture_start}</span></>, { primary: !view.capture.running, recording: view.capture.running, active: view.capture.running, disabled: !view.capture.available || Boolean(ui.confirmation), className: "vr-dashboard-capture" })}
         {button({ type: "close" }, <X />, { icon: true, label: labels.close })}
       </div>

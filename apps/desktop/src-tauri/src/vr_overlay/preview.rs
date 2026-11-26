@@ -138,7 +138,7 @@ struct Preview {
     source: String,
     translation: String,
     advance: usize,
-    pending: [Option<(bool, Instant)>; 5],
+    pending: [Option<(bool, Instant)>; 6],
     player_pending: Option<(player_display::Action, Instant)>,
     fail_save: bool,
     tracking: bool,
@@ -160,6 +160,7 @@ impl Preview {
             "OSC",
             "Transcribe",
             "Frame gesture",
+            "Network capture",
         ]) {
             item.available = !live;
             item.label = label.into();
@@ -167,6 +168,7 @@ impl Preview {
         controls.items[4].requested = view.ocr.gesture;
         controls.items[4].effective = view.ocr.gesture;
         controls.items[4].hidden = !view.ocr_available && !view.vision_available;
+        controls.items[5].hidden = !view.network_capture.visible;
         let mut dashboard = DashboardState::new();
         dashboard.update_view(&view);
         dashboard.set_interactive(true);
@@ -747,6 +749,9 @@ impl Preview {
             ToggleCapture => Some(ControlAction::SetCaptureRunning(
                 !self.controls.items[3].requested,
             )),
+            ToggleNetworkCapture => Some(ControlAction::SetNetworkCaptureRunning(
+                !self.controls.items[5].requested,
+            )),
             ToggleOcrGesture => Some(ControlAction::SetOcrGestureEnabled(
                 !self.controls.items[4].requested,
             )),
@@ -909,6 +914,7 @@ impl Preview {
             self.view.osc.enabled = self.controls.items[2].requested;
             self.view.capture.running = self.controls.items[3].requested;
             self.view.ocr.gesture = self.controls.items[4].requested;
+            self.view.network_capture.running = self.controls.items[5].requested;
             let placement = self.placement.lock().expect("vr placement lock");
             self.view.wrist.anchor_mode = match placement.mode() {
                 Mode::Wrist => "wrist",

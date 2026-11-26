@@ -2251,6 +2251,9 @@ fn dispatch_dashboard_action(
             DashboardAction::ToggleCapture => {
                 Some(ControlAction::SetCaptureRunning(!view.items[3].requested))
             }
+            DashboardAction::ToggleNetworkCapture => Some(ControlAction::SetNetworkCaptureRunning(
+                !view.items[5].requested,
+            )),
             _ => None,
         }
     });

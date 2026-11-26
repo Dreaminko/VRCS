@@ -14,7 +14,7 @@ export function photoGestureControlState(settings: Settings | null): { hidden: b
 }
 
 export function applyControlAction(settings: Settings, action: SettingsAction): Settings {
-  if ("set_capture_running" in action) return settings;
+  if ("set_capture_running" in action || "set_network_capture_running" in action) return settings;
   if ("set_ocr_gesture_enabled" in action) {
     return settings.ocr.hand_gesture_enabled === action.set_ocr_gesture_enabled ? settings : {
       ...settings, ocr: { ...settings.ocr, hand_gesture_enabled: action.set_ocr_gesture_enabled },
@@ -47,11 +47,18 @@ export function applyControlAction(settings: Settings, action: SettingsAction): 
 export function createControlExecutor(options: {
   update: (apply: (settings: Settings) => Settings) => Promise<Settings>;
   setCaptureRunning: (target: boolean) => Promise<boolean>;
+  setNetworkCaptureRunning?: (target: boolean) => Promise<boolean>;
 }) {
   return (action: SettingsAction): Promise<void> => {
     if ("set_capture_running" in action) return options.setCaptureRunning(action.set_capture_running).then((ok) => {
       if (!ok) throw new Error("Capture action failed");
     });
+    if ("set_network_capture_running" in action) {
+      if (!options.setNetworkCaptureRunning) return Promise.reject(new Error("Network capture action unavailable"));
+      return options.setNetworkCaptureRunning(action.set_network_capture_running).then((ok) => {
+        if (!ok) throw new Error("Network capture action failed");
+      });
+    }
     return options.update((current) => applyControlAction(current, action)).then((saved) => {
       if (applyControlAction(saved, action) !== saved) throw new Error("Settings action was not applied");
     });

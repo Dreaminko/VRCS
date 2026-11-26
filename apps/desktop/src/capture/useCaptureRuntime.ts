@@ -16,7 +16,9 @@ export function useCaptureRuntime({
   reportError: ReportRuntimeError;
 }) {
   const [pending, setPending] = useState(false);
+  const [networkPending, setNetworkPending] = useState(false);
   const pendingRef = useRef(false);
+  const networkPendingRef = useRef(false);
   const { getCurrent, patch, refreshQuietly } = health;
 
   const setRunning = useCallback(async (target: boolean): Promise<boolean> => {
@@ -45,7 +47,35 @@ export function useCaptureRuntime({
     }
   }, [clearErrorFrom, clearPartials, getCurrent, patch, refreshQuietly]);
 
+  const setNetworkRunning = useCallback(async (target: boolean): Promise<boolean> => {
+    if (networkPendingRef.current) return false;
+    if (Boolean(getCurrent()?.network_capture_requested) === target) return true;
+    networkPendingRef.current = true;
+    setNetworkPending(true);
+    try {
+      if (target) {
+        await captureApi.startNetworkCapture();
+      } else {
+        await captureApi.stopNetworkCapture();
+      }
+      clearErrorFrom("capture");
+      patch((current) => current ? { ...current, network_capture_requested: target } : current);
+      return true;
+    } catch (error) {
+      if (Boolean((await refreshQuietly())?.network_capture_requested) === target) return true;
+      throw error;
+    } finally {
+      await refreshQuietly();
+      networkPendingRef.current = false;
+      setNetworkPending(false);
+    }
+  }, [clearErrorFrom, getCurrent, patch, refreshQuietly]);
+
   const toggle = useCallback(() => setRunning(!getCurrent()?.capture_requested), [getCurrent, setRunning]);
+  const toggleNetwork = useCallback(
+    () => setNetworkRunning(!getCurrent()?.network_capture_requested),
+    [getCurrent, setNetworkRunning],
+  );
 
   const startMicrophoneTest = useCallback(async () => {
     try {
@@ -82,9 +112,13 @@ export function useCaptureRuntime({
 
   return {
     pending,
+    networkPending,
     toggle,
+    toggleNetwork,
     setRunning,
+    setNetworkRunning,
     getRunning: () => getCurrent()?.capture_requested ?? false,
+    getNetworkRunning: () => Boolean(getCurrent()?.network_capture_requested),
     startMicrophoneTest,
     stopMicrophoneTest,
   };
