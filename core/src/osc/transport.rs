@@ -36,7 +36,7 @@ pub(super) async fn send_chatbox(socket: &UdpSocket, port: u16, text: &str) -> R
         .map_err(|error| error.to_string())
 }
 
-pub(crate) async fn send_typing(port: u16, typing: bool) -> Result<(), String> {
+pub(crate) fn send_typing_sync(port: u16, typing: bool) -> Result<(), String> {
     let socket = typing_socket()?;
     let packet = OscPacket::Message(OscMessage {
         addr: TYPING_ADDRESS.into(),
@@ -47,4 +47,8 @@ pub(crate) async fn send_typing(port: u16, typing: bool) -> Result<(), String> {
         .send_to(&bytes, SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))
         .map(|_| ())
         .map_err(|error| error.to_string())
+}
+
+pub(crate) async fn send_typing(port: u16, typing: bool) -> Result<(), String> {
+    send_typing_sync(port, typing)
 }

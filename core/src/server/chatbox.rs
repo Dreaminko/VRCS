@@ -119,12 +119,7 @@ impl TypingIndicatorGuard {
 impl Drop for TypingIndicatorGuard {
     fn drop(&mut self) {
         if self.active {
-            let port = self.port;
-            if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                handle.spawn(async move {
-                    let _ = crate::osc::send_typing(port, false).await;
-                });
-            }
+            let _ = crate::osc::send_typing_sync(self.port, false);
         }
     }
 }
@@ -133,7 +128,8 @@ pub(crate) async fn process_osc_inbound_chatbox(
     state: &ServiceContext,
     text: String,
 ) -> Result<(), String> {
-    let compact_len = crate::chatbox::compact_text(&text).chars().count();
+    let text = crate::chatbox::compact_text(&text);
+    let compact_len = text.chars().count();
     if compact_len == 0 {
         return Err("Enter text before sending".into());
     }

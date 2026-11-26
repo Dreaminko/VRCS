@@ -22,7 +22,7 @@ mod transport;
 
 pub use inbound::OscInboundRuntimeStatus;
 pub(crate) use inbound::{InboundChatboxCallback, OscInboundServer};
-pub(crate) use transport::send_typing;
+pub(crate) use transport::{send_typing, send_typing_sync};
 
 use message::format_chatbox_preview;
 #[cfg(test)]

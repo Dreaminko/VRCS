@@ -1051,7 +1051,9 @@ async fn run_udp_osc_listener(
             {
                 Ok(socket) => {
                     let fallback_port = socket.local_addr().map(|addr| addr.port()).unwrap_or(0);
-                    let advertisement = if fallback_port != 0 {
+                    if fallback_port == 0 {
+                        Err(primary_error)
+                    } else {
                         match OscQueryAdvertisement::start(fallback_port).await {
                             Ok(ad) => {
                                 tracing::info!(
@@ -1060,7 +1062,7 @@ async fn run_udp_osc_listener(
                                     %primary_error,
                                     "UniText preferred UDP port busy; using ephemeral port advertised via OSCQuery"
                                 );
-                                Some(ad)
+                                Ok((socket, Some(ad)))
                             }
                             Err(ad_error) => {
                                 tracing::debug!(
@@ -1069,13 +1071,10 @@ async fn run_udp_osc_listener(
                                     %ad_error,
                                     "UniText fallback UDP OSCQuery advertisement failed"
                                 );
-                                None
+                                Err(primary_error)
                             }
                         }
-                    } else {
-                        None
-                    };
-                    Ok((socket, advertisement))
+                    }
                 }
                 Err(_) => Err(primary_error),
             },

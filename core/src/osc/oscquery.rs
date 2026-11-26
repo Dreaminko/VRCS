@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use axum::extract::Query;
+use axum::extract::RawQuery;
 use axum::routing::get;
 use axum::{Json, Router};
 use futures_util::SinkExt;
@@ -155,7 +155,9 @@ async fn browse_vrchat_port(
         tokio::select! {
             event = services.recv_async() => match event.map_err(|error| error.to_string())? {
                 ServiceEvent::ServiceResolved(info)
-                    if info.get_fullname().to_ascii_lowercase().contains("vrchat-client") =>
+                    if info.get_fullname().to_ascii_lowercase().contains("vrchat-client")
+                        && info.get_port() != 0
+                        && info.get_addresses().iter().any(|addr| is_local_ip(addr.to_ip_addr())) =>
                 {
                     break info.get_port();
                 }
@@ -174,6 +176,10 @@ async fn browse_vrchat_port(
     let _ = daemon.stop_browse(SERVICE_TYPE);
     let _ = daemon.shutdown();
     Ok(Some(port))
+}
+
+fn is_local_ip(ip: IpAddr) -> bool {
+    ip.is_loopback() || std::net::UdpSocket::bind(SocketAddr::new(ip, 0)).is_ok()
 }
 
 pub(crate) type OscQueryWs =
@@ -207,18 +213,22 @@ impl OscQueryAdvertisement {
             .await
             .map_err(|error| error.to_string())?;
         let http_port = listener.local_addr().map_err(|e| e.to_string())?.port();
-        let router = Router::new().route(
-            "/",
-            get(
-                move |Query(query): Query<HashMap<String, String>>| async move {
-                    Json(if query.contains_key("HOST_INFO") {
+        let router = Router::new()
+            .route(
+                "/",
+                get(move |RawQuery(query): RawQuery| async move {
+                    let wants_host_info = query.as_deref().is_some_and(|raw| {
+                        raw.split('&')
+                            .any(|part| part.split('=').next() == Some("HOST_INFO"))
+                    });
+                    Json(if wants_host_info {
                         host_info_json(osc_udp_port)
                     } else {
                         root_node_json()
                     })
-                },
-            ),
-        );
+                }),
+            )
+            .route("/avatar", get(|| async { Json(avatar_node_json()) }));
         let task = tokio::spawn(async move {
             let _ = axum::serve(listener, router).await;
         });
@@ -250,7 +260,9 @@ impl OscQueryAdvertisement {
 impl Drop for OscQueryAdvertisement {
     fn drop(&mut self) {
         self.task.abort();
-        let _ = self.daemon.unregister(&self.fullname);
+        if let Ok(receiver) = self.daemon.unregister(&self.fullname) {
+            let _ = receiver.recv_timeout(Duration::from_millis(100));
+        }
         let _ = self.daemon.shutdown();
     }
 }
@@ -265,16 +277,20 @@ fn host_info_json(osc_udp_port: u16) -> Value {
     })
 }
 
+fn avatar_node_json() -> Value {
+    json!({
+        "FULL_PATH": "/avatar",
+        "ACCESS": 1,
+    })
+}
+
 fn root_node_json() -> Value {
     json!({
         "DESCRIPTION": "root",
         "FULL_PATH": "/",
         "ACCESS": 0,
         "CONTENTS": {
-            "avatar": {
-                "FULL_PATH": "/avatar",
-                "ACCESS": 1,
-            }
+            "avatar": avatar_node_json(),
         }
     })
 }

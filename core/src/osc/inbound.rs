@@ -121,24 +121,27 @@ impl OscInboundServer {
             *status.write().expect("OSC inbound status lock") = OscInboundRuntimeStatus::disabled();
             return Ok(None);
         }
-        let listen_port = config.inbound.port;
-        if listen_port == 0 {
-            return Err("OSC inbound port must be between 1 and 65535".into());
-        }
-        if listen_port == config.port {
-            return Err("OSC inbound port cannot match the VRChat OSC output port".into());
-        }
-        let requested = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, listen_port));
-        let socket = UdpSocket::bind(requested)
-            .await
-            .map_err(|error| format!("Failed to listen for OSC inbound on {requested}: {error}"))?;
-        let address = socket
-            .local_addr()
-            .map_err(|error| format!("Failed to read OSC inbound listen address: {error}"))?;
-        let forward_socket = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
-            .await
-            .map_err(|error| format!("Failed to create OSC forward socket: {error}"))?;
+        let (socket, forward_socket, address) = bind_sockets(config).await?;
+        Ok(Some(Self::from_sockets(
+            config,
+            socket,
+            forward_socket,
+            address,
+            on_chatbox,
+            status,
+            shutdown,
+        )))
+    }
 
+    fn from_sockets(
+        config: &OscConfig,
+        socket: UdpSocket,
+        forward_socket: UdpSocket,
+        address: SocketAddr,
+        on_chatbox: InboundChatboxCallback,
+        status: Arc<RwLock<OscInboundRuntimeStatus>>,
+        shutdown: watch::Receiver<bool>,
+    ) -> Self {
         *status.write().expect("OSC inbound status lock") =
             OscInboundRuntimeStatus::listening(address);
 
@@ -161,14 +164,14 @@ impl OscInboundServer {
         ));
 
         tracing::info!(%address, forward_port = config.port, "OSC inbound listener started");
-        Ok(Some(Self {
+        Self {
             #[cfg(test)]
             address,
-            port: listen_port,
+            port: config.inbound.port,
             rules: rules_tx,
             stop: stop_tx,
             tasks: vec![listener_task, worker_task],
-        }))
+        }
     }
 
     pub(crate) fn update_rules(&self, config: &OscConfig) {
@@ -188,6 +191,27 @@ impl OscInboundServer {
             let _ = task.await;
         }
     }
+}
+
+async fn bind_sockets(config: &OscConfig) -> Result<(UdpSocket, UdpSocket, SocketAddr), String> {
+    let listen_port = config.inbound.port;
+    if listen_port == 0 {
+        return Err("OSC inbound port must be between 1 and 65535".into());
+    }
+    if listen_port == config.port {
+        return Err("OSC inbound port cannot match the VRChat OSC output port".into());
+    }
+    let requested = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, listen_port));
+    let socket = UdpSocket::bind(requested)
+        .await
+        .map_err(|error| format!("Failed to listen for OSC inbound on {requested}: {error}"))?;
+    let address = socket
+        .local_addr()
+        .map_err(|error| format!("Failed to read OSC inbound listen address: {error}"))?;
+    let forward_socket = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
+        .await
+        .map_err(|error| format!("Failed to create OSC forward socket: {error}"))?;
+    Ok((socket, forward_socket, address))
 }
 
 pub(crate) async fn reconfigure(
@@ -212,15 +236,19 @@ pub(crate) async fn reconfigure(
         return Ok(());
     }
 
-    let candidate =
-        match OscInboundServer::start(config, on_chatbox, Arc::clone(&status), shutdown).await {
-            Ok(Some(candidate)) => candidate,
-            Ok(None) => return Ok(()),
-            Err(error) => return Err(error),
-        };
-    if let Some(previous) = server.replace(candidate) {
+    let (socket, forward_socket, address) = bind_sockets(config).await?;
+    if let Some(previous) = server.take() {
         previous.stop().await;
     }
+    *server = Some(OscInboundServer::from_sockets(
+        config,
+        socket,
+        forward_socket,
+        address,
+        on_chatbox,
+        status,
+        shutdown,
+    ));
     Ok(())
 }
 
