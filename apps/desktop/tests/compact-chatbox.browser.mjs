@@ -114,16 +114,16 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
       const root=createRoot(document.getElementById('root'));
       let controller, chat, stream, update, flags, selectionClears=0;
       function Fixture(){
-        const [state,setState]=useState({ready:true,enabled:true,osc:true,overlay:false,transparent:false,outputMode:'system'});
+        const [state,setState]=useState({ready:true,enabled:true,osc:true,unitext:false,overlay:false,transparent:false,outputMode:'system'});
         flags=state;update=partial=>flushSync(()=>setState(current=>({...current,...partial})));
-        const settings={features:{glossary:state.enabled,learning:state.enabled},osc:{enabled:state.osc},translation:{microphone_targets:[{target_language:state.preferredTarget??'en'}]},audio:{output:{mode:state.outputMode}}};
+        const settings={features:{glossary:state.enabled,learning:state.enabled},osc:{enabled:state.osc},unitext:{enabled:state.unitext},translation:{microphone_targets:[{target_language:state.preferredTarget??'en'}]},audio:{output:{mode:state.outputMode}}};
         controller=useCompactWindow({clearErrorFrom:noop,reportError:reason=>nativeErrors.push(reason)});
         chat=useChatboxWorkspace(settings,state.room);
         stream=useSubtitleStream({coreConfigured:true,clearErrorFrom:noop,reportError:noop});
         useConversationCatalog({coreReady:true,conversationCatalogEvent:stream.conversationCatalogEvent,
           openConversation:stream.openConversation,openConversationAt:stream.openConversationAt,clearErrorFrom:noop,reportError:noop});
         const props={draft:chat.draft,preferredTarget:chat.preferredTarget,preview:chat.preview,busy:chat.busy,feedback:chat.feedback,translationStale:chat.translationStale,
-          oscEnabled:state.osc,languageCodes:['en','ja'],allowCustomLanguage:true,onDraftChange:chat.setDraft,onTranslate:chat.translate,onSend:chat.send};
+          oscEnabled:state.osc,unitextEnabled:state.unitext,languageCodes:['en','ja'],allowCustomLanguage:true,onDraftChange:chat.setDraft,onTranslate:chat.translate,onSend:chat.send};
         return controller.compact?<CompactEntry
           compact={{...controller,transparentBackground:state.transparent,overlayOpen:state.overlay,selectionPanelOpen:false,
             subtitles:subtitlesForCompactView(stream.subtitles),subtitleHistory:stream.subtitles}}
@@ -289,7 +289,10 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
         update({overlay:true});await wait(()=>nativeSize.height===520);check(!input(),'Overlay temporarily hides composer');
         update({overlay:false});await wait(()=>input());await fitComposer(240);
         check(input().value==='需要翻译'&&document.querySelector('[role="status"]'),'Overlay restores draft and feedback');
-        update({osc:false});check(sendButton().disabled&&!input().disabled,'OSC off permits composing, not sending');
+        update({osc:false,unitext:false});check(sendButton().disabled&&!input().disabled,'OSC and UniText off permits composing, not sending');
+        update({osc:false,unitext:true});check(!sendButton().disabled&&!input().disabled,'UniText alone allows sending');
+        check(!document.querySelector('[aria-label="'+locale.translation.chatbox.outputTarget+'"]'),'Output target selector is hidden when only UniText is enabled');
+        update({unitext:false});
         click(toggle());await wait(()=>nativeSize.height===240);
         update({ready:false});check(toggle().disabled,'Core unready disables entry');
         update({ready:true,enabled:false});check(toggle()&&!toggle().disabled,'Disabling optional features keeps Chatbox available');
@@ -331,6 +334,15 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
           check(button.top>=composer.top&&button.bottom<=composer.bottom,'Send control remains visible at scale '+scale);
           check(getComputedStyle(document.querySelector('.chatbox-composer')).backgroundColor!=='rgba(0, 0, 0, 0)','Transparent captions retain readable composer surface');
         }
+        update({osc:true,unitext:true});
+        const targetGroup=document.querySelector('[aria-label="'+locale.translation.chatbox.outputTarget+'"]');
+        const modeGroup=document.querySelector('[aria-label="'+locale.translation.chatbox.sendMode+'"]');
+        check(targetGroup&&modeGroup&&(targetGroup.compareDocumentPosition(modeGroup)&Node.DOCUMENT_POSITION_FOLLOWING),'Output target selector appears to the left of send mode when both are enabled');
+        click(targetGroup.querySelectorAll('button')[1]);
+        check(chat.draft.output_target==='unitext'&&chat.preview.limit===null,'Selecting UniText lifts the 144-character preview limit');
+        click(targetGroup.querySelectorAll('button')[2]);
+        check(chat.draft.output_target==='both'&&chat.preview.limit===144,'Selecting Both restores the 144-character preview limit');
+        update({unitext:false});
         document.documentElement.style.setProperty('--interface-scale',1);
         document.documentElement.style.setProperty('--interface-scale-inverse',1);
         key(input(),'Escape');await fitComposer(400);

@@ -83,6 +83,13 @@
   gap: 8px 12px;
 }
 
+.chatbox-details-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .chatbox-details-header h2 {
   margin: 0;
   color: var(--text);

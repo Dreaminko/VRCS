@@ -97,7 +97,14 @@ test("Chatbox send settings round-trip without retaining message text", () => {
   assert.equal(restored.translation, null);
   assert.equal(restored.target_language, "de");
   assert.equal(restored.send_mode, "translation");
+  assert.equal(restored.output_target, "both");
   assert.equal(restored.overflow_policy, "smart_truncate");
+
+  const unitextOnly = applyChatboxPreferences(
+    createChatboxDraft("ja"),
+    chatboxPreferencesFromDraft({ ...restored, output_target: "unitext" }),
+  );
+  assert.equal(unitextOnly.output_target, "unitext");
 });
 
 test("following the preferred target survives saving and reopening", () => {
@@ -160,4 +167,23 @@ test("Chatbox preference writes keep only the latest pending value", async () =>
   await task;
 
   assert.deepEqual(writes, [1, 3]);
+});
+
+test("unbounded Chatbox preview lifts the 144-character limit for UniText-only output", () => {
+  const longOriginal = "a".repeat(180);
+  const longTranslation = "b".repeat(180);
+  const draft = {
+    ...createChatboxDraft("ja"),
+    original: longOriginal,
+    translation: longTranslation,
+    send_mode: "bilingual" as const,
+    message_format: "custom" as const,
+    custom_format: "broken",
+  };
+  const preview = previewChatboxLocally(draft, { enforceOscLimit: false });
+  assert.equal(preview.limit, null);
+  assert.equal(preview.over_limit, false);
+  assert.equal(preview.truncated, false);
+  assert.equal(preview.sendable, true);
+  assert.equal(preview.text, `${longOriginal}\n${longTranslation}`);
 });

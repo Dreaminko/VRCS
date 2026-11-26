@@ -131,6 +131,12 @@
         "translation": "Translation",
         "bilingual": "Bilingual"
       },
+      "outputTarget": "Output target",
+      "outputTargets": {
+        "osc": "OSC",
+        "unitext": "UniText",
+        "both": "Both"
+      },
       "format": "Message format",
       "formats": {
         "originalFirst": "Original, then translation",
@@ -147,7 +153,7 @@
       "smartTruncate": "Send with smart truncation",
       "send": "Send to VRChat",
       "sending": "Sending…",
-      "oscDisabled": "Enable OSC in Settings before sending.",
+      "outputDisabled": "Enable OSC or UniText in Settings before sending.",
       "errors": {
         "translate": "We couldn't translate this message.",
         "send": "We couldn't send the Chatbox message."
@@ -2115,7 +2121,8 @@
         "invalid_format": "Custom formats must contain {original} and {translation} once each.",
         "over_limit": "This message has {{count}} characters. The limit is {{limit}}.",
         "history_store_failed": "The message was handled, but its history could not be saved.",
-        "conversation_store_failed": "The message was sent, but it could not be added to the current conversation."
+        "conversation_store_failed": "The message was sent, but it could not be added to the current conversation.",
+        "output_disabled": "Enable OSC or UniText in Settings before sending."
       },
       "osc": {
         "disabled": "OSC is disabled.",

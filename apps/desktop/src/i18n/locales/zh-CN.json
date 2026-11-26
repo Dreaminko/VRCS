@@ -131,6 +131,12 @@
         "translation": "译文",
         "bilingual": "双语"
       },
+      "outputTarget": "输出目标",
+      "outputTargets": {
+        "osc": "OSC",
+        "unitext": "UniText",
+        "both": "混合"
+      },
       "format": "消息格式",
       "formats": {
         "originalFirst": "原文换行译文",
@@ -147,7 +153,7 @@
       "smartTruncate": "智能截断后发送",
       "send": "发送到 VRChat",
       "sending": "正在发送…",
-      "oscDisabled": "请先在设置中启用 OSC。",
+      "outputDisabled": "请先在设置中启用 OSC 或 UniText。",
       "errors": {
         "translate": "无法翻译这条消息。",
         "send": "无法发送 Chatbox 消息。"
@@ -2115,7 +2121,8 @@
         "invalid_format": "自定义格式必须各包含一次 {original} 和 {translation}。",
         "over_limit": "消息共 {{count}} 个字符，超过 {{limit}} 字符限制。",
         "history_store_failed": "消息已处理，但无法保存发送记录。",
-        "conversation_store_failed": "消息已发送，但无法写入当前对话。"
+        "conversation_store_failed": "消息已发送，但无法写入当前对话。",
+        "output_disabled": "请先在设置中启用 OSC 或 UniText。"
       },
       "osc": {
         "disabled": "OSC 尚未启用。",

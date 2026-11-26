@@ -131,6 +131,12 @@
         "translation": "翻訳",
         "bilingual": "二言語"
       },
+      "outputTarget": "出力先",
+      "outputTargets": {
+        "osc": "OSC",
+        "unitext": "UniText",
+        "both": "両方"
+      },
       "format": "メッセージ形式",
       "formats": {
         "originalFirst": "原文の下に翻訳",
@@ -147,7 +153,7 @@
       "smartTruncate": "適切に短縮して送信",
       "send": "VRChat に送信",
       "sending": "送信中…",
-      "oscDisabled": "送信する前に設定で OSC を有効にしてください。",
+      "outputDisabled": "送信する前に設定で OSC または UniText を有効にしてください。",
       "errors": {
         "translate": "このメッセージを翻訳できませんでした。",
         "send": "Chatbox メッセージを送信できませんでした。"
@@ -2115,7 +2121,8 @@
         "invalid_format": "カスタム形式には {original} と {translation} を1回ずつ含めてください。",
         "over_limit": "メッセージは {{count}} 文字です。上限は {{limit}} 文字です。",
         "history_store_failed": "メッセージは処理されましたが、履歴を保存できませんでした。",
-        "conversation_store_failed": "メッセージは送信されましたが、現在の会話に追加できませんでした。"
+        "conversation_store_failed": "メッセージは送信されましたが、現在の会話に追加できませんでした。",
+        "output_disabled": "送信する前に設定で OSC または UniText を有効にしてください。"
       },
       "osc": {
         "disabled": "OSC が無効です。",

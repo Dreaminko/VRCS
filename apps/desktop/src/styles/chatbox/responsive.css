@@ -10,6 +10,11 @@
     align-items: stretch;
   }
 
+  .chatbox-details-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .chatbox-segmented {
     align-self: stretch;
   }

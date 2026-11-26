@@ -457,6 +457,7 @@ export function DesktopShell({
           feedback={chatbox.feedback}
           translationStale={chatbox.translationStale}
           oscEnabled={settings.value?.osc.enabled ?? false}
+          unitextEnabled={settings.value?.unitext?.enabled ?? false}
           languageCodes={providers.translationLanguageCodes}
           allowCustomLanguage={providers.allowCustomTranslationLanguage}
           closing={chatboxClosing}

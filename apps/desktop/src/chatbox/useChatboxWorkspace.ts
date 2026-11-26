@@ -47,6 +47,11 @@ export function useChatboxWorkspace(
     ? languageSession.translation
     : settings?.translation;
   const preferredTarget = effectiveTranslation?.microphone_targets[0]?.target_language ?? "ja";
+  const oscEnabled = Boolean(settings?.osc?.enabled);
+  const unitextEnabled = Boolean(settings?.unitext?.enabled);
+  const sendOsc = oscEnabled && (!unitextEnabled || draft.output_target !== "unitext");
+  const sendUnitext = unitextEnabled && (!oscEnabled || draft.output_target !== "osc");
+  const enforceOscLimit = sendOsc || !sendUnitext;
   const oscMessageFormat = settings?.osc?.message_format ?? "original_newline_translation";
   const oscCustomFormat = settings?.osc?.custom_format ?? null;
   const resolvedDraft = useMemo(() => {
@@ -60,12 +65,18 @@ export function useChatboxWorkspace(
   }, [draft, oscCustomFormat, oscMessageFormat, preferredTarget]);
   const targetRef = useRef(resolvedDraft.target_language);
   targetRef.current = resolvedDraft.target_language;
-  const localPreview = useMemo(() => previewChatboxLocally(resolvedDraft), [resolvedDraft]);
+  const localPreview = useMemo(
+    () => previewChatboxLocally(resolvedDraft, { enforceOscLimit }),
+    [enforceOscLimit, resolvedDraft],
+  );
   const [remotePreview, setRemotePreview] = useState<{
     draft: ChatboxComposeInput;
+    enforceOscLimit: boolean;
     value: ChatboxPreview;
   } | null>(null);
-  const preview = remotePreview?.draft === resolvedDraft ? remotePreview.value : localPreview;
+  const preview = remotePreview?.draft === resolvedDraft && remotePreview.enforceOscLimit === enforceOscLimit
+    ? remotePreview.value
+    : localPreview;
   const [busy, setBusy] = useState<"translate" | "send" | null>(null);
   const [feedback, setFeedback] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const previewRequest = useRef(0);
@@ -95,13 +106,15 @@ export function useChatboxWorkspace(
     const timer = window.setTimeout(() => {
       void chatboxApi.previewChatbox(resolvedDraft).then(
         (value) => {
-          if (requestId === previewRequest.current) setRemotePreview({ draft: resolvedDraft, value });
+          if (requestId === previewRequest.current) {
+            setRemotePreview({ draft: resolvedDraft, enforceOscLimit, value });
+          }
         },
         () => undefined,
       );
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [available, preferencesReady, open, draft.send_mode, resolvedDraft, translationFresh]);
+  }, [available, preferencesReady, open, draft.send_mode, resolvedDraft, translationFresh, enforceOscLimit]);
 
   const changeDraft = useCallback((next: ChatboxDraft) => {
     if (!preferencesReady) return;
@@ -121,6 +134,7 @@ export function useChatboxWorkspace(
       currentPreferences.follow_translation_settings !== nextPreferences.follow_translation_settings
       || currentPreferences.target_language !== nextPreferences.target_language
       || currentPreferences.send_mode !== nextPreferences.send_mode
+      || currentPreferences.output_target !== nextPreferences.output_target
       || currentPreferences.overflow_policy !== nextPreferences.overflow_policy
     ) {
       void saveChatboxPreferences(nextPreferences);
@@ -145,7 +159,7 @@ export function useChatboxWorkspace(
 
   const close = useCallback(() => setOpen(false), []);
 
-  const requestTranslation = useCallback(async (input: ChatboxComposeInput) => {
+  const requestTranslation = useCallback(async <T extends ChatboxComposeInput>(input: T) => {
     const requestRoom = roomScopeRef.current;
     const result = await subtitlesApi.previewTranslation(
       input.original,

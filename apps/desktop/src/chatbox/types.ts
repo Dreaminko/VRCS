@@ -1,4 +1,5 @@
 export type ChatboxSendMode = "original" | "translation" | "bilingual";
+export type ChatboxOutputTarget = "osc" | "unitext" | "both";
 export type ChatboxMessageFormat =
   | "original_newline_translation"
   | "translation_newline_original"
@@ -18,6 +19,7 @@ export interface ChatboxComposeInput {
   source_language: string | null;
   target_language: string | null;
   send_mode: ChatboxSendMode;
+  output_target?: ChatboxOutputTarget;
   message_format: ChatboxMessageFormat;
   custom_format: string | null;
   overflow_policy: ChatboxOverflowPolicy;
@@ -26,7 +28,7 @@ export interface ChatboxComposeInput {
 export interface ChatboxPreview {
   text: string;
   char_count: number;
-  limit: number;
+  limit: number | null;
   over_limit: boolean;
   truncated: boolean;
   sendable: boolean;

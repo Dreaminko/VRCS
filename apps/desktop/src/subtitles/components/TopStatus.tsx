@@ -34,6 +34,7 @@ export function TopStatus({ connection, health, settings, apiProfiles = [], prov
   const connectionLabel = t(`status.connection.${connection}`);
   const networkStatus = vrchatNetworkStatus(health, settings, t);
   const statusLabel = networkStatus?.label ?? transcriptionStatusLabel(health, t);
+  const vrchatStatus = vrchatSendStatus(health, settings, t);
   const toggleLabel = t(expanded ? "common.collapseNamed" : "common.expandNamed", { name: t("status.summary") });
   const toggle = (event: MouseEvent<HTMLButtonElement>) => {
     motion.prepare(event.detail > 0);
@@ -60,9 +61,9 @@ export function TopStatus({ connection, health, settings, apiProfiles = [], prov
             <strong>{statusLabel}</strong>
           </span>
           <i aria-hidden="true" />
-          <span className={`status-summary-item mute-summary${health?.osc?.status === "error" ? " error" : health?.osc?.send_gate === "open" ? "" : " muted"}`}>
+          <span className={`status-summary-item mute-summary${vrchatStatus.tone ? ` ${vrchatStatus.tone}` : ""}`}>
             <span className="status-summary-label">{t("status.vrchat")}</span>
-            <strong>{vrchatSendStatusLabel(health, settings, t)}</strong>
+            <strong>{vrchatStatus.label}</strong>
           </span>
           <i aria-hidden="true" />
           <span className="status-summary-item"><span className="status-summary-label">{t("status.engine")}</span><strong>{engineLabel(settings, apiProfiles, providerDefinitions)}</strong></span>
@@ -81,17 +82,48 @@ function transcriptionStatusLabel(health: Health | null, t: (key: string) => str
   return t("status.transcribing");
 }
 
-function vrchatSendStatusLabel(
+function vrchatSendStatus(
   health: Health | null,
   settings: Settings | null,
   t: (key: string) => string,
-): string {
-  if (!settings?.osc.enabled || health?.osc?.status === "disabled") return t("status.vrchatSendDisabled");
-  if (!health?.osc) return t("status.vrchatSendChecking");
-  if (health.osc.status === "error") return t("status.vrchatSendError");
-  if (health.osc.send_gate === "blocked_vrchat_muted") return t("status.pausedVrchatMuted");
-  if (health.osc.send_gate === "blocked_mute_unknown") return t("status.muteUnknown");
-  return t("status.sendReady");
+): { label: string; tone: "" | "muted" | "error" } {
+  const oscEnabled = Boolean(settings?.osc?.enabled);
+  const unitextEnabled = Boolean(settings?.unitext?.enabled);
+  if (!oscEnabled && !unitextEnabled) {
+    return { label: t("status.vrchatSendDisabled"), tone: "muted" };
+  }
+
+  const osc = health?.osc;
+  const unitext = health?.unitext;
+
+  if (!oscEnabled) {
+    if (!unitext) return { label: t("status.vrchatSendChecking"), tone: "muted" };
+    if (unitext.status === "disabled") return { label: t("status.vrchatSendDisabled"), tone: "muted" };
+    if (unitext.status === "error") return { label: t("status.vrchatSendError"), tone: "error" };
+    if (unitext.status === "ready") return { label: t("status.sendReady"), tone: "" };
+    if (unitext.status === "discovering" || unitext.status === "not_detected") {
+      return { label: t(`settings.unitext.status.${unitext.status}`), tone: "muted" };
+    }
+    return { label: t("status.vrchatSendChecking"), tone: "muted" };
+  }
+
+  if (osc?.status === "error" || (unitextEnabled && unitext?.status === "error")) {
+    return { label: t("status.vrchatSendError"), tone: "error" };
+  }
+  if (!osc) {
+    if (unitextEnabled && unitext?.status === "ready") return { label: t("status.sendReady"), tone: "" };
+    return { label: t("status.vrchatSendChecking"), tone: "muted" };
+  }
+  if (osc.status !== "disabled" && osc.send_gate === "open") {
+    return { label: t("status.sendReady"), tone: "" };
+  }
+  if (unitextEnabled && unitext?.status === "ready") {
+    return { label: t("status.sendReady"), tone: "" };
+  }
+  if (osc.status === "disabled") return { label: t("status.vrchatSendDisabled"), tone: "muted" };
+  if (osc.send_gate === "blocked_vrchat_muted") return { label: t("status.pausedVrchatMuted"), tone: "muted" };
+  if (osc.send_gate === "blocked_mute_unknown") return { label: t("status.muteUnknown"), tone: "muted" };
+  return { label: t("status.sendReady"), tone: "" };
 }
 
 function engineLabel(

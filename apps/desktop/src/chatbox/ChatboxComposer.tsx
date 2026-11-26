@@ -32,6 +32,7 @@ export function ChatboxComposer({
   feedback,
   translationStale,
   oscEnabled,
+  unitextEnabled = false,
   languageCodes,
   allowCustomLanguage,
   onDraftChange,
@@ -51,6 +52,7 @@ export function ChatboxComposer({
   feedback: { tone: "success" | "error"; text: string } | null;
   translationStale: boolean;
   oscEnabled: boolean;
+  unitextEnabled?: boolean;
   languageCodes: readonly string[];
   allowCustomLanguage: boolean;
   onDraftChange: (draft: ChatboxDraft) => void;
@@ -101,18 +103,22 @@ export function ChatboxComposer({
   const translationAvailable = Boolean(draft.translation?.trim());
   const translationPending = usesTranslation
     && (!translationAvailable || translationStale);
+  const outputEnabled = oscEnabled || unitextEnabled;
+  const bothOutputsEnabled = oscEnabled && unitextEnabled;
+  const previewLimit = preview.limit;
   const previewBlocked = !translationPending && preview.over_limit && !preview.sendable;
   const previewTruncated = !translationPending && preview.truncated;
-  const sendDisabledReason = !oscEnabled
-    ? t("chatbox.oscDisabled")
-    : previewBlocked
-      ? t("chatbox.overLimitHint", { limit: preview.limit })
+  const sendDisabledReason = !outputEnabled
+    ? t("chatbox.outputDisabled")
+    : previewBlocked && previewLimit !== null
+      ? t("chatbox.overLimitHint", { limit: previewLimit })
       : null;
-  const canSend = oscEnabled
+  const canSend = outputEnabled
     && !controlsDisabled
     && Boolean(draft.original.trim())
     && (translationPending || preview.sendable);
   const inputCount = [...draft.original].length;
+  const inputOverLimit = previewLimit !== null && inputCount > previewLimit;
   const sendLabel = busy === "translate"
     ? t("translation.translating")
     : busy === "send"
@@ -131,17 +137,32 @@ export function ChatboxComposer({
         <div className="chatbox-details" id="chatbox-details">
           <header className="chatbox-details-header">
             <h2>{t("chatbox.detailsTitle")}</h2>
-            <SegmentedControl
-              label={t("chatbox.sendMode")}
-              value={draft.send_mode}
-              disabled={controlsDisabled}
-              options={[
-                { value: "original", label: t("chatbox.modes.original") },
-                { value: "translation", label: t("chatbox.modes.translation") },
-                { value: "bilingual", label: t("chatbox.modes.bilingual") },
-              ]}
-              onChange={(send_mode) => update({ send_mode })}
-            />
+            <div className="chatbox-details-controls">
+              {bothOutputsEnabled && (
+                <SegmentedControl
+                  label={t("chatbox.outputTarget")}
+                  value={draft.output_target}
+                  disabled={controlsDisabled}
+                  options={[
+                    { value: "osc", label: t("chatbox.outputTargets.osc") },
+                    { value: "unitext", label: t("chatbox.outputTargets.unitext") },
+                    { value: "both", label: t("chatbox.outputTargets.both") },
+                  ]}
+                  onChange={(output_target) => update({ output_target })}
+                />
+              )}
+              <SegmentedControl
+                label={t("chatbox.sendMode")}
+                value={draft.send_mode}
+                disabled={controlsDisabled}
+                options={[
+                  { value: "original", label: t("chatbox.modes.original") },
+                  { value: "translation", label: t("chatbox.modes.translation") },
+                  { value: "bilingual", label: t("chatbox.modes.bilingual") },
+                ]}
+                onChange={(send_mode) => update({ send_mode })}
+              />
+            </div>
           </header>
 
           {usesTranslation && (
@@ -191,27 +212,31 @@ export function ChatboxComposer({
             <div className="chatbox-preview-heading">
               <span>{t("chatbox.preview")}</span>
               <output>
-                {translationPending
-                  ? `— / ${preview.limit}`
-                  : previewTruncated
-                    ? `${t("chatbox.truncatedBadge")} · ${preview.char_count} / ${preview.limit}`
-                    : `${preview.char_count} / ${preview.limit}`}
+                {previewLimit === null
+                  ? (translationPending ? "—" : preview.char_count)
+                  : translationPending
+                    ? `— / ${previewLimit}`
+                    : previewTruncated
+                      ? `${t("chatbox.truncatedBadge")} · ${preview.char_count} / ${previewLimit}`
+                      : `${preview.char_count} / ${previewLimit}`}
               </output>
             </div>
             <p className={translationPending || !preview.text ? "is-placeholder" : undefined}>{translationPending
               ? t("chatbox.translationPreviewPending")
               : preview.text || t("chatbox.previewEmpty")}</p>
-            <label className="chatbox-checkbox">
-              <input
-                type="checkbox"
-                checked={draft.overflow_policy === "smart_truncate"}
-                disabled={controlsDisabled}
-                onChange={(event) => update({
-                  overflow_policy: event.target.checked ? "smart_truncate" : "block",
-                })}
-              />
-              <span>{t("chatbox.smartTruncate")}</span>
-            </label>
+            {previewLimit !== null && (
+              <label className="chatbox-checkbox">
+                <input
+                  type="checkbox"
+                  checked={draft.overflow_policy === "smart_truncate"}
+                  disabled={controlsDisabled}
+                  onChange={(event) => update({
+                    overflow_policy: event.target.checked ? "smart_truncate" : "block",
+                  })}
+                />
+                <span>{t("chatbox.smartTruncate")}</span>
+              </label>
+            )}
           </div>
         </div>
       </div>
@@ -264,7 +289,7 @@ export function ChatboxComposer({
             className={`chatbox-expand-chevron ${expanded !== inline ? "rotated" : ""}`}
           />
         </button>
-        <div className={`chatbox-quick-input ${inputCount > preview.limit ? "over-limit" : ""}`}>
+        <div className={`chatbox-quick-input ${inputOverLimit ? "over-limit" : ""}`}>
           <label className="sr-only" htmlFor="chatbox-original-input">{t("chatbox.original")}</label>
           <textarea
             id="chatbox-original-input"
@@ -292,7 +317,7 @@ export function ChatboxComposer({
               {modeSummary}
             </button>
             <output aria-label={t("chatbox.inputCount", { count: inputCount })}>
-              {inputCount > preview.limit ? `${inputCount}/${preview.limit}` : inputCount}
+              {inputOverLimit ? `${inputCount}/${previewLimit}` : inputCount}
             </output>
           </div>
         </div>
@@ -310,9 +335,9 @@ export function ChatboxComposer({
         </button>
       </div>
 
-      {!oscEnabled && <p className="chatbox-inline-message error">{t("chatbox.oscDisabled")}</p>}
+      {!outputEnabled && <p className="chatbox-inline-message error">{t("chatbox.outputDisabled")}</p>}
       {feedback && <p className={`chatbox-inline-message ${feedback.tone}`} role="status">{feedback.text}</p>}
-      {oscEnabled && !feedback && !expanded && Boolean(draft.original.trim()) && sendDisabledReason && (
+      {outputEnabled && !feedback && !expanded && Boolean(draft.original.trim()) && sendDisabledReason && (
         <p className="chatbox-inline-message error" role="status">{sendDisabledReason}</p>
       )}
       {inline && detailsPanel}

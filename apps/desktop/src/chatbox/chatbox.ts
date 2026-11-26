@@ -1,5 +1,6 @@
 import type {
   ChatboxComposeInput,
+  ChatboxOutputTarget,
   ChatboxOverflowPolicy,
   ChatboxPreview,
   ChatboxSendMode,
@@ -8,18 +9,21 @@ import { canonicalLanguageTag } from "../translation/translation-languages.ts";
 
 export const CHATBOX_LIMIT = 144;
 const SEND_MODES = new Set<ChatboxSendMode>(["original", "translation", "bilingual"]);
+const OUTPUT_TARGETS = new Set<ChatboxOutputTarget>(["osc", "unitext", "both"]);
 const OVERFLOW_POLICIES = new Set<ChatboxOverflowPolicy>(["block", "smart_truncate"]);
 
 export interface ChatboxPreferences {
   follow_translation_settings: boolean;
   target_language: string;
   send_mode: ChatboxSendMode;
+  output_target: ChatboxOutputTarget;
   overflow_policy: ChatboxOverflowPolicy;
 }
 
 export interface ChatboxDraft extends ChatboxComposeInput {
   follow_translation_settings: boolean;
   target_language: string;
+  output_target: ChatboxOutputTarget;
 }
 
 export function createChatboxDraft(targetLanguage = "ja"): ChatboxDraft {
@@ -31,22 +35,40 @@ export function createChatboxDraft(targetLanguage = "ja"): ChatboxDraft {
     follow_translation_settings: true,
     target_language: targetLanguage,
     send_mode: "bilingual",
+    output_target: "both",
     message_format: "original_newline_translation",
     custom_format: null,
     overflow_policy: "block",
   };
 }
 
-export function previewChatboxLocally(input: ChatboxComposeInput): ChatboxPreview {
+export function previewChatboxLocally(
+  input: ChatboxComposeInput,
+  options: { enforceOscLimit?: boolean } = {},
+): ChatboxPreview {
+  const enforceOscLimit = options.enforceOscLimit ?? true;
   const original = compact(input.original);
   const translation = compact(input.translation ?? "");
-  const text = renderDraft(input, original, translation);
+  const effectiveInput = enforceOscLimit
+    ? input
+    : { ...input, message_format: "original_newline_translation" as const, custom_format: null };
+  const text = renderDraft(effectiveInput, original, translation);
   const charCount = [...text].length;
   const hasRequiredText = input.send_mode === "original"
     ? original.length > 0
     : input.send_mode === "translation"
       ? translation.length > 0
       : original.length > 0 && translation.length > 0;
+  if (!enforceOscLimit) {
+    return {
+      text,
+      char_count: charCount,
+      limit: null,
+      over_limit: false,
+      truncated: false,
+      sendable: hasRequiredText,
+    };
+  }
   const formatValid = input.send_mode !== "bilingual"
     || input.message_format !== "custom"
     || isValidChatboxCustomFormat(input.custom_format ?? "");
@@ -86,6 +108,7 @@ export function chatboxPreferencesFromDraft(draft: ChatboxDraft): ChatboxPrefere
     follow_translation_settings: draft.follow_translation_settings,
     target_language: normalizeTargetLanguage(draft.target_language, "ja"),
     send_mode: draft.send_mode,
+    output_target: draft.output_target,
     overflow_policy: draft.overflow_policy,
   };
 }
@@ -116,6 +139,9 @@ export function normalizeChatboxPreferences(
       : !manualTarget,
     target_language: manualTarget || safeFallback,
     send_mode: isSetValue(stored.send_mode, SEND_MODES) ? stored.send_mode : defaults.send_mode,
+    output_target: isSetValue(stored.output_target, OUTPUT_TARGETS)
+      ? stored.output_target
+      : defaults.output_target,
     overflow_policy: isSetValue(stored.overflow_policy, OVERFLOW_POLICIES)
       ? stored.overflow_policy
       : defaults.overflow_policy,
