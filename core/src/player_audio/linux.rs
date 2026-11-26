@@ -724,6 +724,7 @@ mod tests {
             writer,
             reader: None,
             packets,
+            wake: Arc::new((Mutex::new(false), Condvar::new())),
             waiter: Arc::new(Mutex::new(None)),
             fatal: Arc::new(Mutex::new(Some("fixture helper disconnected".into()))),
             next_request: AtomicU64::new(1),

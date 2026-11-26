@@ -16,6 +16,7 @@ pub(crate) struct Status {
     restart_required: bool,
 }
 
+#[cfg(any(windows, test))]
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MmAgentState {
@@ -411,7 +412,16 @@ mod tests {
 
     #[test]
     fn strict_status_and_fixed_commands_reject_ambiguous_results() {
-        assert!(parse_mm_agent_state(br#"{"enabled":false}"#).is_ok());
+        assert!(
+            !parse_mm_agent_state(br#"{"enabled":false}"#)
+                .unwrap()
+                .enabled
+        );
+        assert!(
+            parse_mm_agent_state(br#"{"enabled":true}"#)
+                .unwrap()
+                .enabled
+        );
         assert!(parse_system_state(br#"{"enabled":false,"boot_id":"123"}"#).is_ok());
         for bytes in [
             br#"{"enabled":"False"}"#.as_slice(),
