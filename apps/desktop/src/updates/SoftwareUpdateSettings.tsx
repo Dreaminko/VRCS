@@ -170,6 +170,11 @@ export function SoftwareUpdateSettings({
           )}
         </>
       )}
+      {updater.preferenceError && (
+        <p className="error" role="alert">
+          {t(`updates.errors.${resolveUpdateErrorKey(updater.preferenceError)}`)}
+        </p>
+      )}
     </section>
   );
 }

@@ -36,8 +36,9 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
 
   useEffect(() => {
     let disposed = false;
+    let loaded = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const controller = new AbortController();
+    let controller: AbortController | undefined;
     const active = config.master_enabled && ((vrAvailable && config.enabled) || config.desktop_enabled);
     const schedule = () => {
       if (disposed || !active || document.hidden || timer !== undefined) return;
@@ -48,24 +49,34 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
     };
     const load = async () => {
       if (disposed || document.hidden) return;
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      controller?.abort();
+      const nextController = new AbortController();
+      controller = nextController;
       try {
-        const next = await request<OcrExecutionStatus>("/api/ocr/runtime", { signal: controller.signal });
-        if (!disposed) setExecution(next);
+        const next = await request<OcrExecutionStatus>("/api/ocr/runtime", { signal: nextController.signal });
+        if (!disposed && !nextController.signal.aborted) {
+          loaded = true;
+          setExecution(next);
+        }
       } catch {
-        if (!disposed) setExecution(null);
+        if (!disposed && !nextController.signal.aborted) setExecution(null);
       } finally {
-        schedule();
+        if (!disposed && !nextController.signal.aborted) schedule();
       }
     };
     const onVisibility = () => {
-      if (!document.hidden && active) void load();
+      if (!document.hidden && (active || !loaded)) void load();
     };
     document.addEventListener("visibilitychange", onVisibility);
     if (!document.hidden) void load();
     return () => {
       disposed = true;
       if (timer !== undefined) clearTimeout(timer);
-      controller.abort();
+      controller?.abort();
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [vrAvailable, config.device, config.master_enabled, config.enabled, config.desktop_enabled]);

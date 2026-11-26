@@ -3,6 +3,7 @@ import { createLucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { OscInboundRuntimeStatus, OscInboundSettings } from "../../integrations/types";
+import { useHealthSelector } from "../../core-client/health-store";
 import { PreferenceToggle } from "../SettingsControls";
 import { SettingsDisclosure } from "../components/SettingsDisclosure";
 
@@ -37,6 +38,7 @@ export function OscInboundSettingsCard({
   onChange: (patch: Partial<OscInboundSettings>) => void;
 }) {
   const { t } = useTranslation();
+  const liveRuntime = useHealthSelector((health) => health?.osc_inbound) ?? runtime;
   const inbound = config ?? DEFAULT_INBOUND;
   const [portText, setPortText] = useState(String(inbound.port));
   const [portError, setPortError] = useState("");
@@ -74,23 +76,25 @@ export function OscInboundSettingsCard({
 
   const state = !inbound.enabled
     ? "disabled"
-    : runtime?.state === "error"
+    : liveRuntime?.state === "error"
       ? "error"
       : "ready";
   const statusKey = !inbound.enabled
     ? "disabled"
-    : runtime?.state === "error"
+    : liveRuntime?.state === "error"
       ? "error"
       : "listening";
   const outputUnavailable = inbound.intercept_chatbox_input && !oscEnabled && !unitextEnabled;
-  const statusDetail = runtime?.last_error
+  const statusDetail = liveRuntime?.last_error
     || (outputUnavailable ? t("settings.oscInbound.outputRequiredHint") : null)
-    || (runtime && runtime.received_packets > 0
+    || (liveRuntime && liveRuntime.received_packets > 0
       ? t("settings.oscInbound.stats", {
-          intercepted: runtime.intercepted_chatbox_messages,
-          forwarded: runtime.forwarded_packets,
+          intercepted: liveRuntime.intercepted_chatbox_messages,
+          forwarded: liveRuntime.forwarded_packets,
         })
-      : t("settings.oscInbound.statusHint", { port: oscPort }));
+      : inbound.forward_unmatched
+        ? t("settings.oscInbound.statusHint", { port: oscPort })
+        : null);
 
   return (
     <section className="connections-settings-group osc-section" aria-labelledby="connections-osc-inbound-title">
@@ -127,13 +131,13 @@ export function OscInboundSettingsCard({
           <span className="osc-connection-dot" aria-hidden="true" />
           <div>
             <strong>{t(`settings.oscInbound.status.${statusKey}`)}</strong>
-            <p>{statusDetail}</p>
+            {statusDetail && <p>{statusDetail}</p>}
           </div>
-          <code>{runtime?.listen_address || `127.0.0.1:${inbound.port}`}</code>
+          <code>{liveRuntime?.listen_address || `127.0.0.1:${inbound.port}`}</code>
         </div>
       </SettingsDisclosure>
 
-      <SettingsDisclosure open={inbound.enabled}>
+      <SettingsDisclosure open={inbound.enabled || Boolean(portError)}>
         <div className="osc-panel enabled">
           <div className="settings-toggle-list settings-feature-toggle">
             <PreferenceToggle

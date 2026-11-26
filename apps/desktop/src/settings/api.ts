@@ -86,7 +86,7 @@ async function putSettings(settings: Settings): Promise<Settings> {
   if (generation === revisionGeneration && isStaleRevision(responseRevision)) {
     throw Object.assign(
       new Error("The Core returned an outdated settings revision"),
-      { status: 409 },
+      { status: 409, code: "settings.stale" },
     );
   }
   commitConfigRevision(responseRevision, generation);

@@ -101,7 +101,7 @@ test("coalesced patch updates combine pending edits and preserve concurrent non-
       if (writes.length === 1) await gate;
       if (fail409) {
         fail409 = false;
-        throw Object.assign(new Error("conflict"), { status: 409 });
+        throw Object.assign(new Error("conflict"), { status: 409, code: "settings.stale" });
       }
       current = value;
       return value;
@@ -120,4 +120,40 @@ test("coalesced patch updates combine pending edits and preserve concurrent non-
   await Promise.all([first, second, third, vrPatch]);
   assert.deepEqual(current, { a: 2, b: 1, external: true });
   assert.equal(writes.length, 4);
+});
+
+test("reports failed patch errors even when another patch is queued and skips retry on non-stale 409", async () => {
+  let current = { a: 0, b: 0 };
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const errors: string[] = [];
+  let reloads = 0;
+  let calls = 0;
+  const save = createSettingsAutosave({
+    getCurrent: () => current,
+    reload: async () => {
+      reloads += 1;
+      return current;
+    },
+    persist: async (value) => {
+      calls += 1;
+      if (calls === 1) {
+        await gate;
+        throw Object.assign(new Error("osc conflict"), { status: 409, code: "settings.osc_inbound_reload_failed" });
+      }
+      current = value;
+      return value;
+    },
+    onOptimistic: () => undefined,
+    onCommit: () => undefined,
+    onError: (reason) => errors.push(reason instanceof Error ? reason.message : String(reason)),
+  });
+
+  const first = save.update((s) => ({ ...s, a: 1 })).catch(() => undefined);
+  const second = save.update((s) => ({ ...s, b: 1 }));
+  release();
+  await Promise.all([first, second]);
+  assert.deepEqual(errors, ["osc conflict"]);
+  assert.equal(reloads, 0);
+  assert.deepEqual(current, { a: 0, b: 1 });
 });

@@ -162,7 +162,7 @@ export function useSettingsRuntime({
     computeTarget: (current: Settings) => Settings,
     persistAction: () => Promise<Settings>,
   ): Promise<Settings> => {
-    const previous = persistedSettingsRef.current;
+    const previous = settingsAutosave.getDesired() ?? persistedSettingsRef.current;
     if (!previous) return persistAction();
     const next = computeTarget(previous);
     const networkActive = Boolean(health.getCurrent()?.network_capture_requested);
@@ -201,7 +201,10 @@ export function useSettingsRuntime({
       // UAC cancellation leaves the original input and capture available.
       saved = await settingsAutosave.update((latest) => ({
         ...latest,
-        audio: { ...latest.audio, output: previous.audio.output },
+        audio: {
+          ...latest.audio,
+          output: { ...latest.audio.output, mode: previous.audio.output.mode },
+        },
       }));
       await setCaptureRunning(true).catch((error) => reportError(error, "errors.operation", "capture"));
       reportError(reason, "errors.operation", "capture");

@@ -54,7 +54,15 @@ export function createSettingsAutosave<T>({
       try {
         return await persist(next);
       } catch (reason) {
-        if (attempt > 0 || !reload || (reason as { status?: number })?.status !== 409) throw reason;
+        const conflict = reason as { status?: number; code?: string } | null;
+        if (
+          attempt > 0
+          || !reload
+          || conflict?.status !== 409
+          || (conflict?.code !== undefined && conflict.code !== "settings.stale")
+        ) {
+          throw reason;
+        }
         current = await reload();
       }
     }
@@ -70,7 +78,7 @@ export function createSettingsAutosave<T>({
       if (save.version === latestVersion) onCommit(saved);
       save.waiters.forEach(({ resolve }) => resolve(saved));
     } catch (reason) {
-      if (save.version === latestVersion) onError(reason);
+      if (save.update || save.version === latestVersion) onError(reason);
       save.waiters.forEach(({ reject }) => reject(reason));
     } finally {
       const next = pending.shift();

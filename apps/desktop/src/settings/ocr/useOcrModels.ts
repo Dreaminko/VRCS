@@ -15,11 +15,21 @@ export function useOcrModels() {
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState("");
   const schedulePollRef = useRef<(delayMs: number) => void>(() => undefined);
+  const cancelPollRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | null = null;
+
+    const cancelPoll = () => {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      controller?.abort();
+      controller = null;
+    };
 
     const schedule = (delayMs: number) => {
       if (disposed || timer !== undefined || document.hidden) return;
@@ -30,14 +40,13 @@ export function useOcrModels() {
     };
 
     const poll = async () => {
-      if (disposed) return;
-      if (document.hidden) return;
-      controller?.abort();
+      if (disposed || document.hidden) return;
+      cancelPoll();
       const nextController = new AbortController();
       controller = nextController;
       try {
         const next = await request<VrOcrModelStatus>("/api/ocr/models", { signal: nextController.signal });
-        if (disposed) return;
+        if (disposed || nextController.signal.aborted) return;
         stateRef.current = next.state;
         setModels(next);
         setError("");
@@ -50,6 +59,7 @@ export function useOcrModels() {
     };
 
     schedulePollRef.current = schedule;
+    cancelPollRef.current = cancelPoll;
     const onVisibility = () => {
       if (!document.hidden && (stateRef.current === undefined || stateRef.current === "downloading")) {
         void poll();
@@ -60,14 +70,15 @@ export function useOcrModels() {
     return () => {
       disposed = true;
       schedulePollRef.current = () => undefined;
-      if (timer !== undefined) clearTimeout(timer);
-      controller?.abort();
+      cancelPollRef.current = () => undefined;
+      cancelPoll();
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 
   const download = async () => {
     if (busy) return false;
+    cancelPollRef.current();
     setBusy(true);
     setError("");
     try {
@@ -86,10 +97,13 @@ export function useOcrModels() {
 
   const remove = async () => {
     if (removing) return false;
+    cancelPollRef.current();
     setRemoving(true);
     setError("");
     try {
-      setModels(await request<VrOcrModelStatus>("/api/ocr/models", { method: "DELETE" }));
+      const next = await request<VrOcrModelStatus>("/api/ocr/models", { method: "DELETE" });
+      stateRef.current = next.state;
+      setModels(next);
       return true;
     } catch {
       setError(t("settings.vrOcr.modelDeleteFailed"));

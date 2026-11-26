@@ -25,6 +25,13 @@ export function useSettingsDraft(
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const saveVersionRef = useRef(0);
+  const lastErrorAtRef = useRef(0);
+  const settledFlushRef = useRef<{
+    scheduled: boolean;
+    saved: Settings | null;
+    expected: Settings | null;
+    version: number;
+  }>({ scheduled: false, saved: null, expected: null, version: 0 });
   const pendingUpdatesRef = useRef<Array<{
     version: number;
     apply: (current: Settings) => Settings;
@@ -59,23 +66,42 @@ export function useSettingsDraft(
     void request.then(
       (saved) => {
         pendingUpdatesRef.current = pendingUpdatesRef.current.filter(
-          (entry) => entry.version > version,
+          (entry) => entry.version !== version,
         );
-        if (version === saveVersionRef.current) {
-          draftRef.current = saved;
-          setDraft(saved);
-          setSaveState(saved === settingsRef.current && next !== saved ? "idle" : "saved");
-        } else {
-          rebaseDraft(saved);
+        const batch = settledFlushRef.current;
+        batch.saved = saved;
+        batch.expected = next;
+        batch.version = Math.max(batch.version, version);
+        if (!batch.scheduled) {
+          batch.scheduled = true;
+          queueMicrotask(() => {
+            batch.scheduled = false;
+            const latestSaved = batch.saved;
+            if (!latestSaved) return;
+            if (pendingUpdatesRef.current.length === 0) {
+              draftRef.current = latestSaved;
+              setDraft(latestSaved);
+              if (batch.version > lastErrorAtRef.current) {
+                setSaveState(
+                  latestSaved === settingsRef.current && batch.expected !== latestSaved
+                    ? "idle"
+                    : "saved",
+                );
+              }
+            } else {
+              rebaseDraft(latestSaved);
+            }
+          });
         }
         afterSave?.();
       },
       (reason) => {
         pendingUpdatesRef.current = pendingUpdatesRef.current.filter(
-          (entry) => entry.version > version,
+          (entry) => entry.version !== version,
         );
         rebaseDraft(settingsRef.current);
-        if (version === saveVersionRef.current) {
+        if (onSave.update || version === saveVersionRef.current) {
+          lastErrorAtRef.current = saveVersionRef.current;
           setSaveMessage(localizedError(reason, t, "errors.settings.apply"));
           setSaveState("error");
         }

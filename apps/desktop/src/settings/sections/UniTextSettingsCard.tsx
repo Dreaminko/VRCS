@@ -200,7 +200,7 @@ export function UniTextSettingsCard({
         </div>
       </SettingsDisclosure>
 
-      <SettingsDisclosure open={config.enabled}>
+      <SettingsDisclosure open={config.enabled || Boolean(portError)}>
         <div className="osc-panel enabled">
           <div className="settings-toggle-list settings-feature-toggle">
             <div className="osc-strategy-setting">

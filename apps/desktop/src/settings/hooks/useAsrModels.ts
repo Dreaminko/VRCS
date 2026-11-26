@@ -53,7 +53,7 @@ export function useAsrModels({
     setModelDirectoryText(settings.storage.model_directory);
   }, [settings.storage.model_directory]);
 
-  const fetchQwenModels = useCallback(async (isCancelled: () => boolean): Promise<boolean> => {
+  const fetchQwenModels = useCallback(async (isCancelled: () => boolean): Promise<boolean | null> => {
     try {
       const [next, runtime] = await Promise.all([providersApi.qwenModels(), providersApi.qwenRuntime()]);
       if (isCancelled()) return false;
@@ -70,7 +70,7 @@ export function useAsrModels({
       if (isCancelled()) return false;
       setQwenModelsReady(false);
       setQwenMessage(localizedError(reason, t, "errors.asr.models"));
-      return false;
+      return null;
     }
   }, [onModelsChanged, t]);
   const loadQwenModels = useCallback(
@@ -93,17 +93,23 @@ export function useAsrModels({
     if (!active || !transferBusy) return;
     let cancelled = false;
     let timer: number | null = null;
-    const schedule = () => {
+    const schedule = (delay = 750) => {
       if (cancelled || document.hidden || timer !== null) return;
       timer = window.setTimeout(() => {
         timer = null;
         void poll();
-      }, 750);
+      }, delay);
     };
     const poll = async () => {
       if (cancelled || document.hidden) return;
-      const stillBusy = await fetchQwenModels(() => cancelled);
-      if (!cancelled && stillBusy) schedule();
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+      const status = await fetchQwenModels(() => cancelled);
+      if (cancelled) return;
+      if (status === true) schedule(750);
+      else if (status === null) schedule(3_000);
     };
     const onVisibility = () => {
       if (!document.hidden) void poll();

@@ -32,15 +32,25 @@ export function LocalTranslationPanel({
   const [accepted, setAccepted] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const deleteButton = useRef<HTMLButtonElement>(null);
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
+
+  useEffect(() => () => {
+    mountedRef.current = false;
+  }, []);
 
   const load = useCallback(async (): Promise<LocalTranslationStatus | null> => {
+    const requestId = ++requestIdRef.current;
     try {
       const next = await localTranslationApi.status();
+      if (!mountedRef.current || requestId !== requestIdRef.current) return next;
       setStatus(next);
       setStatusError("");
       return next;
     } catch (reason) {
-      setStatusError(localizedError(reason, t, "errors.translation.failed"));
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setStatusError(localizedError(reason, t, "errors.translation.failed"));
+      }
       return null;
     }
   }, [t]);
@@ -55,17 +65,23 @@ export function LocalTranslationPanel({
     if (!transferBusy) return;
     let cancelled = false;
     let timer: number | null = null;
-    const schedule = () => {
+    const schedule = (delay = 1_000) => {
       if (cancelled || document.hidden || timer !== null) return;
       timer = window.setTimeout(() => {
         timer = null;
         void tick();
-      }, 1_000);
+      }, delay);
     };
     const tick = async () => {
       if (cancelled || document.hidden) return;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
       const next = await load();
-      if (!cancelled && isLocalTranslationBusy(next)) schedule();
+      if (cancelled) return;
+      if (next === null) schedule(3_000);
+      else if (isLocalTranslationBusy(next)) schedule(1_000);
     };
     const onVisibility = () => {
       if (!document.hidden) void tick();
