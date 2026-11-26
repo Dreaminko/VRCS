@@ -33,7 +33,7 @@ impl State {
         #[cfg(any(windows, target_os = "linux"))]
         self.selection_cancelled.store(true, Ordering::Release);
         #[cfg(windows)]
-        crate::desktop_capture::selection_window::cancel_active();
+        crate::desktop_capture::selection_window::cancel_active(&self.selection_cancelled);
         #[cfg(target_os = "linux")]
         self.selection_cancel_notify.notify_waiters();
         if let Some(task) = self.task.take() {

@@ -124,10 +124,19 @@ fn record_restart(marker: &Path, boot_id: &str) -> Result<(), String> {
         boot_id: boot_id.into(),
     })
     .map_err(|error| error.to_string())?;
-    let mut file = std::fs::File::create(marker).map_err(|error| error.to_string())?;
+    let mut temp = marker.as_os_str().to_os_string();
+    temp.push(".tmp");
+    let temp = std::path::PathBuf::from(temp);
+    let mut file = std::fs::File::create(&temp).map_err(|error| error.to_string())?;
     file.write_all(&data)
         .and_then(|_| file.sync_all())
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    drop(file);
+    if std::fs::rename(&temp, marker).is_err() {
+        let _ = std::fs::remove_file(marker);
+        std::fs::rename(&temp, marker).map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 fn operate(
@@ -204,7 +213,7 @@ fn windows_boot_id() -> Result<String, String> {
         _time_zone_bias: i64,
         _time_zone_id: u32,
         _reserved: u32,
-        _boot_time_bias: u64,
+        boot_time_bias: u64,
         _sleep_time_bias: u64,
     }
 
@@ -233,7 +242,10 @@ fn windows_boot_id() -> Result<String, String> {
             "Windows boot identifier query failed ({status:#x})"
         ));
     }
-    Ok(info.boot_time.to_string())
+    Ok(info
+        .boot_time
+        .saturating_sub(info.boot_time_bias.min(i64::MAX as u64) as i64)
+        .to_string())
 }
 
 #[cfg(not(windows))]

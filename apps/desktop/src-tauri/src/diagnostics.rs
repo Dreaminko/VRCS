@@ -282,6 +282,7 @@ fn recent_log_files(log_dir: &Path) -> Result<Vec<PathBuf>, String> {
 #[tauri::command]
 pub(crate) async fn export_error_report(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     default_name: String,
     state: State<'_, DiagnosticState>,
 ) -> Result<bool, String> {
@@ -300,6 +301,7 @@ pub(crate) async fn export_error_report(
         let Some(selected) = app
             .dialog()
             .file()
+            .set_parent(&window)
             .set_file_name(&file_name)
             .add_filter("Text", &["txt"])
             .blocking_save_file()

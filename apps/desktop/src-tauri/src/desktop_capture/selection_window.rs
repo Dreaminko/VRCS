@@ -3,7 +3,7 @@ use std::{
     mem::{size_of, zeroed},
     ptr::{null, null_mut},
     sync::{
-        OnceLock,
+        Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -23,12 +23,16 @@ use windows_sys::Win32::{
 };
 
 static WINDOW_CLASS: OnceLock<bool> = OnceLock::new();
-static ACTIVE_PICKER: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+static ACTIVE_PICKER: Mutex<Option<(isize, usize)>> = Mutex::new(None);
 const CLASS_NAME: windows_sys::core::PCWSTR = windows_sys::core::w!("VRCSImageSelection");
 
-pub fn cancel_active() {
-    let hwnd = ACTIVE_PICKER.load(Ordering::Acquire);
-    if hwnd != 0 {
+pub fn cancel_active(cancelled: &AtomicBool) {
+    let owner = std::ptr::from_ref(cancelled) as usize;
+    let hwnd = ACTIVE_PICKER
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .and_then(|(hwnd, active_owner)| (active_owner == owner).then_some(hwnd));
+    if let Some(hwnd) = hwnd {
         unsafe {
             PostMessageW(hwnd as HWND, WM_CLOSE, 0, 0);
         }
@@ -261,12 +265,18 @@ pub fn select_region_reserved(
         struct ActivePickerGuard;
         impl Drop for ActivePickerGuard {
             fn drop(&mut self) {
-                ACTIVE_PICKER.store(0, Ordering::Release);
+                *ACTIVE_PICKER
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
             }
         }
-        ACTIVE_PICKER.store(window as isize, Ordering::Release);
-        let _active_picker = ActivePickerGuard;
+        *ACTIVE_PICKER
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+            Some((window as isize, std::ptr::from_ref(cancelled) as usize));
+        let active_picker = ActivePickerGuard;
         if cancelled.load(Ordering::Acquire) {
+            drop(active_picker);
             DestroyWindow(window);
             return Ok(None);
         }
@@ -274,6 +284,7 @@ pub fn select_region_reserved(
         ShowWindow(window, SW_SHOW);
         SetForegroundWindow(window);
         if GetForegroundWindow() != window {
+            drop(active_picker);
             DestroyWindow(window);
             return Err("desktop_ocr.unavailable".into());
         }
@@ -288,6 +299,7 @@ pub fn select_region_reserved(
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }
+        drop(active_picker);
         let restore_focus = GetForegroundWindow() == window;
         DestroyWindow(window);
         if restore_focus && IsWindow(previous_window) != 0 && IsIconic(previous_window) == 0 {

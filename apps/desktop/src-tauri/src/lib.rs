@@ -140,7 +140,8 @@ pub(crate) fn sanitize_default_filename(name: &str, fallback: &str) -> String {
         .collect();
     let cleaned = cleaned.trim_matches(['.', ' ']);
     let trimmed: String = cleaned.chars().take(128).collect();
-    let stem = trimmed.split('.').next().unwrap_or("");
+    let trimmed = trimmed.trim_end_matches(['.', ' ']).to_string();
+    let stem = trimmed.split('.').next().unwrap_or("").trim_end();
     let reserved = matches!(
         stem.to_ascii_uppercase().as_str(),
         "CON"
@@ -178,6 +179,7 @@ pub(crate) fn sanitize_default_filename(name: &str, fallback: &str) -> String {
 #[tauri::command]
 async fn write_glossary_file(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     default_name: String,
     contents: String,
 ) -> Result<bool, String> {
@@ -187,6 +189,7 @@ async fn write_glossary_file(
         let Some(selected) = app
             .dialog()
             .file()
+            .set_parent(&window)
             .set_file_name(&file_name)
             .add_filter("JSON", &["json"])
             .blocking_save_file()
@@ -516,7 +519,7 @@ fn compute_compact_window_resize(
     };
     (
         CompactWindowResizeResult {
-            width: current_width,
+            width: current_width.max(COMPACT_WINDOW_MIN_WIDTH),
             height: target_height,
             base_height,
         },
@@ -529,16 +532,38 @@ fn resize_compact_window(
     window: tauri::WebviewWindow,
     args: CompactWindowResizeArgs,
 ) -> Result<CompactWindowResizeResult, String> {
+    if !args.base_height.is_finite()
+        || !args.chatbox_height.is_finite()
+        || !args.previous_native_height.is_finite()
+    {
+        return Err("Compact window dimensions must be finite".into());
+    }
     let inner_size = window.inner_size().map_err(|error| error.to_string())?;
     let scale_factor = window.scale_factor().map_err(|error| error.to_string())?;
+    if window.is_minimized().unwrap_or(false)
+        || inner_size.width == 0
+        || inner_size.height == 0
+        || !scale_factor.is_finite()
+        || scale_factor <= 0.0
+    {
+        return Ok(CompactWindowResizeResult {
+            width: COMPACT_WINDOW_MIN_WIDTH,
+            height: args
+                .previous_native_height
+                .round()
+                .clamp(COMPACT_WINDOW_MIN_HEIGHT, COMPACT_WINDOW_MAX_HEIGHT),
+            base_height: args
+                .base_height
+                .round()
+                .clamp(COMPACT_WINDOW_MIN_HEIGHT, COMPACT_WINDOW_MAX_HEIGHT),
+        });
+    }
     let current_width = f64::from(inner_size.width) / scale_factor;
     let current_height = f64::from(inner_size.height) / scale_factor;
     let (result, constraints) = compute_compact_window_resize(current_width, current_height, &args);
     let target_size = tauri::Size::Logical(tauri::LogicalSize::new(result.width, result.height));
     if result.height > current_height {
-        if current_height <= COMPACT_PANEL_WINDOW_HEIGHT + 1.0
-            && result.height > COMPACT_PANEL_WINDOW_HEIGHT
-        {
+        if result.height > COMPACT_PANEL_WINDOW_HEIGHT {
             window
                 .set_size_constraints(logical_constraints(
                     COMPACT_WINDOW_MIN_HEIGHT,
