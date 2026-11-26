@@ -6,7 +6,17 @@ import type { Settings } from "../settings/types";
 import type { ApiProfileView } from "../providers/types";
 import { supportsTranslation } from "../providers/api-profile-purpose.ts";
 import { liveTranslationServiceName } from "../providers/recognition-services.ts";
-import { TRANSLATION_LANGUAGE_CODES } from "../translation/translation-languages.ts";
+import {
+  PLAMO_LOCAL_MODEL_ID,
+  PLAMO_TRANSLATION_LANGUAGE_CODES,
+  TRANSLATION_LANGUAGE_CODES,
+} from "../translation/translation-languages.ts";
+import {
+  DEFAULT_MODEL_SELECTION,
+  EMPTY_MODEL_BINDING,
+  resolveModelSelection,
+  translationModelSelection,
+} from "../settings/model-selection.ts";
 import { applyLanguagePreset, saveLanguagePreset, targetLanguageCodes } from "../settings/translation/language-settings.ts";
 import {
   patchVrOverlay,
@@ -71,6 +81,13 @@ export const RECOGNITION_LANGUAGES: Settings["asr"]["language"][] = ["auto", "en
 const TRANSLATION_MODES: Settings["translation"]["mode"][] = ["disabled", "manual", "automatic"];
 const OSC_STRATEGIES: Settings["osc"]["translation_strategy"][] = ["preferred_only", "round_robin", "all_languages"];
 
+export function hasPlamoTranslationConfigured(settings: Settings): boolean {
+  return settings.model_defaults?.translation?.backend === "plamo_local"
+    || settings.translation.model_selection?.backend === "plamo_local"
+    || [...settings.translation.speaker_targets, ...settings.translation.microphone_targets]
+      .some((target) => target.backend === "plamo_local");
+}
+
 export function dashboardLanguageChoices(settings: Settings, profiles: ApiProfileView[]) {
   const liveService = liveTranslationServiceName(settings.asr.backend);
   const nativeTranslation = Boolean(liveService && settings.translation.mode === "automatic");
@@ -80,7 +97,7 @@ export function dashboardLanguageChoices(settings: Settings, profiles: ApiProfil
   const microphone_targets = targetChoices("microphone_targets");
   return {
     recognition: liveService ? [] : RECOGNITION_LANGUAGES,
-    mode: liveService || profiles.some(supportsTranslation) ? TRANSLATION_MODES : [],
+    mode: liveService || hasPlamoTranslationConfigured(settings) || profiles.some(supportsTranslation) ? TRANSLATION_MODES : [],
     speaker_targets, microphone_targets,
   };
 }
@@ -142,11 +159,47 @@ export function applyVrDashboardAction(settings: Settings, action: VrDashboardAc
       const targets = settings.translation[key];
       let next = [...targets];
       if ("add_target" in action) {
-        const profile = profiles.find(supportsTranslation);
-        if (!profile || targets.length >= 3) return settings;
-        const languages = profile.capabilities.supported_languages.length ? profile.capabilities.supported_languages : TRANSLATION_LANGUAGE_CODES;
+        if (targets.length >= 3) return settings;
+        const modelSelection = settings.model_defaults?.translation
+          ? translationModelSelection(settings)
+          : (settings.translation.model_selection ?? EMPTY_MODEL_BINDING);
+        const selectedProfile = modelSelection.profile_id
+          ? profiles.find((item) => item.id === modelSelection.profile_id && supportsTranslation(item))
+          : undefined;
+        const fallbackProfile = selectedProfile ?? profiles.find(supportsTranslation);
+        const binding = modelSelection.backend === "plamo_local"
+          ? {
+              backend: "plamo_local" as const,
+              profile_id: null,
+              model: modelSelection.model || PLAMO_LOCAL_MODEL_ID,
+            }
+          : selectedProfile
+            ? {
+                backend: "api" as const,
+                profile_id: selectedProfile.id,
+                model: modelSelection.model,
+              }
+            : fallbackProfile
+              ? {
+                  backend: "api" as const,
+                  profile_id: fallbackProfile.id,
+                  model: targets.find((item) => item.profile_id === fallbackProfile.id && item.model.trim())?.model ?? "",
+                }
+              : null;
+        if (!binding) return settings;
+        const profile = profiles.find((item) => item.id === binding.profile_id);
+        const languages = binding.backend === "plamo_local"
+          ? [...PLAMO_TRANSLATION_LANGUAGE_CODES]
+          : profile?.capabilities.supported_languages.length
+            ? profile.capabilities.supported_languages
+            : TRANSLATION_LANGUAGE_CODES;
         const target_language = languages.find((code) => !targets.some((item) => item.target_language === code)) ?? "en";
-        next.push({ target_language, profile_id: profile.id, model: "gpt-5-mini", thinking_enabled: false });
+        next.push({
+          target_language,
+          ...binding,
+          use_default_model: (settings.translation.model_selection ?? DEFAULT_MODEL_SELECTION).use_default_model ?? true,
+          thinking_enabled: false,
+        });
       } else {
         const index = "delete_target" in action ? action.delete_target.index : action.move_target.index;
         if (!Number.isInteger(index) || !targets[index]) return settings;
@@ -240,11 +293,15 @@ export function applyVrDashboardAction(settings: Settings, action: VrDashboardAc
         opacity: step(settings.vr_overlay.wrist.opacity,
           action.endsWith("down") ? -0.05 : 0.05, 0.1, 1),
       });
-    case "toggle_vision":
+    case "toggle_vision": {
       if (!settings.vision.enabled) return settings;
-      if (!settings.vision.vr_enabled && (!settings.vision.model.trim()
-        || !profiles.some((profile) => profile.id === settings.vision.profile_id && supportsVision(profile)))) return settings;
+      const visionBinding = settings.model_defaults?.vision
+        ? resolveModelSelection(settings.vision, settings.model_defaults.vision)
+        : settings.vision;
+      if (!settings.vision.vr_enabled && (!visionBinding.model.trim()
+        || !profiles.some((profile) => profile.id === visionBinding.profile_id && supportsVision(profile)))) return settings;
       return patchVision(settings, { vr_enabled: !settings.vision.vr_enabled });
+    }
     case "toggle_ocr":
       return patchOcr(settings, { enabled: !settings.ocr.enabled });
     case "toggle_ocr_gesture":

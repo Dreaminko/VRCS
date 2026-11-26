@@ -76,10 +76,10 @@ function Menu({ state, view }: { state: SurfaceState; view: Extract<SurfaceView,
   return <>
     <PlayerDisplayMenu state={state} view={view.players} ui={ui} />
     <nav className="vr-menu-capsule">
-      {[0, 1, 2, 30, 4, 32, 3].map(id => {
+      {[0, 1, 2, 30, 4, 55, 3].map(id => {
         if (id === 4) return <SurfaceButton state={state} id={4} key={4} label={view.players?.labels.title || "Capture management"}
           menu={{ page: ui.page === "home" ? "players" : "home" }} active={ui.page !== "home"}><UsersRound /></SurfaceButton>;
-        const index = id === 30 ? 4 : id === 32 ? 5 : id;
+        const index = id === 30 ? 4 : id === 55 ? 5 : id;
         const item = view.controls.items[index];
         if (!item || item.hidden) return null;
         return <SurfaceButton state={state} id={id} key={id}

@@ -81,7 +81,14 @@ impl SurfaceHub {
             } => PageReply::Accepted(
                 entry
                     .accept_layout_paint(session.host.surface, layout, paint_serial)
-                    .map_err(|_| BridgeError::InvalidLayout)?,
+                    .map_err(|error| {
+                        tracing::warn!(
+                            surface = session.host.surface.name(),
+                            %error,
+                            "Rejected invalid VR surface layout"
+                        );
+                        BridgeError::InvalidLayout
+                    })?,
             ),
             Operation::Paint { key, paint_serial } => {
                 PageReply::Accepted(entry.accept_paint(key, paint_serial))

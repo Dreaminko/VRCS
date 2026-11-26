@@ -221,6 +221,21 @@ impl Router {
             ..event
         })
     }
+
+    pub fn cancel_surface(&mut self, surface: Surface) -> Option<Event> {
+        if self
+            .owner
+            .is_some_and(|event| event.hit.key.surface == surface)
+        {
+            self.pressed_at = None;
+            self.owner.take().map(|event| Event {
+                kind: Kind::Cancel,
+                ..event
+            })
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -438,5 +453,48 @@ mod tests {
             input.trigger = Some(false);
             assert_eq!(router.step(&[input], &keys).events[0].kind, Kind::Up);
         }
+    }
+
+    #[test]
+    fn cancel_surface_only_cancels_matching_surface_and_keeps_trigger_state() {
+        let mut router = Router::default();
+        let keys = [key(Surface::Menu), key(Surface::Dialogue)];
+        let mut dialogue_input = sample(false, false, Surface::Dialogue);
+        dialogue_input.device = 3;
+        router.step(
+            &[sample(false, false, Surface::Menu), dialogue_input],
+            &keys,
+        );
+        router.step(&[sample(true, false, Surface::Menu), dialogue_input], &keys);
+
+        assert!(router.cancel_surface(Surface::Dialogue).is_none());
+        assert!(router.active());
+
+        let cancelled = router.cancel_surface(Surface::Menu).unwrap();
+        assert_eq!(cancelled.kind, Kind::Cancel);
+        assert_eq!(cancelled.hit.key.surface, Surface::Menu);
+        assert!(!router.active());
+
+        // Trigger history on both devices is preserved: device 2's held trigger must release,
+        // and device 3 already has an unpressed baseline when it takes hover.
+        assert!(
+            router
+                .step(&[sample(true, false, Surface::Menu), dialogue_input], &keys)
+                .events
+                .is_empty()
+        );
+        assert!(
+            router
+                .step(
+                    &[sample(false, false, Surface::Menu), dialogue_input],
+                    &keys
+                )
+                .events
+                .is_empty()
+        );
+        dialogue_input.trigger = Some(true);
+        let events = router.step(&[dialogue_input], &keys).events;
+        assert_eq!(events[0].kind, Kind::Down);
+        assert_eq!(events[0].hit.key.surface, Surface::Dialogue);
     }
 }

@@ -105,9 +105,12 @@ test("surface sleep preserves reading position and visual receipts follow actual
         publishProgress(progress);
         await settle(); const running = paints().length; await settle();
         check(paints().length > running, 'Visible progress animation requests bounded refreshes');
-        const beforeFrames = paints().length;
+        const beforeBurstFrames = paints().length;
         for (let i = 0; i < 6; i++) { frame(); await Promise.resolve(); }
-        check(paints().length >= beforeFrames + 5, 'Progress follows browser frames without waiting for a separate timer');
+        check(paints().length <= beforeBurstFrames + 1, 'Tight animation frames throttle IPC paints to ~30fps');
+        const beforeTimedFrames = paints().length;
+        for (let i = 0; i < 3; i++) { await new Promise(resolve => setTimeout(resolve, 40)); frame(); await Promise.resolve(); }
+        check(paints().length >= beforeTimedFrames + 3, 'Spaced animation frames update marker bits without React re-render overhead');
         const fill = () => document.querySelectorAll('[role="progressbar"]')[2].firstElementChild;
         const fraction = () => fill().getBoundingClientRect().width / fill().parentElement.clientWidth;
         publishProgress({ ...progress, translation_fraction: [2, 10] }); frame(); await settle();

@@ -4,9 +4,25 @@ import { connectSurfaceBridge, type SurfaceBridge } from "./bridge";
 import { preloadVisionMarkdown, VrSurface } from "./VrSurface";
 import { markerBits, newerKey, sameKey, serialAtLeast, type Surface, type SurfaceActivity, type SurfaceKey, type SurfaceLayout, type SurfacePointerState, type SurfaceScrollState, type SurfaceState } from "./protocol";
 
+const OCR_PROGRESS_FRAME_MS = 33;
+
+function syncMarkerBits(
+  container: HTMLDivElement | null,
+  key: SurfaceKey,
+  paintSerial: number,
+): void {
+  if (!container) return;
+  const bits = markerBits(key, paintSerial);
+  const children = container.children;
+  for (let index = 0; index < bits.length && index < children.length; index += 1) {
+    (children[index] as HTMLElement).style.background = bits[index] ? "#ffffff" : "#000000";
+  }
+}
+
 export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surface: Surface; connect?: (surface: Surface, signal: AbortSignal) => Promise<SurfaceBridge> }) {
   const connection = useRef<SurfaceBridge | null>(null);
   const root = useRef<HTMLElement>(null);
+  const markerRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<SurfaceState | null>(null);
   const [measured, setMeasured] = useState<{ key: SurfaceKey; serial: number } | null>(null);
   const current = useRef<SurfaceKey | null>(null);
@@ -19,14 +35,41 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   const [paintSerial, setPaintSerial] = useState(1);
   const serial = useRef(1);
   const paintFrame = useRef<number | null>(null);
+  const animationFrame = useRef<number | null>(null);
+  const lastAnimationPaintAt = useRef(0);
   const pendingState = useRef<SurfaceState | null>(null);
   const pendingPointer = useRef<{ key: SurfaceKey; point: [number, number] | null } | null>(null);
   const restored = useRef<SurfaceKey | null>(null);
   const pointerPoint = useRef<[number, number] | null>(null);
   const pressedRef = useRef<number | null>(null);
+  const markerReadyRef = useRef(false);
   const cancelScroll = useCallback(() => {
     pendingScroll.current = null;
   }, []);
+  const stopAnimationLoop = useCallback(() => {
+    if (animationFrame.current !== null) {
+      cancelAnimationFrame(animationFrame.current);
+      animationFrame.current = null;
+    }
+  }, []);
+  const scheduleAnimationTick = useCallback(() => {
+    if (surface !== "ocr_progress" || animationFrame.current !== null || !mounted.current || !activity.current.active) return;
+    if (!root.current?.getAnimations({ subtree: true }).some(animation => animation.playState === "running" || animation.pending)) return;
+    animationFrame.current = requestAnimationFrame((timestamp) => {
+      animationFrame.current = null;
+      if (!mounted.current || !activity.current.active) return;
+      if (!root.current?.getAnimations({ subtree: true }).some(animation => animation.playState === "running" || animation.pending)) return;
+      const now = Number.isFinite(timestamp) ? timestamp : performance.now();
+      if (markerReadyRef.current && current.current && now - lastAnimationPaintAt.current >= OCR_PROGRESS_FRAME_MS) {
+        lastAnimationPaintAt.current = now;
+        serial.current = ((serial.current + 1) >>> 0) || 1;
+        syncMarkerBits(markerRef.current, current.current, serial.current);
+        void connection.current?.paint(current.current, serial.current)
+          .catch(error => console.error("VR surface paint request failed", error));
+      }
+      scheduleAnimationTick();
+    });
+  }, [surface]);
   const markPaint = useCallback(() => {
     if (!mounted.current || !activity.current.active) return serial.current;
     serial.current = ((serial.current + 1) >>> 0) || 1;
@@ -62,18 +105,14 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
           setState(previous => previous && sameKey(previous.key, pointer.key)
             ? { ...previous, pointer: pointer.point } : previous);
         }
+        lastAnimationPaintAt.current = performance.now();
         setPaintSerial(serial.current);
-        if (surface === "ocr_progress" && root.current?.getAnimations({ subtree: true }).some(animation => animation.playState === "running" || animation.pending)) {
-          paintFrame.current = requestAnimationFrame(() => {
-            serial.current = ((serial.current + 1) >>> 0) || 1;
-            paint();
-          });
-        }
+        scheduleAnimationTick();
       };
       paintFrame.current = requestAnimationFrame(paint);
     }
     return serial.current;
-  }, [surface]);
+  }, [scheduleAnimationTick]);
 
   const receiveScroll = useCallback((payload: SurfaceScrollState) => {
     if (!activity.current.active || !sameKey(scrollKey.current, payload.key) || !Number.isFinite(payload.delta)) return;
@@ -109,6 +148,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
       setActive(next.active);
       if (!next.active) {
         cancelScroll();
+        stopAnimationLoop();
         if (paintFrame.current !== null) cancelAnimationFrame(paintFrame.current);
         paintFrame.current = null;
         pendingState.current = null;
@@ -152,12 +192,13 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
     return () => {
       disposed = true; mounted.current = false; layoutRequest.current++; cancelScroll();
       stopDetector?.();
+      stopAnimationLoop();
       pressedRef.current = null;
       if (paintFrame.current !== null) cancelAnimationFrame(paintFrame.current);
       paintFrame.current = null; pendingState.current = null; pendingPointer.current = null;
       abort.abort(); connection.current = null;
     };
-  }, [surface, connect, markPaint, cancelScroll, receiveScroll, receivePointer]);
+  }, [surface, connect, markPaint, cancelScroll, receiveScroll, receivePointer, stopAnimationLoop]);
 
   const onLayout = useCallback((layout: SurfaceLayout) => {
     if (!activity.current.active) return;
@@ -171,6 +212,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   }, [surface, markPaint]);
 
   const markerReady = !!state && !!measured && sameKey(measured.key, state.key) && serialAtLeast(paintSerial, measured.serial);
+  markerReadyRef.current = markerReady;
 
   useLayoutEffect(() => {
     if (!state || sameKey(restored.current, state.key)) return;
@@ -199,12 +241,12 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
 
   useEffect(() => {
     if (!active || !state || surface !== "ocr_progress") return;
-    if (root.current?.getAnimations({ subtree: true }).some(animation => animation.playState === "running" || animation.pending)) markPaint();
-  }, [active, state, surface, markPaint]);
+    scheduleAnimationTick();
+  }, [active, state, surface, scheduleAnimationTick]);
 
   return <main ref={root} className="vr-surface-host" data-active={active}>
     {state && <VrSurface state={state} onLayout={onLayout} />}
-    {markerReady && <div className="vr-surface-marker" aria-hidden="true">
+    {markerReady && <div ref={markerRef} className="vr-surface-marker" aria-hidden="true">
       {markerBits(state.key, paintSerial).map((bit, index) => <i key={index} style={{ background: bit ? "#ffffff" : "#000000" }} />)}
     </div>}
   </main>;

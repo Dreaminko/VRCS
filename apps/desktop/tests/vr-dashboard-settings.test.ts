@@ -109,9 +109,56 @@ test("all routes use desktop language filtering, including secondary live routes
 
 test("VR routes have desktop add, move and delete limits and preserve route configuration", () => {
   const added = applyVrDashboardAction(settings, { add_target: "speaker" }, profiles);
-  assert.deepEqual(added.translation.speaker_targets[2], { target_language: "zh-Hans", profile_id: "translator", model: "gpt-5-mini", thinking_enabled: false });
+  assert.deepEqual(added.translation.speaker_targets[2], {
+    target_language: "zh-Hans",
+    backend: "api",
+    profile_id: "translator",
+    model: "existing-model",
+    use_default_model: true,
+    thinking_enabled: false,
+  });
   assert.equal(applyVrDashboardAction(added, { add_target: "speaker" }, profiles), added);
   assert.equal(applyVrDashboardAction(settings, { add_target: "speaker" }), settings);
+
+  const withDefaults = {
+    ...settings,
+    model_defaults: {
+      text: { backend: "api" as const, profile_id: null, model: "" },
+      translation: { backend: "api" as const, profile_id: "translator", model: "default-trans-model" },
+      vision: { backend: "api" as const, profile_id: "vision-prof", model: "vision-model" },
+    },
+    translation: {
+      ...settings.translation,
+      model_selection: { use_default_model: true, backend: "api" as const, profile_id: "translator", model: "default-trans-model" },
+    },
+  } as unknown as Settings;
+  const addedDefault = applyVrDashboardAction(withDefaults, { add_target: "speaker" }, profiles);
+  assert.deepEqual(addedDefault.translation.speaker_targets[2], {
+    target_language: "zh-Hans",
+    backend: "api",
+    profile_id: "translator",
+    model: "default-trans-model",
+    use_default_model: true,
+    thinking_enabled: false,
+  });
+
+  const withPlamo = {
+    ...withDefaults,
+    model_defaults: {
+      ...withDefaults.model_defaults,
+      translation: { backend: "plamo_local" as const, profile_id: null, model: "plamo-3-translate-0.8b-q4_k_m" },
+    },
+  } as unknown as Settings;
+  const addedPlamo = applyVrDashboardAction(withPlamo, { add_target: "speaker" }, []);
+  assert.deepEqual(addedPlamo.translation.speaker_targets[2], {
+    target_language: "zh-Hans",
+    backend: "plamo_local",
+    profile_id: null,
+    model: "plamo-3-translate-0.8b-q4_k_m",
+    use_default_model: true,
+    thinking_enabled: false,
+  });
+  assert.ok(dashboardLanguageChoices(withPlamo, []).mode.includes("automatic"));
   const moved = applyVrDashboardAction(added, { move_target: { group: "speaker", index: 2, offset: -1 } }, profiles);
   assert.equal(moved.translation.speaker_targets[1], added.translation.speaker_targets[2]);
   assert.equal(moved.translation.speaker_targets[2], added.translation.speaker_targets[1]);

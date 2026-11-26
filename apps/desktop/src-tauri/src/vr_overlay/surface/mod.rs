@@ -680,14 +680,14 @@ pub struct SurfaceHub(Mutex<[Entry; 10]>);
 
 impl SurfaceHub {
     pub(super) fn needs_surface_maintenance(&self) -> bool {
-        let entries = self.0.lock().expect("surface hub lock");
+        let entries = crate::vr_overlay::runtime::lock_unpoisoned(&self.0);
         entries
             .iter()
             .any(|entry| entry.active || entry.endpoint.is_some())
     }
 
     pub(super) fn needs_fast_tick(&self) -> bool {
-        let entries = self.0.lock().expect("surface hub lock");
+        let entries = crate::vr_overlay::runtime::lock_unpoisoned(&self.0);
         #[cfg(windows)]
         let progress_animating = {
             let progress = &entries[SurfaceId::OcrProgress.index()];
@@ -718,7 +718,7 @@ impl SurfaceHub {
             revision: frame.revision,
         };
         let identity = {
-            let mut entries = self.0.lock().expect("surface hub lock");
+            let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&self.0);
             let entry = &mut entries[surface.index()];
             let bounds = entry
                 .layout
@@ -746,7 +746,7 @@ impl SurfaceHub {
         match self.commit_frame(surface, identity, key, frame.paint_serial, frame.bounds)? {
             Some(activity) => Ok(SubmitOutcome::Committed(activity)),
             None => {
-                let mut entries = self.0.lock().expect("surface hub lock");
+                let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&self.0);
                 entries[surface.index()].reject_frame(
                     surface,
                     frame,
@@ -765,7 +765,7 @@ impl SurfaceHub {
         paint_serial: u32,
         bounds: [u32; 4],
     ) -> Result<Option<u32>, frame::CaptureError> {
-        let mut entries = self.0.lock().expect("surface hub lock");
+        let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&self.0);
         let entry = &mut entries[surface.index()];
         let committed = (entry.host_epoch, entry.activity_request) == identity
             && entry.layout.as_ref().is_some_and(|layout| {
@@ -792,7 +792,7 @@ impl SurfaceHub {
             pending.bounds,
         )?;
         if activity.is_none() {
-            let mut entries = self.0.lock().expect("surface hub lock");
+            let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&self.0);
             entries[surface.index()].reject_frame(surface, frame, "state_changed_during_upload");
         }
         Ok(activity)
@@ -800,7 +800,7 @@ impl SurfaceHub {
 
     fn set_active(&self, app: &AppHandle, surface: SurfaceId, active: bool) -> Result<(), String> {
         let request = {
-            let mut entries = self.0.lock().expect("surface hub lock");
+            let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&self.0);
             let entry = &mut entries[surface.index()];
             entry
                 .set_active(active, Instant::now())
@@ -819,7 +819,8 @@ impl SurfaceHub {
     }
 
     fn send(&self, app: &AppHandle, surface: SurfaceId, event: SurfaceEvent) -> Result<(), String> {
-        let host_epoch = self.0.lock().expect("surface hub lock")[surface.index()].host_epoch;
+        let host_epoch =
+            crate::vr_overlay::runtime::lock_unpoisoned(&self.0)[surface.index()].host_epoch;
         app.state::<NativeHostManager>().send(
             HostId {
                 surface,
@@ -830,24 +831,24 @@ impl SurfaceHub {
     }
 
     pub fn generation(&self, surface: SurfaceId) -> u32 {
-        self.0.lock().expect("surface hub lock")[surface.index()].generation
+        crate::vr_overlay::runtime::lock_unpoisoned(&self.0)[surface.index()].generation
     }
 
     pub(super) fn recovery_failed(&self, surface: SurfaceId) -> bool {
-        self.0.lock().expect("surface hub lock")[surface.index()]
+        crate::vr_overlay::runtime::lock_unpoisoned(&self.0)[surface.index()]
             .recovery
             .phase
             == recovery::Phase::Failed
     }
 
     pub fn layout(&self, surface: SurfaceId) -> Option<Arc<SurfaceLayout>> {
-        self.0.lock().expect("surface hub lock")[surface.index()]
+        crate::vr_overlay::runtime::lock_unpoisoned(&self.0)[surface.index()]
             .active_layout()
             .cloned()
     }
 
     pub fn pointer_layout(&self, surface: SurfaceId) -> Option<Arc<SurfaceLayout>> {
-        self.0.lock().expect("surface hub lock")[surface.index()]
+        crate::vr_overlay::runtime::lock_unpoisoned(&self.0)[surface.index()]
             .pointer_layout()
             .cloned()
     }
@@ -859,7 +860,7 @@ impl SurfaceHub {
         point: Option<[f32; 2]>,
     ) -> Result<(), String> {
         let update = {
-            let mut entries = self.0.lock().expect("surface hub lock");
+            let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&self.0);
             let entry = &mut entries[surface.index()];
             if !entry.point(point) || !entry.ready {
                 return Ok(());
@@ -884,7 +885,7 @@ impl SurfaceHub {
             return Ok(());
         }
         let update = {
-            let entries = self.0.lock().expect("surface hub lock");
+            let entries = crate::vr_overlay::runtime::lock_unpoisoned(&self.0);
             let entry = &entries[surface.index()];
             entry.scroll_key().map(|key| SurfaceScroll { key, delta })
         };
@@ -898,7 +899,7 @@ impl SurfaceHub {
     pub(super) fn retry(&self, app: &AppHandle) {
         let mut hosts = Vec::new();
         {
-            let mut entries = self.0.lock().expect("surface hub lock");
+            let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&self.0);
             for (index, entry) in entries.iter_mut().enumerate() {
                 hosts.push(HostId {
                     surface: SurfaceId::ALL[index],
@@ -925,7 +926,7 @@ impl SurfaceHub {
         pressed: Option<u8>,
     ) -> Result<Option<SurfaceKey>, String> {
         let (create, update, key) = {
-            let mut entries = self.0.lock().expect("surface hub lock");
+            let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&self.0);
             let entry = &mut entries[surface.index()];
             if matches!(
                 entry.recovery.phase,
@@ -1079,7 +1080,7 @@ impl SurfaceRenderer {
             self.pending_action = None;
             let now = Instant::now();
             let (activity_request, cold, release_host) = {
-                let mut entries = hub.0.lock().expect("surface hub lock");
+                let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
                 let entry = &mut entries[self.surface.index()];
                 let activity_request = entry
                     .set_active(false, now)
@@ -1126,7 +1127,7 @@ impl SurfaceRenderer {
             }
             if release_host {
                 let old = {
-                    let mut entries = hub.0.lock().expect("surface hub lock");
+                    let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
                     let entry = &mut entries[self.surface.index()];
                     let old = HostId {
                         surface: self.surface,
@@ -1141,7 +1142,7 @@ impl SurfaceRenderer {
                 let _ = app.state::<NativeHostManager>().close(old);
             }
         }
-        let mut entries = hub.0.lock().expect("surface hub lock");
+        let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
         let entry = &mut entries[self.surface.index()];
         let state = if !entry.active {
             if entry.endpoint.is_some() {
@@ -1213,7 +1214,7 @@ impl SurfaceRenderer {
     ) -> Result<bool, String> {
         let hub = app.state::<SurfaceHub>();
         let update = {
-            let mut entries = hub.0.lock().expect("surface hub lock");
+            let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
             let entry = &mut entries[self.surface.index()];
             if !entry.active {
                 return Ok(false);
@@ -1250,7 +1251,7 @@ impl SurfaceRenderer {
 
     pub fn current_frame(&self, app: &AppHandle) -> bool {
         let hub = app.state::<SurfaceHub>();
-        let entries = hub.0.lock().expect("surface hub lock");
+        let entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
         self.published_key.is_some()
             && self.published_key == self.retained_key
             && self.fade_frame_ready(&entries[self.surface.index()])
@@ -1263,7 +1264,7 @@ impl SurfaceRenderer {
     pub fn hold_for_fade(&mut self, app: &AppHandle, backend: &Backend, kind: OverlayKind) -> bool {
         let ready = {
             let hub = app.state::<SurfaceHub>();
-            let entries = hub.0.lock().expect("surface hub lock");
+            let entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
             self.fade_frame_ready(&entries[self.surface.index()])
         };
         if !ready || !backend.has_surface_texture(kind) {
@@ -1302,7 +1303,7 @@ impl SurfaceRenderer {
                 self.advance_recovery(&hub, now);
             }
         }
-        let failed = hub.0.lock().expect("surface hub lock")[self.surface.index()]
+        let failed = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0)[self.surface.index()]
             .recovery
             .phase
             == recovery::Phase::Failed;
@@ -1315,7 +1316,7 @@ impl SurfaceRenderer {
                 self.reset();
             }
             let (id, error) = {
-                let mut entries = hub.0.lock().expect("surface hub lock");
+                let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
                 let entry = &mut entries[self.surface.index()];
                 entry.endpoint = None;
                 entry.document = None;
@@ -1337,7 +1338,7 @@ impl SurfaceRenderer {
         }
         if self.pending_action.is_none() && self.capture_fault.is_none() {
             let repaint = {
-                let entries = hub.0.lock().expect("surface hub lock");
+                let entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
                 let entry = &entries[self.surface.index()];
                 !self.visible_frame
                     && entry.active
@@ -1363,7 +1364,7 @@ impl SurfaceRenderer {
                 self.advance_recovery(&hub, Instant::now());
             }
         }
-        let entries = hub.0.lock().expect("surface hub lock");
+        let entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
         let entry = &entries[self.surface.index()];
         let visible = self.pending_frame.is_some()
             || self.frame_visible(entry, Instant::now())
@@ -1378,7 +1379,7 @@ impl SurfaceRenderer {
         if self.pending_action.is_some() {
             return;
         }
-        let mut entries = hub.0.lock().expect("surface hub lock");
+        let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
         let entry = &mut entries[self.surface.index()];
         let fault = self
             .capture_fault
@@ -1483,7 +1484,7 @@ impl SurfaceRenderer {
         match action {
             Action::RecreateHost => {
                 let id = {
-                    let mut entries = hub.0.lock().expect("surface hub lock");
+                    let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
                     let entry = &mut entries[self.surface.index()];
                     let id = HostId {
                         surface: self.surface,
@@ -1497,9 +1498,10 @@ impl SurfaceRenderer {
                     .map_err(|error| frame::CaptureError::new(Fault::Host, error))?;
             }
             Action::RestartCapture => {
-                let endpoint = hub.0.lock().expect("surface hub lock")[self.surface.index()]
-                    .endpoint
-                    .clone();
+                let endpoint = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0)
+                    [self.surface.index()]
+                .endpoint
+                .clone();
                 if let (Some(capture), Some(endpoint)) = (&self.capture, endpoint) {
                     capture.borrow_mut().restart_source(&endpoint.source)?;
                 }
@@ -1507,7 +1509,8 @@ impl SurfaceRenderer {
                     .map_err(|error| frame::CaptureError::new(Fault::Host, error))?;
             }
             Action::RecreateDevice => {
-                hub.0.lock().expect("surface hub lock")[self.surface.index()].clear_frame();
+                crate::vr_overlay::runtime::lock_unpoisoned(&hub.0)[self.surface.index()]
+                    .clear_frame();
                 hub.send(app, self.surface, SurfaceEvent::Repaint)
                     .map_err(|error| frame::CaptureError::new(Fault::Host, error))?;
             }
@@ -1524,7 +1527,7 @@ impl SurfaceRenderer {
     ) -> Result<bool, frame::CaptureError> {
         let hub = app.state::<SurfaceHub>();
         let (endpoint, generation) = {
-            let entries = hub.0.lock().expect("surface hub lock");
+            let entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
             let entry = &entries[self.surface.index()];
             let Some(target) = entry.capture_generation() else {
                 return Ok(false);
@@ -1542,17 +1545,18 @@ impl SurfaceRenderer {
             if self.capture.is_some() || backend.has_surface_texture(kind) {
                 self.pending_action = Some((recovery::Action::RecreateDevice, Instant::now()));
                 self.visible_frame = false;
-                let mut entries = hub.0.lock().expect("surface hub lock");
+                let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
                 let entry = &mut entries[self.surface.index()];
                 entry.clear_frame();
                 entry.recovery.awaiting_frame(Instant::now());
                 return Ok(false);
             }
             let (width, height) = self.surface.size();
-            let counters = hub.0.lock().expect("surface hub lock")[self.surface.index()]
-                .metrics
-                .capture
-                .clone();
+            let counters = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0)
+                [self.surface.index()]
+            .metrics
+            .capture
+            .clone();
             self.capture = Some(Rc::new(RefCell::new(frame::Capture::with_counters(
                 &endpoint.source,
                 adapter,
@@ -1609,7 +1613,7 @@ impl SurfaceRenderer {
         }
         let now = Instant::now();
         let (needed, requested, bounds) = {
-            let entries = hub.0.lock().expect("surface hub lock");
+            let entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
             let entry = &entries[self.surface.index()];
             let requested = self
                 .copy_due(now)

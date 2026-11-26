@@ -1,113 +1,50 @@
+use std::cell::RefCell;
 use std::ffi::c_void;
-use std::ptr::{null, null_mut};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
+
+use windows::Win32::{
+    Foundation::{E_POINTER, HMODULE},
+    Graphics::{
+        Direct3D::D3D_DRIVER_TYPE_UNKNOWN,
+        Direct3D11::{
+            D3D11_BOX, D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            D3D11_MAP_FLAG_DO_NOT_WAIT, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE,
+            D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING, D3D11CreateDevice,
+            ID3D11Device, ID3D11DeviceContext, ID3D11ShaderResourceView, ID3D11Texture2D,
+        },
+        Dxgi::{
+            Common::{
+                DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM_SRGB,
+                DXGI_FORMAT_B8G8R8X8_UNORM, DXGI_FORMAT_R8G8B8A8_TYPELESS,
+                DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+            },
+            CreateDXGIFactory1, DXGI_ERROR_WAS_STILL_DRAWING, IDXGIAdapter1, IDXGIFactory1,
+        },
+    },
+};
+use windows::core::Interface;
 
 use super::renderer::Texture;
 
-const D3D_DRIVER_TYPE_UNKNOWN: u32 = 0;
-const D3D11_SDK_VERSION: u32 = 7;
-const D3D11_CREATE_DEVICE_BGRA_SUPPORT: u32 = 0x20;
-
-const QUERY_INTERFACE_INDEX: usize = 0;
-const RELEASE_INDEX: usize = 2;
-const ENUM_ADAPTERS_1_INDEX: usize = 12;
-const CREATE_TEXTURE_2D_INDEX: usize = 5;
-
-const IID_IDXGI_FACTORY_1: Guid = Guid {
-    data1: 0x770a_ae78,
-    data2: 0xf26f,
-    data3: 0x4dba,
-    data4: [0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87],
-};
-
-const IID_TEXTURE_2D: Guid = Guid {
-    data1: 0x6f15_aaf2,
-    data2: 0xd208,
-    data3: 0x4e89,
-    data4: [0x9a, 0xb4, 0x48, 0x95, 0x35, 0xd3, 0x4f, 0x9c],
-};
-
-#[repr(C)]
-struct MappedSubresource {
-    data: *mut c_void,
-    row_pitch: u32,
-    depth_pitch: u32,
+pub(crate) struct SharedDevice {
+    pub(crate) device: ID3D11Device,
+    pub(crate) context: ID3D11DeviceContext,
+    adapter_index: u32,
 }
 
-type QueryInterface = unsafe extern "system" fn(*mut c_void, *const Guid, *mut *mut c_void) -> i32;
-type EnumAdapters1 = unsafe extern "system" fn(*mut c_void, u32, *mut *mut c_void) -> i32;
-type CreateTexture2d = unsafe extern "system" fn(
-    *mut c_void,
-    *const Texture2dDesc,
-    *const SubresourceData,
-    *mut *mut c_void,
-) -> i32;
-type Release = unsafe extern "system" fn(*mut c_void) -> u32;
-
-#[repr(C)]
-struct Guid {
-    data1: u32,
-    data2: u16,
-    data3: u16,
-    data4: [u8; 8],
-}
-
-#[repr(C)]
-struct SampleDesc {
-    count: u32,
-    quality: u32,
-}
-
-#[repr(C)]
-struct Texture2dDesc {
-    width: u32,
-    height: u32,
-    mip_levels: u32,
-    array_size: u32,
-    format: u32,
-    sample_desc: SampleDesc,
-    usage: u32,
-    bind_flags: u32,
-    cpu_access_flags: u32,
-    misc_flags: u32,
-}
-
-#[repr(C)]
-struct SubresourceData {
-    system_memory: *const c_void,
-    system_memory_pitch: u32,
-    system_memory_slice_pitch: u32,
-}
-
-#[link(name = "dxgi")]
-unsafe extern "system" {
-    fn CreateDXGIFactory1(iid: *const Guid, factory: *mut *mut c_void) -> i32;
-}
-
-#[link(name = "d3d11")]
-unsafe extern "system" {
-    fn D3D11CreateDevice(
-        adapter: *mut c_void,
-        driver_type: u32,
-        software: *mut c_void,
-        flags: u32,
-        feature_levels: *const u32,
-        feature_level_count: u32,
-        sdk_version: u32,
-        device: *mut *mut c_void,
-        selected_feature_level: *mut u32,
-        immediate_context: *mut *mut c_void,
-    ) -> i32;
+thread_local! {
+    static SHARED_DEVICE: RefCell<Option<Weak<SharedDevice>>> = const { RefCell::new(None) };
 }
 
 pub struct Device {
-    device: ComPtr,
-    context: ComPtr,
+    device: ID3D11Device,
+    context: ID3D11DeviceContext,
+    _shared: Rc<SharedDevice>,
     staging: [Option<Rc<StagingTexture>>; 2],
 }
 
 struct StagingTexture {
-    texture: ComPtr,
+    texture: ID3D11Texture2D,
     width: u32,
     height: u32,
     format: u32,
@@ -122,7 +59,7 @@ pub struct Readback {
 
 impl Device {
     pub fn raw_device(&self) -> *mut c_void {
-        self.device.0
+        self.device.as_raw()
     }
 
     #[cfg(test)]
@@ -151,110 +88,88 @@ impl Device {
         view: *mut c_void,
         region: impl FnOnce(u32, u32) -> Result<[u32; 4], String>,
     ) -> Result<Readback, String> {
-        if view.is_null() {
+        let Some(view) = (unsafe { ID3D11ShaderResourceView::from_raw_borrowed(&view) }) else {
             return Err("Mirror shader resource is null".into());
-        }
-        type GetResource = unsafe extern "system" fn(*mut c_void, *mut *mut c_void);
-        type GetDesc = unsafe extern "system" fn(*mut c_void, *mut Texture2dDesc);
-        let get_resource: GetResource = unsafe { std::mem::transmute(method(view, 7)) };
-        let mut resource = null_mut();
-        unsafe {
-            get_resource(view, &mut resource);
-        }
-        if resource.is_null() {
-            return Err("Mirror texture resource is null".into());
-        }
-        let resource = ComPtr(resource);
-        let texture = query_interface(resource.0, &IID_TEXTURE_2D)?;
-        let get_desc: GetDesc = unsafe { std::mem::transmute(method(texture.0, 10)) };
-        let mut desc: Texture2dDesc = unsafe { std::mem::zeroed() };
-        unsafe {
-            get_desc(texture.0, &mut desc);
-        }
-        let bgra = match desc.format {
-            27..=29 => false,
-            87 | 90 | 91 => true,
+        };
+        let resource = unsafe { view.GetResource() }
+            .map_err(|_| "Mirror texture resource is null".to_string())?;
+        let texture: ID3D11Texture2D = resource.cast().map_err(|e| {
+            format!(
+                "IUnknown::QueryInterface failed with HRESULT 0x{:08x}",
+                e.code().0
+            )
+        })?;
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        unsafe { texture.GetDesc(&mut desc) };
+        let bgra = match desc.Format {
+            DXGI_FORMAT_R8G8B8A8_TYPELESS
+            | DXGI_FORMAT_R8G8B8A8_UNORM
+            | DXGI_FORMAT_R8G8B8A8_UNORM_SRGB => false,
+            DXGI_FORMAT_B8G8R8A8_UNORM
+            | DXGI_FORMAT_B8G8R8A8_UNORM_SRGB
+            | DXGI_FORMAT_B8G8R8X8_UNORM => true,
             _ => return Err("Unsupported mirror pixel format".into()),
         };
-        if desc.width == 0
-            || desc.height == 0
-            || desc.width > 16384
-            || desc.height > 16384
-            || desc.array_size != 1
-            || desc.sample_desc.count != 1
+        if desc.Width == 0
+            || desc.Height == 0
+            || desc.Width > 16384
+            || desc.Height > 16384
+            || desc.ArraySize != 1
+            || desc.SampleDesc.Count != 1
         {
             return Err("Unsupported mirror texture dimensions or sampling".into());
         }
-        let size = [desc.width, desc.height];
-        let bounds @ [left, top, right, bottom] = region(desc.width, desc.height)?;
-        if left >= right || top >= bottom || right > desc.width || bottom > desc.height {
+        let size = [desc.Width, desc.Height];
+        let bounds @ [left, top, right, bottom] = region(desc.Width, desc.Height)?;
+        if left >= right || top >= bottom || right > desc.Width || bottom > desc.Height {
             return Err("Invalid mirror capture region".into());
         }
-        desc.width = right - left;
-        desc.height = bottom - top;
-        desc.mip_levels = 1;
-        desc.usage = 3; // D3D11_USAGE_STAGING
-        desc.bind_flags = 0;
-        desc.cpu_access_flags = 0x20000; // D3D11_CPU_ACCESS_READ
-        desc.misc_flags = 0;
+        desc.Width = right - left;
+        desc.Height = bottom - top;
+        desc.MipLevels = 1;
+        desc.Usage = D3D11_USAGE_STAGING;
+        desc.BindFlags = 0;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+        desc.MiscFlags = 0;
+        let format = desc.Format.0 as u32;
         let slot = self.staging.get_mut(eye).ok_or("Invalid capture eye")?;
         if slot.as_ref().is_none_or(|cached| {
-            cached.width != desc.width
-                || cached.height != desc.height
-                || cached.format != desc.format
+            cached.width != desc.Width || cached.height != desc.Height || cached.format != format
         }) {
-            let create: CreateTexture2d =
-                unsafe { std::mem::transmute(method(self.device.0, CREATE_TEXTURE_2D_INDEX)) };
-            let mut texture = null_mut();
-            let result = unsafe { create(self.device.0, &desc, null(), &mut texture) };
-            if result < 0 || texture.is_null() {
-                unsafe {
-                    release(texture);
-                }
-                return Err(format!(
-                    "Create mirror staging texture failed: 0x{result:08x}"
-                ));
-            }
+            let mut staging = None;
+            unsafe { self.device.CreateTexture2D(&desc, None, Some(&mut staging)) }.map_err(
+                |e| format!("Create mirror staging texture failed: 0x{:08x}", e.code().0),
+            )?;
+            let staging = staging.ok_or("Create mirror staging texture returned null")?;
             *slot = Some(Rc::new(StagingTexture {
-                texture: ComPtr(texture),
-                width: desc.width,
-                height: desc.height,
-                format: desc.format,
+                texture: staging,
+                width: desc.Width,
+                height: desc.Height,
+                format,
             }));
         }
         let staging = slot.as_ref().unwrap().clone();
         // Copy only selected pixels from subresource zero before CPU readback.
-        type CopyRegion = unsafe extern "system" fn(
-            *mut c_void,
-            *mut c_void,
-            u32,
-            u32,
-            u32,
-            u32,
-            *mut c_void,
-            u32,
-            *const c_void,
-        );
-        let copy: CopyRegion = unsafe { std::mem::transmute(method(self.context.0, 46)) };
-        // D3D11_BOX: left, top, front, right, bottom, back.
-        let source_box = [left, top, 0, right, bottom, 1];
+        let source_box = D3D11_BOX {
+            left,
+            top,
+            front: 0,
+            right,
+            bottom,
+            back: 1,
+        };
         unsafe {
-            copy(
-                self.context.0,
-                staging.texture.0,
+            self.context.CopySubresourceRegion(
+                &staging.texture,
                 0,
                 0,
                 0,
                 0,
-                texture.0,
+                &texture,
                 0,
-                source_box.as_ptr().cast(),
+                Some(&source_box),
             );
-        }
-        type Flush = unsafe extern "system" fn(*mut c_void);
-        let flush: Flush = unsafe { std::mem::transmute(method(self.context.0, 111)) };
-        unsafe {
-            flush(self.context.0);
+            self.context.Flush();
         }
         Ok(Readback {
             staging,
@@ -265,44 +180,29 @@ impl Device {
     }
 
     pub fn poll_readback(&self, readback: &Readback) -> Result<Option<Texture>, String> {
-        type Map = unsafe extern "system" fn(
-            *mut c_void,
-            *mut c_void,
-            u32,
-            u32,
-            u32,
-            *mut MappedSubresource,
-        ) -> i32;
-        type Unmap = unsafe extern "system" fn(*mut c_void, *mut c_void, u32);
         let staging = &readback.staging;
-        let map: Map = unsafe { std::mem::transmute(method(self.context.0, 14)) };
-        let unmap: Unmap = unsafe { std::mem::transmute(method(self.context.0, 15)) };
-        let mut mapped = MappedSubresource {
-            data: null_mut(),
-            row_pitch: 0,
-            depth_pitch: 0,
-        };
+        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         // D3D11_MAP_FLAG_DO_NOT_WAIT: never wait on the VR worker for GPU completion.
-        let result = unsafe {
-            map(
-                self.context.0,
-                staging.texture.0,
+        match unsafe {
+            self.context.Map(
+                &staging.texture,
                 0,
-                1,
-                0x10_0000,
-                &mut mapped,
+                D3D11_MAP_READ,
+                D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32,
+                Some(&mut mapped),
             )
-        };
-        if result == 0x887A_000Au32 as i32 {
-            return Ok(None);
-        }
-        if result < 0 {
-            return Err(format!("Map mirror texture failed: 0x{result:08x}"));
-        }
-        if mapped.data.is_null() || mapped.row_pitch < staging.width * 4 {
-            unsafe {
-                unmap(self.context.0, staging.texture.0, 0);
+        } {
+            Ok(()) => {}
+            Err(error) if error.code() == DXGI_ERROR_WAS_STILL_DRAWING => return Ok(None),
+            Err(error) => {
+                return Err(format!(
+                    "Map mirror texture failed: 0x{:08x}",
+                    error.code().0
+                ));
             }
+        }
+        if mapped.pData.is_null() || mapped.RowPitch < staging.width * 4 {
+            unsafe { self.context.Unmap(&staging.texture, 0) };
             return Err("Invalid mapped mirror row pitch".into());
         }
         let row_bytes = staging.width as usize * 4;
@@ -312,9 +212,9 @@ impl Device {
             let data = unsafe {
                 std::slice::from_raw_parts(
                     mapped
-                        .data
+                        .pData
                         .cast::<u8>()
-                        .add(row * mapped.row_pitch as usize),
+                        .add(row * mapped.RowPitch as usize),
                     row_bytes,
                 )
             };
@@ -339,153 +239,115 @@ impl Device {
                 }
             }
         }
-        unsafe {
-            unmap(self.context.0, staging.texture.0, 0);
-        }
+        unsafe { self.context.Unmap(&staging.texture, 0) };
         Ok(Some(Texture {
             width: staging.width,
             height: staging.height,
             pixels,
         }))
     }
-    pub fn create(adapter_index: u32) -> Result<Self, String> {
-        let adapter = dxgi_adapter(adapter_index)?;
-        let mut device = null_mut();
-        let mut context = null_mut();
-        let result = unsafe {
-            D3D11CreateDevice(
-                adapter.0,
-                D3D_DRIVER_TYPE_UNKNOWN,
-                null_mut(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                null(),
-                0,
-                D3D11_SDK_VERSION,
-                &mut device,
-                null_mut(),
-                &mut context,
-            )
-        };
-        if result < 0 || device.is_null() || context.is_null() {
-            unsafe {
-                release(device);
-                release(context);
-            }
-            return Err(format!(
-                "D3D11CreateDevice failed with HRESULT 0x{result:08x}"
-            ));
-        }
 
+    pub fn create(adapter_index: u32) -> Result<Self, String> {
+        let shared = acquire_shared_device(adapter_index)
+            .map_err(|(stage, e)| format!("{stage} failed with HRESULT 0x{:08x}", e.code().0))?;
         Ok(Self {
-            device: ComPtr(device),
-            context: ComPtr(context),
+            device: shared.device.clone(),
+            context: shared.context.clone(),
+            _shared: shared,
             staging: [None, None],
         })
     }
 }
 
-struct ComPtr(*mut c_void);
-
-impl Drop for ComPtr {
-    fn drop(&mut self) {
-        unsafe { release(self.0) };
+pub(crate) fn acquire_shared_device(
+    adapter_index: u32,
+) -> Result<Rc<SharedDevice>, (&'static str, windows::core::Error)> {
+    if let Some(shared) = SHARED_DEVICE.with_borrow(|slot| slot.as_ref().and_then(Weak::upgrade))
+        && shared.adapter_index == adapter_index
+        && unsafe { shared.device.GetDeviceRemovedReason() }.is_ok()
+    {
+        return Ok(shared);
     }
-}
-
-fn dxgi_adapter(index: u32) -> Result<ComPtr, String> {
-    let mut factory = null_mut();
-    let result = unsafe { CreateDXGIFactory1(&IID_IDXGI_FACTORY_1, &mut factory) };
-    if result < 0 || factory.is_null() {
-        unsafe { release(factory) };
-        return Err(format!(
-            "CreateDXGIFactory1 failed with HRESULT 0x{result:08x}"
-        ));
-    }
-    let factory = ComPtr(factory);
-
-    let enumerate: EnumAdapters1 =
-        unsafe { std::mem::transmute(method(factory.0, ENUM_ADAPTERS_1_INDEX)) };
-    let mut adapter = null_mut();
-    let result = unsafe { enumerate(factory.0, index, &mut adapter) };
-    if result < 0 || adapter.is_null() {
-        unsafe { release(adapter) };
-        return Err(format!(
-            "IDXGIFactory1::EnumAdapters1({index}) failed with HRESULT 0x{result:08x}"
-        ));
-    }
-    Ok(ComPtr(adapter))
-}
-
-fn query_interface(object: *mut c_void, iid: &Guid) -> Result<ComPtr, String> {
-    let query: QueryInterface =
-        unsafe { std::mem::transmute(method(object, QUERY_INTERFACE_INDEX)) };
-    let mut interface = null_mut();
-    let result = unsafe { query(object, iid, &mut interface) };
-    if result < 0 || interface.is_null() {
-        unsafe { release(interface) };
-        return Err(format!(
-            "IUnknown::QueryInterface failed with HRESULT 0x{result:08x}"
-        ));
-    }
-    Ok(ComPtr(interface))
-}
-
-unsafe fn method(object: *mut c_void, index: usize) -> *const c_void {
-    let vtable = unsafe { *(object as *const *const *const c_void) };
-    unsafe { *vtable.add(index) }
-}
-
-unsafe fn release(object: *mut c_void) {
-    if object.is_null() {
-        return;
-    }
-    let release: Release = unsafe { std::mem::transmute(method(object, RELEASE_INDEX)) };
+    let adapter = dxgi_adapter(adapter_index)?;
+    let (mut device, mut context) = (None, None);
     unsafe {
-        release(object);
+        D3D11CreateDevice(
+            &adapter,
+            D3D_DRIVER_TYPE_UNKNOWN,
+            HMODULE::default(),
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            None,
+            D3D11_SDK_VERSION,
+            Some(&mut device),
+            None,
+            Some(&mut context),
+        )
     }
+    .map_err(|e| ("Create D3D11 device", e))?;
+    let shared = Rc::new(SharedDevice {
+        device: device.ok_or(("Create D3D11 device", E_POINTER.into()))?,
+        context: context.ok_or(("Create D3D11 device", E_POINTER.into()))?,
+        adapter_index,
+    });
+    SHARED_DEVICE.with_borrow_mut(|slot| *slot = Some(Rc::downgrade(&shared)));
+    Ok(shared)
+}
+
+fn dxgi_adapter(index: u32) -> Result<IDXGIAdapter1, (&'static str, windows::core::Error)> {
+    let factory: IDXGIFactory1 =
+        unsafe { CreateDXGIFactory1() }.map_err(|e| ("Create DXGI factory", e))?;
+    unsafe { factory.EnumAdapters1(index) }.map_err(|e| ("Select DXGI adapter", e))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows::Win32::Graphics::Direct3D11::{
+        D3D11_BIND_SHADER_RESOURCE, D3D11_SUBRESOURCE_DATA, D3D11_USAGE_DEFAULT,
+    };
+    use windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC;
 
-    fn capture_test_texture(device: &Device, source: &Texture) -> ComPtr {
-        let desc = Texture2dDesc {
-            width: source.width,
-            height: source.height,
-            mip_levels: 1,
-            array_size: 1,
-            format: 87, // DXGI_FORMAT_B8G8R8A8_UNORM
-            sample_desc: SampleDesc {
-                count: 1,
-                quality: 0,
+    fn capture_test_texture(device: &Device, source: &Texture) -> ID3D11Texture2D {
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: source.width,
+            Height: source.height,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
             },
-            usage: 0,      // D3D11_USAGE_DEFAULT
-            bind_flags: 8, // D3D11_BIND_SHADER_RESOURCE
-            cpu_access_flags: 0,
-            misc_flags: 0,
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+            CPUAccessFlags: 0,
+            MiscFlags: 0,
         };
         let mut pixels = source.pixels.clone();
         for pixel in pixels.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
         }
-        let initial = SubresourceData {
-            system_memory: pixels.as_ptr().cast(),
-            system_memory_pitch: source.width * 4,
-            system_memory_slice_pitch: source.width * source.height * 4,
+        let initial = D3D11_SUBRESOURCE_DATA {
+            pSysMem: pixels.as_ptr().cast(),
+            SysMemPitch: source.width * 4,
+            SysMemSlicePitch: source.width * source.height * 4,
         };
-        let create: CreateTexture2d =
-            unsafe { std::mem::transmute(method(device.device.0, CREATE_TEXTURE_2D_INDEX)) };
-        let mut texture = null_mut();
-        assert!(unsafe { create(device.device.0, &desc, &initial, &mut texture) } >= 0);
-        assert!(!texture.is_null());
-        ComPtr(texture)
+        let mut texture = None;
+        unsafe {
+            device
+                .device
+                .CreateTexture2D(&desc, Some(&initial), Some(&mut texture))
+        }
+        .unwrap();
+        texture.unwrap()
     }
 
     #[test]
     #[ignore = "requires a Windows D3D11 adapter"]
     fn ocr_readback_preserves_rgba_and_row_pitch() {
         let mut device = Device::create(0).unwrap();
+        let shared = acquire_shared_device(0).unwrap();
+        assert_eq!(device.raw_device(), shared.device.as_raw());
         let source = Texture {
             width: 3,
             height: 2,
@@ -495,34 +357,36 @@ mod tests {
             ],
         };
         let texture = capture_test_texture(&device, &source);
-        type CreateView = unsafe extern "system" fn(
-            *mut c_void,
-            *mut c_void,
-            *const c_void,
-            *mut *mut c_void,
-        ) -> i32;
-        let create: CreateView = unsafe { std::mem::transmute(method(device.device.0, 7)) };
-        let mut view = null_mut();
-        assert!(unsafe { create(device.device.0, texture.0, null(), &mut view) } >= 0);
-        let view = ComPtr(view);
+        let mut view = None;
+        unsafe {
+            device
+                .device
+                .CreateShaderResourceView(&texture, None, Some(&mut view))
+        }
+        .unwrap();
+        let view = view.unwrap();
         let (captured, _, _) = unsafe {
-            device.read_shader_resource_region(view.0, |width, height| Ok([0, 0, width, height]))
+            device.read_shader_resource_region(view.as_raw(), |width, height| {
+                Ok([0, 0, width, height])
+            })
         }
         .unwrap();
         assert_eq!((captured.width, captured.height), (3, 2));
         assert_eq!(captured.pixels, source.pixels);
         let (cropped, bounds, size) =
-            unsafe { device.read_shader_resource_region(view.0, |_, _| Ok([1, 0, 2, 2])) }.unwrap();
+            unsafe { device.read_shader_resource_region(view.as_raw(), |_, _| Ok([1, 0, 2, 2])) }
+                .unwrap();
         assert_eq!(bounds, [1, 0, 2, 2]);
         assert_eq!(size, [3, 2]);
         assert_eq!((cropped.width, cropped.height), (1, 2));
         assert_eq!(cropped.pixels, [40, 50, 60, 255, 130, 140, 150, 255]);
         assert!(
-            unsafe { device.read_shader_resource_region(view.0, |_, _| Ok([2, 0, 4, 2])) }.is_err()
+            unsafe { device.read_shader_resource_region(view.as_raw(), |_, _| Ok([2, 0, 4, 2])) }
+                .is_err()
         );
         let readback =
-            unsafe { device.begin_readback(0, view.0, |_, _| Ok([1, 0, 2, 2])) }.unwrap();
-        let staging = readback.staging.texture.0;
+            unsafe { device.begin_readback(0, view.as_raw(), |_, _| Ok([1, 0, 2, 2])) }.unwrap();
+        let staging = readback.staging.texture.as_raw();
         let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
         let pixels = loop {
             if let Some(image) = device.poll_readback(&readback).unwrap() {
@@ -536,7 +400,8 @@ mod tests {
         };
         assert_eq!(pixels, [40, 50, 60, 255, 130, 140, 150, 255]);
         drop(readback);
-        let reused = unsafe { device.begin_readback(0, view.0, |_, _| Ok([1, 0, 2, 2])) }.unwrap();
-        assert_eq!(reused.staging.texture.0, staging);
+        let reused =
+            unsafe { device.begin_readback(0, view.as_raw(), |_, _| Ok([1, 0, 2, 2])) }.unwrap();
+        assert_eq!(reused.staging.texture.as_raw(), staging);
     }
 }

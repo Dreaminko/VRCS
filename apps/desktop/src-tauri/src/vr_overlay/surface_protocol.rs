@@ -981,6 +981,40 @@ mod tests {
     }
 
     #[test]
+    fn network_capture_capsule_region_does_not_collide_with_rules_slider() {
+        use crate::vr_overlay::{
+            control_protocol::ControlAction,
+            wrist_menu::{Command, Slider, SliderAction},
+        };
+        let mut layout = layout(SurfaceKey {
+            generation: 1,
+            revision: 1,
+        });
+        let network = ControlAction::SetNetworkCaptureRunning(true);
+        layout.regions[0] = Region {
+            id: network.region_id(),
+            bounds: [0.6, 0.84, 0.725, 0.965],
+            circle: true,
+            dashboard: None,
+            menu: Some(Command::Control(network)),
+        };
+        layout.regions.push(Region {
+            id: 32,
+            bounds: [0.1, 0.4, 0.9, 0.5],
+            circle: false,
+            dashboard: None,
+            menu: Some(Command::Slider(Slider {
+                action: SliderAction::ProximityRadius,
+                min: 0.0,
+                max: 10.0,
+                step: 0.1,
+            })),
+        });
+        layout.validate(SurfaceId::Menu).unwrap();
+        assert_ne!(network.region_id(), 32);
+    }
+
+    #[test]
     fn malformed_and_overlapping_regions_are_rejected() {
         let key = SurfaceKey {
             generation: 1,

@@ -37,7 +37,7 @@ impl ControlAction {
         match self {
             // Keep personnel navigation and pages at 4 and above; reserve 30+ for auxiliary buttons.
             Self::SetOcrGestureEnabled(_) => 30,
-            Self::SetNetworkCaptureRunning(_) => 32,
+            Self::SetNetworkCaptureRunning(_) => 55,
             _ => self.index() as u8,
         }
     }

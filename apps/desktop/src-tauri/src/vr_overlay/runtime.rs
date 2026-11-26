@@ -49,6 +49,12 @@ impl BusinessClock {
     }
 }
 
+pub(super) fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[cfg(any(windows, linux_vr))]
 pub(super) fn dispatch_control(
     app: &AppHandle,
@@ -56,15 +62,11 @@ pub(super) fn dispatch_control(
     source: ControlSource,
     action: ControlAction,
 ) {
-    let request = controls
-        .lock()
-        .ok()
-        .and_then(|mut hub| hub.begin(source, action));
+    let request = lock_unpoisoned(controls).begin(source, action);
     if let Some(request) = request
         && let Err(error) = app.emit_to("main", super::control_protocol::REQUEST_EVENT, &request)
-        && let Ok(mut hub) = controls.lock()
     {
-        hub.finish(&request, Some(error.to_string()));
+        lock_unpoisoned(controls).finish(&request, Some(error.to_string()));
     }
 }
 
@@ -76,15 +78,11 @@ pub(super) fn dispatch_player_display(
     expected: (u32, u32),
     action: super::player_display::Action,
 ) {
-    let request = controls
-        .lock()
-        .ok()
-        .and_then(|mut hub| hub.begin_player_display(source, expected, action));
+    let request = lock_unpoisoned(controls).begin_player_display(source, expected, action);
     if let Some(request) = request
         && let Err(error) = app.emit_to("main", super::player_display::REQUEST_EVENT, &request)
-        && let Ok(mut hub) = controls.lock()
     {
-        hub.finish_player_display(&request, Some(error.to_string()));
+        lock_unpoisoned(controls).finish_player_display(&request, Some(error.to_string()));
     }
 }
 
@@ -223,7 +221,7 @@ pub struct Manager {
     pending_control: Arc<Mutex<PendingControl>>,
     latest_config: Arc<Mutex<Option<(VrOverlayConfig, VrOcrConfig)>>>,
     latest_dashboard: Arc<Mutex<Option<Arc<DashboardViewModel>>>>,
-    stopping: Arc<AtomicBool>,
+    stopping: Mutex<Option<Arc<AtomicBool>>>,
     wakeup: Arc<AtomicBool>,
     worker_thread: Arc<Mutex<Option<std::thread::Thread>>>,
     worker: Mutex<Option<JoinHandle<()>>>,
@@ -233,15 +231,11 @@ pub struct Manager {
 impl Manager {
     #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
     pub(super) fn preview_view(&self) -> Option<DashboardViewModel> {
-        self.latest_dashboard.lock().ok()?.as_deref().cloned()
+        lock_unpoisoned(&self.latest_dashboard).as_deref().cloned()
     }
     pub fn revoke_controls(&self) {
-        if let Ok(mut hub) = self.controls.lock() {
-            hub.revoke();
-        }
-        if let Ok(mut placement) = self.placement.lock() {
-            placement.cancel();
-        }
+        lock_unpoisoned(&self.controls).revoke();
+        lock_unpoisoned(&self.placement).cancel();
     }
     pub fn new(app: AppHandle) -> Self {
         Self {
@@ -253,7 +247,7 @@ impl Manager {
             pending_control: Arc::new(Mutex::new(PendingControl::default())),
             latest_config: Arc::new(Mutex::new(None)),
             latest_dashboard: Arc::new(Mutex::new(None)),
-            stopping: Arc::new(AtomicBool::new(false)),
+            stopping: Mutex::new(None),
             wakeup: Arc::new(AtomicBool::new(false)),
             worker_thread: Arc::new(Mutex::new(None)),
             worker: Mutex::new(None),
@@ -266,10 +260,7 @@ impl Manager {
     }
 
     pub fn status(&self) -> Result<VrOverlayStatus, String> {
-        self.status
-            .lock()
-            .map(|status| status.clone())
-            .map_err(|error| error.to_string())
+        Ok(lock_unpoisoned(&self.status).clone())
     }
 
     pub fn open_ocr_bindings(&self) -> Result<(), String> {
@@ -281,10 +272,7 @@ impl Manager {
     }
 
     pub fn update_dashboard(&self, view: DashboardViewModel) -> Result<(), String> {
-        *self
-            .latest_dashboard
-            .lock()
-            .map_err(|error| error.to_string())? = Some(Arc::new(view));
+        *lock_unpoisoned(&self.latest_dashboard) = Some(Arc::new(view));
         Ok(())
     }
 
@@ -304,7 +292,8 @@ impl Manager {
         self.stop();
         let initial_config = config.borrow().clone();
         let (event_sender, event_receiver) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
-        self.stopping.store(false, Ordering::Release);
+        let stopping = Arc::new(AtomicBool::new(false));
+        *lock_unpoisoned(&self.stopping) = Some(stopping.clone());
 
         let app = self.app.clone();
         let status = self.status.clone();
@@ -313,7 +302,6 @@ impl Manager {
         let latest_dashboard = self.latest_dashboard.clone();
         let controls = self.controls.clone();
         let placement = self.placement.clone();
-        let stopping = self.stopping.clone();
         let wakeup = self.wakeup.clone();
         self.wakeup.store(false, Ordering::Release);
         let worker = std::thread::Builder::new()
@@ -337,15 +325,9 @@ impl Manager {
                 )
             })
             .map_err(|error| format!("Failed to start VR Overlay thread: {error}"))?;
-        *self
-            .worker_thread
-            .lock()
-            .map_err(|error| error.to_string())? = Some(worker.thread().clone());
-        *self
-            .event_sender
-            .lock()
-            .map_err(|error| error.to_string())? = Some(event_sender.clone());
-        *self.worker.lock().map_err(|error| error.to_string())? = Some(worker);
+        *lock_unpoisoned(&self.worker_thread) = Some(worker.thread().clone());
+        *lock_unpoisoned(&self.event_sender) = Some(event_sender.clone());
+        *lock_unpoisoned(&self.worker) = Some(worker);
 
         let event_bridge = tauri::async_runtime::spawn(async move {
             let mut dropped = 0_u64;
@@ -382,20 +364,11 @@ impl Manager {
         let config_bridge = tauri::async_runtime::spawn(async move {
             while config.changed().await.is_ok() {
                 let next = config.borrow().clone();
-                match latest_config.lock() {
-                    Ok(mut pending) => {
-                        *pending = Some(next);
-                        wake_worker_thread(&wakeup, &worker_thread);
-                    }
-                    Err(error) => {
-                        tracing::warn!(%error, "VR Overlay config lock poisoned");
-                        break;
-                    }
-                }
+                *lock_unpoisoned(&latest_config) = Some(next);
+                wake_worker_thread(&wakeup, &worker_thread);
             }
         });
-        *self.bridges.lock().map_err(|error| error.to_string())? =
-            vec![event_bridge, config_bridge];
+        *lock_unpoisoned(&self.bridges) = vec![event_bridge, config_bridge];
         Ok(())
     }
 
@@ -414,29 +387,25 @@ impl Manager {
         })
     }
 
-    pub fn stop(&self) {
-        if let Ok(mut bridges) = self.bridges.lock() {
-            for task in bridges.drain(..) {
-                task.abort();
-            }
+    pub fn stop(&self) -> bool {
+        for task in lock_unpoisoned(&self.bridges).drain(..) {
+            task.abort();
         }
-        self.stopping.store(true, Ordering::Release);
+        if let Some(stopping) = lock_unpoisoned(&self.stopping).take() {
+            stopping.store(true, Ordering::Release);
+        }
         self.wake_worker();
-        if let Ok(mut sender) = self.event_sender.lock() {
-            sender.take();
-        }
-        if let Ok(mut control) = self.pending_control.lock() {
-            *control = PendingControl::default();
-        }
-        if let Ok(mut config) = self.latest_config.lock() {
-            config.take();
-        }
-        let worker = self.worker.lock().ok().and_then(|mut worker| worker.take());
+        lock_unpoisoned(&self.event_sender).take();
+        *lock_unpoisoned(&self.pending_control) = PendingControl::default();
+        lock_unpoisoned(&self.latest_config).take();
+        let worker = lock_unpoisoned(&self.worker).take();
+        let mut stopped_cleanly = true;
         if let Some(worker) = worker {
             // A running OpenXR session can block the worker in `xrWaitFrame`
-            // when the headset stops delivering frames. Do not hold the caller
-            // (and the window close) hostage; the thread still tears itself
-            // down once the wait returns.
+            // when the headset stops delivering frames. Give shutdown a brief
+            // grace window so native host teardown runs after the worker exits,
+            // without holding the caller hostage if the runtime stays hung.
+            let timeout = Duration::from_secs(if cfg!(linux_vr) { 2 } else { 5 });
             let (done, wait) = mpsc::channel();
             let reaper = std::thread::Builder::new()
                 .name("vrcs-vr-overlay-join".into())
@@ -447,30 +416,27 @@ impl Manager {
                     let _ = done.send(());
                 });
             match reaper {
-                Ok(_) if wait.recv_timeout(Duration::from_secs(1)).is_err() => {
+                Ok(_) if wait.recv_timeout(timeout).is_err() => {
                     tracing::warn!("VR Overlay worker is blocked; detaching it");
+                    stopped_cleanly = false;
                 }
                 Ok(_) => {}
-                Err(error) => tracing::warn!(%error, "VR Overlay join thread failed"),
+                Err(error) => {
+                    tracing::warn!(%error, "VR Overlay join thread failed");
+                    stopped_cleanly = false;
+                }
             }
         }
-        if let Ok(mut thread) = self.worker_thread.lock() {
-            thread.take();
-        }
+        lock_unpoisoned(&self.worker_thread).take();
+        stopped_cleanly
     }
 
     fn update_control(&self, update: impl FnOnce(&mut PendingControl)) -> Result<(), String> {
-        let sender = self
-            .event_sender
-            .lock()
-            .map_err(|error| error.to_string())?;
+        let sender = lock_unpoisoned(&self.event_sender);
         if sender.is_none() {
             return Err("VR Overlay is waiting for Core startup".into());
         }
-        let mut control = self
-            .pending_control
-            .lock()
-            .map_err(|error| error.to_string())?;
+        let mut control = lock_unpoisoned(&self.pending_control);
         update(&mut control);
         drop(control);
         drop(sender);
@@ -481,9 +447,7 @@ impl Manager {
 
 fn wake_worker_thread(wakeup: &AtomicBool, worker_thread: &Mutex<Option<std::thread::Thread>>) {
     wakeup.store(true, Ordering::Release);
-    if let Ok(guard) = worker_thread.lock()
-        && let Some(thread) = guard.as_ref()
-    {
+    if let Some(thread) = lock_unpoisoned(worker_thread).as_ref() {
         thread.unpark();
     }
 }
@@ -1159,9 +1123,8 @@ fn worker_loop(
         #[cfg(any(windows, linux_vr))]
         let mut placement_mode = None;
         if business {
-            if let Ok(mut pending) = latest_config.lock()
-                && let Some((config, ocr_config)) = pending.take()
-            {
+            let pending_config = lock_unpoisoned(&latest_config).take();
+            if let Some((config, ocr_config)) = pending_config {
                 #[cfg(any(windows, linux_vr))]
                 if state.config != config {
                     state.config_revision = state.config_revision.wrapping_add(1);
@@ -1213,8 +1176,8 @@ fn worker_loop(
                 }
                 state.ocr_config = ocr_config;
             }
-            if let Ok(mut pending) = latest_dashboard.lock()
-                && let Some(view) = pending.take()
+            let pending_dashboard = lock_unpoisoned(&latest_dashboard).take();
+            if let Some(view) = pending_dashboard
                 && state.dashboard_view.as_ref() != Some(&view)
             {
                 #[cfg(any(windows, linux_vr))]
@@ -1246,8 +1209,8 @@ fn worker_loop(
                 state.dashboard.update_view(&view);
                 state.dashboard_view = Some(view);
             }
-            if let Ok(mut pending) = pending_control.lock() {
-                let control = std::mem::take(&mut *pending);
+            let control = std::mem::take(&mut *lock_unpoisoned(&pending_control));
+            {
                 #[cfg(any(windows, linux_vr))]
                 {
                     placement_mode = control.placement_mode;
@@ -1368,18 +1331,16 @@ fn worker_loop(
                 status.ocr = state.ocr.status.clone();
             }
             update_status(&app, &shared_status, &status);
-            if let Ok(mut hub) = state.controls.lock() {
-                let ready = |resource: &ResourceState| {
-                    matches!(
-                        resource,
-                        ResourceState::ReadyHidden | ResourceState::Visible | ResourceState::Fading
-                    )
-                };
-                hub.set_overlay_effective(
-                    status.state == RuntimeState::Ready && ready(&status.wrist.state),
-                    status.state == RuntimeState::Ready && ready(&status.headset.state),
-                );
-            }
+            let ready = |resource: &ResourceState| {
+                matches!(
+                    resource,
+                    ResourceState::ReadyHidden | ResourceState::Visible | ResourceState::Fading
+                )
+            };
+            lock_unpoisoned(&state.controls).set_overlay_effective(
+                status.state == RuntimeState::Ready && ready(&status.wrist.state),
+                status.state == RuntimeState::Ready && ready(&status.headset.state),
+            );
         }
         #[cfg(any(windows, linux_vr))]
         let ui_active = state.backend.is_some()
@@ -1793,11 +1754,10 @@ fn tick(
                 .tick_with_cadence(app, &mut backend, &state.config, &state.controls, tick);
         state.ocr.pointer_input(events, focused || modal);
         if business {
-            state.player_progress = state
-                .controls
-                .lock()
-                .ok()
-                .and_then(|hub| hub.player_audio().progress.clone());
+            state.player_progress = lock_unpoisoned(&state.controls)
+                .player_audio()
+                .progress
+                .clone();
         }
         state.ocr.tick_with_cadence(
             app,
@@ -1925,11 +1885,10 @@ fn update_dashboard(
         return;
     };
     if business {
-        let notice = state
-            .controls
-            .lock()
-            .ok()
-            .and_then(|hub| hub.player_audio().notice.clone());
+        let notice = lock_unpoisoned(&state.controls)
+            .player_audio()
+            .notice
+            .clone();
         if view.player_audio_notice != notice {
             Arc::make_mut(view).player_audio_notice = notice;
         }
@@ -1964,7 +1923,7 @@ fn update_dashboard(
             state.dashboard_repeat = None;
             return Ok(false);
         }
-        let dark = state.controls.lock().map(|hub| hub.dark()).unwrap_or(false);
+        let dark = lock_unpoisoned(&state.controls).dark();
         // Revoke stale input before polling; only the renderer owns recovery decisions.
         if business {
             hub.publish(
@@ -2236,7 +2195,8 @@ fn dispatch_dashboard_action(
         state.ui.place(app, backend, &state.controls, mode);
         return;
     }
-    let control = state.controls.lock().ok().and_then(|hub| {
+    let control = {
+        let hub = lock_unpoisoned(&state.controls);
         let view = hub.snapshot();
         match &action {
             DashboardAction::ToggleWrist => {
@@ -2256,7 +2216,7 @@ fn dispatch_dashboard_action(
             )),
             _ => None,
         }
-    });
+    };
     if let Some(control) = control {
         dispatch_control(app, &state.controls, ControlSource::Dashboard, control);
     } else if let Err(error) = app.emit_to("main", "vr-dashboard-action", action) {
@@ -2328,7 +2288,7 @@ fn update_headset(
         let now = Instant::now();
         let draft = question_draft.as_deref();
         let (notice, notice_error) = active_caption_notice(state, now);
-        let dark = state.controls.lock().map(|hub| hub.dark()).unwrap_or(false);
+        let dark = lock_unpoisoned(&state.controls).dark();
         let headset_revision = state.headset.revision();
         if let Some(cache) = state.headset_cache.as_ref().filter(|cache| {
             cache.headset_revision == headset_revision
@@ -2574,7 +2534,7 @@ fn render_wrist(
         state.ui.reset_dialogue_visibility();
     }
     let (mode, pose, relative, follow_view, busy, error, revision) = {
-        let placement = state.ui.placement.lock().expect("vr placement lock");
+        let placement = lock_unpoisoned(&state.ui.placement);
         (
             placement.display_mode(),
             placement.absolute_pose(),
@@ -2665,11 +2625,7 @@ fn render_wrist(
             } else {
                 let (notice, notice_error) = active_caption_notice(state, now);
                 let wrist_revision = state.wrist.revision();
-                let controls_version = state
-                    .controls
-                    .lock()
-                    .map(|hub| hub.ui_version())
-                    .unwrap_or(0);
+                let controls_version = lock_unpoisoned(&state.controls).ui_version();
                 if let Some(cache) = state.dialogue_cache.as_ref().filter(|cache| {
                     cache.wrist_revision == wrist_revision
                         && cache.config_revision == state.config_revision
@@ -2755,11 +2711,7 @@ fn render_wrist(
                         status.wrist.last_error_code = None;
                         return Ok(());
                     };
-                    let controls = state
-                        .controls
-                        .lock()
-                        .map(|hub| hub.snapshot())
-                        .unwrap_or_default();
+                    let controls = lock_unpoisoned(&state.controls).snapshot();
                     let messages = match frame.content {
                         PresentationContent::Wrist(messages) => messages,
                         _ => Vec::new(),
@@ -2890,14 +2842,12 @@ fn wrist_error(status: &mut VrOverlayStatus, code: &str, detail: String) {
 }
 
 fn update_status(app: &AppHandle, shared: &Arc<Mutex<VrOverlayStatus>>, next: &VrOverlayStatus) {
-    let changed = match shared.lock() {
-        Ok(mut current) if *current != *next => {
+    let changed = {
+        let mut current = lock_unpoisoned(shared);
+        if *current != *next {
             *current = next.clone();
             true
-        }
-        Ok(_) => false,
-        Err(error) => {
-            tracing::warn!(%error, "VR Overlay status lock poisoned");
+        } else {
             false
         }
     };

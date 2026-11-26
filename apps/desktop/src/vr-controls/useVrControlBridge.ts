@@ -15,6 +15,18 @@ const CONTROL_LABEL_KEYS = [
   "controlBusy", "controlFailed", "masterOff", "waitingContent", "settings",
 ] as const;
 
+type DashboardControlResultListener = (error: string | null) => void;
+const dashboardControlResultListeners = new Set<DashboardControlResultListener>();
+
+export function subscribeDashboardControlResults(
+  listener: DashboardControlResultListener,
+): () => void {
+  dashboardControlResultListeners.add(listener);
+  return () => {
+    dashboardControlResultListeners.delete(listener);
+  };
+}
+
 interface VrControlBridgeOptions {
   os?: string;
   settings: Settings | null;
@@ -73,6 +85,10 @@ function controlKey(view: ControlSnapshot): string {
   return JSON.stringify({ dark: view.dark, labels: view.labels, items: view.items });
 }
 
+function controlStateKey(view: ControlSnapshot): string {
+  return JSON.stringify(view.items.map(({ requested, available, hidden }) => [requested, available, Boolean(hidden)]));
+}
+
 export function useVrControlBridge(options: VrControlBridgeOptions) {
   const { t } = useTranslation();
   const current = useRef(options);
@@ -81,7 +97,9 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
   tRef.current = t;
   const [epoch, setEpoch] = useState(0);
   const revision = useRef(0);
+  const stateRevision = useRef(0);
   const lastControlRef = useRef("");
+  const lastControlStateRef = useRef("");
   const audioRevision = useRef(0);
   const lastAudioViewRef = useRef("");
   const lastAudio = useRef<{ requested: boolean; status?: PlayerAudioStatus | ChatboxStatus | null; chatbox?: boolean }>({ requested: false });
@@ -98,8 +116,10 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
     const publish = async () => {
       const nextView = buildControlView(current.current, owner, revision.current, tRef.current);
       lastControlRef.current = controlKey(nextView);
+      lastControlStateRef.current = controlStateKey(nextView);
       const next = await invoke<ControlSnapshot>("vr_overlay_control_update", { view: nextView });
       revision.current = Math.max(revision.current, next.revision);
+      stateRevision.current = Math.max(stateRevision.current, next.revision);
     };
     const execute = createControlExecutor({
       update: (apply) => current.current.update(apply),
@@ -114,7 +134,7 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
         void (async () => {
           let error: string | null = null;
           try {
-            if (request.base_revision < revision.current) throw new Error("State changed; try again");
+            if (request.base_revision < stateRevision.current) throw new Error("State changed; try again");
             await execute(request.action);
           } catch (reason) {
             error = reason instanceof Error ? reason.message : String(reason);
@@ -122,8 +142,13 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
           if (disposed || owner !== request.owner_epoch) return;
           try {
             await publish();
-          } finally {
-            await invoke("vr_overlay_control_result", { request, error });
+          } catch (publishError) {
+            console.warn("VR control publish failed", publishError);
+          }
+          if (disposed || owner !== request.owner_epoch) return;
+          await invoke("vr_overlay_control_result", { request, error });
+          if (request.source === "dashboard") {
+            dashboardControlResultListeners.forEach((listener) => listener(error));
           }
         })().catch((error) => console.warn("VR control result failed", error));
       };
@@ -149,10 +174,12 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
       if (disposed) { stops.forEach((stop) => stop()); return; }
       const initialView = buildControlView(current.current, 0, revision.current, tRef.current);
       lastControlRef.current = controlKey(initialView);
+      lastControlStateRef.current = controlStateKey(initialView);
       const ready = await invoke<ControlSnapshot>("vr_overlay_control_ready", { view: initialView });
       owner = ready.owner_epoch;
       if (disposed) { await invoke("vr_overlay_control_release", { epoch: owner }); return; }
       revision.current = ready.revision;
+      stateRevision.current = ready.revision;
       setEpoch(owner);
       waiting.splice(0).forEach((receive) => receive());
     })().catch((error) => {
@@ -163,22 +190,32 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
     return () => {
       disposed = true;
       lastControlRef.current = "";
+      lastControlStateRef.current = "";
       stops.forEach((stop) => stop());
       if (owner) void invoke("vr_overlay_control_release", { epoch: owner });
     };
   }, []);
 
   useEffect(() => {
-    if (!epoch || !options.playerAudioStart.notice) return;
-    setNow(performance.now());
-    const timer = window.setInterval(() => setNow(performance.now()), 200);
+    const notice = options.playerAudioStart.notice;
+    if (!epoch || !notice) return;
+    const currentNow = performance.now();
+    setNow(currentNow);
+    if (currentNow - notice.openedAt >= 3_000) return;
+    const timer = window.setInterval(() => {
+      const nextNow = performance.now();
+      setNow(nextNow);
+      if (nextNow - notice.openedAt >= 3_000) window.clearInterval(timer);
+    }, 200);
     return () => window.clearInterval(timer);
   }, [epoch, options.playerAudioStart.notice]);
 
   const settings = options.getSettings();
   const notice = epoch ? playerAudioPrompt(options.playerAudioStart.notice, now, t, options.os) : null;
   // A missing health snapshot is not a confirmed stop.
-  const chatbox = settings?.audio.output.mode !== "vrchat_players" && Boolean(settings?.vrchat_chatbox.enabled);
+  const chatbox = (options.requested ?? options.getRequested())
+    && settings?.audio.output.mode !== "vrchat_players"
+    && Boolean(settings?.vrchat_chatbox.enabled);
   const networkRequested = options.getNetworkRequested?.() ?? Boolean(options.networkRequested);
   const requested = networkRequested || (usesVrchatNetwork(settings) && (options.requested ?? lastAudio.current.requested));
   const status = (chatbox ? options.chatboxStatus : options.playerAudioStatus)
@@ -228,8 +265,14 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
       const serialized = controlKey(nextView);
       if (serialized === lastControlRef.current) return;
       lastControlRef.current = serialized;
+      const nextStateKey = controlStateKey(nextView);
+      const stateChanged = nextStateKey !== lastControlStateRef.current;
+      lastControlStateRef.current = nextStateKey;
       void invoke<ControlSnapshot>("vr_overlay_control_update", { view: nextView })
-        .then((next) => { revision.current = Math.max(revision.current, next.revision); })
+        .then((next) => {
+          revision.current = Math.max(revision.current, next.revision);
+          if (stateChanged) stateRevision.current = Math.max(stateRevision.current, next.revision);
+        })
         .catch((error) => console.warn("VR control state update failed", error));
     };
     publish();

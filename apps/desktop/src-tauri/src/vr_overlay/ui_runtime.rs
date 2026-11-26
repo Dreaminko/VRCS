@@ -105,11 +105,15 @@ pub fn dispatch_placement(
         .map(|e| e.to_string())
     };
     if error.is_some() {
-        placement
-            .lock()
-            .expect("vr placement lock")
-            .resolve(request.id, false, error);
+        super::runtime::lock_unpoisoned(placement).resolve(request.id, false, error);
     }
+}
+
+#[derive(Default)]
+struct ContextChanges {
+    owner: bool,
+    menu: bool,
+    dialogue: bool,
 }
 
 #[derive(Default)]
@@ -125,15 +129,32 @@ struct UiContext {
 }
 
 impl UiContext {
-    fn matches(&self, config: &VrOverlayConfig, owner_epoch: u32, owner_active: bool) -> bool {
-        self.initialized
-            && self.menu_hand == config.wrist_menu.hand
-            && self.wrist_hand == config.wrist.hand
-            && self.dominant_hand == config.wrist.dominant_hand
-            && self.owner_epoch == owner_epoch
-            && self.owner_active == owner_active
-            && self.wrist_enabled == (config.enabled && config.wrist.enabled)
-            && self.menu_enabled == config.wrist_menu.enabled
+    fn diff(
+        &self,
+        config: &VrOverlayConfig,
+        owner_epoch: u32,
+        owner_active: bool,
+    ) -> ContextChanges {
+        if !self.initialized {
+            return ContextChanges {
+                owner: true,
+                menu: true,
+                dialogue: true,
+            };
+        }
+        let owner = self.owner_epoch != owner_epoch || self.owner_active != owner_active;
+        let menu = owner
+            || self.menu_hand != config.wrist_menu.hand
+            || self.menu_enabled != config.wrist_menu.enabled;
+        let dialogue = owner
+            || self.wrist_hand != config.wrist.hand
+            || self.dominant_hand != config.wrist.dominant_hand
+            || self.wrist_enabled != (config.enabled && config.wrist.enabled);
+        ContextChanges {
+            owner,
+            menu,
+            dialogue,
+        }
     }
 
     fn update(&mut self, config: &VrOverlayConfig, owner_epoch: u32, owner_active: bool) {
@@ -171,6 +192,8 @@ pub struct UiRuntime {
     pub dialogue_visible: bool,
     pub dialogue_revision: Option<u64>,
     pub generation: u64,
+    menu_generation: u64,
+    dialogue_generation: u64,
     context: UiContext,
     origin: Option<SpaceId>,
     current_origin: Option<SpaceId>,
@@ -214,6 +237,8 @@ impl UiRuntime {
             dialogue_visible: false,
             dialogue_revision: None,
             generation: 1,
+            menu_generation: 1,
+            dialogue_generation: 1,
             context: Default::default(),
             origin: None,
             current_origin: None,
@@ -288,10 +313,40 @@ impl UiRuntime {
         self.pointer = None;
         self.last_input = Instant::now();
         self.pressed = None;
-        self.placement
-            .lock()
-            .expect("vr placement lock")
-            .cancel_drag();
+        super::runtime::lock_unpoisoned(&self.placement).cancel_drag();
+    }
+
+    fn apply_context(
+        &mut self,
+        config: &VrOverlayConfig,
+        owner_epoch: u32,
+        owner_active: bool,
+    ) -> bool {
+        let changes = self.context.diff(config, owner_epoch, owner_active);
+        if !changes.owner && !changes.menu && !changes.dialogue {
+            return false;
+        }
+        if changes.owner {
+            self.suspend_input();
+            self.generation += 1;
+        }
+        if changes.menu {
+            let _ = self.router.cancel_surface(Surface::Menu);
+            self.pressed = None;
+            self.menu_fade.reset();
+            self.lift = Default::default();
+            self.menu_ui = Default::default();
+            self.menu_generation += 1;
+        }
+        if changes.dialogue {
+            let _ = self.router.cancel_surface(Surface::Dialogue);
+            self.reset_dialogue_visibility();
+            self.dialogue_lift = Default::default();
+            super::runtime::lock_unpoisoned(&self.placement).cancel();
+            self.dialogue_generation += 1;
+        }
+        self.context.update(config, owner_epoch, owner_active);
+        changes.owner
     }
 
     pub fn reset(&mut self) {
@@ -302,6 +357,8 @@ impl UiRuntime {
         self.cursor_error = None;
         self.last_input = Instant::now();
         self.generation += 1;
+        self.menu_generation += 1;
+        self.dialogue_generation += 1;
         self.origin = None;
         self.current_origin = None;
         self.snapshot_version = None;
@@ -319,10 +376,7 @@ impl UiRuntime {
         self.menu_fade.reset();
         self.reset_dialogue_visibility();
         self.pressed = None;
-        self.placement
-            .lock()
-            .expect("vr placement lock")
-            .reset_tracking();
+        super::runtime::lock_unpoisoned(&self.placement).reset_tracking();
     }
 
     pub fn place(
@@ -333,7 +387,7 @@ impl UiRuntime {
         mode: Mode,
     ) {
         let epoch = {
-            let hub = controls.lock().expect("vr controls lock");
+            let hub = super::runtime::lock_unpoisoned(controls);
             if hub.active() {
                 hub.snapshot().owner_epoch
             } else {
@@ -343,7 +397,7 @@ impl UiRuntime {
         if epoch == 0 {
             return;
         }
-        let mut p = self.placement.lock().expect("vr placement lock");
+        let mut p = super::runtime::lock_unpoisoned(&self.placement);
         let pose = if mode == Mode::World {
             match backend.ocr_tracking() {
                 Ok((head, _, _)) => {
@@ -527,7 +581,7 @@ impl UiRuntime {
         } = tick;
         let now = Instant::now();
         if business {
-            let hub = controls.lock().expect("vr controls lock");
+            let hub = super::runtime::lock_unpoisoned(controls);
             let version = hub.ui_version();
             if self.snapshot_version != Some(version) {
                 self.snapshot = Arc::new((
@@ -543,13 +597,8 @@ impl UiRuntime {
         let (view, players, players_revision, owner_active) = snapshot.as_ref();
         let (players_revision, owner_active) = (
             *players_revision,
-            *owner_active
-                && controls
-                    .lock()
-                    .expect("vr controls lock")
-                    .owns_epoch(view.owner_epoch),
+            *owner_active && super::runtime::lock_unpoisoned(controls).owns_epoch(view.owner_epoch),
         );
-        let context_changed = !self.context.matches(config, view.owner_epoch, owner_active);
         let tracking = backend.ocr_tracking().ok();
         let origin = tracking.as_ref().map(|t| t.2);
         if backend.tracking_reset()
@@ -560,20 +609,11 @@ impl UiRuntime {
         self.current_origin = origin;
         self.origin = origin.or(self.origin);
         let dashboard = backend.system_dashboard_visible();
-        if context_changed || dashboard || content_owns_input {
+        let owner_changed = self.apply_context(config, view.owner_epoch, owner_active);
+        if !owner_changed && (dashboard || content_owns_input) {
             self.suspend_input();
-            if context_changed {
-                self.menu_fade.reset();
-                self.reset_dialogue_visibility();
-                self.lift = Default::default();
-                self.dialogue_lift = Default::default();
-                self.menu_ui = Default::default();
-                self.placement.lock().expect("vr placement lock").cancel();
-                self.generation += 1;
-                self.context.update(config, view.owner_epoch, owner_active);
-            }
         }
-        let mut placement = self.placement.lock().expect("vr placement lock");
+        let mut placement = super::runtime::lock_unpoisoned(&self.placement);
         if let Some((head, _, _)) = tracking {
             placement.update_head(head);
         }
@@ -625,8 +665,14 @@ impl UiRuntime {
             && dialogue_content_active
             && (dialogue_sample || dialogue_lift_visible);
         let surfaces = app.state::<SurfaceHub>();
-        let generation =
-            |surface| (self.generation << 32) | u64::from(surfaces.generation(surface));
+        let generation = |surface| {
+            let local = match surface {
+                SurfaceId::Menu => self.menu_generation,
+                SurfaceId::Dialogue => self.dialogue_generation,
+                _ => self.generation,
+            };
+            (local << 32) | u64::from(surfaces.generation(surface))
+        };
         let menu_layout = surfaces.layout(SurfaceId::Menu);
         let mut menu_controls = view.clone();
         // SteamVR owns its dashboard; only the OpenXR backend exposes the
@@ -815,7 +861,7 @@ impl UiRuntime {
         }
         let mut save = None;
         let mut action = None;
-        let mut placement = self.placement.lock().expect("vr placement lock");
+        let mut placement = super::runtime::lock_unpoisoned(&self.placement);
         for event in output.events {
             match event.hit.key.surface {
                 Surface::Menu => match event.kind {
@@ -970,6 +1016,7 @@ impl UiRuntime {
             backend.reset(OverlayKind::WristMenu);
             self.menu_fade.reset();
             self.menu_frame = None;
+            self.menu_ui = Default::default();
             if self.menu_error.as_ref() != Some(&error) {
                 tracing::warn!(%error,"Wrist menu unavailable");
             }
@@ -1186,5 +1233,73 @@ mod tests {
             assert_eq!(p.mode(), if success { Mode::World } else { Mode::Wrist });
             assert_eq!(p.error.is_some(), !success);
         }
+    }
+
+    #[test]
+    fn context_changes_reset_only_the_affected_surface() {
+        let placement = Arc::new(Mutex::new(Placement::default()));
+        let mut runtime = UiRuntime::new(placement.clone());
+        let mut config = VrOverlayConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        config.wrist_menu.enabled = true;
+        let now = Instant::now();
+
+        runtime.apply_context(&config, 1, true);
+        let menu_gen = runtime.menu_generation;
+        let dialogue_gen = runtime.dialogue_generation;
+
+        assert!(!runtime.lift.update(Some(30.), false, now));
+        assert!(
+            runtime
+                .lift
+                .update(Some(30.), false, now + Duration::from_millis(150))
+        );
+        runtime.menu_fade.advance(true, true, now);
+        runtime
+            .menu_fade
+            .advance(true, true, now + Duration::from_millis(160));
+        runtime.menu_ui.page = wrist_menu::Page::Players;
+        runtime.dialogue_fade.advance(true, true, now);
+        runtime
+            .dialogue_fade
+            .advance(true, true, now + Duration::from_millis(160));
+        let pose = super::super::transform::matrix(0., 20., 0., [1., 1., -2.]);
+        let _ = placement.lock().unwrap().set_mode(Mode::World, Some(pose));
+
+        // Toggling wrist subtitles resets only dialogue state and keeps the wrist menu intact.
+        config.wrist.enabled = false;
+        assert!(!runtime.apply_context(&config, 1, true));
+        assert_eq!(runtime.menu_generation, menu_gen);
+        assert_eq!(runtime.menu_ui.page, wrist_menu::Page::Players);
+        assert!(runtime.menu_fade.input_allowed(true));
+        assert!(
+            runtime
+                .lift
+                .update(Some(30.), false, now + Duration::from_millis(200))
+        );
+        assert!(runtime.dialogue_generation > dialogue_gen);
+        assert!(!runtime.dialogue_fade.active());
+        assert!(!placement.lock().unwrap().busy());
+
+        // Changing wrist menu hand resets only menu state and keeps dialogue intact.
+        let menu_gen = runtime.menu_generation;
+        let dialogue_gen = runtime.dialogue_generation;
+        runtime
+            .dialogue_fade
+            .advance(true, true, now + Duration::from_millis(300));
+        config.wrist_menu.hand = "right".into();
+        assert!(!runtime.apply_context(&config, 1, true));
+        assert!(runtime.menu_generation > menu_gen);
+        assert_eq!(runtime.menu_ui.page, wrist_menu::Page::Home);
+        assert!(!runtime.menu_fade.active());
+        assert!(
+            !runtime
+                .lift
+                .update(Some(30.), false, now + Duration::from_millis(350))
+        );
+        assert_eq!(runtime.dialogue_generation, dialogue_gen);
+        assert!(runtime.dialogue_fade.active());
     }
 }

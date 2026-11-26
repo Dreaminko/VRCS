@@ -73,7 +73,9 @@ export function VrPreview() {
       queue.current = transport;
       display(next);
     }).catch((reason) => { if (!disposed) setError(String(reason)); });
-    const timer = window.setInterval(() => { if (queue.current === transport) transport.push({ type: "refresh" }); }, 400);
+    const timer = window.setInterval(() => {
+      if (!document.hidden && queue.current === transport) transport.push({ type: "refresh" });
+    }, 400);
     const holdTimer = window.setInterval(() => {
       const displayed = shown.current;
       if (queue.current !== transport || displayed?.panel !== 0 || !(pointer.current.buttons & 1)) return;

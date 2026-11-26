@@ -100,10 +100,7 @@ impl Shared {
     }
 
     fn current(&self, id: HostId) -> Option<SurfaceActivity> {
-        self.control
-            .lock()
-            .expect("native host state lock")
-            .current(id)
+        crate::vr_overlay::runtime::lock_unpoisoned(&self.control).current(id)
     }
 }
 
@@ -138,32 +135,23 @@ impl NativeHostManager {
     pub(super) fn ensure(&self, id: HostId) -> Result<(), String> {
         let activity = {
             let hub = self.app.state::<SurfaceHub>();
-            let entries = hub.0.lock().expect("surface hub lock");
+            let entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
             let entry = &entries[id.surface.index()];
             if entry.host_epoch != id.host_epoch || !entry.active {
                 return Ok(());
             }
             entry.activity()
         };
-        if let Some(error) = self
-            .shared
-            .error
-            .lock()
-            .expect("native host state lock")
-            .clone()
+        if let Some(error) = crate::vr_overlay::runtime::lock_unpoisoned(&self.shared.error).clone()
         {
             return Err(error);
         }
-        if !self
-            .shared
-            .control
-            .lock()
-            .expect("native host state lock")
+        if !crate::vr_overlay::runtime::lock_unpoisoned(&self.shared.control)
             .ensure(DesiredHost { id, activity })
         {
             return Err("Native surface host is closed or stale".into());
         }
-        let mut thread = self.thread.lock().expect("native host state lock");
+        let mut thread = crate::vr_overlay::runtime::lock_unpoisoned(&self.thread);
         if thread.is_none() {
             let shared = self.shared.clone();
             let app = self.app.clone();
@@ -173,7 +161,8 @@ impl NativeHostManager {
                 .spawn(move || {
                     let result = run(app, shared.clone());
                     if let Err(error) = &result {
-                        *shared.error.lock().expect("native host state lock") = Some(error.clone());
+                        *crate::vr_overlay::runtime::lock_unpoisoned(&shared.error) =
+                            Some(error.clone());
                     }
                     shared.thread_id.store(0, Ordering::Release);
                     let _ = done.send(result);
@@ -193,67 +182,46 @@ impl NativeHostManager {
         if self.shared.current(id).is_none() {
             return Err("Stale surface host".into());
         }
-        let session = self
-            .app
-            .state::<SurfaceHub>()
-            .0
-            .lock()
-            .expect("surface hub lock")[id.surface.index()]
-        .document
-        .clone();
+        let session =
+            crate::vr_overlay::runtime::lock_unpoisoned(&self.app.state::<SurfaceHub>().0)
+                [id.surface.index()]
+            .document
+            .clone();
         let Some(session) = session.filter(|session| session.host == id) else {
             return Ok(());
         };
         if self.shared.thread_id.load(Ordering::Acquire) == 0 {
             return Err("Native surface thread has stopped".into());
         }
-        self.shared
-            .events
-            .lock()
-            .expect("native host events lock")
+        crate::vr_overlay::runtime::lock_unpoisoned(&self.shared.events)
             .push(QueuedEvent { session, event })?;
         self.shared.wake();
         Ok(())
     }
 
     pub(super) fn set_activity(&self, id: HostId, activity: SurfaceActivity) -> Result<(), String> {
-        self.shared
-            .control
-            .lock()
-            .expect("native host control lock")
-            .activity(id, activity);
+        crate::vr_overlay::runtime::lock_unpoisoned(&self.shared.control).activity(id, activity);
         self.shared.wake();
         Ok(())
     }
 
     pub(super) fn close(&self, id: HostId) -> Result<(), String> {
-        self.shared
-            .control
-            .lock()
-            .expect("native host control lock")
-            .close(id);
+        crate::vr_overlay::runtime::lock_unpoisoned(&self.shared.control).close(id);
         self.shared.wake();
         Ok(())
     }
 
     pub fn begin_shutdown(&self) {
         {
-            let mut control = self
-                .shared
-                .control
-                .lock()
-                .expect("native host control lock");
+            let mut control = crate::vr_overlay::runtime::lock_unpoisoned(&self.shared.control);
             control.closing = true;
             control.revision = control.revision.wrapping_add(1);
         }
-        for entry in self
-            .app
-            .state::<SurfaceHub>()
-            .0
-            .lock()
-            .expect("surface hub lock")
+        for entry in crate::vr_overlay::runtime::lock_unpoisoned(&self.app.state::<SurfaceHub>().0)
             .iter_mut()
         {
+            entry.active = false;
+            entry.endpoint = None;
             entry.recovery.phase = super::recovery::Phase::Closing;
             entry.document = None;
         }
@@ -262,7 +230,7 @@ impl NativeHostManager {
 
     #[cfg(all(debug_assertions, feature = "vr-preview"))]
     pub(super) fn reload(&self, id: HostId) {
-        let mut control = self.shared.control.lock().expect("native host state lock");
+        let mut control = crate::vr_overlay::runtime::lock_unpoisoned(&self.shared.control);
         control.reload[id.surface.index()] = Some(id);
         control.revision = control.revision.wrapping_add(1);
         drop(control);
@@ -271,12 +239,12 @@ impl NativeHostManager {
 
     #[cfg(all(debug_assertions, feature = "vr-preview"))]
     pub(super) fn counts(&self) -> (usize, usize) {
-        *self.shared.counts.lock().expect("native host state lock")
+        *crate::vr_overlay::runtime::lock_unpoisoned(&self.shared.counts)
     }
 
     #[cfg(all(debug_assertions, feature = "vr-preview"))]
     pub(super) fn crash_browser(&self) {
-        let mut control = self.shared.control.lock().expect("native host state lock");
+        let mut control = crate::vr_overlay::runtime::lock_unpoisoned(&self.shared.control);
         control.crash_browser = true;
         control.revision = control.revision.wrapping_add(1);
         drop(control);
@@ -284,13 +252,9 @@ impl NativeHostManager {
     }
 
     pub fn finish_shutdown(&self, timeout: Duration) -> Result<(), String> {
-        self.shared
-            .control
-            .lock()
-            .expect("native host state lock")
-            .shutdown();
+        crate::vr_overlay::runtime::lock_unpoisoned(&self.shared.control).shutdown();
         self.shared.wake();
-        let mut thread = self.thread.lock().expect("native host state lock");
+        let mut thread = crate::vr_overlay::runtime::lock_unpoisoned(&self.thread);
         let Some(running) = thread.as_ref() else {
             return Ok(());
         };
@@ -496,7 +460,7 @@ fn post_event(
 
 fn host_error(app: &AppHandle, id: HostId, error: String) {
     let hub = app.state::<SurfaceHub>();
-    let mut entries = hub.0.lock().expect("surface hub lock");
+    let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
     let entry = &mut entries[id.surface.index()];
     if entry.host_epoch == id.host_epoch {
         if entry.error.as_ref() == Some(&error) {
@@ -570,12 +534,12 @@ fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
         shared.notified.store(false, Ordering::Release);
         let retry_environment = if state.borrow().failure.is_some() {
             let state = state.borrow();
-            let control = state.shared.control.lock().expect("native host state lock");
+            let control = crate::vr_overlay::runtime::lock_unpoisoned(&state.shared.control);
             let desired = control.hosts;
             let closing = control.closing;
             drop(control);
             let hub = state.app.state::<SurfaceHub>();
-            let entries = hub.0.lock().expect("surface hub lock");
+            let entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
             !closing
                 && state.inflight == 0
                 && state.hosts.iter().all(Option::is_none)
@@ -601,16 +565,12 @@ fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
         #[cfg(all(debug_assertions, feature = "vr-preview"))]
         {
             let state = state.borrow();
-            *shared.counts.lock().expect("native host state lock") = (
+            *crate::vr_overlay::runtime::lock_unpoisoned(&shared.counts) = (
                 state.hosts.iter().filter(|host| host.is_some()).count(),
                 state.inflight,
             );
         }
-        let closing = shared
-            .control
-            .lock()
-            .expect("native host state lock")
-            .closing;
+        let closing = crate::vr_overlay::runtime::lock_unpoisoned(&shared.control).closing;
         if !closing
             && state.borrow().browser_failed.get()
             && state.borrow().inflight == 0
@@ -635,11 +595,7 @@ fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
             let _ = MsgWaitForMultipleObjectsEx(None, timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
             while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
                 if msg.message == WM_QUIT {
-                    shared
-                        .control
-                        .lock()
-                        .expect("native host state lock")
-                        .shutdown();
+                    crate::vr_overlay::runtime::lock_unpoisoned(&shared.control).shutdown();
                 }
                 let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);
@@ -702,13 +658,7 @@ fn start_environment(state: &Rc<RefCell<Sta>>, profile: &std::path::Path) {
                 state.inflight -= 1;
                 state.environment_pending = false;
                 state.control_dirty = true;
-                if state
-                    .shared
-                    .control
-                    .lock()
-                    .expect("native host state lock")
-                    .closing
-                {
+                if crate::vr_overlay::runtime::lock_unpoisoned(&state.shared.control).closing {
                     state.shared.wake();
                     return Ok(());
                 }
@@ -744,12 +694,7 @@ fn start_environment(state: &Rc<RefCell<Sta>>, profile: &std::path::Path) {
 }
 
 fn environment_error(state: &mut Sta, error: String) {
-    let hosts = state
-        .shared
-        .control
-        .lock()
-        .expect("native host state lock")
-        .hosts;
+    let hosts = crate::vr_overlay::runtime::lock_unpoisoned(&state.shared.control).hosts;
     for host in hosts.into_iter().flatten() {
         host_error(&state.app, host.id, error.clone());
     }
@@ -760,12 +705,7 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
     let mut timeout = u32::MAX;
     let (revision, last_revision, dirty, browser_failed, has_sleep) = {
         let s = state.borrow();
-        let revision = s
-            .shared
-            .control
-            .lock()
-            .expect("native host state lock")
-            .revision;
+        let revision = crate::vr_overlay::runtime::lock_unpoisoned(&s.shared.control).revision;
         let has_sleep = s.hosts.iter().flatten().any(|host| host.sleep.is_some());
         (
             revision,
@@ -786,42 +726,24 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
             for host in state.hosts.iter().flatten() {
                 host_error(&state.app, host.id, "surface_browser_process_failed".into());
                 let hub = state.app.state::<SurfaceHub>();
-                let mut entries = hub.0.lock().expect("surface hub lock");
+                let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
                 let entry = &mut entries[host.id.surface.index()];
                 // Hidden entries have already suspended capture on the worker.
-                let closing = state
-                    .shared
-                    .control
-                    .lock()
-                    .expect("native host state lock")
-                    .closing;
+                let closing =
+                    crate::vr_overlay::runtime::lock_unpoisoned(&state.shared.control).closing;
                 if !closing && !entry.active && entry.host_epoch == host.id.host_epoch {
                     entry.invalidate_host();
-                    state
-                        .shared
-                        .control
-                        .lock()
-                        .expect("native host state lock")
+                    crate::vr_overlay::runtime::lock_unpoisoned(&state.shared.control)
                         .close(host.id);
                 }
             }
         }
-        let desired = state
-            .borrow()
-            .shared
-            .control
-            .lock()
-            .expect("native host state lock")
-            .hosts;
+        let desired =
+            crate::vr_overlay::runtime::lock_unpoisoned(&state.borrow().shared.control).hosts;
         #[cfg(all(debug_assertions, feature = "vr-preview"))]
         {
             let crash = std::mem::take(
-                &mut state
-                    .borrow()
-                    .shared
-                    .control
-                    .lock()
-                    .expect("native host state lock")
+                &mut crate::vr_overlay::runtime::lock_unpoisoned(&state.borrow().shared.control)
                     .crash_browser,
             );
             if crash {
@@ -844,12 +766,7 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
                 }
             }
             let reloads = std::mem::take(
-                &mut state
-                    .borrow()
-                    .shared
-                    .control
-                    .lock()
-                    .expect("native host state lock")
+                &mut crate::vr_overlay::runtime::lock_unpoisoned(&state.borrow().shared.control)
                     .reload,
             );
             for id in reloads.into_iter().flatten() {
@@ -879,7 +796,7 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
                 let create = {
                     let s = state.borrow();
                     let hub = s.app.state::<SurfaceHub>();
-                    let entries = hub.0.lock().expect("surface hub lock");
+                    let entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
                     s.hosts[index].is_none()
                         && s.creating[index].is_none()
                         && s.environment.is_some()
@@ -910,7 +827,7 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
                         );
                     }
                     let hub = app.state::<SurfaceHub>();
-                    let mut entries = hub.0.lock().expect("surface hub lock");
+                    let mut entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
                     let entry = &mut entries[index];
                     if entry.host_epoch == host.id.host_epoch
                         && entry.activity_request == desired.activity.request
@@ -932,13 +849,7 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
         }
     }
     let events = std::mem::take(
-        &mut state
-            .borrow()
-            .shared
-            .events
-            .lock()
-            .expect("native host state lock")
-            .0,
+        &mut crate::vr_overlay::runtime::lock_unpoisoned(&state.borrow().shared.events).0,
     );
     for event in events {
         let state = state.borrow();
@@ -1014,7 +925,8 @@ fn start_host(state: &Rc<RefCell<Sta>>, id: HostId) {
                         match result {
                             Ok(host) => {
                                 let hub = state.app.state::<SurfaceHub>();
-                                let mut entries = hub.0.lock().expect("surface hub lock");
+                                let mut entries =
+                                    crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
                                 let entry = &mut entries[id.surface.index()];
                                 // Recheck both authorities after asynchronous controller creation.
                                 if entry.host_epoch == id.host_epoch
@@ -1244,7 +1156,7 @@ impl NativeHost {
                     args.NavigationId(&mut navigation)?;
                     {
                         let hub = app.state::<SurfaceHub>();
-                        let entries = hub.0.lock().expect("surface hub lock");
+                        let entries = crate::vr_overlay::runtime::lock_unpoisoned(&hub.0);
                         let entry = &entries[id.surface.index()];
                         // Rejected external and superseded navigations must not fault this document.
                         if entry.host_epoch != id.host_epoch || entry.navigation_id != navigation {

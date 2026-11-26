@@ -21,22 +21,18 @@ use windows::{
         SizeInt32,
     },
     Win32::{
-        Foundation::HMODULE,
         Graphics::{
-            Direct3D::D3D_DRIVER_TYPE_UNKNOWN,
             Direct3D11::{
                 D3D11_ASYNC_GETDATA_DONOTFLUSH, D3D11_BIND_RENDER_TARGET,
                 D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_CPU_ACCESS_READ,
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAP_FLAG_DO_NOT_WAIT, D3D11_MAP_READ,
-                D3D11_MAPPED_SUBRESOURCE, D3D11_QUERY_DESC, D3D11_QUERY_EVENT,
-                D3D11_RESOURCE_MISC_SHARED, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
-                D3D11_USAGE_DEFAULT, D3D11_USAGE_STAGING, D3D11CreateDevice, ID3D11Device,
+                D3D11_MAP_FLAG_DO_NOT_WAIT, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE,
+                D3D11_QUERY_DESC, D3D11_QUERY_EVENT, D3D11_RESOURCE_MISC_SHARED,
+                D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, D3D11_USAGE_STAGING, ID3D11Device,
                 ID3D11DeviceContext, ID3D11Query, ID3D11Texture2D,
             },
             Dxgi::{
                 Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC},
-                CreateDXGIFactory1, DXGI_ERROR_WAS_STILL_DRAWING, IDXGIDevice, IDXGIFactory1,
-                IDXGIResource,
+                DXGI_ERROR_WAS_STILL_DRAWING, IDXGIDevice, IDXGIResource,
             },
         },
         System::WinRT::{
@@ -79,6 +75,7 @@ struct CaptureDevice {
     capture_device: IDirect3DDevice,
     context: ID3D11DeviceContext,
     device: ID3D11Device,
+    _shared: Rc<crate::vr_overlay::d3d11_texture::SharedDevice>,
     adapter_index: u32,
     // COM objects must be released before the apartment is uninitialized.
     _apartment: Apartment,
@@ -106,16 +103,21 @@ impl CaptureDevice {
                 "Windows Graphics Capture is unavailable",
             ));
         }
-        let (device, context) = create_device(adapter_index)?;
-        let dxgi_device: IDXGIDevice = device.cast().map_err(|e| failure("Get DXGI device", e))?;
+        let shared_d3d = crate::vr_overlay::d3d11_texture::acquire_shared_device(adapter_index)
+            .map_err(|(stage, error)| failure(stage, error))?;
+        let dxgi_device: IDXGIDevice = shared_d3d
+            .device
+            .cast()
+            .map_err(|e| failure("Get DXGI device", e))?;
         let capture_device: IDirect3DDevice =
             unsafe { CreateDirect3D11DeviceFromDXGIDevice(&dxgi_device) }
                 .and_then(|value| value.cast())
                 .map_err(|e| failure("Create WinRT D3D11 device", e))?;
         let shared = Rc::new(Self {
             capture_device,
-            context,
-            device,
+            context: shared_d3d.context.clone(),
+            device: shared_d3d.device.clone(),
+            _shared: shared_d3d,
             adapter_index,
             _apartment: apartment,
         });
@@ -652,32 +654,6 @@ impl Drop for Capture {
             self.device.context.Flush();
         }
     }
-}
-
-fn create_device(adapter_index: u32) -> Result<(ID3D11Device, ID3D11DeviceContext), CaptureError> {
-    let factory: IDXGIFactory1 =
-        unsafe { CreateDXGIFactory1() }.map_err(|e| failure("Create capture DXGI factory", e))?;
-    let adapter = unsafe { factory.EnumAdapters1(adapter_index) }
-        .map_err(|e| failure("Select SteamVR capture adapter", e))?;
-    let (mut device, mut context) = (None, None);
-    unsafe {
-        D3D11CreateDevice(
-            &adapter,
-            D3D_DRIVER_TYPE_UNKNOWN,
-            HMODULE::default(),
-            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-            None,
-            D3D11_SDK_VERSION,
-            Some(&mut device),
-            None,
-            Some(&mut context),
-        )
-    }
-    .map_err(|e| failure("Create capture D3D11 device", e))?;
-    Ok((
-        device.ok_or("D3D11 returned no capture device")?,
-        context.ok_or("D3D11 returned no capture context")?,
-    ))
 }
 
 fn texture_desc(width: u32, height: u32) -> D3D11_TEXTURE2D_DESC {
