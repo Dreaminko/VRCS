@@ -63,7 +63,8 @@ pub(super) struct SubtitleContextQuery {
 }
 
 pub(super) async fn catalog(State(state): State<ContentState>) -> ApiResult<Json<Value>> {
-    let catalog = db_call(Arc::clone(&state.db), |db| db.conversation_catalog())
+    let catalog = state
+        .db_read_call(|db| db.conversation_catalog())
         .await
         .map_err(conversation_error("conversations.catalog_failed"))?;
     Ok(Json(json!(catalog)))
@@ -203,12 +204,11 @@ pub(super) async fn subtitles(
     validate_path_id(&id)?;
     let limit = parse_limit(query.limit.as_deref())?;
     let before_id = parse_before_id(query.before_id.as_deref())?;
-    let page = db_call(Arc::clone(&state.db), move |db| {
-        db.conversation_subtitles(&id, limit, before_id)
-    })
-    .await
-    .map_err(conversation_error("conversations.subtitles_failed"))?
-    .ok_or_else(conversation_not_found)?;
+    let page = state
+        .db_read_call(move |db| db.conversation_subtitles(&id, limit, before_id))
+        .await
+        .map_err(conversation_error("conversations.subtitles_failed"))?
+        .ok_or_else(conversation_not_found)?;
     Ok(Json(json!(page)))
 }
 
@@ -221,12 +221,11 @@ pub(super) async fn subtitle_context(
     let subtitle_id =
         parse_positive_id(Some(&subtitle_id), "subtitle_id")?.expect("subtitle_id is present");
     let radius = parse_radius(query.radius.as_deref())?;
-    let context = db_call(Arc::clone(&state.db), move |db| {
-        db.conversation_subtitle_context(&id, subtitle_id, radius)
-    })
-    .await
-    .map_err(conversation_error("conversations.subtitle_context_failed"))?
-    .ok_or_else(conversation_not_found)?;
+    let context = state
+        .db_read_call(move |db| db.conversation_subtitle_context(&id, subtitle_id, radius))
+        .await
+        .map_err(conversation_error("conversations.subtitle_context_failed"))?
+        .ok_or_else(conversation_not_found)?;
     Ok(Json(json!(context)))
 }
 

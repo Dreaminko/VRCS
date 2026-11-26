@@ -37,19 +37,21 @@ impl CaptureChange {
                     }
                     _ => true,
                 });
+        let pagefile_drive_changed = current.audio.output.player_audio.pagefile_drive
+            != candidate.audio.output.player_audio.pagefile_drive;
         let plan = if resume {
             capture::CaptureReloadPlan::between(current, candidate)
         } else {
             capture::CaptureReloadPlan {
-                network_restart: !network_requested,
+                network_restart: !network_requested || pagefile_drive_changed,
                 ..capture::CaptureReloadPlan::all()
             }
         };
         let stop_network = network_requested && !candidate.audio.output.player_audio.enabled;
         let standby_network_restart = network_requested
-            && !capture_requested
+            && (!capture_requested || !resume)
             && candidate.audio.output.player_audio.enabled
-            && plan.network_restart;
+            && pagefile_drive_changed;
         Self {
             plan,
             reload: capture_requested && !plan.is_empty(),
@@ -102,6 +104,10 @@ impl CaptureChange {
                 capture::start_pipelines(state, candidate, self.plan).await?;
             } else {
                 state.capture.set_capture_requested(false);
+                if self.standby_network_restart {
+                    capture::reconcile_network_with(state, candidate, true, Default::default())
+                        .await?;
+                }
             }
         } else if self.standby_network_restart {
             capture::reconcile_network_with(state, candidate, true, Default::default()).await?;

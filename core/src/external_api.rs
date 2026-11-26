@@ -196,13 +196,25 @@ async fn health() -> Json<Value> {
     Json(json!({ "status": "ok", "api_version": API_VERSION }))
 }
 
-async fn capabilities(State(state): State<ExternalApiState>) -> Json<Value> {
+async fn capabilities(State(state): State<ExternalApiState>, headers: HeaderMap) -> Response {
+    if state
+        .token
+        .as_deref()
+        .is_some_and(|expected| !request_has_token(&headers, expected))
+    {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
+    }
     Json(json!({
         "api_version": API_VERSION,
         "events": EVENT_TYPES,
         "authentication_required": state.token.is_some(),
         "subscription_timeout_ms": SUBSCRIBE_TIMEOUT.as_millis(),
     }))
+    .into_response()
 }
 
 async fn events_handler(

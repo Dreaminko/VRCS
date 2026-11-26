@@ -47,7 +47,7 @@ pub(super) async fn learning_items(
             "before_id must be a positive integer",
         ));
     }
-    let items = learning_db_call(&state, move |db| {
+    let items = learning_db_read_call(&state, move |db| {
         db.learning_items(limit, query.before_id, query.status)
     })
     .await
@@ -58,7 +58,7 @@ pub(super) async fn learning_items(
 pub(super) async fn learning_capture_keys(
     State(state): State<ServiceContext>,
 ) -> ApiResult<Json<Value>> {
-    let keys = learning_db_call(&state, |db| db.learning_capture_keys())
+    let keys = learning_db_read_call(&state, |db| db.learning_capture_keys())
         .await
         .map_err(learning_db_error)?;
     Ok(Json(json!({ "keys": keys })))
@@ -285,13 +285,17 @@ pub(super) async fn learning_item_export(
     Ok(Json(json!(saved)))
 }
 
-async fn learning_db_call<T, F>(state: &ServiceContext, operation: F) -> crate::error::AppResult<T>
+async fn learning_db_call_on<T, F>(
+    state: &ServiceContext,
+    db: Arc<std::sync::Mutex<crate::db::Database>>,
+    operation: F,
+) -> crate::error::AppResult<T>
 where
     T: Send + 'static,
     F: FnOnce(&mut crate::db::Database) -> crate::error::AppResult<T> + Send + 'static,
 {
     let features = state.config.features_tx.subscribe();
-    db_call(Arc::clone(&state.content.db), move |db| {
+    db_call(db, move |db| {
         if !features.borrow().learning {
             return Err(AppError::Conflict("Learning is disabled".into()));
         }
@@ -300,8 +304,27 @@ where
     .await
 }
 
+async fn learning_db_call<T, F>(state: &ServiceContext, operation: F) -> crate::error::AppResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce(&mut crate::db::Database) -> crate::error::AppResult<T> + Send + 'static,
+{
+    learning_db_call_on(state, Arc::clone(&state.content.db), operation).await
+}
+
+async fn learning_db_read_call<T, F>(
+    state: &ServiceContext,
+    operation: F,
+) -> crate::error::AppResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce(&mut crate::db::Database) -> crate::error::AppResult<T> + Send + 'static,
+{
+    learning_db_call_on(state, Arc::clone(&state.content.db_read), operation).await
+}
+
 async fn load_item(state: &ServiceContext, id: i64) -> ApiResult<LearningItem> {
-    learning_db_call(state, move |db| db.learning_item(id))
+    learning_db_read_call(state, move |db| db.learning_item(id))
         .await
         .map_err(learning_db_error)?
         .ok_or_else(|| learning_not_found(id))

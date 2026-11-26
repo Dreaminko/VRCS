@@ -1,5 +1,7 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{Query, State, WebSocketUpgrade};
@@ -7,12 +9,16 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 
 use crate::domain_events::DomainEvent;
 use crate::models::LiveTranscription;
 
 use super::{ALLOWED_ORIGINS, RealtimeContext, api_error, token_eq};
+
+const WS_OUTBOUND_CAPACITY: usize = 256;
+const WS_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+const TOKEN_PROTOCOL_PREFIX: &str = "vrcs.token.";
 
 pub(super) async fn ws_handler(
     State(state): State<RealtimeContext>,
@@ -20,8 +26,30 @@ pub(super) async fn ws_handler(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
-    let supplied = params.get("token").map(String::as_str).unwrap_or("");
-    if !token_eq(supplied, &state.integrations.session_token) {
+    let expected = &state.integrations.session_token;
+    let bearer_ok = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .is_some_and(|value| token_eq(value, expected));
+    let matched_protocol = headers
+        .get(header::SEC_WEBSOCKET_PROTOCOL)
+        .and_then(|value| value.to_str().ok())
+        .into_iter()
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .find(|protocol| {
+            protocol
+                .strip_prefix(TOKEN_PROTOCOL_PREFIX)
+                .is_some_and(|value| token_eq(value, expected))
+        })
+        .map(str::to_owned);
+    let query_ok = params
+        .get("token")
+        .map(String::as_str)
+        .is_some_and(|value| token_eq(value, expected));
+
+    if !bearer_ok && matched_protocol.is_none() && !query_ok {
         return api_error(
             StatusCode::UNAUTHORIZED,
             "auth.unauthorized",
@@ -37,7 +65,24 @@ pub(super) async fn ws_handler(
         return api_error(StatusCode::FORBIDDEN, "auth.origin_forbidden", "Forbidden")
             .into_response();
     }
+    let ws = if let Some(protocol) = matched_protocol {
+        ws.protocols([Cow::Owned(protocol)])
+    } else {
+        ws
+    };
     ws.on_upgrade(move |socket| handle_socket(state, socket))
+}
+
+fn enqueue_text(
+    outbound_tx: &mpsc::Sender<Message>,
+    payload: impl Into<String>,
+    drop_if_full: bool,
+) -> bool {
+    match outbound_tx.try_send(Message::Text(payload.into().into())) {
+        Ok(()) => true,
+        Err(mpsc::error::TrySendError::Full(_)) => drop_if_full,
+        Err(mpsc::error::TrySendError::Closed(_)) => false,
+    }
 }
 
 pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
@@ -49,11 +94,19 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
     let mut mute_receiver = state.integrations.vrchat_mute_sync.subscribe();
     let mut shutdown = state.integrations.shutdown.clone();
     let (mut sender, mut incoming) = socket.split();
-    if sender
-        .send(Message::Text(r#"{"type":"connected"}"#.into()))
-        .await
-        .is_err()
-    {
+    let (outbound_tx, mut outbound_rx) = mpsc::channel::<Message>(WS_OUTBOUND_CAPACITY);
+    let writer_task = tokio::spawn(async move {
+        while let Some(message) = outbound_rx.recv().await {
+            match tokio::time::timeout(WS_WRITE_TIMEOUT, sender.send(message)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) | Err(_) => return,
+            }
+        }
+        let _ = tokio::time::timeout(WS_WRITE_TIMEOUT, sender.send(Message::Close(None))).await;
+    });
+
+    if !enqueue_text(&outbound_tx, r#"{"type":"connected"}"#, false) {
+        writer_task.abort();
         return;
     }
     match super::db_call(Arc::clone(&state.content.db), |db| {
@@ -67,12 +120,14 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
                 "catalog": catalog,
             })
             .to_string();
-            if sender.send(Message::Text(payload.into())).await.is_err() {
+            if !enqueue_text(&outbound_tx, payload, false) {
+                writer_task.abort();
                 return;
             }
         }
         Err(error) => tracing::warn!(%error, "initial conversation catalog could not be sent"),
     }
+    let mut kicked_slow_client = false;
     loop {
         tokio::select! {
             changed = shutdown.changed() => {
@@ -92,11 +147,18 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
                             continue;
                         }
                         let payload = json!({ "type": "subtitle", "subtitle": subtitle }).to_string();
-                        if sender.send(Message::Text(payload.into())).await.is_err() {
+                        if !enqueue_text(&outbound_tx, payload, false) {
+                            kicked_slow_client = true;
                             break;
                         }
                     }
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Lagged(dropped)) => {
+                        tracing::warn!(dropped, "subtitle broadcast lagged; requesting client resync");
+                        if !enqueue_text(&outbound_tx, r#"{"type":"resync_required"}"#, false) {
+                            kicked_slow_client = true;
+                            break;
+                        }
+                    }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
@@ -106,14 +168,16 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
                         let Some(payload) = recognition_payload(event) else {
                             continue;
                         };
-                        if sender.send(Message::Text(payload.to_string().into())).await.is_err() {
+                        if !enqueue_text(&outbound_tx, payload.to_string(), false) {
+                            kicked_slow_client = true;
                             break;
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(dropped)) => {
                         tracing::warn!(dropped, "recognition event stream lagged; resetting client state");
                         let payload = json!({ "type": "recognition_reset" }).to_string();
-                        if sender.send(Message::Text(payload.into())).await.is_err() {
+                        if !enqueue_text(&outbound_tx, payload, false) {
+                            kicked_slow_client = true;
                             break;
                         }
                     }
@@ -130,12 +194,18 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
                             "peak_dbfs": peak_dbfs,
                             "speech": speech,
                         });
-                        if sender.send(Message::Text(payload.to_string().into())).await.is_err() {
+                        if !enqueue_text(&outbound_tx, payload.to_string(), true) {
                             break;
                         }
                     }
                     Ok(LiveTranscription::Partial { .. } | LiveTranscription::Failed { .. }) => continue,
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Lagged(dropped)) => {
+                        tracing::warn!(dropped, "live stream lagged; requesting client resync");
+                        if !enqueue_text(&outbound_tx, r#"{"type":"resync_required"}"#, false) {
+                            kicked_slow_client = true;
+                            break;
+                        }
+                    }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
@@ -146,11 +216,18 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
                             "type": "conversation_catalog",
                             "catalog": catalog,
                         }).to_string();
-                        if sender.send(Message::Text(payload.into())).await.is_err() {
+                        if !enqueue_text(&outbound_tx, payload, false) {
+                            kicked_slow_client = true;
                             break;
                         }
                     }
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Lagged(dropped)) => {
+                        tracing::warn!(dropped, "conversation catalog stream lagged; requesting client resync");
+                        if !enqueue_text(&outbound_tx, r#"{"type":"resync_required"}"#, false) {
+                            kicked_slow_client = true;
+                            break;
+                        }
+                    }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
@@ -158,11 +235,18 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
                 match event {
                     Ok(event) => {
                         let payload = serde_json::to_string(&event).expect("translation event serialization");
-                        if sender.send(Message::Text(payload.into())).await.is_err() {
+                        if !enqueue_text(&outbound_tx, payload, false) {
+                            kicked_slow_client = true;
                             break;
                         }
                     }
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Lagged(dropped)) => {
+                        tracing::warn!(dropped, "translation stream lagged; requesting client resync");
+                        if !enqueue_text(&outbound_tx, r#"{"type":"resync_required"}"#, false) {
+                            kicked_slow_client = true;
+                            break;
+                        }
+                    }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
@@ -174,13 +258,19 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
                     "type": "vrchat_mute_status",
                     "status": mute_receiver.borrow().clone(),
                 }).to_string();
-                if sender.send(Message::Text(payload.into())).await.is_err() {
+                if !enqueue_text(&outbound_tx, payload, false) {
+                    kicked_slow_client = true;
                     break;
                 }
             }
         }
     }
-    let _ = sender.send(Message::Close(None)).await;
+    drop(outbound_tx);
+    if kicked_slow_client {
+        writer_task.abort();
+    } else {
+        let _ = writer_task.await;
+    }
 }
 
 fn recognition_payload(event: DomainEvent) -> Option<Value> {

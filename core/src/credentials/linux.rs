@@ -235,30 +235,62 @@ impl KeyringWorker {
     }
 
     fn delete(&mut self, targets: &[String]) -> Result<(), String> {
+        let mut previous_cache = Vec::new();
         for target in targets {
-            self.cache.remove(target);
+            if let Some(value) = self.cache.remove(target) {
+                previous_cache.push((target.clone(), value));
+            }
         }
-        self.run_with_service(WRITE_FAILED, |service| {
+        let mut deleted_items: Vec<(String, Zeroizing<Vec<u8>>)> = Vec::new();
+        let result = self.run_with_service(WRITE_FAILED, |service| {
             let mut to_delete = Vec::new();
             for target in targets {
                 let items = service.search_items(attributes(target))?;
-                to_delete.extend(
-                    items
-                        .unlocked
-                        .into_iter()
-                        .chain(items.locked)
-                        .filter(is_persistent_item),
-                );
+                let found = items.unlocked.into_iter().chain(items.locked);
+                for item in found.filter(is_persistent_item) {
+                    to_delete.push((target.clone(), item));
+                }
             }
-            for item in to_delete {
+            for (target, item) in to_delete {
                 if item.is_locked()? {
                     item.unlock()?;
                 }
                 item.ensure_unlocked()?;
+                let secret = item.get_secret().map(Zeroizing::new)?;
                 item.delete()?;
+                deleted_items.push((target, secret));
             }
             Ok(())
-        })
+        });
+        if result.is_err() {
+            for (target, value) in previous_cache {
+                self.cache.insert(target, value);
+            }
+            if !deleted_items.is_empty() {
+                let _ = self.run_with_service(WRITE_FAILED, |service| {
+                    let collection = match service.get_default_collection() {
+                        Ok(collection) => collection,
+                        Err(Error::NoResult) => service.create_collection("VRCS", "default")?,
+                        Err(error) => return Err(error),
+                    };
+                    if collection.is_locked()? {
+                        collection.unlock()?;
+                    }
+                    collection.ensure_unlocked()?;
+                    for (target, secret) in &deleted_items {
+                        collection.create_item(
+                            target,
+                            attributes(target),
+                            secret.as_slice(),
+                            false,
+                            "text/plain; charset=utf-8",
+                        )?;
+                    }
+                    Ok(())
+                });
+            }
+        }
+        result
     }
 }
 

@@ -116,18 +116,19 @@ pub(super) async fn subtitle_history(
                 })?,
         ),
     };
-    let subtitles = db_call(Arc::clone(&state.db), move |db| match before_id {
-        Some(before_id) => db.subtitle_history_before(limit, before_id),
-        None => db.subtitle_history(limit),
-    })
-    .await
-    .map_err(|error| {
-        api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "subtitles.history_failed",
-            error.to_string(),
-        )
-    })?;
+    let subtitles = state
+        .db_read_call(move |db| match before_id {
+            Some(before_id) => db.subtitle_history_before(limit, before_id),
+            None => db.subtitle_history(limit),
+        })
+        .await
+        .map_err(|error| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "subtitles.history_failed",
+                error.to_string(),
+            )
+        })?;
     Ok(Json(json!(subtitles)))
 }
 
@@ -146,7 +147,8 @@ pub(super) async fn dictionary_lookup(
             )
         })?;
     let query = query.clone();
-    let entries = db_call(Arc::clone(&state.db), move |db| db.lookup(&query, 10))
+    let entries = state
+        .db_read_call(move |db| db.lookup(&query, 10))
         .await
         .map_err(|error| {
             api_error(
@@ -159,7 +161,8 @@ pub(super) async fn dictionary_lookup(
 }
 
 pub(super) async fn dictionary_list(State(state): State<ContentState>) -> ApiResult<Json<Value>> {
-    let sources = db_call(Arc::clone(&state.db), |db| db.dictionary_sources())
+    let sources = state
+        .db_read_call(|db| db.dictionary_sources())
         .await
         .map_err(|error| {
             api_error(

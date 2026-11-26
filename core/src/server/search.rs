@@ -1,12 +1,10 @@
-use std::sync::Arc;
-
 use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{ApiResult, ContentState, api_error, db_call};
+use super::{ApiResult, ContentState, api_error};
 
 const MAX_QUERY_CHARS: usize = 200;
 const DEFAULT_LIMIT: u32 = 50;
@@ -35,17 +33,16 @@ pub(super) async fn subtitles(
     }
     let limit = parse_bounded(input.limit.as_deref(), DEFAULT_LIMIT, MAX_LIMIT, "limit")?;
     let offset = parse_bounded(input.offset.as_deref(), 0, MAX_OFFSET, "offset")?;
-    let page = db_call(Arc::clone(&state.db), move |db| {
-        db.search_subtitles(&query, limit, offset)
-    })
-    .await
-    .map_err(|error| {
-        api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "subtitles.search.failed",
-            error.to_string(),
-        )
-    })?;
+    let page = state
+        .db_read_call(move |db| db.search_subtitles(&query, limit, offset))
+        .await
+        .map_err(|error| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "subtitles.search.failed",
+                error.to_string(),
+            )
+        })?;
     Ok(Json(json!(page)))
 }
 

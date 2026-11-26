@@ -48,8 +48,12 @@ impl PostCommitUpdates {
         let glossary_refresh_ids = state
             .content
             .glossary
-            .set_config(effective_candidate.glossary.clone());
-        *state.config.config.write().expect("config lock") = candidate.clone();
+            .set_config_async(effective_candidate.glossary.clone())
+            .await;
+        state
+            .config
+            .config_changed
+            .send_modify(|revision| *revision = revision.wrapping_add(1));
         state
             .config
             .download_sources
@@ -114,7 +118,9 @@ impl PostCommitUpdates {
 
 async fn apply_storage_quota(state: &SettingsContext, max_bytes: u64) {
     let conversation_catalog = state.content.conversation_catalog_tx.clone();
-    if let Err(error) = db_call(Arc::clone(&state.content.db), move |db| {
+    let db_read = Arc::clone(&state.content.db_read);
+    let write_db = Arc::clone(&state.content.db);
+    if let Err(error) = db_call(Arc::clone(&write_db), move |db| {
         if db.set_subtitle_history_max_bytes(max_bytes)? {
             publish_latest_catalog(db, &conversation_catalog);
         }
@@ -123,6 +129,12 @@ async fn apply_storage_quota(state: &SettingsContext, max_bytes: u64) {
     .await
     {
         tracing::warn!(%error, "subtitle history storage quota could not be enforced immediately");
+    } else if !Arc::ptr_eq(&write_db, &db_read) {
+        let _ = db_call(db_read, move |db| {
+            db.set_read_only_quota(max_bytes);
+            Ok(())
+        })
+        .await;
     }
 }
 
@@ -132,12 +144,14 @@ fn refresh_glossaries(state: &SettingsContext, glossary_refresh_ids: Vec<String>
     }
     let glossary = Arc::clone(&state.content.glossary);
     let mut features = state.config.features_tx.subscribe();
-    let state = state.clone();
-    tokio::spawn(async move {
+    let mut shutdown = state.integrations.shutdown.clone();
+    let task_state = state.clone();
+    let handle = tokio::spawn(async move {
         let mut refreshed = false;
         for id in glossary_refresh_ids {
             let result = tokio::select! {
                 biased;
+                _ = shutdown.changed() => return,
                 _ = features.wait_for(|features| !features.glossary) => return,
                 result = glossary.refresh(&id) => result,
             };
@@ -148,10 +162,14 @@ fn refresh_glossaries(state: &SettingsContext, glossary_refresh_ids: Vec<String>
                 }
             }
         }
-        if refreshed && let Err((_, body)) = capture::reload_glossary_asr_context(&state).await {
+        if refreshed
+            && !*shutdown.borrow()
+            && let Err((_, body)) = capture::reload_glossary_asr_context(&task_state).await
+        {
             tracing::warn!(detail = ?body, "ASR glossary context could not be reloaded");
         }
     });
+    state.content.glossary.replace_refresh_task(handle);
 }
 
 #[cfg(test)]

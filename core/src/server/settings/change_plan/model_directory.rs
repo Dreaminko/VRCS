@@ -10,7 +10,9 @@ pub(super) struct ModelDirectoryChange {
     pub(super) candidate_path: PathBuf,
     previous_path: PathBuf,
     previous_ocr_path: PathBuf,
-    applied: bool,
+    models_moved: bool,
+    translation_moved: bool,
+    ocr_moved: bool,
 }
 
 impl ModelDirectoryChange {
@@ -35,7 +37,9 @@ impl ModelDirectoryChange {
             candidate_path,
             previous_path: state.capture.model_manager.model_dir(),
             previous_ocr_path: state.config.local_ocr.model_dir(),
-            applied: false,
+            models_moved: false,
+            translation_moved: false,
+            ocr_moved: false,
         }
     }
 
@@ -50,39 +54,47 @@ impl ModelDirectoryChange {
             state.capture.qwen_runtime.stop().await?;
             state.content.plamo_runtime.stop().await?;
             move_model_directory(state, self.candidate_path.clone()).await?;
-            // The shared settings rollback now owns recovery for every later failure.
-            self.applied = true;
+            self.models_moved = true;
             move_translation_models(state, self.candidate_path.clone(), lifecycle).await?;
+            self.translation_moved = true;
             move_ocr_directory(state, crate::ocr::model_directory(&self.candidate_path)).await?;
+            self.ocr_moved = true;
         }
         Ok(())
     }
 
     pub(super) async fn rollback(&mut self, state: &SettingsContext) -> Result<(), String> {
-        if self.applied {
+        if !self.models_moved && !self.translation_moved && !self.ocr_moved {
+            return Ok(());
+        }
+        state.capture.qwen_runtime.stop().await?;
+        state.content.plamo_runtime.stop().await?;
+        let mut errors = Vec::new();
+        if self.ocr_moved {
+            match move_ocr_directory(state, self.previous_ocr_path.clone()).await {
+                Ok(()) => self.ocr_moved = false,
+                Err(error) => errors.push(error),
+            }
+        }
+        if self.translation_moved {
             let lifecycle = state
                 .content
                 .local_translation_models
                 .lock_exclusive()
                 .await;
-            state.capture.qwen_runtime.stop().await?;
-            state.content.plamo_runtime.stop().await?;
-            let mut errors = Vec::new();
-            if let Err(error) = move_ocr_directory(state, self.previous_ocr_path.clone()).await {
-                errors.push(error);
+            match move_translation_models(state, self.previous_path.clone(), lifecycle).await {
+                Ok(()) => self.translation_moved = false,
+                Err(error) => errors.push(error),
             }
-            if let Err(error) =
-                move_translation_models(state, self.previous_path.clone(), lifecycle).await
-            {
-                errors.push(error);
+        }
+        if self.models_moved {
+            match move_model_directory(state, self.previous_path.clone()).await {
+                Ok(()) => self.models_moved = false,
+                Err(error) => errors.push(error),
             }
-            if let Err(error) = move_model_directory(state, self.previous_path.clone()).await {
-                errors.push(error);
-            }
-            if !errors.is_empty() {
-                return Err(errors.join("; "));
-            }
-            self.applied = false;
+        }
+        if !errors.is_empty() {
+            return Err(errors.join("; "));
         }
         Ok(())
     }

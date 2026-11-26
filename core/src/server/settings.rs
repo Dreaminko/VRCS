@@ -70,7 +70,6 @@ pub(super) async fn update_settings(
         .await?
         .apply(&state)
         .await?;
-        state.capture.room_context.notify_settings_changed();
         Ok((
             revision_headers(&state, result.revision),
             Json(json!(result.config)),
@@ -198,16 +197,62 @@ fn protect_profile_owned_settings(
             .iter()
             .any(|profile| profile.id == profile_id)
     };
-    if candidate
-        .translation
-        .speaker_targets
-        .iter()
-        .chain(&candidate.translation.microphone_targets)
-        .filter(|target| !target.use_default_model)
-        .filter_map(|target| target.profile_id.as_deref())
-        .any(|profile_id| !profile_exists(profile_id))
+    let unknown_profile =
+        |profile_id: Option<&str>| profile_id.is_some_and(|id| !profile_exists(id));
+    let any_target_unknown = |targets: &[crate::config::TranslationTargetConfig]| {
+        targets
+            .iter()
+            .any(|target| unknown_profile(target.profile_id.as_deref()))
+    };
+
+    if unknown_profile(candidate.model_defaults.text.profile_id.as_deref()) {
+        candidate.model_defaults.text = current.model_defaults.text.clone();
+    }
+    if unknown_profile(candidate.model_defaults.translation.profile_id.as_deref()) {
+        candidate.model_defaults.translation = current.model_defaults.translation.clone();
+    }
+    if unknown_profile(candidate.model_defaults.vision.profile_id.as_deref()) {
+        candidate.model_defaults.vision = current.model_defaults.vision.clone();
+    }
+    if unknown_profile(candidate.learning_ai.profile_id.as_deref()) {
+        candidate.learning_ai = current.learning_ai.clone();
+    }
+    if unknown_profile(candidate.vision.profile_id.as_deref()) {
+        candidate.vision = current.vision.clone();
+    }
+    if unknown_profile(candidate.conversation_titles.profile_id.as_deref()) {
+        candidate.conversation_titles = current.conversation_titles.clone();
+    }
+    if unknown_profile(candidate.translation.model_selection.profile_id.as_deref())
+        || any_target_unknown(&candidate.translation.speaker_targets)
+        || any_target_unknown(&candidate.translation.microphone_targets)
     {
         candidate.translation = current.translation.clone();
+    }
+    if unknown_profile(candidate.ocr.model_selection.profile_id.as_deref())
+        || any_target_unknown(&candidate.ocr.targets)
+    {
+        candidate.ocr = current.ocr.clone();
+    }
+    for preset in &mut candidate.language_presets {
+        if any_target_unknown(&preset.speaker_targets)
+            || any_target_unknown(&preset.microphone_targets)
+        {
+            if let Some(prev) = current.language_presets.iter().find(|p| p.id == preset.id) {
+                *preset = prev.clone();
+            } else {
+                preset.translation_mode = "disabled".into();
+                for target in preset
+                    .speaker_targets
+                    .iter_mut()
+                    .chain(&mut preset.microphone_targets)
+                {
+                    if unknown_profile(target.profile_id.as_deref()) {
+                        target.profile_id = None;
+                    }
+                }
+            }
+        }
     }
 }
 

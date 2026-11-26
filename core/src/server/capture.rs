@@ -625,6 +625,9 @@ async fn start_planned_pipelines(
                 {
                     return Err(preparation_failure());
                 }
+                if config.audio.output.mode == "vrchat_players" && voice.is_none() {
+                    return Ok(None);
+                }
                 start_speaker_pipeline(state, config, voice).await
             } else {
                 Ok(None)
@@ -696,7 +699,11 @@ pub(crate) async fn reconcile_network(
         .capture
         .network_capture_requested
         .load(Ordering::SeqCst);
-    let consumers = NetworkConsumers::from_config(config);
+    let consumers = if keep_alive {
+        NetworkConsumers::from_config(config)
+    } else {
+        NetworkConsumers::default()
+    };
     reconcile_network_with(state, config, keep_alive, consumers).await
 }
 
@@ -855,6 +862,15 @@ pub(super) async fn network_capture_start(
         && config.audio.output.mode == "vrchat_players"
         && let Err(error) = start_speaker_pipeline(&state, &config, voice).await
     {
+        state
+            .capture
+            .network_session
+            .lock()
+            .await
+            .detach_outputs(NetworkConsumers {
+                voice: false,
+                chatbox: consumers.chatbox,
+            });
         state.capture.speaker_pipeline.lock().await.set_start_error(
             error.1["detail"]
                 .as_str()

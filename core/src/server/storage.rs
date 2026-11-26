@@ -10,7 +10,8 @@ use crate::db::conversations::publish_latest_catalog;
 use super::{ApiResult, ContentState, api_error, db_call};
 
 pub(super) async fn database_stats(State(state): State<ContentState>) -> ApiResult<Json<Value>> {
-    let stats = db_call(Arc::clone(&state.db), |db| db.storage_stats())
+    let stats = state
+        .db_read_call(|db| db.storage_stats())
         .await
         .map_err(|error| {
             api_error(

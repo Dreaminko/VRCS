@@ -558,29 +558,18 @@ pub(super) async fn profile_create(
         }
         let mut candidate = state.config.config.read().expect("config lock").clone();
         candidate.asr.api_profiles.push(profile.clone());
-        commit_profile_config(&state, candidate).await?;
-        if let Some(api_key) = input
+        let api_key = input
             .api_key
-            .filter(|value| profile.requires_api_key() && !value.trim().is_empty())
-            && let Err(error) =
-                credentials::write_credential_async(&profile.id, &profile.provider, &api_key).await
-        {
-            let mut rollback = state.config.config.read().expect("config lock").clone();
-            rollback
-                .asr
-                .api_profiles
-                .retain(|item| item.id != profile.id);
-            if let Err(recovery) = commit_profile_config(&state, rollback).await {
-                return Err(api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "settings.rollback_failed",
-                    format!(
-                        "{error}; configuration rollback failed: {}",
-                        api_detail(&recovery)
-                    ),
-                ));
-            }
-            return Err(credential_error(error));
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| profile.requires_api_key() && !value.is_empty());
+        if let Some(api_key) = api_key {
+            let mut validated = candidate.clone();
+            validated.resolve_model_assignments();
+            validated.validate_settings().map_err(profile_invalid)?;
+            super::settings::commit_profile_candidate(&state, candidate, &profile, api_key).await?;
+        } else {
+            commit_profile_config(&state, candidate).await?;
         }
         let config = state.config.config.read().expect("config lock").clone();
         Ok(Json(
@@ -742,7 +731,6 @@ pub(super) async fn profile_delete(
                 json!({ "side_effects": profile_usages(&current, &profile_id) }),
             ));
         }
-        #[cfg(not(target_os = "linux"))]
         let previous_credential =
             credentials::read_profile_stored_for_use_async(&profile.id, &profile.provider)
                 .await
@@ -755,9 +743,6 @@ pub(super) async fn profile_delete(
                 tracing::debug!(%error, "Skipping credential cleanup during profile delete because Secret Service is unavailable");
             } else {
                 let mut recovery_errors = Vec::new();
-                // Linux restores every original item itself; rewriting one selected
-                // value here would corrupt distinct duplicate/legacy snapshots.
-                #[cfg(not(target_os = "linux"))]
                 if let Err(recovery) = restore_credential(&profile, previous_credential).await {
                     recovery_errors.push(format!("credential rollback failed: {recovery}"));
                 }
@@ -794,6 +779,7 @@ pub(super) async fn credential_write(
             ));
         }
         let _config_control = state.config.config_control.lock().await;
+        let _capture_control = state.capture.capture_control.lock().await;
         let config = state.config.config.read().expect("config lock").clone();
         let profile = config
             .asr
@@ -813,6 +799,7 @@ pub(super) async fn credential_write(
             .await
             .map_err(credential_error)?;
         reload_after_credential_change(&state, &config, &profile, previous).await?;
+        bump_config_revision(&state);
         Ok(Json(
             profile_value(&profile, &config)
                 .await
@@ -829,6 +816,7 @@ pub(super) async fn credential_delete(
 ) -> ApiResult<Json<Value>> {
     credentials::finish_mutation(async move {
         let _config_control = state.config.config_control.lock().await;
+        let _capture_control = state.capture.capture_control.lock().await;
         let config = state.config.config.read().expect("config lock").clone();
         let profile = config
             .asr
@@ -856,6 +844,7 @@ pub(super) async fn credential_delete(
             .await
             .map_err(credential_error)?;
         reload_after_credential_change(&state, &config, &profile, previous).await?;
+        bump_config_revision(&state);
         Ok(Json(
             profile_value(&profile, &config)
                 .await
@@ -1114,25 +1103,36 @@ async fn commit_profile_config(
     Ok(())
 }
 
+fn bump_config_revision(state: &SettingsContext) {
+    state
+        .config
+        .config_revision
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    state
+        .config
+        .config_changed
+        .send_modify(|revision| *revision = revision.wrapping_add(1));
+}
+
 async fn reload_after_credential_change(
     state: &SettingsContext,
     config: &crate::config::AppConfig,
     profile: &ApiProfile,
     previous: Option<String>,
 ) -> ApiResult<()> {
+    let mut resolved = config.clone();
+    resolved.resolve_model_assignments();
+    if resolved.vision.profile_id.as_deref() == Some(profile.id.as_str()) {
+        state
+            .config
+            .vision_config_tx
+            .send_replace(crate::config::apply_feature_gates(&resolved).vision);
+    }
     if !state
         .capture
         .capture_requested
         .load(std::sync::atomic::Ordering::SeqCst)
         || !super::capture::uses_asr_profile(config, &profile.id)
-    {
-        return Ok(());
-    }
-    let _capture_control = state.capture.capture_control.lock().await;
-    if !state
-        .capture
-        .capture_requested
-        .load(std::sync::atomic::Ordering::SeqCst)
     {
         return Ok(());
     }
