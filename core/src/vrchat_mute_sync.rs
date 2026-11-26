@@ -2,13 +2,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use mdns_sd::{ServiceDaemon, ServiceEvent};
 use rosc::{OscPacket, OscType};
 use serde::Serialize;
 use tokio::sync::watch;
 use tokio_tungstenite::tungstenite::Message;
 
-const SERVICE_TYPE: &str = "_oscjson._tcp.local.";
+use crate::osc::oscquery::{OscQueryConsumer, OscQueryDiscovery, connect_ws_and_listen};
+
 const MUTE_PATH: &str = "/avatar/parameters/MuteSelf";
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -44,10 +44,16 @@ pub struct VrchatMuteSync {
     enabled: watch::Sender<bool>,
     state: watch::Sender<VrchatMuteStatus>,
     status: Arc<Mutex<VrchatMuteStatus>>,
+    discovery: OscQueryDiscovery,
 }
 
 impl VrchatMuteSync {
-    pub fn new(enabled: bool, shutdown: watch::Receiver<bool>) -> Self {
+    pub(crate) fn new_with_discovery(
+        enabled: bool,
+        shutdown: watch::Receiver<bool>,
+        discovery: OscQueryDiscovery,
+    ) -> Self {
+        discovery.set_enabled(OscQueryConsumer::MuteSync, enabled);
         let initial = if enabled {
             VrchatMuteStatus::discovering()
         } else {
@@ -61,15 +67,19 @@ impl VrchatMuteSync {
             shutdown,
             state.clone(),
             Arc::clone(&status),
+            discovery.clone(),
         ));
         Self {
             enabled: enabled_tx,
             state,
             status,
+            discovery,
         }
     }
 
     pub fn update_enabled(&self, enabled: bool) {
+        self.discovery
+            .set_enabled(OscQueryConsumer::MuteSync, enabled);
         let _ = self.enabled.send(enabled);
     }
 
@@ -92,6 +102,7 @@ async fn run(
     mut shutdown: watch::Receiver<bool>,
     state: watch::Sender<VrchatMuteStatus>,
     status: Arc<Mutex<VrchatMuteStatus>>,
+    discovery: OscQueryDiscovery,
 ) {
     loop {
         if *shutdown.borrow() {
@@ -106,7 +117,8 @@ async fn run(
         }
 
         set_status(&state, &status, VrchatMuteStatus::discovering());
-        let result = discover_and_follow(&mut enabled, &mut shutdown, &state, &status).await;
+        let result =
+            discover_and_follow(&mut enabled, &mut shutdown, &state, &status, &discovery).await;
         if let Err(error) = result {
             set_status(
                 &state,
@@ -132,58 +144,51 @@ async fn discover_and_follow(
     shutdown: &mut watch::Receiver<bool>,
     state: &watch::Sender<VrchatMuteStatus>,
     status: &Arc<Mutex<VrchatMuteStatus>>,
+    discovery: &OscQueryDiscovery,
 ) -> Result<(), String> {
-    let daemon = ServiceDaemon::new().map_err(|error| error.to_string())?;
-    let services = daemon
-        .browse(SERVICE_TYPE)
-        .map_err(|error| error.to_string())?;
-    let service = loop {
+    let mut endpoint_rx = discovery.subscribe();
+    let port = loop {
+        if let Some(port) = *endpoint_rx.borrow_and_update() {
+            break port;
+        }
         tokio::select! {
-            event = services.recv_async() => match event.map_err(|error| error.to_string())? {
-                ServiceEvent::ServiceResolved(info)
-                    if info.get_fullname().to_ascii_lowercase().contains("vrchat-client") => break info,
-                _ => continue,
-            },
-            _ = enabled.changed() => {
-                let _ = daemon.shutdown();
-                return Ok(());
-            },
-            _ = shutdown.changed() => {
-                let _ = daemon.shutdown();
-                return Ok(());
-            },
+            changed = endpoint_rx.changed() => {
+                if changed.is_err() {
+                    return Ok(());
+                }
+            }
+            _ = enabled.changed() => return Ok(()),
+            _ = shutdown.changed() => return Ok(()),
         }
     };
-    let port = service.get_port();
-    let _ = daemon.stop_browse(SERVICE_TYPE);
-    let _ = daemon.shutdown();
 
     let client = crate::http_client_builder()
         .timeout(Duration::from_secs(2))
         .build()
         .map_err(|error| error.to_string())?;
-    let muted = query_mute(&client, port).await?;
+    let muted = match query_mute(&client, port).await {
+        Ok(muted) => muted,
+        Err(error) => {
+            discovery.report_unavailable(port);
+            return Err(error);
+        }
+    };
     set_status(state, status, connected(muted));
 
-    let websocket = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}")).await;
-    let mut websocket = match websocket {
-        Ok((websocket, _)) => websocket,
+    let mut websocket = match connect_ws_and_listen(port, &[MUTE_PATH]).await {
+        Ok(websocket) => websocket,
         Err(error) => {
             tracing::debug!(
                 %error,
                 "VRChat OSCQuery WebSocket unavailable; falling back to HTTP polling"
             );
-            return poll_mute(client, port, enabled, shutdown, state, status).await;
+            let result = poll_mute(client, port, enabled, shutdown, state, status).await;
+            if result.is_err() {
+                discovery.report_unavailable(port);
+            }
+            return result;
         }
     };
-    websocket
-        .send(Message::Text(
-            serde_json::json!({ "COMMAND": "LISTEN", "DATA": MUTE_PATH })
-                .to_string()
-                .into(),
-        ))
-        .await
-        .map_err(|error| error.to_string())?;
 
     let mut refresh = tokio::time::interval(Duration::from_secs(5));
     refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -196,16 +201,36 @@ async fn discover_and_follow(
                     }
                 }
                 Some(Ok(Message::Ping(bytes))) => {
-                    websocket.send(Message::Pong(bytes)).await.map_err(|error| error.to_string())?;
+                    if let Err(error) = websocket.send(Message::Pong(bytes)).await {
+                        discovery.report_unavailable(port);
+                        return Err(error.to_string());
+                    }
                 }
-                Some(Ok(Message::Close(_))) | None => return Err("VRChat OSCQuery connection closed".into()),
-                Some(Err(error)) => return Err(format!("VRChat OSCQuery WebSocket error: {error}")),
+                Some(Ok(Message::Close(_))) | None => {
+                    discovery.report_unavailable(port);
+                    return Err("VRChat OSCQuery connection closed".into());
+                }
+                Some(Err(error)) => {
+                    discovery.report_unavailable(port);
+                    return Err(format!("VRChat OSCQuery WebSocket error: {error}"));
+                }
                 _ => {}
             },
             _ = refresh.tick() => {
-                let muted = query_mute(&client, port).await?;
+                let muted = match query_mute(&client, port).await {
+                    Ok(muted) => muted,
+                    Err(error) => {
+                        discovery.report_unavailable(port);
+                        return Err(error);
+                    }
+                };
                 set_status(state, status, connected(muted));
             },
+            changed = endpoint_rx.changed() => {
+                if changed.is_err() || *endpoint_rx.borrow() != Some(port) {
+                    return Ok(());
+                }
+            }
             _ = enabled.changed() => return Ok(()),
             _ = shutdown.changed() => return Ok(()),
         }

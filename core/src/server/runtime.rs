@@ -21,6 +21,7 @@ use crate::{asr, smart_turn, vad};
 pub(crate) struct ConfigRuntime {
     pub(crate) features_tx: watch::Sender<crate::config::FeatureConfig>,
     pub(crate) vision_config_tx: watch::Sender<crate::config::VisionConfig>,
+    pub(crate) config_changed: watch::Sender<u64>,
     pub(crate) question_microphone: Arc<AtomicBool>,
     pub(crate) local_ocr: Arc<crate::ocr::LocalOcrRuntime>,
     pub(crate) download_sources: Arc<crate::downloads::DownloadSources>,
@@ -52,6 +53,7 @@ impl ConfigRuntime {
                 crate::config::apply_feature_gates(&input.config).vision,
             )
             .0,
+            config_changed: watch::channel(0).0,
             question_microphone: Arc::new(AtomicBool::new(false)),
             local_ocr: Arc::new(
                 crate::ocr::LocalOcrRuntime::new(ocr_directory)
@@ -163,6 +165,7 @@ impl CaptureRuntime {
 pub(crate) struct ContentServices {
     pub(crate) conversation_title_slots: tokio::sync::Semaphore,
     pub(crate) db: Arc<Mutex<Database>>,
+    pub(crate) db_read: Arc<Mutex<Database>>,
     pub(crate) conversation_catalog_tx: broadcast::Sender<ConversationCatalog>,
     pub(crate) subtitle_output: SubtitleLifecyclePublisher,
     pub(crate) translation_service: Arc<TranslationService>,
@@ -172,10 +175,12 @@ pub(crate) struct ContentServices {
     pub(crate) local_translation_models: Arc<crate::translation::LocalTranslationModels>,
     pub(crate) plamo_runtime: Arc<crate::translation::PlamoRuntime>,
     pub(crate) room_context: crate::room_context::RoomContextReader,
+    pub(crate) chatbox_preferences: RwLock<crate::chatbox::ChatboxPreferences>,
 }
 
 pub(crate) struct ContentServicesInput {
     pub(crate) db: Arc<Mutex<Database>>,
+    pub(crate) db_read: Arc<Mutex<Database>>,
     pub(crate) conversation_catalog_tx: broadcast::Sender<ConversationCatalog>,
     pub(crate) subtitle_output: SubtitleLifecyclePublisher,
     pub(crate) translation_service: Arc<TranslationService>,
@@ -192,6 +197,7 @@ impl ContentServices {
         Self {
             conversation_title_slots: tokio::sync::Semaphore::new(1),
             db: input.db,
+            db_read: input.db_read,
             conversation_catalog_tx: input.conversation_catalog_tx,
             subtitle_output: input.subtitle_output,
             translation_service: input.translation_service,
@@ -201,13 +207,24 @@ impl ContentServices {
             local_translation_models: input.local_translation_models,
             plamo_runtime: input.plamo_runtime,
             room_context: input.room_context,
+            chatbox_preferences: RwLock::new(crate::chatbox::ChatboxPreferences::default()),
         }
+    }
+
+    pub(crate) async fn db_read_call<T, F>(&self, operation: F) -> crate::error::AppResult<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut Database) -> crate::error::AppResult<T> + Send + 'static,
+    {
+        super::db_call(Arc::clone(&self.db_read), operation).await
     }
 }
 
 pub(crate) struct IntegrationRuntime {
     pub(crate) vr_overlay_config_tx: watch::Sender<(VrOverlayConfig, VrOcrConfig)>,
     pub(crate) osc: OscChatboxDispatcher,
+    pub(crate) osc_inbound_server: AsyncMutex<Option<crate::osc::OscInboundServer>>,
+    pub(crate) osc_inbound_status: Arc<RwLock<crate::osc::OscInboundRuntimeStatus>>,
     pub(crate) unitext: UniTextDispatcher,
     pub(crate) http: reqwest::Client,
     pub(super) model_catalogs: super::model_cache::ModelCatalogCache,
@@ -238,6 +255,10 @@ impl IntegrationRuntime {
         Self {
             vr_overlay_config_tx: input.vr_overlay_config_tx,
             osc: input.osc,
+            osc_inbound_server: AsyncMutex::new(None),
+            osc_inbound_status: Arc::new(RwLock::new(
+                crate::osc::OscInboundRuntimeStatus::disabled(),
+            )),
             unitext: input.unitext,
             http: crate::anki::client(),
             model_catalogs: super::model_cache::ModelCatalogCache::default(),
@@ -272,6 +293,15 @@ impl AppState {
             content: Arc::new(content),
             integrations: Arc::new(integrations),
         }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn db_read_call<T, F>(&self, operation: F) -> crate::error::AppResult<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut Database) -> crate::error::AppResult<T> + Send + 'static,
+    {
+        self.content.db_read_call(operation).await
     }
 }
 

@@ -7,7 +7,7 @@ use super::{
     VrchatContextConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 46;
+pub const SCHEMA_VERSION: u32 = 47;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -307,11 +307,21 @@ mod tests {
             [
                 "custom_format",
                 "enabled",
+                "inbound",
                 "message_format",
                 "mute_sync_enabled",
                 "port",
                 "preserve_original_text",
                 "translation_strategy",
+            ],
+        );
+        assert_keys(
+            &value["osc"]["inbound"],
+            [
+                "enabled",
+                "forward_unmatched",
+                "intercept_chatbox_input",
+                "port",
             ],
         );
         assert_keys(

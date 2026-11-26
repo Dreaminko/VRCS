@@ -15,8 +15,14 @@ use crate::db::Database;
 use crate::domain_events::DomainEventHub;
 use crate::models::{Subtitle, SubtitleTranslation, now_iso8601};
 
+pub(crate) mod inbound;
 mod message;
+pub(crate) mod oscquery;
 mod transport;
+
+pub use inbound::OscInboundRuntimeStatus;
+pub(crate) use inbound::{InboundChatboxCallback, OscInboundServer};
+pub(crate) use transport::send_typing;
 
 use message::format_chatbox_preview;
 #[cfg(test)]

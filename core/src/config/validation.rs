@@ -118,7 +118,7 @@ impl AppConfig {
             &self.asr.api_profiles,
             &self.asr.backend,
         )?;
-        validate_osc(&self.osc)?;
+        validate_osc(&self.osc, &self.unitext)?;
         validate_unitext(&self.unitext)?;
         validate_recognition_models(&self.asr, &self.vad)?;
         validate_anki(&self.anki)?;
@@ -504,9 +504,23 @@ fn validate_recognition_options(asr: &AsrConfig) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_osc(osc: &OscConfig) -> Result<(), String> {
+fn validate_osc(osc: &OscConfig, unitext: &UniTextConfig) -> Result<(), String> {
     if osc.port == 0 {
         return Err("OSC port must be between 1 and 65535".into());
+    }
+    if osc.inbound.port == 0 {
+        return Err("OSC inbound port must be between 1 and 65535".into());
+    }
+    if osc.inbound.enabled {
+        if osc.inbound.port == osc.port {
+            return Err("OSC inbound port cannot match the VRChat OSC output port".into());
+        }
+        if unitext.enabled && osc.inbound.port == unitext.port {
+            return Err("OSC inbound port cannot match the UniText OSC port".into());
+        }
+        if unitext.enabled && osc.inbound.port == 9001 {
+            return Err("OSC inbound port 9001 conflicts with the UniText OSC receive port".into());
+        }
     }
     if !["preferred_only", "round_robin", "all_languages"]
         .contains(&osc.translation_strategy.as_str())

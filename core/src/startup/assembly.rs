@@ -77,6 +77,18 @@ impl RuntimeAssembly {
         let (translation_tx, _) = broadcast::channel(100);
         let domain_events = domain_events::DomainEventHub::new();
         let db = Arc::new(Mutex::new(database));
+        let db_read = if plan.database_path == std::path::Path::new(":memory:") {
+            Arc::clone(&db)
+        } else {
+            let mut reader = Database::open_read_only(&plan.database_path).map_err(|error| {
+                format!(
+                    "Failed to open read-only database {}: {error}",
+                    plan.database_path.display()
+                )
+            })?;
+            reader.set_read_only_quota(plan.config.storage.subtitle_history_max_bytes);
+            Arc::new(Mutex::new(reader))
+        };
         let osc = osc::OscChatboxDispatcher::new_with_db_and_events(
             effective.osc.clone(),
             Arc::clone(&db),
@@ -135,15 +147,18 @@ impl RuntimeAssembly {
         );
         let (external_api_server, external_api_status) =
             start_external_api(&plan, domain_events.clone(), shutdown_rx.clone()).await;
-        let vrchat_mute_sync = vrchat_mute_sync::VrchatMuteSync::new(
+        let oscquery_discovery = osc::oscquery::OscQueryDiscovery::new(shutdown_rx.clone());
+        let vrchat_mute_sync = vrchat_mute_sync::VrchatMuteSync::new_with_discovery(
             effective.osc.mute_sync_enabled || effective.unitext.mute_sync_enabled,
             shutdown_rx.clone(),
+            oscquery_discovery.clone(),
         );
-        let unitext = unitext::UniTextDispatcher::new(
+        let unitext = unitext::UniTextDispatcher::new_with_discovery(
             effective.unitext.clone(),
             effective.vrchat_player_id.clone(),
             subtitle_output.subscribe_presentation_events(),
             shutdown_rx.clone(),
+            oscquery_discovery,
         );
         let (vr_overlay_config_tx, _) =
             watch::channel((effective.vr_overlay.clone(), effective.ocr.clone()));
@@ -160,6 +175,7 @@ impl RuntimeAssembly {
         });
         let content_services = ContentServices::new(ContentServicesInput {
             db,
+            db_read,
             conversation_catalog_tx,
             subtitle_output,
             translation_service,
@@ -188,6 +204,7 @@ impl RuntimeAssembly {
             content_services,
             integration_runtime,
         ));
+        start_osc_inbound(&state, &effective.osc, shutdown_rx.clone()).await;
 
         Ok(Self {
             requested_address: plan.requested_address,
@@ -282,6 +299,30 @@ async fn start_external_api(
         Err(error) => {
             tracing::error!(%error, "External API listener could not start");
             (None, external_api::ExternalApiRuntimeStatus::failed(error))
+        }
+    }
+}
+
+async fn start_osc_inbound(
+    state: &AppState,
+    config: &crate::config::OscConfig,
+    shutdown: watch::Receiver<bool>,
+) {
+    if !config.inbound.enabled {
+        return;
+    }
+    let callback =
+        crate::server::osc_inbound_callback(crate::server::ServiceContext::from_app(state));
+    let status = Arc::clone(&state.integrations.osc_inbound_status);
+    match osc::OscInboundServer::start(config, callback, Arc::clone(&status), shutdown).await {
+        Ok(Some(server)) => {
+            *state.integrations.osc_inbound_server.lock().await = Some(server);
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::error!(%error, "OSC inbound listener could not start");
+            *status.write().expect("OSC inbound status lock") =
+                osc::OscInboundRuntimeStatus::failed(error);
         }
     }
 }

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub const CHATBOX_LIMIT: usize = 144;
-const MAX_TEXT_LENGTH: usize = 5_000;
+pub(crate) const MAX_TEXT_LENGTH: usize = 5_000;
 pub(crate) const MAX_CUSTOM_FORMAT_LENGTH: usize = 200;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -57,6 +57,28 @@ impl ChatboxMessageFormat {
 pub enum ChatboxOverflowPolicy {
     Block,
     SmartTruncate,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct ChatboxPreferences {
+    pub follow_translation_settings: bool,
+    pub target_language: String,
+    pub send_mode: ChatboxSendMode,
+    pub output_target: ChatboxOutputTarget,
+    pub overflow_policy: ChatboxOverflowPolicy,
+}
+
+impl Default for ChatboxPreferences {
+    fn default() -> Self {
+        Self {
+            follow_translation_settings: true,
+            target_language: "ja".into(),
+            send_mode: ChatboxSendMode::Bilingual,
+            output_target: ChatboxOutputTarget::Both,
+            overflow_policy: ChatboxOverflowPolicy::Block,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -415,10 +437,35 @@ fn truncate_bilingual(
 }
 
 fn render(template: &str, original: &str, translation: Option<&str>) -> String {
-    let translated = translation.map(str::to_owned).unwrap_or_default();
-    template
-        .replace("{original}", original)
-        .replace("{translation}", &translated)
+    let translated = translation.unwrap_or_default();
+    let mut rendered = String::with_capacity(template.len() + original.len() + translated.len());
+    let mut rest = template;
+    while !rest.is_empty() {
+        let next_orig = rest.find("{original}");
+        let next_trans = rest.find("{translation}");
+        match (next_orig, next_trans) {
+            (Some(o), Some(t)) if o <= t => {
+                rendered.push_str(&rest[..o]);
+                rendered.push_str(original);
+                rest = &rest[o + "{original}".len()..];
+            }
+            (Some(_), Some(t)) | (None, Some(t)) => {
+                rendered.push_str(&rest[..t]);
+                rendered.push_str(translated);
+                rest = &rest[t + "{translation}".len()..];
+            }
+            (Some(o), None) => {
+                rendered.push_str(&rest[..o]);
+                rendered.push_str(original);
+                rest = &rest[o + "{original}".len()..];
+            }
+            (None, None) => {
+                rendered.push_str(rest);
+                break;
+            }
+        }
+    }
+    rendered
 }
 
 pub(crate) fn compact_text(value: &str) -> String {

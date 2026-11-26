@@ -7,37 +7,26 @@ use super::super::super::{ApiResult, SettingsContext, api_error};
 
 pub(super) struct ExternalApiChange {
     reload: bool,
+    applied: bool,
 }
 
 impl ExternalApiChange {
     pub(super) fn between(current: &AppConfig, candidate: &AppConfig) -> Self {
         Self {
             reload: current.external_api != candidate.external_api,
+            applied: false,
         }
     }
 
     pub(super) async fn apply(
-        &self,
+        &mut self,
         state: &SettingsContext,
         candidate: &AppConfig,
     ) -> ApiResult<()> {
         if !self.reload {
             return Ok(());
         }
-        let token = if candidate.external_api.enabled && candidate.external_api.require_token {
-            credentials::blocking(credentials::read_external_api_token)
-                .await
-                .map_err(|error| {
-                    api_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        credentials::error_reason_code(&error)
-                            .unwrap_or("external_api.token_status_failed"),
-                        error,
-                    )
-                })?
-        } else {
-            None
-        };
+        let token = read_external_api_token(&candidate.external_api).await?;
         reload_external_api_runtime(state, &candidate.external_api, token)
             .await
             .map_err(|error| {
@@ -46,7 +35,44 @@ impl ExternalApiChange {
                     "settings.external_api_reload_failed",
                     error,
                 )
+            })?;
+        self.applied = true;
+        Ok(())
+    }
+
+    pub(super) async fn rollback(
+        &mut self,
+        state: &SettingsContext,
+        previous: &AppConfig,
+    ) -> Result<(), String> {
+        if !self.applied {
+            return Ok(());
+        }
+        let token = if previous.external_api.enabled && previous.external_api.require_token {
+            credentials::blocking(credentials::read_external_api_token).await?
+        } else {
+            None
+        };
+        reload_external_api_runtime(state, &previous.external_api, token).await?;
+        self.applied = false;
+        Ok(())
+    }
+}
+
+async fn read_external_api_token(config: &ExternalApiConfig) -> ApiResult<Option<String>> {
+    if config.enabled && config.require_token {
+        credentials::blocking(credentials::read_external_api_token)
+            .await
+            .map_err(|error| {
+                api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    credentials::error_reason_code(&error)
+                        .unwrap_or("external_api.token_status_failed"),
+                    error,
+                )
             })
+    } else {
+        Ok(None)
     }
 }
 

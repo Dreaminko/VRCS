@@ -413,8 +413,10 @@ fn v45_migrates_to_v46_with_vrchat_context_defaults() {
     raw.as_object_mut().unwrap().remove("vrchat_context");
     fs::write(&path, serde_json::to_vec(&raw).unwrap()).unwrap();
     let migrated = load_config(&path).unwrap();
-    assert_eq!(migrated.schema_version, 46);
+    assert_eq!(migrated.schema_version, super::SCHEMA_VERSION);
     assert!(!migrated.vrchat_context.include_in_asr_context);
     assert!(!migrated.vrchat_context.include_in_translation_context);
     assert!(migrated.vrchat_context.include_world_name);
+    assert!(!migrated.osc.inbound.enabled);
+    assert_eq!(migrated.osc.inbound.port, 9002);
 }

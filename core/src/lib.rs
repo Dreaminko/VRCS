@@ -159,6 +159,7 @@ impl CoreHandle {
             self.state.content.translation_service.clone(),
             self.state.config.local_ocr.clone(),
         )
+        .with_config_changed(self.state.config.config_changed.subscribe())
     }
 
     /// Common effective settings; query `configuration_for` for mode availability.
@@ -198,6 +199,16 @@ impl CoreHandle {
             .state
             .integrations
             .external_api_server
+            .lock()
+            .await
+            .take()
+        {
+            server.stop().await;
+        }
+        if let Some(server) = self
+            .state
+            .integrations
+            .osc_inbound_server
             .lock()
             .await
             .take()
@@ -372,6 +383,9 @@ where
                     let _ = task.await;
                 }
                 if let Some(server) = state.integrations.external_api_server.lock().await.take() {
+                    server.stop().await;
+                }
+                if let Some(server) = state.integrations.osc_inbound_server.lock().await.take() {
                     server.stop().await;
                 }
                 model_manager.cancel_all_and_wait().await;

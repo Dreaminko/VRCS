@@ -11,6 +11,7 @@ use super::super::{ApiResult, SettingsContext, api_error};
 mod capture;
 mod external_api;
 mod model_directory;
+mod osc_inbound;
 mod persisted_config;
 mod post_commit;
 mod qwen_runtime;
@@ -19,6 +20,7 @@ mod validation;
 use capture::CaptureChange;
 use external_api::ExternalApiChange;
 use model_directory::ModelDirectoryChange;
+use osc_inbound::OscInboundChange;
 use persisted_config::PersistedConfigChange;
 use post_commit::PostCommitUpdates;
 use qwen_runtime::QwenRuntimeChange;
@@ -39,7 +41,9 @@ pub(super) struct SettingsChangePlan {
     asr_runtime: QwenRuntimeChange,
     persisted_config: PersistedConfigChange,
     external_api: ExternalApiChange,
+    osc_inbound: OscInboundChange,
     post_commit: PostCommitUpdates,
+    in_memory_config_applied: bool,
     credential: Option<(crate::config::ApiProfile, Option<String>)>,
 }
 
@@ -139,6 +143,7 @@ impl SettingsChangePlan {
             capture.reload && capture.resume,
         );
         let external_api = ExternalApiChange::between(&effective_current, &effective_candidate);
+        let osc_inbound = OscInboundChange::between(&effective_current, &effective_candidate);
         let post_commit = PostCommitUpdates::between(&effective_current, &effective_candidate);
 
         Ok(Self {
@@ -150,7 +155,9 @@ impl SettingsChangePlan {
             asr_runtime,
             persisted_config: PersistedConfigChange::default(),
             external_api,
+            osc_inbound,
             post_commit,
+            in_memory_config_applied: false,
             credential: None,
         })
     }
@@ -184,6 +191,10 @@ impl SettingsChangePlan {
             return Err(self.rollback_or(state, error).await);
         }
 
+        // Publish in-memory candidate before runtime components inspect `state.config.config`.
+        *state.config.config.write().expect("config lock") = self.candidate.clone();
+        self.in_memory_config_applied = true;
+
         if let Err(error) = self
             .capture
             .start_candidate(state, &self.effective_candidate)
@@ -200,11 +211,20 @@ impl SettingsChangePlan {
             return Err(self.rollback_or(state, error).await);
         }
 
+        if let Err(error) = self
+            .osc_inbound
+            .apply(state, &self.effective_candidate)
+            .await
+        {
+            return Err(self.rollback_or(state, error).await);
+        }
+
         // The durable and fallible runtime changes are complete. Updates below are
         // best-effort projections of the committed configuration and are not rolled back.
         self.post_commit
             .apply(state, &self.candidate, &self.effective_candidate)
             .await;
+        state.capture.room_context.notify_settings_changed();
         let revision = state.config.config_revision.fetch_add(1, Ordering::SeqCst) + 1;
         Ok(SettingsCommitResult {
             revision,
@@ -223,6 +243,9 @@ impl SettingsChangePlan {
     async fn rollback(&mut self, state: &SettingsContext) -> Result<(), String> {
         let mut errors = Vec::new();
         self.capture.stop_for_rollback(state).await;
+        if let Err(error) = self.external_api.rollback(state, &self.current).await {
+            errors.push(error);
+        }
         if let Some((profile, previous)) = self.credential.take()
             && let Err(error) = super::super::cloud::restore_credential(&profile, previous).await
         {
@@ -233,6 +256,10 @@ impl SettingsChangePlan {
         }
         if let Err(error) = self.persisted_config.rollback(state, &self.current) {
             errors.push(error);
+        }
+        if self.in_memory_config_applied {
+            *state.config.config.write().expect("config lock") = self.current.clone();
+            self.in_memory_config_applied = false;
         }
         if let Err(error) = self.asr_runtime.rollback(state).await {
             errors.push(error);

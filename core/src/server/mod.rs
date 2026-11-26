@@ -43,6 +43,7 @@ use crate::db::Database;
 use crate::error::{AppError, AppResult};
 use crate::yomitan;
 
+pub(crate) use chatbox::osc_inbound_callback;
 pub(crate) use runtime::{
     AppState, CaptureContext, CaptureRuntime, CaptureRuntimeInput, ConfigRuntime,
     ConfigRuntimeInput, ContentServices, ContentServicesInput, ContentState, HealthContext,
@@ -204,6 +205,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/unitext/clear", post(osc::clear_unitext))
         .route("/api/chatbox/preview", post(chatbox::preview))
         .route("/api/chatbox/messages", post(chatbox::send))
+        .route(
+            "/api/chatbox/preferences",
+            get(chatbox::get_preferences).put(chatbox::update_preferences),
+        )
         .route(
             "/api/subtitles",
             get(dictionary::subtitle_history).delete(storage::clear_subtitle_history),
@@ -486,6 +491,12 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
     };
     let last_error = speaker_error.or(microphone_error).or(asr_error);
     let osc = state.integrations.osc.status();
+    let osc_inbound = state
+        .integrations
+        .osc_inbound_status
+        .read()
+        .expect("OSC inbound status lock")
+        .clone();
     let unitext = state.integrations.unitext.status();
     let vrchat_mute_sync = state.integrations.vrchat_mute_sync.status();
     let language_session = state
@@ -525,6 +536,7 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
         "vad_model_version": vad_model_version,
         "last_error": last_error,
         "osc": osc,
+        "osc_inbound": osc_inbound,
         "unitext": unitext,
         "language_session": language_session,
         "vrchat_mute_sync": vrchat_mute_sync,

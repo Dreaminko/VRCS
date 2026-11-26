@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futures_util::{SinkExt, StreamExt};
-use mdns_sd::{ServiceDaemon, ServiceEvent};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::net::UdpSocket;
@@ -13,6 +12,9 @@ use tokio_tungstenite::tungstenite::Message;
 use crate::config::UniTextConfig;
 use crate::models::now_iso8601;
 use crate::osc::ManualSendError;
+use crate::osc::oscquery::{
+    OscQueryAdvertisement, OscQueryConsumer, OscQueryDiscovery, connect_ws_and_listen,
+};
 use crate::subtitle_output::PresentationEvent;
 
 use layout::{UniTextLayout, build_test_screen};
@@ -28,7 +30,6 @@ mod layout;
 mod lut12;
 mod protocol;
 
-const SERVICE_TYPE: &str = "_oscjson._tcp.local.";
 const DEFAULT_OSC_RECEIVE_PORT: u16 = 9001;
 const QUEUE_CAPACITY: usize = 64;
 const OVERFLOW_SCROLL_DWELL: Duration = Duration::from_millis(900);
@@ -46,11 +47,6 @@ pub struct UniTextRuntimeStatus {
 }
 
 enum UniTextCommand {
-    Config {
-        config: UniTextConfig,
-        self_player_id: String,
-    },
-    Muted(Option<bool>),
     ManualChatbox {
         key: String,
         original: String,
@@ -82,22 +78,28 @@ impl Default for ProbeState {
 #[derive(Clone)]
 pub struct UniTextDispatcher {
     sender: mpsc::Sender<UniTextCommand>,
+    config_tx: watch::Sender<(UniTextConfig, String)>,
+    muted_tx: watch::Sender<Option<bool>>,
     status: Arc<Mutex<UniTextRuntimeStatus>>,
 }
 
 impl UniTextDispatcher {
-    pub fn new(
+    pub(crate) fn new_with_discovery(
         config: UniTextConfig,
         self_player_id: String,
         presentation_rx: broadcast::Receiver<PresentationEvent>,
         shutdown: watch::Receiver<bool>,
+        discovery: OscQueryDiscovery,
     ) -> Self {
+        discovery.set_enabled(OscQueryConsumer::UniText, config.enabled);
         let (sender, cmd_rx) = mpsc::channel(QUEUE_CAPACITY);
         let initial_status = initial_runtime_status(&config);
         let status = Arc::new(Mutex::new(initial_status));
         let (probe_enable_tx, probe_enable_rx) = watch::channel(config.enabled);
         let (probe_tx, probe_rx) = watch::channel(ProbeState::default());
         let (live_osc_tx, live_osc_rx) = mpsc::channel(QUEUE_CAPACITY);
+        let (config_tx, config_rx) = watch::channel((config.clone(), self_player_id.clone()));
+        let (muted_tx, muted_rx) = watch::channel(None);
 
         tokio::spawn(run_udp_osc_listener(
             DEFAULT_OSC_RECEIVE_PORT,
@@ -110,11 +112,14 @@ impl UniTextDispatcher {
             shutdown.clone(),
             probe_tx,
             live_osc_tx,
+            discovery,
         ));
         tokio::spawn(run_worker(
             config,
             self_player_id,
             cmd_rx,
+            config_rx,
+            muted_rx,
             presentation_rx,
             live_osc_rx,
             probe_enable_tx,
@@ -123,7 +128,12 @@ impl UniTextDispatcher {
             Arc::clone(&status),
         ));
 
-        Self { sender, status }
+        Self {
+            sender,
+            config_tx,
+            muted_tx,
+            status,
+        }
     }
 
     pub fn update_config(&self, config: UniTextConfig, self_player_id: String) {
@@ -137,10 +147,7 @@ impl UniTextDispatcher {
                 status.last_error = None;
             }
         }
-        let _ = self.sender.try_send(UniTextCommand::Config {
-            config,
-            self_player_id,
-        });
+        self.config_tx.send_replace((config, self_player_id));
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -186,7 +193,14 @@ impl UniTextDispatcher {
     }
 
     pub fn update_mute_status(&self, muted: Option<bool>) {
-        let _ = self.sender.try_send(UniTextCommand::Muted(muted));
+        self.muted_tx.send_if_modified(|current| {
+            if *current == muted {
+                false
+            } else {
+                *current = muted;
+                true
+            }
+        });
     }
 
     pub fn queue_test(&self) -> Result<(), &'static str> {
@@ -599,6 +613,8 @@ async fn run_worker(
     config: UniTextConfig,
     self_player_id: String,
     mut cmd_rx: mpsc::Receiver<UniTextCommand>,
+    mut config_rx: watch::Receiver<(UniTextConfig, String)>,
+    mut muted_rx: watch::Receiver<Option<bool>>,
     mut presentation_rx: broadcast::Receiver<PresentationEvent>,
     mut live_osc_rx: mpsc::Receiver<LiveOscParamEvent>,
     probe_enable_tx: watch::Sender<bool>,
@@ -635,73 +651,77 @@ async fn run_worker(
         }
         tokio::select! {
             _ = shutdown.changed() => break,
+            changed = config_rx.changed() => {
+                if changed.is_err() {
+                    break;
+                }
+                let (next, self_player_id) = config_rx.borrow_and_update().clone();
+                let interval_changed = next.interval_ms != session.config.interval_ms;
+                let became_enabled = !session.config.enabled && next.enabled;
+                let preserve_changed =
+                    session.config.preserve_original_text != next.preserve_original_text;
+                let player_name_changed =
+                    session.layout.set_self_player_name(&self_player_id);
+                session.config = next;
+                probe_enable_tx.send_if_modified(|enabled| {
+                    if *enabled == session.config.enabled {
+                        false
+                    } else {
+                        *enabled = session.config.enabled;
+                        true
+                    }
+                });
+                if interval_changed {
+                    ticker = tokio::time::interval(Duration::from_millis(session.config.interval_ms.max(80) as u64));
+                    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                }
+                let next_tier = resolve_active_tier(&session.config, &probe_rx.borrow());
+                if !session.config.enabled {
+                    session.need_visible_sync = false;
+                    session.force_clear_all = false;
+                    session.needs_nop = false;
+                    session.overflow_ready_since = None;
+                    session.pending_viewport = None;
+                    session.scheduler.reset();
+                } else if became_enabled || next_tier != session.active_tier {
+                    session.active_tier = next_tier;
+                    if session.active_tier.is_some() {
+                        session.scheduler.reset();
+                        session.overflow_ready_since = None;
+                        if !session.showing_test_screen {
+                            session.layout.sync_to_screen(
+                                &mut session.target,
+                                &session.config,
+                                session.viewport,
+                            );
+                        }
+                        if session.target.is_empty() {
+                            session.force_clear_all = true;
+                        } else {
+                            session.shadow.invalidate_all();
+                        }
+                    }
+                } else if (preserve_changed || player_name_changed)
+                    && !session.showing_test_screen
+                {
+                    session.overflow_ready_since = None;
+                    session.layout.sync_to_screen(
+                        &mut session.target,
+                        &session.config,
+                        session.viewport,
+                    );
+                }
+                session.active_tier = next_tier;
+                refresh_status(&status, &session.config, &probe_rx.borrow(), session.active_tier);
+            }
+            changed = muted_rx.changed() => {
+                if changed.is_err() {
+                    break;
+                }
+                session.muted = *muted_rx.borrow_and_update();
+            }
             cmd = cmd_rx.recv() => match cmd {
                 None => break,
-                Some(UniTextCommand::Config {
-                    config: next,
-                    self_player_id,
-                }) => {
-                    let interval_changed = next.interval_ms != session.config.interval_ms;
-                    let became_enabled = !session.config.enabled && next.enabled;
-                    let preserve_changed =
-                        session.config.preserve_original_text != next.preserve_original_text;
-                    let player_name_changed =
-                        session.layout.set_self_player_name(&self_player_id);
-                    session.config = next;
-                    probe_enable_tx.send_if_modified(|enabled| {
-                        if *enabled == session.config.enabled {
-                            false
-                        } else {
-                            *enabled = session.config.enabled;
-                            true
-                        }
-                    });
-                    if interval_changed {
-                        ticker = tokio::time::interval(Duration::from_millis(session.config.interval_ms.max(80) as u64));
-                        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                    }
-                    let next_tier = resolve_active_tier(&session.config, &probe_rx.borrow());
-                    if !session.config.enabled {
-                        session.need_visible_sync = false;
-                        session.force_clear_all = false;
-                        session.needs_nop = false;
-                        session.overflow_ready_since = None;
-                        session.pending_viewport = None;
-                        session.scheduler.reset();
-                    } else if became_enabled || next_tier != session.active_tier {
-                        session.active_tier = next_tier;
-                        if session.active_tier.is_some() {
-                            session.scheduler.reset();
-                            session.overflow_ready_since = None;
-                            if !session.showing_test_screen {
-                                session.layout.sync_to_screen(
-                                    &mut session.target,
-                                    &session.config,
-                                    session.viewport,
-                                );
-                            }
-                            if session.target.is_empty() {
-                                session.force_clear_all = true;
-                            } else {
-                                session.shadow.invalidate_all();
-                            }
-                        }
-                    } else if (preserve_changed || player_name_changed)
-                        && !session.showing_test_screen
-                    {
-                        session.overflow_ready_since = None;
-                        session.layout.sync_to_screen(
-                            &mut session.target,
-                            &session.config,
-                            session.viewport,
-                        );
-                    }
-                    session.active_tier = next_tier;
-                    refresh_status(&status, &session.config, &probe_rx.borrow(), session.active_tier);
-                }
-                Some(UniTextCommand::Muted(next_muted)) => {
-                    session.muted = next_muted;
-                }
                 Some(UniTextCommand::ManualChatbox {
                     key,
                     original,
@@ -773,7 +793,18 @@ async fn run_worker(
             }
             event = presentation_rx.recv() => match event {
                 Ok(ev) => session.handle_presentation_event(ev, Instant::now()),
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(dropped)) => {
+                    tracing::warn!(dropped, "UniText presentation stream lagged; resyncing display state");
+                    session.showing_test_screen = false;
+                    session.layout.sync_to_screen(
+                        &mut session.target,
+                        &session.config,
+                        session.viewport,
+                    );
+                    session.shadow.invalidate_all();
+                    session.need_visible_sync =
+                        session.config.enabled && session.active_tier.is_some();
+                }
                 Err(broadcast::error::RecvError::Closed) => break,
             },
             _ = ticker.tick() => {
@@ -1013,8 +1044,45 @@ async fn run_udp_osc_listener(
             }
         }
 
-        match UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).await {
-            Ok(socket) => {
+        let bound = match UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).await {
+            Ok(socket) => Ok((socket, None)),
+            Err(primary_error) => match UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
+                .await
+            {
+                Ok(socket) => {
+                    let fallback_port = socket.local_addr().map(|addr| addr.port()).unwrap_or(0);
+                    let advertisement = if fallback_port != 0 {
+                        match OscQueryAdvertisement::start(fallback_port).await {
+                            Ok(ad) => {
+                                tracing::info!(
+                                    preferred_port = port,
+                                    fallback_port,
+                                    %primary_error,
+                                    "UniText preferred UDP port busy; using ephemeral port advertised via OSCQuery"
+                                );
+                                Some(ad)
+                            }
+                            Err(ad_error) => {
+                                tracing::debug!(
+                                    preferred_port = port,
+                                    fallback_port,
+                                    %ad_error,
+                                    "UniText fallback UDP OSCQuery advertisement failed"
+                                );
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    Ok((socket, advertisement))
+                }
+                Err(_) => Err(primary_error),
+            },
+        };
+
+        match bound {
+            Ok((socket, _advertisement)) => {
                 serve_udp_osc_socket(&socket, &mut enabled, &mut shutdown, &live_osc_tx).await;
             }
             Err(error) => {
@@ -1067,12 +1135,15 @@ async fn run_probe(
     mut shutdown: watch::Receiver<bool>,
     state: watch::Sender<ProbeState>,
     live_osc_tx: mpsc::Sender<LiveOscParamEvent>,
+    discovery: OscQueryDiscovery,
 ) {
     loop {
         if *shutdown.borrow() {
             break;
         }
-        if !*enabled.borrow() {
+        let is_enabled = *enabled.borrow();
+        discovery.set_enabled(OscQueryConsumer::UniText, is_enabled);
+        if !is_enabled {
             let _ = state.send(ProbeState::default());
             tokio::select! {
                 _ = shutdown.changed() => continue,
@@ -1081,8 +1152,14 @@ async fn run_probe(
         }
 
         let _ = state.send(ProbeState::default());
-        if let Err(error) =
-            discover_and_poll(&mut enabled, &mut shutdown, &state, &live_osc_tx).await
+        if let Err(error) = discover_and_poll(
+            &mut enabled,
+            &mut shutdown,
+            &state,
+            &live_osc_tx,
+            &discovery,
+        )
+        .await
         {
             let _ = state.send(ProbeState {
                 connection: "discovering",
@@ -1116,65 +1193,44 @@ async fn discover_and_poll(
     shutdown: &mut watch::Receiver<bool>,
     state: &watch::Sender<ProbeState>,
     live_osc_tx: &mpsc::Sender<LiveOscParamEvent>,
+    discovery: &OscQueryDiscovery,
 ) -> Result<(), String> {
-    let daemon = ServiceDaemon::new().map_err(|error| error.to_string())?;
-    let services = daemon
-        .browse(SERVICE_TYPE)
-        .map_err(|error| error.to_string())?;
-    let service = loop {
+    let mut endpoint_rx = discovery.subscribe();
+    let port = loop {
+        if let Some(port) = *endpoint_rx.borrow_and_update() {
+            break port;
+        }
         tokio::select! {
-            event = services.recv_async() => match event.map_err(|error| error.to_string())? {
-                ServiceEvent::ServiceResolved(info)
-                    if info.get_fullname().to_ascii_lowercase().contains("vrchat-client") => break info,
-                _ => continue,
-            },
-            _ = enabled.changed() => {
-                let _ = daemon.shutdown();
-                return Ok(());
-            },
-            _ = shutdown.changed() => {
-                let _ = daemon.shutdown();
-                return Ok(());
-            },
+            changed = endpoint_rx.changed() => {
+                if changed.is_err() {
+                    return Ok(());
+                }
+            }
+            _ = enabled.changed() => return Ok(()),
+            _ = shutdown.changed() => return Ok(()),
         }
     };
-    let port = service.get_port();
-    let _ = daemon.stop_browse(SERVICE_TYPE);
-    let _ = daemon.shutdown();
 
-    let client = reqwest::Client::builder()
+    let client = crate::http_client_builder()
         .timeout(Duration::from_secs(2))
         .build()
         .map_err(|error| error.to_string())?;
 
-    let mut websocket =
-        match tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}")).await {
-            Ok((mut ws, _)) => {
-                let mut subscribed = true;
-                for path in [OSC_PARAM_WIDTH, OSC_PARAM_HEIGHT, OSC_PARAM_LOCAL_CLEAR] {
-                    if ws
-                        .send(Message::Text(
-                            serde_json::json!({ "COMMAND": "LISTEN", "DATA": path })
-                                .to_string()
-                                .into(),
-                        ))
-                        .await
-                        .is_err()
-                    {
-                        subscribed = false;
-                        break;
-                    }
-                }
-                subscribed.then_some(ws)
-            }
-            Err(error) => {
-                tracing::debug!(
-                    %error,
-                    "VRChat OSCQuery WebSocket unavailable; relying on HTTP polling and UDP"
-                );
-                None
-            }
-        };
+    let mut websocket = match connect_ws_and_listen(
+        port,
+        &[OSC_PARAM_WIDTH, OSC_PARAM_HEIGHT, OSC_PARAM_LOCAL_CLEAR],
+    )
+    .await
+    {
+        Ok(ws) => Some(ws),
+        Err(error) => {
+            tracing::debug!(
+                %error,
+                "VRChat OSCQuery WebSocket unavailable; relying on HTTP polling and UDP"
+            );
+            None
+        }
+    };
 
     let mut tick = tokio::time::interval(Duration::from_secs(4));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -1182,16 +1238,24 @@ async fn discover_and_poll(
     loop {
         tokio::select! {
             _ = tick.tick() => {
-                let tree: Value = client
+                let response = client
                     .get(format!("http://127.0.0.1:{port}/avatar"))
                     .send()
                     .await
-                    .map_err(|error| error.to_string())?
-                    .error_for_status()
-                    .map_err(|error| error.to_string())?
-                    .json()
-                    .await
-                    .map_err(|error| error.to_string())?;
+                    .and_then(|resp| resp.error_for_status());
+                let tree: Value = match response {
+                    Ok(resp) => match resp.json().await {
+                        Ok(tree) => tree,
+                        Err(error) => {
+                            discovery.report_unavailable(port);
+                            return Err(error.to_string());
+                        }
+                    },
+                    Err(error) => {
+                        discovery.report_unavailable(port);
+                        return Err(error.to_string());
+                    }
+                };
                 let next = ProbeState {
                     connection: "connected",
                     avatar: parse_oscquery_avatar(&tree),
@@ -1224,6 +1288,11 @@ async fn discover_and_poll(
                 }
                 _ => {}
             },
+            changed = endpoint_rx.changed() => {
+                if changed.is_err() || *endpoint_rx.borrow() != Some(port) {
+                    return Ok(());
+                }
+            }
             _ = enabled.changed() => return Ok(()),
             _ = shutdown.changed() => return Ok(()),
         }

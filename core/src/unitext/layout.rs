@@ -40,6 +40,11 @@ struct OverflowState {
 pub(crate) struct UniTextLayout {
     entries: Vec<DisplayEntry>,
     rendered_rows: Vec<RenderedRow>,
+    cached_rows: Vec<RenderedRow>,
+    cached_last_entry_start: usize,
+    cached_last_entry_seq: Option<u64>,
+    cached_layout_key: Option<(usize, usize, usize, bool)>,
+    layout_dirty: bool,
     status: u8,
     next_seq: u64,
     overflow: Option<OverflowState>,
@@ -51,6 +56,11 @@ impl UniTextLayout {
     pub(crate) fn clear(&mut self, screen: &mut VirtualScreen) {
         self.entries.clear();
         self.rendered_rows.clear();
+        self.cached_rows.clear();
+        self.cached_last_entry_start = 0;
+        self.cached_last_entry_seq = None;
+        self.cached_layout_key = None;
+        self.layout_dirty = false;
         self.status = 0;
         self.overflow = None;
         self.pending_overflow_lines = 0;
@@ -59,6 +69,8 @@ impl UniTextLayout {
 
     pub(crate) fn reset_viewport(&mut self) {
         self.rendered_rows.clear();
+        self.cached_layout_key = None;
+        self.layout_dirty = true;
         self.overflow = None;
         self.pending_overflow_lines = 0;
     }
@@ -85,6 +97,7 @@ impl UniTextLayout {
                 entry.speaker_name = next.clone();
             }
         }
+        self.layout_dirty = true;
         true
     }
 
@@ -137,6 +150,7 @@ impl UniTextLayout {
             }
         }
         self.status = 0;
+        self.layout_dirty = true;
     }
 
     pub(crate) fn update_translation(
@@ -160,6 +174,7 @@ impl UniTextLayout {
         }
         entry.translation = Some(text);
         self.status = 0;
+        self.layout_dirty = true;
         true
     }
 
@@ -221,6 +236,7 @@ impl UniTextLayout {
             has_trans
         };
         self.status = if has_translation { 0 } else { 2 };
+        self.layout_dirty = true;
     }
 
     pub(crate) fn upsert_manual_chatbox(
@@ -251,6 +267,7 @@ impl UniTextLayout {
             self.entries.drain(0..drop_count);
         }
         self.status = 0;
+        self.layout_dirty = true;
     }
 
     pub(crate) fn update_speaker(&mut self, speaker: &SpeakerIdentity) -> bool {
@@ -259,6 +276,9 @@ impl UniTextLayout {
             if entry.speaker_id.as_deref() == Some(speaker.id.as_str()) {
                 changed |= apply_speaker(entry, Some(speaker));
             }
+        }
+        if changed {
+            self.layout_dirty = true;
         }
         changed
     }
@@ -271,7 +291,11 @@ impl UniTextLayout {
                     || e.source_utterance_id.as_deref() == Some(utterance_id)))
         });
         self.status = 0;
-        self.entries.len() != before
+        let changed = self.entries.len() != before;
+        if changed {
+            self.layout_dirty = true;
+        }
+        changed
     }
 
     pub(crate) fn advance_overflow(
@@ -290,15 +314,7 @@ impl UniTextLayout {
         true
     }
 
-    pub(crate) fn sync_to_screen(
-        &mut self,
-        screen: &mut VirtualScreen,
-        config: &UniTextConfig,
-        viewport: ViewportConfig,
-    ) {
-        debug_assert_eq!(screen.cols, viewport.cols);
-        debug_assert_eq!(screen.rows, viewport.rows);
-
+    fn rebuild_cached_rows(&mut self, config: &UniTextConfig, viewport: ViewportConfig) {
         let mut all_rows = Vec::new();
         let mut last_entry_start = 0usize;
         let mut last_entry_seq: Option<u64> = None;
@@ -375,8 +391,36 @@ impl UniTextLayout {
             }
         }
 
+        self.cached_rows = all_rows;
+        self.cached_last_entry_start = last_entry_start;
+        self.cached_last_entry_seq = last_entry_seq;
+    }
+
+    pub(crate) fn sync_to_screen(
+        &mut self,
+        screen: &mut VirtualScreen,
+        config: &UniTextConfig,
+        viewport: ViewportConfig,
+    ) {
+        debug_assert_eq!(screen.cols, viewport.cols);
+        debug_assert_eq!(screen.rows, viewport.rows);
+
+        let layout_key = (
+            viewport.cols,
+            viewport.rows,
+            viewport.row_px,
+            config.preserve_original_text,
+        );
+        if self.layout_dirty || self.cached_layout_key != Some(layout_key) {
+            self.rebuild_cached_rows(config, viewport);
+            self.cached_layout_key = Some(layout_key);
+            self.layout_dirty = false;
+        }
+
         let rows = viewport.rows;
-        let total = all_rows.len();
+        let total = self.cached_rows.len();
+        let last_entry_start = self.cached_last_entry_start;
+        let last_entry_seq = self.cached_last_entry_seq;
         let last_entry_len = total.saturating_sub(last_entry_start);
         let new_rows: Vec<RenderedRow> = if last_entry_len > rows
             && let Some(seq) = last_entry_seq
@@ -392,12 +436,12 @@ impl UniTextLayout {
             self.pending_overflow_lines = last_entry_len.saturating_sub(revealed_len);
             let window_end = last_entry_start + revealed_len;
             let window_start = window_end - rows;
-            all_rows[window_start..window_end].to_vec()
+            self.cached_rows[window_start..window_end].to_vec()
         } else {
             self.overflow = None;
             self.pending_overflow_lines = 0;
             let start = total.saturating_sub(rows);
-            all_rows.into_iter().skip(start).collect()
+            self.cached_rows[start..].to_vec()
         };
 
         let mut best_shift = 0usize;

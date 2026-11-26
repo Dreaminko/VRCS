@@ -23,6 +23,26 @@ pub struct DictionaryConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OscInboundConfig {
+    pub enabled: bool,
+    pub port: u16,
+    pub intercept_chatbox_input: bool,
+    pub forward_unmatched: bool,
+}
+
+impl Default for OscInboundConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: default_osc_inbound_port(),
+            intercept_chatbox_input: default_enabled(),
+            forward_unmatched: default_enabled(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OscConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -38,6 +58,8 @@ pub struct OscConfig {
     pub message_format: crate::chatbox::ChatboxMessageFormat,
     #[serde(default)]
     pub custom_format: Option<String>,
+    #[serde(default)]
+    pub inbound: OscInboundConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -76,6 +98,10 @@ fn default_enabled() -> bool {
 
 fn default_osc_port() -> u16 {
     9000
+}
+
+fn default_osc_inbound_port() -> u16 {
+    9002
 }
 
 fn default_anki_port() -> u16 {
@@ -129,6 +155,7 @@ impl Default for OscConfig {
             translation_strategy: super::language::default_translation_strategy(),
             message_format: crate::chatbox::ChatboxMessageFormat::default(),
             custom_format: None,
+            inbound: OscInboundConfig::default(),
         }
     }
 }

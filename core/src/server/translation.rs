@@ -128,10 +128,12 @@ fn append_vrcx_context(
     }
 }
 
-pub(super) async fn translation_preview(
-    State(state): State<ServiceContext>,
-    Json(input): Json<PreviewInput>,
-) -> ApiResult<Json<Value>> {
+pub(crate) async fn translate_chatbox_text(
+    state: &ServiceContext,
+    text: &str,
+    source_language: Option<&str>,
+    target_language: Option<&str>,
+) -> Result<crate::translation::TranslationResult, TranslationError> {
     let global = state.config.config.read().expect("config lock").clone();
     let config = state
         .config
@@ -158,42 +160,59 @@ pub(super) async fn translation_preview(
         ))
     })
     .await
-    .map_err(|error| {
-        api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "translation.context_load_failed",
-            error.to_string(),
-        )
+    .map_err(|error| TranslationError {
+        code: "translation.context_load_failed",
+        detail: error.to_string(),
+        retryable: false,
+        retry_after: None,
     })?;
     let mut target = config
         .translation
         .microphone_targets
         .first()
         .cloned()
-        .ok_or_else(|| {
-            api_error(
-                StatusCode::CONFLICT,
-                "translation.not_configured",
-                "No microphone translation target is configured",
-            )
+        .ok_or_else(|| TranslationError {
+            code: "translation.not_configured",
+            detail: "No microphone translation target is configured".into(),
+            retryable: false,
+            retry_after: None,
         })?;
-    if let Some(language) = &input.target_language {
-        target.target_language = language.clone();
+    if let Some(language) = target_language {
+        target.target_language = language.to_owned();
     }
-    let result = state
+    state
         .content
         .translation_service
         .translate_with_room_context(
             &target,
             &config.translation.prompt,
             &config.asr.api_profiles,
-            &input.text,
-            input.source_language.as_deref(),
+            text,
+            source_language,
             &context,
             room_context.as_ref(),
         )
         .await
-        .map_err(translation_error)?;
+}
+
+pub(super) async fn translation_preview(
+    State(state): State<ServiceContext>,
+    Json(input): Json<PreviewInput>,
+) -> ApiResult<Json<Value>> {
+    let result = translate_chatbox_text(
+        &state,
+        &input.text,
+        input.source_language.as_deref(),
+        input.target_language.as_deref(),
+    )
+    .await
+    .map_err(|error| {
+        if error.code == "translation.context_load_failed" {
+            api_error(StatusCode::INTERNAL_SERVER_ERROR, error.code, error.detail)
+        } else {
+            translation_error(error)
+        }
+    })?;
     Ok(Json(json!(result.into_record())))
 }
 
