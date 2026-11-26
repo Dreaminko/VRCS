@@ -71,6 +71,7 @@ impl TaskValidity {
 pub(crate) struct ChatboxMessage {
     pub text: String,
     pub speaker: SpeakerIdentity,
+    pub is_self: bool,
     pub received_at: String,
     pub validity: TaskValidity,
 }
@@ -156,17 +157,25 @@ impl ChatboxConsumer {
         if message.text.trim().is_empty() || message.text.chars().count() > 5_000 {
             return Ok(());
         }
+        if message.is_self && self.output.consume_recent_osc_echo(&message.text) {
+            return Ok(());
+        }
         let message_id = format!("vrchat-chatbox:{}", uuid::Uuid::new_v4());
         let validity = message.validity;
+        let source = if message.is_self {
+            "chatbox"
+        } else {
+            "vrchat_chatbox"
+        };
         let subtitle = Subtitle {
             id: None,
             conversation_id: None,
-            speaker: Some(message.speaker),
+            speaker: (!message.is_self).then_some(message.speaker),
             text: message.text,
             language: None,
             started_at: None,
             ended_at: None,
-            source: "vrchat_chatbox".into(),
+            source: source.into(),
             created_at: message.received_at,
             translations: Vec::new(),
         };
@@ -217,10 +226,14 @@ impl ChatboxConsumer {
                 config.vrcx.enabled && config.vrcx.include_in_llm_context,
             )
         };
-        if translation.mode != "automatic" || translation.speaker_targets.is_empty() {
+        let targets = if message.is_self {
+            translation.microphone_targets
+        } else {
+            translation.speaker_targets
+        };
+        if translation.mode != "automatic" || targets.is_empty() {
             return Ok(());
         }
-        let targets = translation.speaker_targets;
         let failed_targets = targets.clone();
         if let Err(detail) = self.dispatcher.enqueue_guarded(
             saved.clone(),
@@ -242,7 +255,7 @@ impl ChatboxConsumer {
                             target_language: &target.target_language,
                             preferred: index == 0,
                             message_id: &message_id,
-                            source: "vrchat_chatbox",
+                            source,
                         });
                 }
             });
@@ -308,6 +321,7 @@ mod tests {
                 display_name: None,
                 user_id: None,
             },
+            is_self: false,
             received_at: now_iso8601(),
             validity,
         }
@@ -587,5 +601,215 @@ mod tests {
         assert_eq!(history.len(), 1);
         assert!(history[0].translations.is_empty());
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn self_chatbox_is_recorded_as_own_speech_and_uses_microphone_targets() {
+        use axum::{Json, Router, routing::post};
+        use serde_json::{Value, json};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&calls);
+        let router = Router::new().route(
+            "/v1/chat/completions",
+            post(move |Json(body): Json<Value>| {
+                let calls = Arc::clone(&observed);
+                async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    assert!(
+                        body["messages"].as_array().unwrap().last().unwrap()["content"]
+                            .as_str()
+                            .unwrap()
+                            .contains("Self chatbox line")
+                    );
+                    let delta = json!({"choices":[{"delta":{"content":"Self translation"}}]});
+                    (
+                        [("content-type", "text/event-stream")],
+                        format!("data: {delta}\n\ndata: [DONE]\n\n"),
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/v1", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+
+        let directory = tempfile::tempdir().unwrap();
+        let database = Arc::new(Mutex::new(
+            Database::open(&directory.path().join("self-chatbox.db")).unwrap(),
+        ));
+        let (catalog, _) = broadcast::channel(16);
+        let osc_receiver = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let osc = crate::osc::OscChatboxDispatcher::new(OscConfig {
+            enabled: true,
+            port: osc_receiver.local_addr().unwrap().port(),
+            mute_sync_enabled: false,
+            ..Default::default()
+        });
+        let output = SubtitleLifecyclePublisher::new(
+            broadcast::channel(16).0,
+            broadcast::channel(16).0,
+            osc,
+        );
+        let dispatcher = TranslationDispatcher::new(
+            Arc::new(crate::translation::TranslationService::new().unwrap()),
+            Arc::clone(&database),
+            catalog.clone(),
+            output.clone(),
+            crate::vrcx::VrcxIntegration::new(watch::channel(false).1),
+        );
+        let mut config = AppConfig::default();
+        config.asr.api_profiles = vec![ApiProfile {
+            id: "text-service".into(),
+            provider: crate::providers::OPENAI_COMPATIBLE_PROVIDER.into(),
+            base_url: Some(url),
+            auth_mode: ApiAuthMode::None,
+            is_local: true,
+            enabled_capabilities: vec![crate::providers::CAPABILITY_TEXT_TRANSLATION.into()],
+            ..Default::default()
+        }];
+        config.translation.mode = "automatic".into();
+        let mut mic_target = TranslationTargetConfig::new("en");
+        mic_target.use_default_model = false;
+        mic_target.profile_id = Some("text-service".into());
+        mic_target.model = "test-model".into();
+        config.translation.microphone_targets = vec![mic_target];
+        let mut speaker_target = TranslationTargetConfig::new("fr");
+        speaker_target.use_default_model = false;
+        speaker_target.profile_id = Some("text-service".into());
+        speaker_target.model = "test-model".into();
+        config.translation.speaker_targets = vec![speaker_target];
+
+        let consumer = ChatboxConsumer::new(
+            Arc::clone(&database),
+            catalog,
+            output.clone(),
+            dispatcher,
+            Arc::new(RwLock::new(config)),
+            Arc::new(RwLock::new(ActiveLanguageSession::Global)),
+        );
+        let mut subtitles = consumer.output.subscribe_subtitles();
+        let mut translations = consumer.output.subscribe_translations();
+
+        let mut own = message(TaskValidity::new());
+        own.text = "Self chatbox line".into();
+        own.is_self = true;
+        consumer.record(own).await.unwrap();
+
+        let subtitle = subtitles.recv().await.unwrap();
+        assert_eq!(subtitle.source, "chatbox");
+        assert_eq!(subtitle.speaker, None);
+        assert_eq!(subtitle.text, "Self chatbox line");
+
+        let mut completed = Vec::new();
+        while completed.is_empty() {
+            match receive(&mut translations).await {
+                TranslationEvent::TranslationCompleted { translation, .. } => {
+                    completed.push(translation.target_language);
+                }
+                TranslationEvent::TranslationFailed { code, detail, .. } => {
+                    panic!("{code}: {detail}")
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(completed, ["en"]);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        let history = database.lock().unwrap().subtitle_history(10).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].source, "chatbox");
+        assert_eq!(history[0].speaker, None);
+        assert_eq!(history[0].translations.len(), 1);
+        assert_eq!(history[0].translations[0].target_language, "en");
+
+        let stored = rusqlite::Connection::open(directory.path().join("self-chatbox.db")).unwrap();
+        assert_eq!(
+            stored
+                .query_row("SELECT COUNT(*) FROM chatbox_messages", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+
+        let mut bytes = [0; 1024];
+        assert!(
+            tokio::time::timeout(Duration::from_millis(150), osc_receiver.recv(&mut bytes))
+                .await
+                .is_err()
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn self_chatbox_matching_recent_osc_send_is_suppressed() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = Arc::new(Mutex::new(
+            Database::open(&directory.path().join("echo-chatbox.db")).unwrap(),
+        ));
+        let (catalog, _) = broadcast::channel(16);
+        let osc_receiver = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let osc = crate::osc::OscChatboxDispatcher::new(OscConfig {
+            enabled: true,
+            port: osc_receiver.local_addr().unwrap().port(),
+            mute_sync_enabled: false,
+            ..Default::default()
+        });
+        let output = SubtitleLifecyclePublisher::new(
+            broadcast::channel(16).0,
+            broadcast::channel(16).0,
+            osc.clone(),
+        );
+        let dispatcher = TranslationDispatcher::new(
+            Arc::new(crate::translation::TranslationService::new().unwrap()),
+            Arc::clone(&database),
+            catalog.clone(),
+            output.clone(),
+            crate::vrcx::VrcxIntegration::new(watch::channel(false).1),
+        );
+        let mut config = AppConfig::default();
+        config.translation.mode = "disabled".into();
+        let consumer = ChatboxConsumer::new(
+            Arc::clone(&database),
+            catalog,
+            output,
+            dispatcher,
+            Arc::new(RwLock::new(config)),
+            Arc::new(RwLock::new(ActiveLanguageSession::Global)),
+        );
+        let mut subtitles = consumer.output.subscribe_subtitles();
+
+        osc.send_manual("Hello from VRCS\nこんにちは".into())
+            .await
+            .unwrap();
+        let mut buf = [0u8; 512];
+        let _ = tokio::time::timeout(Duration::from_secs(2), osc_receiver.recv(&mut buf))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let mut echo = message(TaskValidity::new());
+        echo.text = "  Hello from VRCS\r\nこんにちは  ".into();
+        echo.is_self = true;
+        consumer.record(echo).await.unwrap();
+        assert!(subtitles.try_recv().is_err());
+        assert!(
+            database
+                .lock()
+                .unwrap()
+                .subtitle_history(10)
+                .unwrap()
+                .is_empty()
+        );
+
+        let mut external_self = message(TaskValidity::new());
+        external_self.text = "Typed directly in VRChat".into();
+        external_self.is_self = true;
+        consumer.record(external_self).await.unwrap();
+
+        let recorded = subtitles.recv().await.unwrap();
+        assert_eq!(recorded.source, "chatbox");
+        assert_eq!(recorded.text, "Typed directly in VRChat");
     }
 }

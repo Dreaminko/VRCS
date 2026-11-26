@@ -249,7 +249,7 @@ pub(super) async fn subtitle_translate(
         )
     })?;
     append_vrcx_context(&state, &mut context);
-    let targets = if subtitle.source == "microphone" {
+    let targets = if matches!(subtitle.source.as_str(), "microphone" | "chatbox") {
         &config.translation.microphone_targets
     } else {
         &config.translation.speaker_targets

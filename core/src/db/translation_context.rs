@@ -47,8 +47,15 @@ impl Database {
                          SELECT source, text, created_at, speaker, 0 AS source_order, id
                          FROM subtitles
                          WHERE context_scope_id = ?6
-                           AND source IN ('speaker', 'microphone', 'vrchat_chatbox')
-                           AND ((source IN ('speaker', 'vrchat_chatbox') AND ?1) OR (source = 'microphone' AND ?2))
+                           AND source IN ('speaker', 'microphone', 'vrchat_chatbox', 'chatbox')
+                           AND (
+                               (source IN ('speaker', 'vrchat_chatbox') AND ?1)
+                               OR (source = 'microphone' AND ?2)
+                               OR (source = 'chatbox' AND ?3 AND NOT EXISTS (
+                                   SELECT 1 FROM chatbox_messages cm
+                                   WHERE cm.created_at = subtitles.created_at AND cm.status = 'sent'
+                               ))
+                           )
                            AND (?4 IS NULL OR id != ?4)
                          ORDER BY created_at DESC, id DESC
                          LIMIT ?5
@@ -84,8 +91,15 @@ impl Database {
                      SELECT * FROM (
                          SELECT source, text, created_at, speaker, 0 AS source_order, id
                          FROM subtitles
-                         WHERE source IN ('speaker', 'microphone', 'vrchat_chatbox')
-                           AND ((source IN ('speaker', 'vrchat_chatbox') AND ?1) OR (source = 'microphone' AND ?2))
+                         WHERE source IN ('speaker', 'microphone', 'vrchat_chatbox', 'chatbox')
+                           AND (
+                               (source IN ('speaker', 'vrchat_chatbox') AND ?1)
+                               OR (source = 'microphone' AND ?2)
+                               OR (source = 'chatbox' AND ?3 AND NOT EXISTS (
+                                   SELECT 1 FROM chatbox_messages cm
+                                   WHERE cm.created_at = subtitles.created_at AND cm.status = 'sent'
+                               ))
+                           )
                            AND (?4 IS NULL OR id != ?4)
                          ORDER BY created_at DESC, id DESC
                          LIMIT ?5
@@ -360,5 +374,92 @@ mod tests {
         assert_eq!(scoped_a.len(), 1);
         assert_eq!(scoped_a[0].text, "room A line");
         assert_eq!(scoped_a[0].speaker, Some(speaker));
+    }
+
+    #[test]
+    fn captured_self_chatbox_subtitles_are_included_when_chatbox_context_is_enabled() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = Database::open(&directory.path().join("self-chatbox-ctx.db")).unwrap();
+        let add = |text: &str, source: &str, created_at: &str| {
+            database
+                .add_subtitle_in_scope(
+                    &Subtitle {
+                        speaker: None,
+                        id: None,
+                        conversation_id: None,
+                        text: text.into(),
+                        language: None,
+                        started_at: None,
+                        ended_at: None,
+                        source: source.into(),
+                        created_at: created_at.into(),
+                        translations: Vec::new(),
+                    },
+                    Some("scope-self"),
+                    None,
+                )
+                .unwrap()
+        };
+
+        let captured_self = add("captured self line", "chatbox", "2026-08-14T00:00:01Z");
+        add("manual translation", "chatbox", "2026-08-14T00:00:02Z");
+        database
+            .conn
+            .execute(
+                "INSERT INTO chatbox_messages(source, original, translation, source_language,
+                    target_language, send_mode, message_format, rendered_text, char_count,
+                    truncated, status, created_at, context_scope_id)
+                 VALUES ('manual', 'manual original', 'manual translation', 'en', 'ja',
+                    'translation', 'slash_separated', 'manual translation', 18, 0, 'sent',
+                    '2026-08-14T00:00:02Z', 'scope-self')",
+                [],
+            )
+            .unwrap();
+        let current_self = add("current self line", "chatbox", "2026-08-14T00:00:03Z");
+
+        let mut config = TranslationPromptConfig {
+            context_enabled: true,
+            include_speaker: false,
+            include_microphone: false,
+            include_chatbox: true,
+            max_messages: 10,
+            ..Default::default()
+        };
+
+        let scoped = database
+            .recent_translation_context_scoped(&config, current_self.id, Some("scope-self"))
+            .unwrap();
+        assert_eq!(
+            scoped.iter().map(|e| e.text.as_str()).collect::<Vec<_>>(),
+            ["captured self line", "manual original"]
+        );
+        assert!(scoped.iter().all(|e| e.source == "chatbox"));
+
+        let unscoped = database
+            .recent_translation_context(&config, current_self.id)
+            .unwrap();
+        assert_eq!(
+            unscoped.iter().map(|e| e.text.as_str()).collect::<Vec<_>>(),
+            ["captured self line", "manual original"]
+        );
+
+        let excluding_captured = database
+            .recent_translation_context_scoped(&config, captured_self.id, Some("scope-self"))
+            .unwrap();
+        assert_eq!(
+            excluding_captured
+                .iter()
+                .map(|e| e.text.as_str())
+                .collect::<Vec<_>>(),
+            ["manual original", "current self line"]
+        );
+
+        config.include_chatbox = false;
+        assert!(
+            database
+                .recent_translation_context_scoped(&config, current_self.id, Some("scope-self"))
+                .unwrap()
+                .is_empty()
+        );
     }
 }

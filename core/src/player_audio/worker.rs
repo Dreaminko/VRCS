@@ -795,35 +795,35 @@ impl Engine {
     fn text(&mut self, speaker: SpeakerIdentity, text: String, now: Instant) {
         use super::chatbox::Outcome;
         use crate::vrchat_chatbox::{ChatboxEvent, ChatboxMessage};
-        if self.is_self_speaker(&speaker) {
-            return;
-        }
-        if self.source_blocked(&speaker.id).1 {
-            return;
-        }
-        let admission = self.proximity.admission(
-            &speaker.id,
-            self.proximity_config.enabled,
-            self.proximity_config.radius_m,
-            now,
-        );
-        if matches!(
-            admission,
-            super::proximity::Admission::OutOfRange | super::proximity::Admission::Unknown
-        ) {
-            let active = {
-                let outputs = self.tx.0.lock().expect("network outputs");
-                outputs.chatbox_enabled() && outputs.text_generation == self.text_generation
-            };
-            if active {
-                let mut status = self.status.lock().expect("player status");
-                if admission == super::proximity::Admission::Unknown {
-                    status.proximity.unknown_packets += 1;
-                } else {
-                    status.proximity.excluded_packets += 1;
-                }
+        let is_self = self.is_self_speaker(&speaker);
+        if !is_self {
+            if self.source_blocked(&speaker.id).1 {
+                return;
             }
-            return;
+            let admission = self.proximity.admission(
+                &speaker.id,
+                self.proximity_config.enabled,
+                self.proximity_config.radius_m,
+                now,
+            );
+            if matches!(
+                admission,
+                super::proximity::Admission::OutOfRange | super::proximity::Admission::Unknown
+            ) {
+                let active = {
+                    let outputs = self.tx.0.lock().expect("network outputs");
+                    outputs.chatbox_enabled() && outputs.text_generation == self.text_generation
+                };
+                if active {
+                    let mut status = self.status.lock().expect("player status");
+                    if admission == super::proximity::Admission::Unknown {
+                        status.proximity.unknown_packets += 1;
+                    } else {
+                        status.proximity.excluded_packets += 1;
+                    }
+                }
+                return;
+            }
         }
         let mut outputs = self.tx.0.lock().expect("network outputs");
         if !outputs.chatbox_enabled() || outputs.text_generation != self.text_generation {
@@ -839,6 +839,7 @@ impl Engine {
                 let event = ChatboxEvent::Message(ChatboxMessage {
                     text: text.clone(),
                     speaker: speaker.clone(),
+                    is_self,
                     received_at: crate::models::now_iso8601(),
                     validity,
                 });
@@ -1025,33 +1026,27 @@ impl Engine {
         if self.self_player_id == next_id {
             return;
         }
+        let previous_self_ids: Vec<_> = self
+            .identities
+            .iter()
+            .filter(|(_, speaker)| self.is_self_speaker(speaker))
+            .map(|(id, _)| id.clone())
+            .collect();
         self.self_player_id = next_id;
-        if self.self_player_id.is_some() {
-            let matching_ids: Vec<_> = self
-                .identities
-                .iter()
-                .filter(|(_, speaker)| self.is_self_speaker(speaker))
-                .map(|(id, _)| id.clone())
-                .collect();
-            if !matching_ids.is_empty() {
-                let mut outputs = self.tx.0.lock().expect("network outputs");
-                for id in matching_ids {
-                    self.recent_text.remove(&id);
-                    outputs.invalidate_scope(&id);
-                }
-            }
+        for id in previous_self_ids {
+            self.apply_source_rule(&id);
         }
     }
     fn apply_source_rule(&mut self, id: &str) {
         let (voice_blocked, chatbox_blocked) = self.source_blocked(id);
-        let self_chatbox_blocked = self
+        let is_self = self
             .identities
             .get(id)
             .is_some_and(|speaker| self.is_self_speaker(speaker));
         if voice_blocked {
             self.retire_excluded(id);
         }
-        if chatbox_blocked || self_chatbox_blocked {
+        if chatbox_blocked && !is_self {
             self.recent_text.remove(id);
             self.tx
                 .0
@@ -2924,7 +2919,7 @@ mod tests {
     }
 
     #[test]
-    fn chatbox_self_filter_drops_matching_display_name_or_user_id() {
+    fn chatbox_self_match_marks_own_speech_and_bypasses_other_player_gates() {
         use crate::vrchat_chatbox::ChatboxEvent;
         let (text_tx, mut text_rx) = tokio::sync::mpsc::channel(16);
         let (voice_tx, _voice_rx) = tokio::sync::mpsc::channel(8);
@@ -2933,7 +2928,10 @@ mod tests {
         let outputs = Arc::new(std::sync::Mutex::new(output));
         let mut engine = Engine::new(None, 1, EventSender(outputs), Arc::default());
         engine.reconcile_text();
-        engine.set_source_policy(BTreeMap::new(), false);
+        engine.set_proximity(crate::config::PlayerProximityConfig {
+            enabled: true,
+            radius_m: 10.0,
+        });
         engine.set_self_player_id("  Dreaminko ".into());
 
         let now = Instant::now();
@@ -2944,12 +2942,20 @@ mod tests {
             user_id: Some("usr_00000000-0000-4000-8000-000000000001".into()),
         };
         engine.text(self_by_name.clone(), "own msg".into(), now);
-        assert!(text_rx.try_recv().is_err());
+        assert!(matches!(
+            text_rx.try_recv(),
+            Ok(ChatboxEvent::Message(msg)) if msg.text == "own msg" && msg.is_self
+        ));
 
         engine.set_self_player_id("usr_00000000-0000-4000-8000-000000000001".into());
         engine.text(self_by_name.clone(), "own uid msg".into(), now);
-        assert!(text_rx.try_recv().is_err());
+        assert!(matches!(
+            text_rx.try_recv(),
+            Ok(ChatboxEvent::Message(msg)) if msg.text == "own uid msg" && msg.is_self
+        ));
 
+        engine.set_proximity(crate::config::PlayerProximityConfig::default());
+        engine.set_source_policy(BTreeMap::new(), false);
         let other = SpeakerIdentity {
             id: "vrc:other".into(),
             index: 1,
@@ -2959,14 +2965,14 @@ mod tests {
         engine.text(other, "other msg".into(), now);
         assert!(matches!(
             text_rx.try_recv(),
-            Ok(ChatboxEvent::Message(msg)) if msg.text == "other msg"
+            Ok(ChatboxEvent::Message(msg)) if msg.text == "other msg" && !msg.is_self
         ));
 
         engine.set_self_player_id("".into());
-        engine.text(self_by_name, "allowed when cleared".into(), now);
+        engine.text(self_by_name, "non-self when cleared".into(), now);
         assert!(matches!(
             text_rx.try_recv(),
-            Ok(ChatboxEvent::Message(msg)) if msg.text == "allowed when cleared"
+            Ok(ChatboxEvent::Message(msg)) if msg.text == "non-self when cleared" && !msg.is_self
         ));
     }
 }

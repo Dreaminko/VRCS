@@ -30,6 +30,86 @@ const LATE_TRANSLATION_TTL: Duration = Duration::from_secs(30);
 const DISPLAY_QUEUE_CAPACITY: usize = 4;
 const EVENT_QUEUE_CAPACITY: usize = 64;
 const MANUAL_SEND_TIMEOUT: Duration = Duration::from_secs(8);
+const RECENT_SENT_TTL: Duration = Duration::from_secs(15);
+const RECENT_SENT_CAPACITY: usize = 16;
+
+#[derive(Default)]
+struct RecentSentState {
+    next_id: u64,
+    entries: VecDeque<RecentSentEntry>,
+}
+
+struct RecentSentEntry {
+    id: u64,
+    text: String,
+    at: Instant,
+}
+
+#[derive(Clone, Default)]
+struct RecentSentTracker {
+    inner: Arc<Mutex<RecentSentState>>,
+}
+
+impl RecentSentTracker {
+    fn record(&self, text: &str, now: Instant) -> Option<u64> {
+        let normalized = normalize_echo_text(text);
+        if normalized.is_empty() {
+            return None;
+        }
+        let mut guard = self.inner.lock().expect("recent OSC sent lock");
+        prune_recent_sent(&mut guard.entries, now);
+        if guard.entries.len() == RECENT_SENT_CAPACITY {
+            guard.entries.pop_front();
+        }
+        guard.next_id = guard.next_id.wrapping_add(1);
+        let id = guard.next_id;
+        guard.entries.push_back(RecentSentEntry {
+            id,
+            text: normalized,
+            at: now,
+        });
+        Some(id)
+    }
+
+    fn remove(&self, id: u64) {
+        let mut guard = self.inner.lock().expect("recent OSC sent lock");
+        if let Some(index) = guard.entries.iter().position(|entry| entry.id == id) {
+            guard.entries.remove(index);
+        }
+    }
+
+    #[cfg(any(windows, target_os = "linux", test))]
+    fn consume(&self, text: &str, now: Instant) -> bool {
+        let normalized = normalize_echo_text(text);
+        if normalized.is_empty() {
+            return false;
+        }
+        let mut guard = self.inner.lock().expect("recent OSC sent lock");
+        prune_recent_sent(&mut guard.entries, now);
+        let Some(index) = guard
+            .entries
+            .iter()
+            .position(|entry| entry.text == normalized)
+        else {
+            return false;
+        };
+        guard.entries.remove(index);
+        true
+    }
+}
+
+fn normalize_echo_text(text: &str) -> String {
+    text.replace("\r\n", "\n").trim().to_owned()
+}
+
+fn prune_recent_sent(entries: &mut VecDeque<RecentSentEntry>, now: Instant) {
+    while entries
+        .front()
+        .is_some_and(|entry| now.saturating_duration_since(entry.at) > RECENT_SENT_TTL)
+    {
+        entries.pop_front();
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct OscRuntimeStatus {
@@ -53,6 +133,7 @@ pub struct OscChatboxDispatcher {
     sender: mpsc::Sender<OscEvent>,
     config: watch::Sender<OscConfigState>,
     status: Arc<Mutex<OscRuntimeStatus>>,
+    recent_sent: RecentSentTracker,
 }
 
 enum OscEvent {
@@ -214,6 +295,7 @@ impl OscChatboxDispatcher {
     fn create(config: OscConfig, db: Option<Arc<Mutex<Database>>>, events: DomainEventHub) -> Self {
         let (sender, receiver) = mpsc::channel(EVENT_QUEUE_CAPACITY);
         let status = Arc::new(Mutex::new(runtime_status(&config)));
+        let recent_sent = RecentSentTracker::default();
         let (config, config_rx) = watch::channel(OscConfigState {
             send_gate: initial_gate(&config),
             config,
@@ -226,11 +308,13 @@ impl OscChatboxDispatcher {
             Arc::clone(&status),
             db,
             events,
+            recent_sent.clone(),
         ));
         Self {
             sender,
             config,
             status,
+            recent_sent,
         }
     }
 
@@ -368,6 +452,11 @@ impl OscChatboxDispatcher {
 
     pub fn status(&self) -> OscRuntimeStatus {
         self.status.lock().expect("OSC status lock").clone()
+    }
+
+    #[cfg(any(windows, target_os = "linux", test))]
+    pub(crate) fn consume_recent_sent(&self, text: &str) -> bool {
+        self.recent_sent.consume(text, Instant::now())
     }
 
     fn active_generation(&self) -> Result<u64, &'static str> {
@@ -1018,6 +1107,7 @@ async fn run_worker(
     status: Arc<Mutex<OscRuntimeStatus>>,
     db: Option<Arc<Mutex<Database>>>,
     events: DomainEventHub,
+    recent_sent: RecentSentTracker,
 ) {
     let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await;
     let mut state = OscWorkerState::new(config_rx.borrow().clone());
@@ -1060,8 +1150,17 @@ async fn run_worker(
                 execute_osc_effect(effect, &status, db.as_ref(), &events).await;
                 continue;
             };
+            let recorded_echo = socket
+                .is_ok()
+                .then(|| recent_sent.record(&request.rendered_text, Instant::now()))
+                .flatten();
             match execute_send(&socket, &mut config_rx, &request).await {
                 SendExecution::Completed(outcome, completed_at) => {
+                    if matches!(outcome, OscSendOutcome::Failed(_))
+                        && let Some(id) = recorded_echo
+                    {
+                        recent_sent.remove(id);
+                    }
                     effects.extend(reduce_osc_event(
                         &mut state,
                         OscWorkerInput::SendCompleted {
@@ -2344,5 +2443,27 @@ mod tests {
             };
             assert_eq!(message.args[0], OscType::String(expected.into()));
         }
+    }
+
+    #[tokio::test]
+    async fn recent_sent_echo_tracker_normalizes_and_consumes_once() {
+        let receiver = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let dispatcher = OscChatboxDispatcher::new(OscConfig {
+            enabled: true,
+            port: receiver.local_addr().unwrap().port(),
+            mute_sync_enabled: false,
+            ..OscConfig::default()
+        });
+
+        dispatcher.send_manual("Hello\nWorld".into()).await.unwrap();
+        let mut buffer = [0u8; 512];
+        let _ = tokio::time::timeout(Duration::from_secs(2), receiver.recv_from(&mut buffer))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(!dispatcher.consume_recent_sent("Other message"));
+        assert!(dispatcher.consume_recent_sent("  Hello\r\nWorld  "));
+        assert!(!dispatcher.consume_recent_sent("Hello\nWorld"));
     }
 }

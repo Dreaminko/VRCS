@@ -183,8 +183,16 @@ impl SubtitleLifecyclePublisher {
 
     #[cfg(any(windows, target_os = "linux", test))]
     pub(crate) fn remote_subtitle_recorded(&self, subtitle: Subtitle, message_id: &str) {
-        debug_assert_eq!(subtitle.source, "vrchat_chatbox");
+        debug_assert!(matches!(
+            subtitle.source.as_str(),
+            "vrchat_chatbox" | "chatbox"
+        ));
         self.publish_subtitle(subtitle, Some(message_id));
+    }
+
+    #[cfg(any(windows, target_os = "linux", test))]
+    pub(crate) fn consume_recent_osc_echo(&self, text: &str) -> bool {
+        self.osc.consume_recent_sent(text)
     }
 
     fn publish_subtitle(&self, subtitle: Subtitle, utterance_id: Option<&str>) {
@@ -318,7 +326,7 @@ impl SubtitleLifecyclePublisher {
     ) {
         self.events
             .translation_completed(message_id, source, subtitle_id, &translation);
-        if source != "vrchat_chatbox" {
+        if !matches!(source, "vrchat_chatbox" | "chatbox") {
             self.osc
                 .translation_completed(subtitle_id, translation.clone(), preferred);
         }
@@ -347,7 +355,7 @@ impl SubtitleLifecyclePublisher {
             &failure.code,
             &failure.detail,
         );
-        if failure.source != "vrchat_chatbox" {
+        if !matches!(failure.source, "vrchat_chatbox" | "chatbox") {
             self.osc.translation_failed(
                 failure.subtitle_id,
                 failure.target_language,
@@ -429,6 +437,39 @@ mod tests {
             events.recv().await.unwrap(),
             PresentationEvent::TranslationCompleted {
                 subtitle_id: 91,
+                ..
+            }
+        ));
+        let mut own_chatbox = subtitle(92);
+        own_chatbox.source = "chatbox".into();
+        output.remote_subtitle_recorded(own_chatbox, "self-92");
+        let own_translation = SubtitleTranslation {
+            source_group: None,
+            text: "Translated self text".into(),
+            source_language: None,
+            target_language: "ja".into(),
+            provider: "test".into(),
+            model: None,
+            created_at: now_iso8601(),
+        };
+        output.translation_completed_with_message(92, own_translation, true, "self-92", "chatbox");
+        output.translation_failed_with_message(TranslationFailure {
+            subtitle_id: 92,
+            code: "translation.not_configured".into(),
+            detail: "test".into(),
+            target_language: "ja",
+            preferred: false,
+            message_id: "self-92",
+            source: "chatbox",
+        });
+        assert!(
+            matches!(events.recv().await.unwrap(), PresentationEvent::Final { utterance_id, subtitle }
+            if utterance_id.as_deref() == Some("self-92") && subtitle.source == "chatbox")
+        );
+        assert!(matches!(
+            events.recv().await.unwrap(),
+            PresentationEvent::TranslationCompleted {
+                subtitle_id: 92,
                 ..
             }
         ));

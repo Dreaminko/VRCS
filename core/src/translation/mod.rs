@@ -510,6 +510,9 @@ pub(crate) fn capture_requires_local_runtime(config: &AppConfig) -> bool {
         || (config.audio.microphone.mode != "disabled"
             && uses_local(&config.translation.microphone_targets, true))
         || (config.vrchat_chatbox.enabled && uses_local(&config.translation.speaker_targets, false))
+        || (config.vrchat_chatbox.enabled
+            && !config.vrchat_player_id.trim().is_empty()
+            && uses_local(&config.translation.microphone_targets, false))
 }
 
 fn translation_output_token_limit(text: &str, provider: &str, thinking_enabled: bool) -> u32 {
@@ -646,6 +649,23 @@ mod tests {
         config.audio.microphone.mode = "disabled".into();
         config.vrchat_chatbox.enabled = true;
 
+        assert!(capture_requires_local_runtime(&config));
+    }
+
+    #[test]
+    fn self_chatbox_uses_local_runtime_when_player_id_and_mic_local_target_configured() {
+        let mut config = AppConfig::default();
+        config.translation.mode = "automatic".into();
+        config.audio.output.mode = "disabled".into();
+        config.audio.microphone.mode = "disabled".into();
+        config.vrchat_chatbox.enabled = true;
+        config.translation.speaker_targets = vec![TranslationTargetConfig::new("ja")];
+        config.translation.microphone_targets = vec![local_target()];
+
+        config.vrchat_player_id = "   ".into();
+        assert!(!capture_requires_local_runtime(&config));
+
+        config.vrchat_player_id = "Dreaminko".into();
         assert!(capture_requires_local_runtime(&config));
     }
 
