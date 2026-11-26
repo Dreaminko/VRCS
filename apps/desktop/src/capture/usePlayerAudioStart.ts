@@ -23,6 +23,7 @@ export function usePlayerAudioStart(options?: { os?: string; beforeMemoryChange:
   const [notice, setNotice] = useState<{ requestId: number; openedAt: number } | null>(null);
   const sequence = useRef(0);
   const pending = useRef<{ requestId: number; openedAt: number; promise: Promise<boolean>; resolve: (value: boolean) => void } | null>(null);
+  const preparingRef = useRef(false);
   const [preparation, setPreparation] = useState<PlayerAudioPreparation | null>(null);
   const [resumeAction, setResumeAction] = useState<CaptureResumeAction | null>(null);
   const resumeApproved = useRef<CaptureResumeAction | null>(null);
@@ -104,7 +105,7 @@ export function usePlayerAudioStart(options?: { os?: string; beforeMemoryChange:
   useEffect(() => () => { pending.current?.resolve(false); pending.current = null; }, []);
 
   const confirm = useCallback(() => {
-    if (pending.current) return pending.current.promise;
+    if (pending.current) return Promise.resolve(false);
     const openedAt = performance.now();
     let resolve!: (value: boolean) => void;
     const promise = new Promise<boolean>((done) => { resolve = done; });
@@ -117,8 +118,8 @@ export function usePlayerAudioStart(options?: { os?: string; beforeMemoryChange:
 
   const decide = useCallback((accepted: boolean, requestId?: number) => {
     const request = pending.current;
-    if (!request || requestId !== undefined && requestId !== request.requestId
-      || performance.now() - request.openedAt < PLAYER_AUDIO_READING_MS) return;
+    if (!request || (requestId !== undefined && requestId !== request.requestId)
+      || (accepted && performance.now() - request.openedAt < PLAYER_AUDIO_READING_MS)) return;
     pending.current = null;
     setNotice(null);
     request.resolve(accepted);
@@ -170,13 +171,25 @@ export function usePlayerAudioStart(options?: { os?: string; beforeMemoryChange:
   }, [preparation]);
 
   const prepare = useCallback(async (action: CaptureResumeAction = "start_capture") => {
-    if (resumeApproved.current === action) {
-      resumeApproved.current = null;
-      // Consumed only after Core and settings are ready, not during React's mount probe.
-      return isTauri() && await invoke<ElevationAction | null>("player_audio_consume_action") === action
-        && await checkMemoryBeforeStart();
+    if (preparingRef.current) return false;
+    preparingRef.current = true;
+    try {
+      if (resumeApproved.current !== null) {
+        const expected = resumeApproved.current;
+        resumeApproved.current = null;
+        setResumeAction(null);
+        const consumed = isTauri()
+          ? await invoke<ElevationAction | null>("player_audio_consume_action").catch(() => null)
+          : null;
+        if (expected === action && consumed === action) {
+          // Consumed only after Core and settings are ready, not during React's mount probe.
+          return await checkMemoryBeforeStart();
+        }
+      }
+      return await confirm() && await ensurePrivileges(action);
+    } finally {
+      preparingRef.current = false;
     }
-    return await confirm() && await ensurePrivileges(action);
   }, [confirm, ensurePrivileges, checkMemoryBeforeStart]);
 
   return { notice, preparation, decide, confirm, ensurePrivileges, prepare, resumeAction, resumeRequested: resumeAction !== null, memory: {

@@ -40,6 +40,11 @@ test("autosave keeps settings visually stable, queues edits, and rolls back fail
       const profile = { id: 'p1', name: 'Test', provider: 'openai_compatible', provider_display_name: 'Test',
         enabled_capabilities: ['text_translation'], capabilities: { supported_languages: ['en', 'ja'] } };
       const initial = {
+        model_defaults: {
+          text: { backend: 'api', profile_id: null, model: '' },
+          translation: { backend: 'api', profile_id: 'p1', model: 'test-model' },
+          vision: { backend: 'api', profile_id: null, model: '' },
+        },
         asr: { backend: 'qwen_local_managed' },
         translation: { mode: 'manual', microphone_targets: [target], speaker_targets: [target] },
         language_presets: [], glossary: { llm_enabled: false, asr_enabled: false, sources: [] },

@@ -1,10 +1,8 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { BookOpenText, RefreshCw, Search, X } from "lucide-react";
 
 import { timestamp } from "../../app/app-utils";
-import { INTERFACE_LAYOUT_CHANGE_EVENT, interfaceLayoutPixels } from "../../app/interface-scale";
 import { DropdownField } from "../../shared/ui/DropdownField";
 import type { LearningWorkspaceController } from "../hooks/useLearningWorkspace";
 import type { LearningItem, LearningItemKind } from "../types";
@@ -33,88 +31,52 @@ export function LearningInbox({
   const [query, setQuery] = useState("");
   const [kindFilter, setKindFilter] = useState<LearningItemKind | "all">("all");
   const [view, setView] = useState<"study" | "card">("study");
-  const [tooltip, setTooltip] = useState<{ label: string; top: number; left: number; keyboard: boolean } | null>(null);
-  const tooltipRef = useRef<HTMLDivElement>(null);
   const detailPaneRef = useRef<HTMLElement>(null);
   const detailScrollRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const scrollPositions = useRef<Record<string, number>>({});
-  const hideTooltip = () => setTooltip(null);
-  const showTooltip = (target: HTMLButtonElement, label: string, keyboard = false) => {
-    const rect = target.getBoundingClientRect();
-    setTooltip({
-      label,
-      top: interfaceLayoutPixels(rect.bottom) + 13,
-      left: interfaceLayoutPixels(rect.left + rect.width / 2),
-      keyboard,
-    });
-  };
-  const filteredItems = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase();
-    return workspace.items.filter((candidate) => {
-      if (kindFilter !== "all" && candidate.kind !== kindFilter) return false;
-      if (normalizedQuery) {
-        const searchable = [
-          candidate.selected_text,
-          candidate.working_text,
-          candidate.source_text,
-          candidate.source_translation,
-          candidate.analysis?.summary,
-          candidate.analysis?.current_meaning,
-        ].filter(Boolean).join("\n").toLocaleLowerCase();
-        if (!searchable.includes(normalizedQuery)) return false;
-      }
-      return true;
-    });
-  }, [kindFilter, query, workspace.items]);
+  const revealedSelectionIdRef = useRef<number | null>(null);
+  const filteredItems = useMemo(
+    () => filterLearningItems(workspace.items, query, kindFilter),
+    [kindFilter, query, workspace.items],
+  );
   const item = filteredItems.find((candidate) => candidate.id === workspace.selectedId)
     ?? filteredItems[0]
     ?? null;
-  const selectionHidden = workspace.selectedId !== null
-    && !filteredItems.some((candidate) => candidate.id === workspace.selectedId);
   const scrollKey = `${item?.id}:${view}`;
 
-  // Reveal items opened from another page when local filters hide them.
-  useEffect(() => {
-    if (!selectionHidden || !workspace.items.some((candidate) => candidate.id === workspace.selectedId)) return;
-    setQuery("");
-    setKindFilter("all");
-  }, [workspace.selectedId]);
+  const updateFilters = useCallback((nextQuery: string, nextKindFilter: LearningItemKind | "all") => {
+    setQuery(nextQuery);
+    setKindFilter(nextKindFilter);
+    if (workspace.selectedId === null) return;
+    const nextFiltered = filterLearningItems(workspace.items, nextQuery, nextKindFilter);
+    if (!nextFiltered.some((candidate) => candidate.id === workspace.selectedId) && nextFiltered[0]) {
+      revealedSelectionIdRef.current = nextFiltered[0].id;
+      workspace.setSelectedId(nextFiltered[0].id);
+    }
+  }, [workspace.items, workspace.selectedId, workspace.setSelectedId]);
 
-  // Keep the controller selection aligned with locally filtered results.
+  // Reveal items opened from another page once items finish loading.
   useEffect(() => {
-    if (selectionHidden && filteredItems[0]) workspace.setSelectedId(filteredItems[0].id);
-  }, [query, kindFilter]);
+    const selectedId = workspace.selectedId;
+    if (selectedId === null) {
+      revealedSelectionIdRef.current = null;
+      return;
+    }
+    if (revealedSelectionIdRef.current === selectedId) return;
+    if (!workspace.items.some((candidate) => candidate.id === selectedId)) return;
+    revealedSelectionIdRef.current = selectedId;
+    if (!filteredItems.some((candidate) => candidate.id === selectedId)) {
+      setQuery("");
+      setKindFilter("all");
+    }
+  }, [filteredItems, workspace.items, workspace.selectedId]);
 
   useLayoutEffect(() => {
     if (visible && detailScrollRef.current) {
       detailScrollRef.current.scrollTop = scrollPositions.current[scrollKey] ?? 0;
     }
   }, [scrollKey, visible, detailOpen]);
-
-  useLayoutEffect(() => {
-    const element = tooltipRef.current;
-    if (!tooltip || !element) return;
-    const width = element.offsetWidth;
-    const left = Math.max(12, Math.min(tooltip.left - width / 2, interfaceLayoutPixels(window.innerWidth) - width - 12));
-    element.style.left = `${left}px`;
-    element.style.setProperty("--tooltip-arrow-left", `${tooltip.left - left}px`);
-  }, [tooltip]);
-
-  useEffect(() => {
-    if (!visible) hideTooltip();
-  }, [visible]);
-
-  useEffect(() => {
-    document.addEventListener("scroll", hideTooltip, true);
-    window.addEventListener("resize", hideTooltip);
-    window.addEventListener(INTERFACE_LAYOUT_CHANGE_EVENT, hideTooltip);
-    return () => {
-      document.removeEventListener("scroll", hideTooltip, true);
-      window.removeEventListener("resize", hideTooltip);
-      window.removeEventListener(INTERFACE_LAYOUT_CHANGE_EVENT, hideTooltip);
-    };
-  }, []);
 
   const handleSelectItem = useCallback((id: number) => {
     workspace.setSelectedId(id);
@@ -144,23 +106,8 @@ export function LearningInbox({
               className="dock-button learning-material-entry"
               type="button"
               aria-label={t("learning.materials.title")}
-              onPointerEnter={(event) => {
-                if (event.pointerType !== "touch") showTooltip(event.currentTarget, t("learning.materials.title"));
-              }}
-              onPointerLeave={hideTooltip}
-              onFocus={(event) => {
-                if (event.currentTarget.matches(":focus-visible")) {
-                  showTooltip(event.currentTarget, t("learning.materials.title"), true);
-                }
-              }}
-              onBlur={hideTooltip}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") hideTooltip();
-              }}
-              onClick={() => {
-                hideTooltip();
-                onOpenMaterials();
-              }}
+              data-tooltip={t("learning.materials.title")}
+              onClick={onOpenMaterials}
             >
               <BookOpenText size={17} />
             </button>
@@ -173,11 +120,11 @@ export function LearningInbox({
                 type="search"
                 placeholder={t("learning.materials.searchPlaceholder")}
                 aria-label={t("learning.inbox.search")}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => updateFilters(event.target.value, kindFilter)}
                 onKeyDown={(event) => {
                   if (event.key !== "Escape" || !query) return;
                   event.preventDefault();
-                  setQuery("");
+                  updateFilters("", kindFilter);
                 }}
               />
               {query && (
@@ -185,7 +132,7 @@ export function LearningInbox({
                   className="learning-search-clear"
                   type="button"
                   aria-label={t("conversations.clearSearch")}
-                  onClick={() => setQuery("")}
+                  onClick={() => updateFilters("", kindFilter)}
                 >
                   <X size={14} />
                 </button>
@@ -211,7 +158,7 @@ export function LearningInbox({
                   label={t("learning.inbox.kindFilter")}
                   value={kindFilter}
                   options={kindOptions(t)}
-                  onChange={(value) => setKindFilter(value as LearningItemKind | "all")}
+                  onChange={(value) => updateFilters(query, value as LearningItemKind | "all")}
                 />
               </div>
             </div>
@@ -270,18 +217,6 @@ export function LearningInbox({
           <div className="learning-empty"><BookOpenText size={22} /><p>{t("learning.inbox.selectHint")}</p></div>
         )}
       </section>
-      {tooltip && createPortal(
-        <div
-          ref={tooltipRef}
-          className={`settings-tab-tooltip${tooltip.keyboard ? " keyboard" : ""}`}
-          role="tooltip"
-          aria-hidden="true"
-          style={{ top: tooltip.top, left: tooltip.left, maxWidth: Math.min(220, interfaceLayoutPixels(window.innerWidth) - 24) }}
-        >
-          {tooltip.label}
-        </div>,
-        document.body,
-      )}
     </div>
   );
 }
@@ -313,6 +248,29 @@ const LearningItemRow = memo(function LearningItemRow({
     </button>
   );
 });
+
+function filterLearningItems(
+  items: readonly LearningItem[],
+  query: string,
+  kindFilter: LearningItemKind | "all",
+): LearningItem[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  return items.filter((candidate) => {
+    if (kindFilter !== "all" && candidate.kind !== kindFilter) return false;
+    if (normalizedQuery) {
+      const searchable = [
+        candidate.selected_text,
+        candidate.working_text,
+        candidate.source_text,
+        candidate.source_translation,
+        candidate.analysis?.summary,
+        candidate.analysis?.current_meaning,
+      ].filter(Boolean).join("\n").toLocaleLowerCase();
+      if (!searchable.includes(normalizedQuery)) return false;
+    }
+    return true;
+  });
+}
 
 function statusOptions(t: (key: string) => string) {
   return [

@@ -9,12 +9,13 @@ export function getCurrentHealth(): Health | null {
   return currentHealth;
 }
 
-export function publishHealth(next: Health | null): void {
+export function publishHealth(next: Health | null): boolean {
   const serialized = next ? JSON.stringify(next) : null;
-  if (serialized === currentHealthJson) return;
+  if (serialized === currentHealthJson) return false;
   currentHealthJson = serialized;
   currentHealth = next;
   for (const listener of listeners) listener();
+  return true;
 }
 
 export function subscribeHealth(listener: () => void): () => void {

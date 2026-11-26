@@ -7,6 +7,11 @@ type SettingsAutosaveOptions<T> = {
   onError: (reason: unknown) => void;
 };
 
+export interface SettingsUpdateOptions<T = unknown> {
+  coalesce?: boolean;
+  base?: T;
+}
+
 export function createSettingsAutosave<T>({
   persist,
   getCurrent,
@@ -24,15 +29,24 @@ export function createSettingsAutosave<T>({
     version: number;
     waiters: Waiter[];
     update?: (current: T) => T;
+    coalesce?: boolean;
+    base?: T;
   };
 
   let latestVersion = 0;
   let saving = false;
   const pending: PendingSave[] = [];
   let desired: T | null = null;
+  let lastPersisted: T | null = null;
 
-  const persistUpdate = async (update: (current: T) => T): Promise<T> => {
-    let current = getCurrent?.();
+  const readCurrent = (fallbackBase?: T): T | null =>
+    getCurrent?.() ?? lastPersisted ?? fallbackBase ?? null;
+
+  const persistUpdate = async (
+    update: (current: T) => T,
+    fallbackBase?: T,
+  ): Promise<T> => {
+    let current = readCurrent(fallbackBase);
     if (current == null) throw new Error("Core is unavailable");
     for (let attempt = 0; ; attempt++) {
       const next = update(current);
@@ -49,7 +63,10 @@ export function createSettingsAutosave<T>({
   const flush = async (save: PendingSave): Promise<void> => {
     saving = true;
     try {
-      const saved = await (save.update ? persistUpdate(save.update) : persist(save.value));
+      const saved = await (save.update
+        ? persistUpdate(save.update, save.base)
+        : persist(save.value));
+      lastPersisted = saved;
       if (save.version === latestVersion) onCommit(saved);
       save.waiters.forEach(({ resolve }) => resolve(saved));
     } catch (reason) {
@@ -62,8 +79,13 @@ export function createSettingsAutosave<T>({
     }
   };
 
-  const enqueue = (value: T, update?: (current: T) => T): Promise<T> => {
+  const enqueue = (
+    value: T,
+    update?: (current: T) => T,
+    options?: SettingsUpdateOptions<T>,
+  ): Promise<T> => {
     const version = ++latestVersion;
+    const coalesce = Boolean(options?.coalesce);
     desired = value;
     onOptimistic(value);
 
@@ -74,23 +96,43 @@ export function createSettingsAutosave<T>({
           last.value = value;
           last.version = version;
           last.waiters.push({ resolve, reject });
+        } else if (last && last.coalesce && coalesce && last.update && update) {
+          const previousUpdate = last.update;
+          last.update = (current) => update(previousUpdate(current));
+          last.value = value;
+          last.version = version;
+          last.waiters.push({ resolve, reject });
         } else {
-          pending.push({ value, update, version, waiters: [{ resolve, reject }] });
+          pending.push({
+            value,
+            update,
+            coalesce,
+            base: options?.base,
+            version,
+            waiters: [{ resolve, reject }],
+          });
         }
         return;
       }
-      void flush({ value, update, version, waiters: [{ resolve, reject }] });
+      void flush({
+        value,
+        update,
+        coalesce,
+        base: options?.base,
+        version,
+        waiters: [{ resolve, reject }],
+      });
     });
   };
 
   return Object.assign((value: T) => enqueue(value), {
-    getDesired: (): T | null => desired ?? getCurrent?.() ?? null,
-    update: (update: (current: T) => T): Promise<T> => {
+    getDesired: (): T | null => desired ?? readCurrent(),
+    update: (update: (current: T) => T, options?: SettingsUpdateOptions<T>): Promise<T> => {
       try {
-        const current = saving ? desired : getCurrent?.();
+        const current = saving ? desired : readCurrent(options?.base);
         if (current == null) throw new Error("Core is unavailable");
-        // Queue patches separately so each control receives its own confirmed result.
-        return enqueue(update(current), update);
+        // Queue patches separately unless the caller explicitly opts into coalescing.
+        return enqueue(update(current), update, options);
       } catch (reason) {
         return Promise.reject(reason);
       }

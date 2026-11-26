@@ -12,7 +12,7 @@ import { useAnkiSettings } from "./hooks/useAnkiSettings";
 import { useAsrModels } from "./hooks/useAsrModels";
 import { useDesktopPreferences } from "./hooks/useDesktopPreferences";
 import { useDictionaryActions } from "./hooks/useDictionaryActions";
-import { useSettingsDraft } from "./hooks/useSettingsDraft";
+import { useSettingsDraft, type SettingsSaveHandler } from "./hooks/useSettingsDraft";
 import { createDebugRows } from "./settings-derived";
 import { ApiSettingsSection } from "./sections/ApiSettingsSection";
 import type { ApiSettingsTab } from "./sections/ApiSettingsSection";
@@ -82,7 +82,7 @@ export function SettingsPanel({
   onDeleteDictionary: (id: number) => Promise<void>;
   onModelsChanged: () => Promise<void>;
   onInterfaceScaleChange: (value: number) => void;
-  onSave: (value: Settings) => Promise<Settings>;
+  onSave: SettingsSaveHandler;
   onClearSettingsError?: () => void;
   onTestOsc: () => Promise<void>;
   onStartOnboarding: () => void;

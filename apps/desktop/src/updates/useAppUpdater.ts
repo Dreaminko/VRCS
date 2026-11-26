@@ -48,6 +48,7 @@ export interface AppUpdaterState {
   liveNotes: string | null;
   liveNotesLoading: boolean;
   errorCode: string | null;
+  preferenceError?: string | null;
   downloadedBytes: number;
   totalBytes: number | null;
   downloadSpeedBytesPerSec: number | null;
@@ -79,6 +80,7 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
   const [liveNotes, setLiveNotes] = useState<string | null>(null);
   const [liveNotesLoading, setLiveNotesLoading] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [preferenceError, setPreferenceError] = useState<string | null>(null);
   const [downloadedBytes, setDownloadedBytes] = useState(0);
   const [totalBytes, setTotalBytes] = useState<number | null>(null);
   const [downloadSpeedBytesPerSec, setDownloadSpeedBytesPerSec] = useState<number | null>(null);
@@ -86,15 +88,20 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   const busyRef = useRef(false);
+  const preferenceBusyRef = useRef(false);
+  const checkGenerationRef = useRef(0);
+  const automaticChecksRef = useRef(automaticChecks);
   const updateRef = useRef<AppUpdateMetadata | null>(null);
   const phaseRef = useRef<UpdatePhase>("idle");
   const skippedVersionRef = useRef<string | null>(null);
+  const lastErrorSourceRef = useRef<"check" | "install" | null>(null);
   const downloadedBytesRef = useRef(0);
   const speedSampleRef = useRef<{ bytes: number; time: number }>({ bytes: 0, time: 0 });
   const progressFlushTimerRef = useRef<number | null>(null);
   const liveNotesCacheRef = useRef(new Map<string, string | null>());
   const liveNotesAbortRef = useRef<AbortController | null>(null);
 
+  automaticChecksRef.current = automaticChecks;
   updateRef.current = update;
   phaseRef.current = phase;
   skippedVersionRef.current = skippedVersion;
@@ -154,7 +161,7 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
     void fetchGitHubReleaseNotes(tag, controller.signal)
       .then((notes) => {
         if (controller.signal.aborted) return;
-        liveNotesCacheRef.current.set(tag, notes);
+        if (notes !== null) liveNotesCacheRef.current.set(tag, notes);
         setLiveNotes(notes);
       })
       .finally(() => {
@@ -168,9 +175,11 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
   const check = useCallback(async (manual = true) => {
     if (busyRef.current || !buildInfo?.updaterAvailable) return;
     busyRef.current = true;
+    const generation = ++checkGenerationRef.current;
     const previousUpdate = updateRef.current;
     const previousPhase = phaseRef.current;
     setPhase("checking");
+    lastErrorSourceRef.current = null;
     setErrorCode(null);
     if (manual) {
       setUpdate(null);
@@ -181,6 +190,7 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
     }
     try {
       const available = await checkForAppUpdate(!manual);
+      if (generation !== checkGenerationRef.current) return;
       const checkedAt = Date.now();
       setLastCheckedAt(checkedAt);
       void saveLastUpdateCheckAt(checkedAt).catch(() => undefined);
@@ -208,14 +218,16 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
         setPhase("upToDate");
       }
     } catch (reason) {
+      if (generation !== checkGenerationRef.current) return;
       if (manual) {
+        lastErrorSourceRef.current = "check";
         setErrorCode(updaterErrorCode(reason));
         setPhase("error");
       } else {
         setPhase(previousUpdate ? (previousPhase === "available" ? "available" : "idle") : "idle");
       }
     } finally {
-      busyRef.current = false;
+      if (generation === checkGenerationRef.current) busyRef.current = false;
     }
   }, [buildInfo?.updaterAvailable, loadLiveNotes]);
 
@@ -234,6 +246,7 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
     if (busyRef.current || !targetUpdate) return;
     busyRef.current = true;
     setPhase("downloading");
+    lastErrorSourceRef.current = null;
     setErrorCode(null);
     downloadedBytesRef.current = 0;
     const now = performance.now();
@@ -280,6 +293,7 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
     } catch (reason) {
       flushProgress();
       setDownloadSpeedBytesPerSec(null);
+      lastErrorSourceRef.current = "install";
       setErrorCode(updaterErrorCode(reason));
       setPhase("error");
     } finally {
@@ -288,7 +302,11 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
   }, []);
 
   const retry = useCallback(async () => {
-    if (!updateRef.current || (errorCode && CHECK_ONLY_ERROR_CODES.has(errorCode))) {
+    if (
+      lastErrorSourceRef.current !== "install"
+      || !updateRef.current
+      || (errorCode && CHECK_ONLY_ERROR_CODES.has(errorCode))
+    ) {
       await check(true);
       return;
     }
@@ -307,7 +325,7 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
 
   const skipCurrentUpdate = useCallback(async () => {
     const current = updateRef.current;
-    if (!current || busyRef.current) return;
+    if (!current || phaseRef.current === "downloading" || phaseRef.current === "installing") return;
     setSkippedVersionState(current.version);
     setNoticeVisible(false);
     setDetailsOpen(false);
@@ -319,7 +337,7 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
   }, []);
 
   const clearSkippedVersion = useCallback(async () => {
-    if (busyRef.current) return;
+    if (phaseRef.current === "downloading" || phaseRef.current === "installing") return;
     setSkippedVersionState(null);
     try {
       await saveSkippedUpdateVersion(null);
@@ -329,50 +347,58 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
   }, []);
 
   const setAutomaticChecks = useCallback(async (next: boolean) => {
-    if (busyRef.current) return;
-    const previous = automaticChecks;
-    busyRef.current = true;
+    if (preferenceBusyRef.current) return;
+    const previous = automaticChecksRef.current;
+    preferenceBusyRef.current = true;
     setPreferenceSaving(true);
+    setPreferenceError(null);
     setAutomaticChecksState(next);
     try {
       await saveAutomaticUpdatePreference(next);
     } catch (reason) {
       setAutomaticChecksState(previous);
-      setErrorCode(updaterErrorCode(reason));
-      setPhase("error");
+      setPreferenceError(updaterErrorCode(reason));
     } finally {
-      busyRef.current = false;
+      preferenceBusyRef.current = false;
       setPreferenceSaving(false);
     }
-  }, [automaticChecks]);
+  }, []);
 
   const setReceiveNightlyUpdates = useCallback(async (next: boolean) => {
-    if (busyRef.current) return;
-    busyRef.current = true;
+    if (preferenceBusyRef.current || phaseRef.current === "downloading" || phaseRef.current === "installing") return;
+    preferenceBusyRef.current = true;
     setPreferenceSaving(true);
+    setPreferenceError(null);
     try {
       await saveNightlyUpdatePreference(next);
       setReceiveNightlyUpdatesState(next);
+      skippedVersionRef.current = null;
       setSkippedVersionState(null);
       void saveSkippedUpdateVersion(null).catch(() => undefined);
       liveNotesAbortRef.current?.abort();
+      updateRef.current = null;
       setUpdate(null);
       setLiveNotes(null);
       setLiveNotesLoading(false);
       setNoticeVisible(false);
       setDetailsOpen(false);
+      if (phaseRef.current === "checking") {
+        checkGenerationRef.current += 1;
+        busyRef.current = false;
+      }
+      lastErrorSourceRef.current = null;
       setErrorCode(null);
+      phaseRef.current = "idle";
       setPhase("idle");
     } catch (reason) {
-      setErrorCode(updaterErrorCode(reason));
-      setPhase("error");
+      setPreferenceError(updaterErrorCode(reason));
       return;
     } finally {
-      busyRef.current = false;
+      preferenceBusyRef.current = false;
       setPreferenceSaving(false);
     }
-    if (automaticChecks) await check(false);
-  }, [automaticChecks, check]);
+    if (automaticChecksRef.current) await check(false);
+  }, [check]);
 
   const hasUnreadUpdate = Boolean(update && update.version !== skippedVersion);
 
@@ -389,6 +415,7 @@ export function useAppUpdater(enabled: boolean): AppUpdaterState {
     liveNotes,
     liveNotesLoading,
     errorCode,
+    preferenceError,
     downloadedBytes,
     totalBytes,
     downloadSpeedBytesPerSec,

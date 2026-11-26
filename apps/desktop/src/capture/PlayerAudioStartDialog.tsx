@@ -37,13 +37,19 @@ export function PlayerAudioStartDialog({
       setRemaining(0);
       return;
     }
-    const update = () => setRemaining(Math.max(0, Math.ceil((PLAYER_AUDIO_READING_MS - (performance.now() - openedAt)) / 1_000)));
-    update();
-    const timer = window.setInterval(update, 100);
+    const computeRemaining = () => Math.max(0, Math.ceil((PLAYER_AUDIO_READING_MS - (performance.now() - openedAt)) / 1_000));
+    const initial = computeRemaining();
+    setRemaining(initial);
+    if (initial <= 0) return;
+    const timer = window.setInterval(() => {
+      const next = computeRemaining();
+      setRemaining(next);
+      if (next <= 0) window.clearInterval(timer);
+    }, 100);
     return () => window.clearInterval(timer);
   }, [openedAt, readOnly]);
   const finish = (accepted: boolean) => {
-    if (closing || (!readOnly && remaining > 0)) return;
+    if (closing || (accepted && !readOnly && remaining > 0)) return;
     if (prefersReducedMotion()) {
       onDecision(accepted);
       return;
@@ -54,7 +60,7 @@ export function PlayerAudioStartDialog({
       onDecision(accepted);
     }, DIALOG_CLOSE_MS);
   };
-  return <SettingsDialog label={disclaimer.title} saving={!readOnly && remaining > 0} closing={closing} returnFocusRef={focus}
+  return <SettingsDialog label={disclaimer.title} saving={false} closing={closing} returnFocusRef={focus}
     className="player-audio-start-dialog" onClose={() => finish(false)}>
     <div className="api-profile-editor">
       <div className="api-profile-editor-heading"><FlaskConical size={20} /><strong>{disclaimer.title}</strong></div>
@@ -72,7 +78,7 @@ export function PlayerAudioStartDialog({
             <button type="button" className="primary-button" disabled={closing} onClick={() => finish(false)}>{t("common.close")}</button>
           ) : (
             <>
-              <button type="button" className="secondary-button" disabled={remaining > 0 || closing} onClick={() => finish(false)}>{t("common.cancel")}</button>
+              <button type="button" className="secondary-button" disabled={closing} onClick={() => finish(false)}>{t("common.cancel")}</button>
               <button type="button" className="primary-button" disabled={remaining > 0 || closing} onClick={() => finish(true)}>{disclaimer.confirm}</button>
             </>
           )}

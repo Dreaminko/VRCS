@@ -9,8 +9,10 @@ interface ConfigRevision {
 }
 
 let configRevision: ConfigRevision | null = null;
+let revisionGeneration = 0;
 
 export function resetSettingsRevision(): void {
+  revisionGeneration += 1;
   configRevision = null;
 }
 
@@ -24,47 +26,74 @@ function parseConfigRevision(value: string | null): ConfigRevision | null {
   return { token: value, epoch, counter };
 }
 
-async function settingsRequest(
-  init?: RequestInit,
+function isStaleRevision(responseRevision: ConfigRevision | null): boolean {
+  return responseRevision !== null
+    && configRevision !== null
+    && responseRevision.epoch === configRevision.epoch
+    && responseRevision.counter < configRevision.counter;
+}
+
+function commitConfigRevision(
+  responseRevision: ConfigRevision | null,
+  generation: number,
+): void {
+  if (generation !== revisionGeneration || responseRevision === null) return;
+  if (
+    configRevision === null
+    || responseRevision.epoch !== configRevision.epoch
+    || responseRevision.counter >= configRevision.counter
+  ) {
+    configRevision = responseRevision;
+  }
+}
+
+async function fetchSettings(
+  signal?: AbortSignal,
   retryStaleResponse = true,
 ): Promise<Settings> {
-  const headers = new Headers(init?.headers);
-  if (init?.method === "PUT" && configRevision !== null) {
+  const generation = revisionGeneration;
+  const response = await timedCoreFetch("/api/settings", { signal });
+  if (!response.ok) throw await apiErrorFromResponse(response);
+
+  const responseRevision = parseConfigRevision(
+    response.headers.get("X-VRCS-Config-Revision"),
+  );
+  if (generation === revisionGeneration && isStaleRevision(responseRevision)) {
+    if (retryStaleResponse) return fetchSettings(signal, false);
+    throw new Error("The Core returned an outdated settings revision");
+  }
+  commitConfigRevision(responseRevision, generation);
+  return (await response.json()) as Settings;
+}
+
+async function putSettings(settings: Settings): Promise<Settings> {
+  const generation = revisionGeneration;
+  const headers = new Headers();
+  if (configRevision !== null) {
     headers.set("X-VRCS-Config-Revision", configRevision.token);
   }
   const response = await timedCoreFetch("/api/settings", {
-    ...init, headers, timeoutMs: init?.method === "PUT" ? 150_000 : undefined,
+    method: "PUT",
+    headers,
+    body: JSON.stringify(settings),
+    timeoutMs: 150_000,
   });
   if (!response.ok) throw await apiErrorFromResponse(response);
 
   const responseRevision = parseConfigRevision(
     response.headers.get("X-VRCS-Config-Revision"),
   );
-  if (
-    responseRevision !== null
-    && configRevision !== null
-    && responseRevision.epoch === configRevision.epoch
-    && responseRevision.counter < configRevision.counter
-  ) {
-    if (retryStaleResponse) {
-      return settingsRequest(init?.signal ? { signal: init.signal } : undefined, false);
-    }
-    throw new Error("The Core returned an outdated settings revision");
+  if (generation === revisionGeneration && isStaleRevision(responseRevision)) {
+    throw Object.assign(
+      new Error("The Core returned an outdated settings revision"),
+      { status: 409 },
+    );
   }
-  if (responseRevision !== null && (
-    configRevision === null
-    || responseRevision.epoch !== configRevision.epoch
-    || responseRevision.counter >= configRevision.counter
-  )) {
-    configRevision = responseRevision;
-  }
+  commitConfigRevision(responseRevision, generation);
   return (await response.json()) as Settings;
 }
 
 export const settingsApi = {
-  settings: () => settingsRequest(),
-  saveSettings: (settings: Settings) => settingsRequest({
-    method: "PUT",
-    body: JSON.stringify(settings),
-  }),
+  settings: (signal?: AbortSignal) => fetchSettings(signal),
+  saveSettings: (settings: Settings) => putSettings(settings),
 };

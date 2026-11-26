@@ -10,6 +10,7 @@ import {
   clearLivePartials,
   clearTranslationPartial,
   clearTranslationPartials,
+  getLivePartials,
   publishAudioLevel,
   publishLivePartial,
   publishTranslationPartial,
@@ -37,6 +38,28 @@ type EventHandlers = {
   ) => void;
   onTranslationFailed: (subtitleId: number) => void;
 };
+
+const resyncListeners = new Set<() => void>();
+
+export function subscribeCoreStreamResync(listener: () => void): () => void {
+  resyncListeners.add(listener);
+  return () => {
+    resyncListeners.delete(listener);
+  };
+}
+
+function notifyCoreStreamResync(): void {
+  resyncListeners.forEach((listener) => listener());
+}
+
+function isResyncRequiredMessage(raw: unknown): boolean {
+  try {
+    const parsed = JSON.parse(String(raw)) as { type?: unknown } | null;
+    return typeof parsed === "object" && parsed !== null && parsed.type === "resync_required";
+  } catch {
+    return false;
+  }
+}
 
 export function useCoreEventStream({
   coreConfigured,
@@ -78,17 +101,26 @@ export function useCoreEventStream({
     let socket: WebSocket | null = null;
     let retry: number | null = null;
     let closed = false;
+    let hasConnected = false;
 
     const connect = () => {
       setConnection("connecting");
       socket = new WebSocket(coreWebSocketUrl());
       socket.onopen = () => {
         if (closed) return;
+        const reconnected = hasConnected;
+        hasConnected = true;
         clearSpeakerIdentities();
         setConnection("connected");
         handlersRef.current.onConnected();
+        if (reconnected) notifyCoreStreamResync();
       };
       socket.onmessage = (event) => {
+        if (isResyncRequiredMessage(event.data)) {
+          handlersRef.current.onConnected();
+          notifyCoreStreamResync();
+          return;
+        }
         const message = parseSubtitleStreamMessage(event.data);
         if (message === null) {
           console.warn(
@@ -106,8 +138,15 @@ export function useCoreEventStream({
             if (source === "speaker" || source === "microphone") {
               if (message.utterance_id) {
                 completeLivePartial(source, message.utterance_id);
-              } else {
+              } else if (source === "microphone") {
                 clearLivePartial(source);
+              } else {
+                const speakerId = message.subtitle.speaker?.id ?? null;
+                for (const item of getLivePartials(source)) {
+                  if ((item.speaker?.id ?? null) === speakerId) {
+                    completeLivePartial(source, item.utterance_id);
+                  }
+                }
               }
             }
             handlersRef.current.onSubtitle({

@@ -83,3 +83,41 @@ test("queued patches use confirmed settings and each has its own acknowledgement
   assert.deepEqual(disabled, { port: 9002, enabled: false });
   assert.equal(writes.length, 3);
 });
+
+test("coalesced patch updates combine pending edits and preserve concurrent non-coalesced patches and 409 retries", async () => {
+  let current = { a: 0, b: 0, external: false };
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const writes: Array<typeof current> = [];
+  let fail409 = false;
+  const save = createSettingsAutosave({
+    getCurrent: () => current,
+    reload: async () => {
+      current = { ...current, external: true };
+      return current;
+    },
+    persist: async (value) => {
+      writes.push(value);
+      if (writes.length === 1) await gate;
+      if (fail409) {
+        fail409 = false;
+        throw Object.assign(new Error("conflict"), { status: 409 });
+      }
+      current = value;
+      return value;
+    },
+    onOptimistic: () => undefined,
+    onCommit: () => undefined,
+    onError: () => undefined,
+  });
+
+  const first = save.update((s) => ({ ...s, a: 1 }), { coalesce: true });
+  const second = save.update((s) => ({ ...s, b: 1 }), { coalesce: true });
+  const third = save.update((s) => ({ ...s, a: 2 }), { coalesce: true });
+  const vrPatch = save.update((s) => ({ ...s, external: true }));
+  fail409 = true;
+  release();
+  await Promise.all([first, second, third, vrPatch]);
+  assert.deepEqual(current, { a: 2, b: 1, external: true });
+  assert.equal(writes.length, 4);
+});

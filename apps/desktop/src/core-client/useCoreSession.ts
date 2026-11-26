@@ -1,7 +1,9 @@
+import { useEffect, useRef } from "react";
 import { useSubtitleStream } from "../subtitles/hooks/useSubtitleStream";
 import { useCaptureRuntime } from "../capture/useCaptureRuntime";
 import { useDictionaryRuntime } from "../dictionary/useDictionaryRuntime";
 import { useSettingsRuntime } from "../settings/hooks/useSettingsRuntime";
+import { subscribeCoreStreamResync } from "./useCoreEventStream";
 import { useCoreRuntime } from "./useCoreRuntime";
 import { useRuntimeErrors } from "./useRuntimeErrors";
 import { usePlayerAudioStart } from "../capture/usePlayerAudioStart";
@@ -49,6 +51,22 @@ export function useCoreSession(resourcesActive: boolean) {
     clearErrorFrom: errors.clearErrorFrom,
     reportError: errors.reportError,
   });
+
+  const resyncRef = useRef({
+    refreshHealth: runtime.health.refreshQuietly,
+    refreshCapabilities: runtime.refreshCapabilities,
+    refreshSettings: settings.refresh,
+  });
+  resyncRef.current = {
+    refreshHealth: runtime.health.refreshQuietly,
+    refreshCapabilities: runtime.refreshCapabilities,
+    refreshSettings: settings.refresh,
+  };
+  useEffect(() => subscribeCoreStreamResync(() => {
+    void resyncRef.current.refreshHealth();
+    void resyncRef.current.refreshCapabilities();
+    void resyncRef.current.refreshSettings().catch(() => undefined);
+  }), []);
 
   return {
     runtime: {

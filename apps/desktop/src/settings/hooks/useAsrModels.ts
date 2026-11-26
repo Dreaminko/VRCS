@@ -92,20 +92,28 @@ export function useAsrModels({
   useEffect(() => {
     if (!active || !transferBusy) return;
     let cancelled = false;
-    let timer: number | null = window.setTimeout(function poll() {
-      if (document.hidden) {
-        timer = window.setTimeout(poll, 750);
-        return;
-      }
-      void fetchQwenModels(() => cancelled).then((stillBusy) => {
-        if (!cancelled && stillBusy) {
-          timer = window.setTimeout(poll, 750);
-        }
-      });
-    }, 750);
+    let timer: number | null = null;
+    const schedule = () => {
+      if (cancelled || document.hidden || timer !== null) return;
+      timer = window.setTimeout(() => {
+        timer = null;
+        void poll();
+      }, 750);
+    };
+    const poll = async () => {
+      if (cancelled || document.hidden) return;
+      const stillBusy = await fetchQwenModels(() => cancelled);
+      if (!cancelled && stillBusy) schedule();
+    };
+    const onVisibility = () => {
+      if (!document.hidden) void poll();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    schedule();
     return () => {
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [active, transferBusy, fetchQwenModels]);
 

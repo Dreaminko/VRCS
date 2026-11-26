@@ -36,20 +36,38 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
 
   useEffect(() => {
     let disposed = false;
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
+    const active = config.master_enabled && ((vrAvailable && config.enabled) || config.desktop_enabled);
+    const schedule = () => {
+      if (disposed || !active || document.hidden || timer !== undefined) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        void load();
+      }, 2000);
+    };
     const load = async () => {
+      if (disposed || document.hidden) return;
       try {
         const next = await request<OcrExecutionStatus>("/api/ocr/runtime", { signal: controller.signal });
         if (!disposed) setExecution(next);
       } catch {
         if (!disposed) setExecution(null);
       } finally {
-        if (!disposed && config.master_enabled && ((vrAvailable && config.enabled) || config.desktop_enabled)) timer = setTimeout(() => void load(), 2000);
+        schedule();
       }
     };
-    void load();
-    return () => { disposed = true; clearTimeout(timer); controller.abort(); };
+    const onVisibility = () => {
+      if (!document.hidden && active) void load();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    if (!document.hidden) void load();
+    return () => {
+      disposed = true;
+      if (timer !== undefined) clearTimeout(timer);
+      controller.abort();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [vrAvailable, config.device, config.master_enabled, config.enabled, config.desktop_enabled]);
 
   const wrist = config.wrist ?? DEFAULT_OCR_WRIST_SETTINGS;

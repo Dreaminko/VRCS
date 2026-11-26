@@ -122,7 +122,7 @@ export function useAppWorkspace({
       void captureControl.setCaptureRunning(true);
     }
   }, [captureRuntime.playerAudioStart.resumeAction, runtime.ready, settings.value, onboardingFlow.status, captureControl.setCaptureRunning, captureControl.setNetworkCaptureRunning]);
-  const { interfaceScale, setInterfaceScale } = useInterfaceScale();
+  const { interfaceScale, setInterfaceScale } = useInterfaceScale(compactWindow.compact);
   const activeLanguageSession = runtime.health?.language_session;
   const chatboxRoute = (activeLanguageSession && activeLanguageSession.kind !== "global"
     ? activeLanguageSession.translation
@@ -155,7 +155,7 @@ export function useAppWorkspace({
     selection.clear();
     setSettingsInitialCategory("api");
     setPage("settings");
-  }, [compactWindow, selection, setPage, setSettingsInitialCategory]);
+  }, [compactWindow.compact, compactWindow.exitCompact, selection.clear, setPage, setSettingsInitialCategory]);
 
   const finishOnboarding = useCallback(async (startCapture: boolean) => {
     await onboardingFlow.finish({
@@ -166,64 +166,94 @@ export function useAppWorkspace({
     setPage("live");
   }, [captureControl.toggleCapture, onboardingFlow.finish, setPage, t]);
 
-  return {
-    locale: i18n.resolvedLanguage ?? "en-US",
-    onboarding: {
-      ...onboardingFlow,
-      finish: finishOnboarding,
-    },
+  const locale = i18n.resolvedLanguage ?? "en-US";
+  const onboarding = useMemo(() => ({
+    ...onboardingFlow,
+    finish: finishOnboarding,
+  }), [finishOnboarding, onboardingFlow]);
+  const capture = useMemo(() => ({
+    ...captureRuntime,
+    ...captureControl,
+    available: captureReason === null,
+    unavailableReason: captureReason,
+    networkCaptureVisible,
+    networkAvailable: networkReason === null,
+    networkUnavailableReason: networkReason,
+  }), [captureControl, captureReason, captureRuntime, networkCaptureVisible, networkReason]);
+  const compact = useMemo(() => ({
+    ...compactWindow,
+    selectionPanelOpen,
+    overlayOpen,
+    subtitles: compactSubtitles,
+    subtitleHistory: subtitles.items,
+  }), [compactSubtitles, compactWindow, overlayOpen, selectionPanelOpen, subtitles.items]);
+  const conversationsGroup = useMemo(() => ({
+    ...conversation,
+    selectedLoading: selectedConversationLoading,
+  }), [conversation, selectedConversationLoading]);
+  const subtitlesGroup = useMemo(() => ({
+    ...subtitles,
+    translationHandler,
+  }), [subtitles, translationHandler]);
+  const learning = useMemo(() => ({
+    workspace: learningWorkspace,
+    actions: learningActions,
+  }), [learningActions, learningWorkspace]);
+  const selectionGroup = useMemo(() => ({
+    ...selection,
+    openAiSettings: openSelectionAiSettings,
+  }), [openSelectionAiSettings, selection]);
+  const settingsGroup = useMemo(() => ({
+    ...settings,
+    interfaceScale,
+    setInterfaceScale,
+  }), [interfaceScale, setInterfaceScale, settings]);
+  const translationLanguageCodes = useMemo(
+    () => translationLanguageCodesForProfile(translationProfile, chatboxRoute?.backend),
+    [chatboxRoute?.backend, translationProfile],
+  );
+  const allowCustomTranslationLanguage = supportsCustomTranslationLanguage(translationProfile);
+  const providers = useMemo(() => ({
+    catalog: providerCatalog,
+    translationProfile,
+    translationLanguageCodes,
+    allowCustomTranslationLanguage,
+  }), [allowCustomTranslationLanguage, providerCatalog, translationLanguageCodes, translationProfile]);
+  const integrations = useMemo(() => ({ updater }), [updater]);
+
+  return useMemo(() => ({
+    locale,
+    onboarding,
     runtime,
     playerDisplay,
-    capture: {
-      ...captureRuntime,
-      ...captureControl,
-      available: captureReason === null,
-      unavailableReason: captureReason,
-      networkCaptureVisible,
-      networkAvailable: networkReason === null,
-      networkUnavailableReason: networkReason,
-    },
-    compact: {
-      ...compactWindow,
-      selectionPanelOpen,
-      overlayOpen,
-      subtitles: compactSubtitles,
-      subtitleHistory: subtitles.items,
-    },
-    conversations: {
-      ...conversation,
-      selectedLoading: selectedConversationLoading,
-    },
-    subtitles: {
-      ...subtitles,
-      translationHandler,
-    },
-    learning: {
-      workspace: learningWorkspace,
-      actions: learningActions,
-    },
-    selection: {
-      ...selection,
-      openAiSettings: openSelectionAiSettings,
-    },
-    settings: {
-      ...settings,
-      interfaceScale,
-      setInterfaceScale,
-    },
-    providers: {
-      catalog: providerCatalog,
-      translationProfile,
-      translationLanguageCodes: translationLanguageCodesForProfile(
-        translationProfile,
-        chatboxRoute?.backend,
-      ),
-      allowCustomTranslationLanguage: supportsCustomTranslationLanguage(translationProfile),
-    },
+    capture,
+    compact,
+    conversations: conversationsGroup,
+    subtitles: subtitlesGroup,
+    learning,
+    selection: selectionGroup,
+    settings: settingsGroup,
+    providers,
     chatbox,
-    integrations: { updater },
+    integrations,
     dictionary,
-  };
+  }), [
+    capture,
+    chatbox,
+    compact,
+    conversationsGroup,
+    dictionary,
+    integrations,
+    learning,
+    locale,
+    onboarding,
+    playerDisplay,
+    providers,
+    runtime,
+    selectionGroup,
+    settingsGroup,
+    subtitlesGroup,
+  ]);
 }
 
 export type AppWorkspace = ReturnType<typeof useAppWorkspace>;

@@ -10,6 +10,13 @@ import { localTranslationApi } from "../local-translation-api";
 import { formatBytes } from "../settings-derived";
 import type { LocalTranslationStatus } from "../types";
 
+function isLocalTranslationBusy(status: LocalTranslationStatus | null): boolean {
+  if (!status) return false;
+  return status.model.status === "downloading"
+    || status.model.status === "verifying"
+    || status.runtime.status === "loading";
+}
+
 export function LocalTranslationPanel({
   locale,
   disabled,
@@ -26,29 +33,51 @@ export function LocalTranslationPanel({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const deleteButton = useRef<HTMLButtonElement>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<LocalTranslationStatus | null> => {
     try {
       const next = await localTranslationApi.status();
       setStatus(next);
       setStatusError("");
+      return next;
     } catch (reason) {
       setStatusError(localizedError(reason, t, "errors.translation.failed"));
+      return null;
     }
   }, [t]);
 
+  const transferBusy = isLocalTranslationBusy(status);
+
   useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    if (!transferBusy) return;
     let cancelled = false;
     let timer: number | null = null;
-    const poll = async () => {
-      if (!cancelled) await load();
-      if (!cancelled) timer = window.setTimeout(() => void poll(), 1_000);
+    const schedule = () => {
+      if (cancelled || document.hidden || timer !== null) return;
+      timer = window.setTimeout(() => {
+        timer = null;
+        void tick();
+      }, 1_000);
     };
-    void poll();
+    const tick = async () => {
+      if (cancelled || document.hidden) return;
+      const next = await load();
+      if (!cancelled && isLocalTranslationBusy(next)) schedule();
+    };
+    const onVisibility = () => {
+      if (!document.hidden) void tick();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    schedule();
     return () => {
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [load]);
+  }, [load, transferBusy]);
 
   useEffect(() => setAccepted(status?.model.license_accepted ?? false), [status?.model.license_accepted]);
 

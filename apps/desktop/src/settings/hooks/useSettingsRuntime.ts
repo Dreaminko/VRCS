@@ -8,7 +8,7 @@ import type { ReportRuntimeError } from "../../core-client/useRuntimeErrors";
 import { integrationsApi } from "../../integrations/api";
 import { captureApi } from "../../capture/api";
 import { settingsApi } from "../api";
-import { createSettingsAutosave } from "../settings-autosave";
+import { createSettingsAutosave, type SettingsUpdateOptions } from "../settings-autosave";
 import type { Settings } from "../types";
 import type { PlayerAudioStart } from "../../capture/usePlayerAudioStart";
 import { withCurrentPlayerNames } from "../../capture/player-selection";
@@ -111,20 +111,6 @@ export function useSettingsRuntime({
 
   const persistSettings = useCallback(async (next: Settings): Promise<Settings> => {
     const previous = persistedSettingsRef.current;
-    const networkActive = Boolean(health.getCurrent()?.network_capture_requested);
-    const switchToPlayers = previous !== null && previous.audio.output.mode !== "vrchat_players"
-      && next.audio.output.mode === "vrchat_players" && health.getCurrent()?.capture_requested && !networkActive;
-    const enableNetwork = previous !== null && !usesVrchatNetwork(previous) && usesVrchatNetwork(next)
-      && health.getCurrent()?.capture_requested && !networkActive;
-    if (enableNetwork && !switchToPlayers) {
-      // Core hot-enables Chatbox on save. Never submit it before preparation succeeds.
-      if (!await playerAudioStart.confirm() || !await playerAudioStart.ensurePrivileges()) return previous;
-    }
-    // Stop before saving: Core normally restarts active inputs as part of saving settings.
-    if (switchToPlayers) {
-      if (!await playerAudioStart.confirm()) return previous;
-      if (!await setCaptureRunning(false)) throw new Error("Could not pause capture before changing the audio source");
-    }
     const microphoneRouteChanged = previous !== null && (
       previous.audio.microphone.mode !== next.audio.microphone.mode
       || previous.audio.microphone.device_id !== next.audio.microphone.device_id
@@ -138,28 +124,11 @@ export function useSettingsRuntime({
         throw reason;
       }
     }
-    let saved: Settings;
-    try { saved = await settingsApi.saveSettings(next); }
-    catch (error) {
-      if (switchToPlayers) await setCaptureRunning(true).catch((reason) => reportError(reason, "errors.operation", "capture"));
-      throw error;
-    }
+    const saved = await settingsApi.saveSettings(next);
     persistedSettingsRef.current = saved;
-    if (switchToPlayers) {
-      let ready = false;
-      try { ready = await playerAudioStart.ensurePrivileges(); }
-      catch (reason) {
-        // UAC cancellation leaves the original input and capture available.
-        saved = await settingsApi.saveSettings({ ...saved, audio: { ...saved.audio, output: previous.audio.output } });
-        persistedSettingsRef.current = saved;
-        await setCaptureRunning(true).catch((error) => reportError(error, "errors.operation", "capture"));
-        reportError(reason, "errors.operation", "capture");
-      }
-      if (ready) await setCaptureRunning(true).catch((reason) => reportError(reason, "errors.operation", "capture"));
-    }
     void health.refreshQuietly();
     return saved;
-  }, [health, stopMicrophoneTest, setCaptureRunning, playerAudioStart, reportError]);
+  }, [clearErrorFrom, health, stopMicrophoneTest]);
   const persistSettingsRef = useRef(persistSettings);
   persistSettingsRef.current = persistSettings;
 
@@ -189,6 +158,78 @@ export function useSettingsRuntime({
   }
   const settingsAutosave = settingsAutosaveRef.current;
 
+  const runWithPlayerAudioGate = useCallback(async (
+    computeTarget: (current: Settings) => Settings,
+    persistAction: () => Promise<Settings>,
+  ): Promise<Settings> => {
+    const previous = persistedSettingsRef.current;
+    if (!previous) return persistAction();
+    const next = computeTarget(previous);
+    const networkActive = Boolean(health.getCurrent()?.network_capture_requested);
+    const captureActive = Boolean(health.getCurrent()?.capture_requested);
+    const switchToPlayers = previous.audio.output.mode !== "vrchat_players"
+      && next.audio.output.mode === "vrchat_players" && captureActive && !networkActive;
+    const enableNetwork = !usesVrchatNetwork(previous) && usesVrchatNetwork(next)
+      && captureActive && !networkActive;
+
+    // Run interactive consent, elevation, and capture transitions outside the
+    // serialized autosave queue so unrelated settings edits never block on dialogs.
+    if (enableNetwork && !switchToPlayers) {
+      // Core hot-enables Chatbox on save. Never submit it before preparation succeeds.
+      if (!await playerAudioStart.confirm() || !await playerAudioStart.ensurePrivileges()) {
+        return persistedSettingsRef.current ?? previous;
+      }
+      return persistAction();
+    }
+    if (!switchToPlayers) return persistAction();
+
+    if (!await playerAudioStart.confirm()) return persistedSettingsRef.current ?? previous;
+    if (!await setCaptureRunning(false)) {
+      throw new Error("Could not pause capture before changing the audio source");
+    }
+    let saved: Settings;
+    try {
+      saved = await persistAction();
+    } catch (error) {
+      await setCaptureRunning(true).catch((reason) => reportError(reason, "errors.operation", "capture"));
+      throw error;
+    }
+    let ready = false;
+    try {
+      ready = await playerAudioStart.ensurePrivileges();
+    } catch (reason) {
+      // UAC cancellation leaves the original input and capture available.
+      saved = await settingsAutosave.update((latest) => ({
+        ...latest,
+        audio: { ...latest.audio, output: previous.audio.output },
+      }));
+      await setCaptureRunning(true).catch((error) => reportError(error, "errors.operation", "capture"));
+      reportError(reason, "errors.operation", "capture");
+    }
+    if (ready) await setCaptureRunning(true).catch((reason) => reportError(reason, "errors.operation", "capture"));
+    return saved;
+  }, [health, playerAudioStart, reportError, setCaptureRunning, settingsAutosave]);
+  const gateRef = useRef(runWithPlayerAudioGate);
+  gateRef.current = runWithPlayerAudioGate;
+
+  const guardedSaveRef = useRef<
+    ((value: Settings) => Promise<Settings>) & {
+      getDesired: () => Settings | null;
+      update: (apply: (current: Settings) => Settings, options?: SettingsUpdateOptions<Settings>) => Promise<Settings>;
+    } | null
+  >(null);
+  if (guardedSaveRef.current === null) {
+    guardedSaveRef.current = Object.assign(
+      (value: Settings) => gateRef.current(() => value, () => settingsAutosave(value)),
+      {
+        getDesired: () => settingsAutosave.getDesired(),
+        update: (apply: (current: Settings) => Settings, options?: SettingsUpdateOptions<Settings>) =>
+          gateRef.current(apply, () => settingsAutosave.update(apply, options)),
+      },
+    );
+  }
+  const guardedSave = guardedSaveRef.current;
+
   const migratingLearningBinding = useRef(false);
   useEffect(() => {
     if (!settings || migratingLearningBinding.current) return;
@@ -205,6 +246,7 @@ export function useSettingsRuntime({
   }, [settings]);
 
   const refreshingPlayerNames = useRef(false);
+  const lastObservedPlayersRef = useRef<NonNullable<Health["player_audio"]>["players"] | undefined>(undefined);
   const syncObservedPlayers = useCallback((players: NonNullable<Health["player_audio"]>["players"] | undefined) => {
     // This runtime stays mounted on every page. Use the shared autosave queue so
     // a name refresh cannot overwrite concurrent settings or restore a deselection.
@@ -217,17 +259,20 @@ export function useSettingsRuntime({
       .catch(() => { /* Shared settings errors report failures; the next health update retries. */ })
       .finally(() => { refreshingPlayerNames.current = false; });
   }, []);
-  const observedPlayersFrom = (current: Health | null) => current?.network_players ?? current?.network_capture?.players ?? current?.player_audio?.players;
-  const observedPlayers = observedPlayersFrom(health.value);
+  const observedPlayersFrom = (current: Health | null) =>
+    current?.network_players ?? current?.network_capture?.players ?? current?.player_audio?.players;
+  const hasSettings = settings !== null;
   useEffect(() => {
-    syncObservedPlayers(observedPlayers);
-  }, [observedPlayers, syncObservedPlayers]);
-  useEffect(() => {
-    if (settings) syncObservedPlayers(observedPlayersFrom(getCurrentHealth()));
-  }, [settings, syncObservedPlayers]);
-  useEffect(() => subscribeHealth(() => {
-    syncObservedPlayers(observedPlayersFrom(getCurrentHealth()));
-  }), [syncObservedPlayers]);
+    if (!hasSettings) return;
+    const checkPlayers = () => {
+      const players = observedPlayersFrom(getCurrentHealth());
+      if (players === lastObservedPlayersRef.current) return;
+      lastObservedPlayersRef.current = players;
+      syncObservedPlayers(players);
+    };
+    checkPlayers();
+    return subscribeHealth(checkPlayers);
+  }, [hasSettings, syncObservedPlayers]);
 
   const testOsc = useCallback(async () => {
     await integrationsApi.testOsc();
@@ -238,13 +283,13 @@ export function useSettingsRuntime({
   return {
     value: settings,
     getCurrent: () => persistedSettingsRef.current,
-    getOptimistic: () => settingsAutosave.getDesired(),
+    getOptimistic: () => guardedSave.getDesired(),
     devices: { items: devices, ready: devicesReady, error: devicesError, refresh: refreshDevices },
     asr: { refresh: refreshModels },
     refresh: loadSettings,
     reload: async () => { await loadSettings(); return persistedSettingsRef.current ?? undefined; },
-    save: settingsAutosave,
-    update: settingsAutosave.update,
+    save: guardedSave,
+    update: guardedSave.update,
     testOsc,
   };
 }

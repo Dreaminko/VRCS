@@ -101,6 +101,10 @@ export const LearningWorkspace = memo(function LearningWorkspace({
     }
   }, []);
 
+  const finishTransition = useCallback((expected: "to-materials" | "to-inbox") => {
+    setTransition((current) => (current === expected ? null : current));
+  }, []);
+
   const inboxTransitionState = transition === "to-materials"
     ? "exit-to-materials"
     : transition === "to-inbox"
@@ -121,9 +125,7 @@ export const LearningWorkspace = memo(function LearningWorkspace({
         aria-hidden={showMaterials ? "true" : undefined}
         data-transition-state={inboxTransitionState}
         onAnimationEnd={(event) => {
-          if (event.target === event.currentTarget && transition === "to-inbox") {
-            setTransition(null);
-          }
+          if (event.target === event.currentTarget) finishTransition("to-inbox");
         }}
       >
         <LearningInbox
@@ -144,9 +146,7 @@ export const LearningWorkspace = memo(function LearningWorkspace({
         aria-hidden={!showMaterials ? "true" : undefined}
         data-transition-state={materialsTransitionState}
         onAnimationEnd={(event) => {
-          if (event.target === event.currentTarget && transition === "to-materials") {
-            setTransition(null);
-          }
+          if (event.target === event.currentTarget) finishTransition("to-materials");
         }}
       >
         {materialsMounted && (

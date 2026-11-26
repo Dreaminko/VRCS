@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
 export const PREVIEW_INTERVAL_MS = 50;
 
@@ -38,19 +38,30 @@ export function createPreviewBatcher<T>(publish: (value: T) => void, timers = pr
   };
 }
 
-// Only display previews wait; shared delta state and final results stay immediate.
+// Only display previews throttle rapid updates; initial frames and final results stay immediate.
 export function useBatchedPreview<T>(value: T | null, key: string, enabled: boolean): T | null {
   const [display, setDisplay] = useState<{ key: string; value: T } | null>(null);
-  const batcher = useMemo(() => createPreviewBatcher<{ key: string; value: T }>(setDisplay), []);
+  const displayedKeyRef = useRef<string | null>(null);
+  const batcher = useMemo(() => createPreviewBatcher<{ key: string; value: T }>((next) => {
+    displayedKeyRef.current = next.key;
+    setDisplay(next);
+  }), []);
   useLayoutEffect(() => {
     if (!enabled || value === null) {
       batcher.cancel();
+      displayedKeyRef.current = null;
       setDisplay(null);
+      return;
+    }
+    if (displayedKeyRef.current !== key) {
+      batcher.cancel();
+      displayedKeyRef.current = key;
+      setDisplay({ key, value });
       return;
     }
     batcher.push({ key, value }, key);
   }, [batcher, enabled, key, value]);
   useLayoutEffect(() => () => batcher.cancel(), [batcher]);
   if (!enabled || value === null) return value;
-  return display?.key === key ? display.value : null;
+  return display?.key === key ? display.value : value;
 }

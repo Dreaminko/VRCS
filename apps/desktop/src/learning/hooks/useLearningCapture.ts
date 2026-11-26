@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { learningApi } from "../api";
@@ -112,12 +112,14 @@ export function useLearningCapture(
     }
   }, []);
 
-  const isCollecting = useCallback((key: string) => captureBusyRef.current.has(key), []);
+  const isCollecting = useCallback((key: string) => captureBusyKeys.has(key), [captureBusyKeys]);
   const isCaptured = useCallback((key: string) => capturedKeys.has(key), [capturedKeys]);
 
-  return {
+  const clearError = useCallback(() => setError(""), []);
+
+  return useMemo(() => ({
     error,
-    clearError: () => setError(""),
+    clearError,
     isCollecting,
     isCaptured,
     captureBusyKeys,
@@ -125,7 +127,17 @@ export function useLearningCapture(
     collectSubtitles,
     collectLookup,
     refreshAfterDelete,
-  };
+  }), [
+    captureBusyKeys,
+    clearError,
+    collectLookup,
+    collectSubtitle,
+    collectSubtitles,
+    error,
+    isCaptured,
+    isCollecting,
+    refreshAfterDelete,
+  ]);
 }
 
 function addCapturedItemKeys(current: Set<string>, items: LearningItem[]): Set<string> {

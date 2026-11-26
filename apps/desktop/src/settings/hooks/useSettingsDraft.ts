@@ -2,12 +2,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { localizedError } from "../../app/app-utils";
+import type { SettingsUpdateOptions } from "../settings-autosave";
 import type { Settings } from "../types";
 import type { ApplySettings, SaveState } from "../settings-types";
 
+export type SettingsSaveHandler = ((value: Settings) => Promise<Settings>) & {
+  update?: (
+    update: (current: Settings) => Settings,
+    options?: SettingsUpdateOptions<Settings>,
+  ) => Promise<Settings>;
+};
+
 export function useSettingsDraft(
   settings: Settings,
-  onSave: (value: Settings) => Promise<Settings>,
+  onSave: SettingsSaveHandler,
 ) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(settings);
@@ -17,42 +25,64 @@ export function useSettingsDraft(
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const saveVersionRef = useRef(0);
-  const savingRef = useRef(false);
+  const pendingUpdatesRef = useRef<Array<{
+    version: number;
+    apply: (current: Settings) => Settings;
+  }>>([]);
+
+  const rebaseDraft = useCallback((base: Settings) => {
+    const next = pendingUpdatesRef.current.reduce(
+      (current, entry) => entry.apply(current),
+      base,
+    );
+    draftRef.current = next;
+    setDraft(next);
+    return next;
+  }, []);
 
   useEffect(() => {
-    if (savingRef.current) return;
-    draftRef.current = settings;
-    setDraft(settings);
-  }, [settings]);
+    rebaseDraft(settings);
+  }, [rebaseDraft, settings]);
 
   const applySettings: ApplySettings = useCallback((update, afterSave, afterError) => {
-    const next = update(draftRef.current);
+    const base = draftRef.current;
+    const next = update(base);
     const version = ++saveVersionRef.current;
-    savingRef.current = true;
+    pendingUpdatesRef.current.push({ version, apply: update });
     draftRef.current = next;
     setDraft(next);
     setSaveState("saving");
     setSaveMessage("");
-    void onSave(next).then(
+    const request = onSave.update
+      ? onSave.update(update, { coalesce: true, base: settingsRef.current })
+      : onSave(next);
+    void request.then(
       (saved) => {
-        if (version !== saveVersionRef.current) return;
-        savingRef.current = false;
-        draftRef.current = saved;
-        setDraft(saved);
-        setSaveState("saved");
+        pendingUpdatesRef.current = pendingUpdatesRef.current.filter(
+          (entry) => entry.version > version,
+        );
+        if (version === saveVersionRef.current) {
+          draftRef.current = saved;
+          setDraft(saved);
+          setSaveState(saved === settingsRef.current && next !== saved ? "idle" : "saved");
+        } else {
+          rebaseDraft(saved);
+        }
         afterSave?.();
       },
       (reason) => {
-        if (version !== saveVersionRef.current) return;
-        savingRef.current = false;
-        draftRef.current = settingsRef.current;
-        setDraft(settingsRef.current);
-        setSaveMessage(localizedError(reason, t, "errors.settings.apply"));
-        setSaveState("error");
+        pendingUpdatesRef.current = pendingUpdatesRef.current.filter(
+          (entry) => entry.version > version,
+        );
+        rebaseDraft(settingsRef.current);
+        if (version === saveVersionRef.current) {
+          setSaveMessage(localizedError(reason, t, "errors.settings.apply"));
+          setSaveState("error");
+        }
         afterError?.();
       },
     );
-  }, [onSave, t]);
+  }, [onSave, rebaseDraft, t]);
 
   const setFailure = useCallback((message: string) => {
     setSaveMessage(message);

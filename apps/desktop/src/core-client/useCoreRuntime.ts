@@ -41,6 +41,8 @@ function shellHealthKey(health: Health | null): string | null {
     vad_model_version: health.vad_model_version,
     last_error: health.last_error,
     osc: health.osc,
+    osc_inbound: health.osc_inbound ?? null,
+    unitext: health.unitext ?? null,
     vrchat_mute_sync: health.vrchat_mute_sync,
     language_session: health.language_session,
     room_scope_id: health.room_context?.scope_id ?? null,
@@ -100,7 +102,6 @@ export function useCoreRuntime({
   const [health, setHealth] = useState<Health | null>(null);
   const [capabilities, setCapabilities] = useState<PlatformState>({ core: null, desktop: null });
   const healthRef = useRef<Health | null>(null);
-  const healthJsonRef = useRef<string | null>(null);
   const shellHealthJsonRef = useRef<string | null>(null);
 
   const refreshCoreCapabilities = useCallback(async (isCancelled?: () => boolean): Promise<boolean> => {
@@ -132,11 +133,8 @@ export function useCoreRuntime({
   }, [refreshCoreCapabilities, refreshDesktopCapabilities]);
 
   const commitHealth = useCallback((next: Health | null) => {
-    const serialized = next ? JSON.stringify(next) : null;
-    if (serialized === healthJsonRef.current) return;
-    healthJsonRef.current = serialized;
+    if (!publishHealth(next)) return;
     healthRef.current = next;
-    publishHealth(next);
     const shellKey = shellHealthKey(next);
     if (shellKey !== shellHealthJsonRef.current) {
       shellHealthJsonRef.current = shellKey;
