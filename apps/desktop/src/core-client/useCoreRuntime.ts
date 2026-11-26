@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import { publishHealth } from "./health-store";
+import { getCurrentHealth as getStoredHealth, publishHealth } from "./health-store";
 import { runtimeApi } from "./runtime-api";
 import {
   coreStartup,
@@ -41,7 +41,6 @@ function shellHealthKey(health: Health | null): string | null {
     vad_model_version: health.vad_model_version,
     last_error: health.last_error,
     osc: health.osc,
-    osc_inbound: health.osc_inbound ?? null,
     unitext: health.unitext ?? null,
     vrchat_mute_sync: health.vrchat_mute_sync,
     language_session: health.language_session,
@@ -99,10 +98,13 @@ export function useCoreRuntime({
   const [coreConfigured, setCoreConfigured] = useState(false);
   const [startupState, setStartupState] = useState<"starting" | "ready" | "failed">("starting");
   const [startupAttempt, setStartupAttempt] = useState(0);
-  const [health, setHealth] = useState<Health | null>(null);
+  const [health, setHealth] = useState<Health | null>(() => getStoredHealth());
   const [capabilities, setCapabilities] = useState<PlatformState>({ core: null, desktop: null });
-  const healthRef = useRef<Health | null>(null);
+  const healthRef = useRef<Health | null>(health);
   const shellHealthJsonRef = useRef<string | null>(null);
+  if (shellHealthJsonRef.current === null && health !== null) {
+    shellHealthJsonRef.current = shellHealthKey(health);
+  }
 
   const refreshCoreCapabilities = useCallback(async (isCancelled?: () => boolean): Promise<boolean> => {
     try {
@@ -133,7 +135,8 @@ export function useCoreRuntime({
   }, [refreshCoreCapabilities, refreshDesktopCapabilities]);
 
   const commitHealth = useCallback((next: Health | null) => {
-    if (!publishHealth(next)) return;
+    const published = publishHealth(next);
+    if (!published && healthRef.current === next) return;
     healthRef.current = next;
     const shellKey = shellHealthKey(next);
     if (shellKey !== shellHealthJsonRef.current) {

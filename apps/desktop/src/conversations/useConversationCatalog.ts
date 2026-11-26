@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { subscribeCoreStreamResync } from "../core-client/useCoreEventStream";
 import { conversationsApi } from "./api";
 import {
   activeConversationId,
@@ -77,8 +78,8 @@ export function useConversationCatalog({
     }
 
     let cancelled = false;
-    const requestStartSequence = latestCatalogEventRef.current?.sequence ?? 0;
     const loadCatalog = async () => {
+      const requestStartSequence = latestCatalogEventRef.current?.sequence ?? 0;
       try {
         const response = await conversationsApi.conversations();
         if (cancelled) return;
@@ -93,9 +94,13 @@ export function useConversationCatalog({
         }
       }
     };
+    const unsubscribeResync = subscribeCoreStreamResync(() => {
+      if (!cancelled) void loadCatalog();
+    });
     void loadCatalog();
     return () => {
       cancelled = true;
+      unsubscribeResync();
     };
   }, [applyCatalog, authoritativeResponse, clearErrorFrom, coreReady, reportError]);
 

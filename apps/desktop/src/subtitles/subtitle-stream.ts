@@ -38,6 +38,7 @@ export interface ConversationCatalogEvent {
 }
 
 export type SubtitleStreamMessage =
+  | { type: "resync_required" }
   | { type: "speaker_updated"; speaker: SpeakerIdentity }
   | { type: "subtitle"; subtitle: Subtitle; utterance_id?: string }
   | { type: "conversation_catalog"; catalog: ConversationCatalog }
@@ -213,6 +214,8 @@ export function parseSubtitleStreamMessage(
   }
   if (!isObject(value) || typeof value.type !== "string") return null;
   switch (value.type) {
+    case "resync_required":
+      return { type: "resync_required" };
     case "speaker_updated":
       return isObject(value.speaker) && isSpeaker(value.speaker)
         ? { type: "speaker_updated", speaker: value.speaker as unknown as SpeakerIdentity } : null;

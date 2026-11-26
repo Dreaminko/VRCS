@@ -52,15 +52,6 @@ function notifyCoreStreamResync(): void {
   resyncListeners.forEach((listener) => listener());
 }
 
-function isResyncRequiredMessage(raw: unknown): boolean {
-  try {
-    const parsed = JSON.parse(String(raw)) as { type?: unknown } | null;
-    return typeof parsed === "object" && parsed !== null && parsed.type === "resync_required";
-  } catch {
-    return false;
-  }
-}
-
 export function useCoreEventStream({
   coreConfigured,
   handlers,
@@ -116,11 +107,6 @@ export function useCoreEventStream({
         if (reconnected) notifyCoreStreamResync();
       };
       socket.onmessage = (event) => {
-        if (isResyncRequiredMessage(event.data)) {
-          handlersRef.current.onConnected();
-          notifyCoreStreamResync();
-          return;
-        }
         const message = parseSubtitleStreamMessage(event.data);
         if (message === null) {
           console.warn(
@@ -130,6 +116,13 @@ export function useCoreEventStream({
           return;
         }
         switch (message.type) {
+          case "resync_required":
+            clearLivePartials();
+            clearTranslationPartials();
+            clearSpeakerIdentities();
+            handlersRef.current.onConnected();
+            notifyCoreStreamResync();
+            break;
           case "speaker_updated":
             publishSpeakerIdentity(message.speaker);
             break;

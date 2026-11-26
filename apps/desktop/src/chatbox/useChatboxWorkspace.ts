@@ -16,6 +16,7 @@ import {
   loadChatboxPreferences,
   saveChatboxPreferences,
 } from "./chatbox-preferences";
+import { subscribeCoreStreamResync } from "../core-client/useCoreEventStream";
 import { LatestWriteQueue } from "../shared/lib/latest-write-queue";
 import type { ChatboxPreferences } from "./chatbox";
 import type { ActiveLanguageSession } from "../core-client/types";
@@ -100,6 +101,8 @@ export function useChatboxWorkspace(
     && Boolean(draft.original.trim())
     && (draft.send_mode === "original" || translationFresh)
     && remotePreview.enforceOscLimit === enforceOscLimit
+    && remotePreview.draft.original === resolvedDraft.original
+    && remotePreview.draft.translation === resolvedDraft.translation
     && remotePreview.draft.send_mode === resolvedDraft.send_mode
     && remotePreview.draft.output_target === resolvedDraft.output_target
     && remotePreview.draft.overflow_policy === resolvedDraft.overflow_policy
@@ -134,10 +137,20 @@ export function useChatboxWorkspace(
     ],
   );
 
+  const syncedPreferencesRef = useRef(syncedPreferences);
+  syncedPreferencesRef.current = syncedPreferences;
+
   useEffect(() => {
     if (!available || !preferencesReady) return;
     void syncQueueRef.current?.enqueue(syncedPreferences);
   }, [available, preferencesReady, syncedPreferences]);
+
+  useEffect(() => {
+    if (!available || !preferencesReady) return;
+    return subscribeCoreStreamResync(() => {
+      void syncQueueRef.current?.enqueue(syncedPreferencesRef.current);
+    });
+  }, [available, preferencesReady]);
 
   useEffect(() => {
     const requestId = ++previewRequest.current;
@@ -149,7 +162,11 @@ export function useChatboxWorkspace(
             setRemotePreview({ draft: resolvedDraft, enforceOscLimit, value });
           }
         },
-        () => undefined,
+        () => {
+          if (requestId === previewRequest.current) {
+            setRemotePreview(null);
+          }
+        },
       );
     }, 180);
     return () => window.clearTimeout(timer);
@@ -252,14 +269,14 @@ export function useChatboxWorkspace(
     updateBusy("translate");
     setFeedback(null);
     try {
-      const translation = await requestTranslation(resolvedDraft);
+      const translation = await requestTranslation(resolvedDraftRef.current);
       if (translation) rememberTranslation(translation);
     } catch (reason) {
       setFeedback({ tone: "error", text: localizedError(reason, t, "chatbox.errors.translate") });
     } finally {
       updateBusy(null);
     }
-  }, [preferencesReady, resolvedDraft, rememberTranslation, requestTranslation, t, updateBusy]);
+  }, [preferencesReady, rememberTranslation, requestTranslation, t, updateBusy]);
 
   const send = useCallback(async () => {
     const currentDraft = draftRef.current;
