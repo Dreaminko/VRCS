@@ -47,6 +47,7 @@
     "allow-download-and-install-update",
     "allow-update-native-labels",
     "allow-set-compact-window-topmost",
+    "allow-resize-compact-window",
     "allow-vr-overlay-status",
     "allow-vr-overlay-retry",
     "allow-vr-ocr-open-bindings",

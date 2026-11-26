@@ -44,13 +44,14 @@ test("compact controls use themed tooltips instead of native titles", {
         '--compact-'+name.replace(/[A-Z]/g,letter=>'-'+letter.toLowerCase()),value+'px'])),
         '--compact-original-size':preset.original+'px','--compact-original-line':preset.originalLine+'px',
         '--compact-translation-size':preset.translation+'px','--compact-translation-line':preset.translationLine+'px'};
-      let setTransparent, setRunning, setMounted, setPerPlayer;
+      let setTransparent, setRunning, setMounted, setPerPlayer, setAlwaysOnTopDisabled;
       function Fixture(){
-        const [transparent,updateTransparent]=useState(false), [running,updateRunning]=useState(false), [mounted,updateMounted]=useState(true), [perPlayer,updatePerPlayer]=useState(false), [displayMode,setDisplayMode]=useState('fixed');
-        setTransparent=updateTransparent;setRunning=updateRunning;setMounted=updateMounted;setPerPlayer=updatePerPlayer;
+        const [transparent,updateTransparent]=useState(false), [running,updateRunning]=useState(false), [mounted,updateMounted]=useState(true), [perPlayer,updatePerPlayer]=useState(false), [displayMode,setDisplayMode]=useState('fixed'), [alwaysOnTop,setAlwaysOnTop]=useState(true), [alwaysOnTopDisabled,updateAlwaysOnTopDisabled]=useState(false);
+        setTransparent=updateTransparent;setRunning=updateRunning;setMounted=updateMounted;setPerPlayer=updatePerPlayer;setAlwaysOnTopDisabled=updateAlwaysOnTopDisabled;
         return <><div className={'compact-root'+(transparent?' compact-root-transparent':'')} style={layoutVariables}>
         {mounted && <CompactView transparentBackground={transparent} onToggleBackground={()=>updateTransparent(value=>!value)} backgroundOpacity={75}
           onBackgroundOpacityChange={()=>{}} fontSize="medium" onFontSizeChange={()=>{}}
+          alwaysOnTop={alwaysOnTop} alwaysOnTopDisabled={alwaysOnTopDisabled} onToggleAlwaysOnTop={()=>setAlwaysOnTop(value=>!value)}
           playerLimit={perPlayer?4:undefined} displayMode={perPlayer?displayMode:undefined} onToggleDisplayMode={perPlayer?()=>setDisplayMode(mode=>mode==='fixed'?'scroll':'fixed'):undefined}
           subtitles={[]} subtitleHistory={[]} selectionTarget={null} running={running} vrchatMuted={false}
           captureDisabled={false} onSelect={async()=>{}} onCapture={()=>updateRunning(value=>!value)} onRestore={()=>{}} onClose={()=>{}} onResize={()=>{}} />}
@@ -71,7 +72,7 @@ test("compact controls use themed tooltips instead of native titles", {
         await tick();
         check(!document.querySelector('#root [title]'),'Compact and window controls must not expose native title tooltips');
         const controls=[...document.querySelectorAll('.compact-root [data-tooltip]')];
-        check(controls.length===8,'All compact controls, status and resize grip have custom hints');
+        check(controls.length===9,'All compact controls, status and resize grip have custom hints');
         for(const element of controls){
           over(element);await tick();check(!tooltip(),'Pointer tooltips wait before showing');
           await wait(()=>tooltip()?.textContent===element.dataset.tooltip);bounds();
@@ -131,7 +132,7 @@ test("compact controls use themed tooltips instead of native titles", {
         leave(document.querySelector('.compact-font-button'));await wait(()=>!tooltip());
         setTransparent(false);await wait(()=>document.querySelector('.compact-opacity-control'));
         setPerPlayer(true);await wait(()=>document.querySelector('.compact-display-mode-toggle'));
-        check(document.querySelectorAll('.compact-root [data-tooltip]').length===9,'Per-player mode adds the display mode toggle hint');
+        check(document.querySelectorAll('.compact-root [data-tooltip]').length===10,'Per-player mode adds the display mode toggle hint');
         const modeToggle=document.querySelector('.compact-display-mode-toggle');
         check(!modeToggle.hasAttribute('title'),'Display mode toggle has no native title');
         await hover(modeToggle);
@@ -140,6 +141,20 @@ test("compact controls use themed tooltips instead of native titles", {
         await hover(modeToggle);
         check(tooltip()?.textContent===locale.translation.window.compactModeFixed,'Mode toggle updates hint to fixed mode after click');
         leave(modeToggle);await wait(()=>!tooltip());
+        const pinToggle=document.querySelector('.compact-always-on-top-toggle');
+        check(pinToggle && !pinToggle.hasAttribute('title'),'Always-on-top toggle exists without a native title');
+        check(pinToggle.getAttribute('aria-pressed')==='true','Always-on-top starts pinned');
+        await hover(pinToggle);
+        check(tooltip()?.textContent===locale.translation.window.alwaysOnTopDisable,'Always-on-top toggle shows disable hint while pinned');
+        pinToggle.click();await wait(()=>!tooltip());
+        check(pinToggle.getAttribute('aria-pressed')==='false','Clicking always-on-top unpins');
+        await hover(pinToggle);
+        check(tooltip()?.textContent===locale.translation.window.alwaysOnTopEnable,'Always-on-top toggle updates hint to enable after unpinning');
+        leave(pinToggle);await wait(()=>!tooltip());
+        setAlwaysOnTopDisabled(true);
+        await wait(()=>pinToggle.disabled);
+        check(pinToggle.getAttribute('aria-pressed')==='false','Disabled always-on-top reports unpinned');
+        check(pinToggle.dataset.tooltip===locale.translation.platform.window_stacking_unavailable,'Disabled always-on-top explains platform limitation');
         document.getElementById('result').textContent='PASS';
       } catch(error) {document.getElementById('result').textContent='FAIL: '+error.message}
     ` },

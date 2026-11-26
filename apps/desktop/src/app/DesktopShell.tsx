@@ -73,12 +73,14 @@ function PageLoading() {
 }
 
 export function DesktopShell({
+  hidden = false,
   page,
   settingsInitialCategory,
   setPage,
   setSettingsInitialCategory,
   workspace,
 }: {
+  hidden?: boolean;
   page: Page;
   settingsInitialCategory: SettingsCategory;
   setPage: (page: Page) => void;
@@ -119,10 +121,10 @@ export function DesktopShell({
       && profile.capabilities.supports_text_generation));
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const [visionOpenError, setVisionOpenError] = useState(false);
-  const openVision = () => {
+  const openVision = useCallback(() => {
     setVisionOpenError(false);
     void openDesktopVision().catch(() => setVisionOpenError(true));
-  };
+  }, []);
   const chatboxButtonRef = useRef<HTMLButtonElement | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const previewSidebarWidth = useCallback((width: number) => {
@@ -132,8 +134,36 @@ export function DesktopShell({
     setSettingsInitialCategory("api");
     setPage("settings");
   }, [setPage, setSettingsInitialCategory]);
+  const handlePlayerSource = useCallback(
+    (action: Parameters<typeof applyPlayerSourceAction>[1], speaker: Parameters<typeof applyPlayerSourceAction>[2]) =>
+      settings.update(current => applyPlayerSourceAction(current, action, speaker)),
+    [settings.update],
+  );
+  const handlePlayerSourceMode = useCallback(
+    (mode: Parameters<typeof applyPlayerSourceMode>[1]) =>
+      settings.update(current => applyPlayerSourceMode(current, mode)),
+    [settings.update],
+  );
+  const handleProximityChange = useCallback(
+    (radius_m: number) => settings.update(current => applyPlayerProximity(current, radius_m)),
+    [settings.update],
+  );
+  const handleViewPriorityChange = useCallback(
+    (enabled: boolean, horizontal_fov_deg: number) =>
+      settings.update(current => applyPlayerViewPriority(current, enabled, horizontal_fov_deg)),
+    [settings.update],
+  );
+  const handleClearSettingsError = useCallback(
+    () => runtime.clearErrorFrom("settings"),
+    [runtime.clearErrorFrom],
+  );
+  const handleStartOnboarding = useCallback(() => {
+    if (runtime.health?.capture_requested) return;
+    onboarding.restart();
+  }, [onboarding.restart, runtime.health?.capture_requested]);
 
   useEffect(() => {
+    if (hidden) return;
     const preloadDeferredPages = () => {
       if (features?.learning) preloadPage("learning");
       preloadPage("settings");
@@ -144,7 +174,7 @@ export function DesktopShell({
     }
     const timer = globalThis.setTimeout(preloadDeferredPages, 250);
     return () => globalThis.clearTimeout(timer);
-  }, [features?.learning]);
+  }, [features?.learning, hidden]);
 
   const selectConversation = useCallback((id: string) => {
     conversations.selectConversation(id);
@@ -168,27 +198,31 @@ export function DesktopShell({
     chatbox.close();
     requestAnimationFrame(() => chatboxButtonRef.current?.focus());
   }, [chatbox.close]);
-  const chatboxVisible = page === "live" && chatbox.open;
+  const chatboxVisible = !hidden && page === "live" && chatbox.open;
   const [chatboxRetained, setChatboxRetained] = useState(false);
   const chatboxClosing = !chatboxVisible && chatboxRetained;
-  const chatboxMounted = chatboxVisible || (page === "live" && chatboxRetained);
+  const chatboxMounted = !hidden && (chatboxVisible || (page === "live" && chatboxRetained));
+  const finishChatboxClose = useCallback(() => setChatboxRetained(false), []);
   useEffect(() => {
     if (chatboxVisible) {
       setChatboxRetained(true);
       return;
     }
-    if (page !== "live" || prefersReducedMotion()) {
+    if (hidden || page !== "live" || prefersReducedMotion()) {
       setChatboxRetained(false);
       return;
     }
     if (!chatboxRetained) return;
-    const timer = window.setTimeout(() => setChatboxRetained(false), 180);
+    const timer = window.setTimeout(finishChatboxClose, 180);
     return () => window.clearTimeout(timer);
-  }, [chatboxVisible, page, chatboxRetained]);
+  }, [chatboxVisible, finishChatboxClose, hidden, page, chatboxRetained]);
 
   return (
     <div
       ref={shellRef}
+      hidden={hidden}
+      inert={hidden}
+      aria-hidden={hidden || undefined}
       className={[
         "app-shell",
         page === "live" ? "live-shell" : "",
@@ -199,7 +233,7 @@ export function DesktopShell({
         "--conversation-sidebar-width": `${conversations.sidebarWidth}px`,
       } as CSSProperties}
     >
-      <WindowChrome />
+      {!hidden && <WindowChrome />}
       <div className="app-body">
         {page === "live" && (
           <ConversationSidebar
@@ -264,10 +298,10 @@ export function DesktopShell({
                   defaultLanguages={playerDisplay.defaultLanguages}
                   preferences={playerDisplay.preferences}
                   onPreferences={playerDisplay.update}
-                  onSource={(action, speaker) => settings.update(current => applyPlayerSourceAction(current, action, speaker))}
-                  onSourceMode={(mode) => settings.update(current => applyPlayerSourceMode(current, mode))}
-                  onProximityChange={(radius_m) => settings.update(current => applyPlayerProximity(current, radius_m))}
-                  onViewPriorityChange={(enabled, horizontal_fov_deg) => settings.update(current => applyPlayerViewPriority(current, enabled, horizontal_fov_deg))}
+                  onSource={handlePlayerSource}
+                  onSourceMode={handlePlayerSourceMode}
+                  onProximityChange={handleProximityChange}
+                  onViewPriorityChange={handleViewPriorityChange}
                 />}
             />
           }
@@ -343,10 +377,7 @@ export function DesktopShell({
                   workspace={learning.workspace}
                   ankiAvailable={features?.anki ?? false}
                   ankiEnabled={Boolean(features?.anki && settings.value?.anki.enabled)}
-                  onOpenAiSettings={() => {
-                    setSettingsInitialCategory("api");
-                    setPage("settings");
-                  }}
+                  onOpenAiSettings={openTitleSettings}
                   onSelect={selection.selectText}
                   onTranslate={subtitles.translationHandler}
                   translatingSubtitleIds={subtitles.translatingIds}
@@ -381,12 +412,9 @@ export function DesktopShell({
                   onModelsChanged={settings.asr.refresh}
                   onInterfaceScaleChange={settings.setInterfaceScale}
                   onSave={settings.save}
-                  onClearSettingsError={() => runtime.clearErrorFrom("settings")}
+                  onClearSettingsError={handleClearSettingsError}
                   onTestOsc={settings.testOsc}
-                  onStartOnboarding={() => {
-                    if (runtime.health?.capture_requested) return;
-                    onboarding.restart();
-                  }}
+                  onStartOnboarding={handleStartOnboarding}
                   updater={integrations.updater}
                 />
               </Suspense>
@@ -465,7 +493,7 @@ export function DesktopShell({
           languageCodes={providers.translationLanguageCodes}
           allowCustomLanguage={providers.allowCustomTranslationLanguage}
           closing={chatboxClosing}
-          onCloseComplete={() => setChatboxRetained(false)}
+          onCloseComplete={finishChatboxClose}
           onDraftChange={chatbox.setDraft}
           onTranslate={chatbox.translate}
           onSend={chatbox.send}
@@ -473,20 +501,24 @@ export function DesktopShell({
         />
       )}
 
-      <SelectionToolOverlays
-        selection={selection}
-        learning={learning}
-        ankiEnabled={Boolean(features?.anki && settings.value?.anki.enabled)}
-      />
-      <UpdateNotice
-        updater={integrations.updater}
-        transcriptionRunning={runtime.health?.capture_requested ?? false}
-        hideError={page === "settings"}
-      />
-      <UpdateDetailsDialog
-        updater={integrations.updater}
-        transcriptionRunning={runtime.health?.capture_requested ?? false}
-      />
+      {!hidden && (
+        <>
+          <SelectionToolOverlays
+            selection={selection}
+            learning={learning}
+            ankiEnabled={Boolean(features?.anki && settings.value?.anki.enabled)}
+          />
+          <UpdateNotice
+            updater={integrations.updater}
+            transcriptionRunning={runtime.health?.capture_requested ?? false}
+            hideError={page === "settings"}
+          />
+          <UpdateDetailsDialog
+            updater={integrations.updater}
+            transcriptionRunning={runtime.health?.capture_requested ?? false}
+          />
+        </>
+      )}
     </div>
   );
 }

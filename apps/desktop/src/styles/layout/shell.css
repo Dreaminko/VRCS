@@ -1,13 +1,17 @@
 body { zoom: var(--interface-scale, 1); }
 .compact-root { zoom: var(--interface-scale-inverse, 1); }
 
-/* Clip the viewport so dialogs and body portals share the window corners. */
-html:has(.app-shell) {
+/* Keep the outer corners transparent when the main shell is visible so it and modal backdrops share window rounding. */
+html:has(.app-shell:not([hidden])),
+html:has(.app-shell:not([hidden])) body {
   background: transparent;
-  clip-path: inset(0 round var(--radius-sm));
 }
-html:has(.app-shell) body { background: transparent; }
-html:has(.window-chrome[data-maximized="true"]) { clip-path: none; }
+body:has(.app-shell:not([hidden])) > .api-profile-dialog-backdrop {
+  border-radius: var(--radius-sm);
+}
+body:has(.app-shell:not([hidden])):has(.window-chrome[data-maximized="true"]) > .api-profile-dialog-backdrop {
+  border-radius: 0;
+}
 
 .app-shell {
   --dock-sidebar-offset: 0px;
@@ -17,7 +21,14 @@ html:has(.window-chrome[data-maximized="true"]) { clip-path: none; }
   height: 100%;
   grid-template-rows: 40px minmax(0, 1fr);
   overflow: hidden;
+  border-radius: var(--radius-sm);
   background: var(--canvas);
+}
+.app-shell[hidden] {
+  display: none;
+}
+.app-shell:has(.window-chrome[data-maximized="true"]) {
+  border-radius: 0;
 }
 .app-shell.live-shell.sidebar-open { --dock-sidebar-offset: calc(var(--conversation-sidebar-width, 268px) * 0.5 + 14px); }
 .app-shell.live-shell.sidebar-collapsed { --dock-sidebar-offset: 42px; }

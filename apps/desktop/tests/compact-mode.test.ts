@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  COMPACT_ALWAYS_ON_TOP_KEY,
   COMPACT_DISPLAY_MODE_KEY,
   COMPACT_PANEL_WINDOW_SIZE,
   COMPACT_WINDOW_MAX_HEIGHT,
@@ -12,9 +13,12 @@ import {
   compactLivePreview,
   compactWindowConstraints,
   compactWindowSize,
+  parseCompactAlwaysOnTop,
   parseCompactDisplayMode,
+  readCompactAlwaysOnTop,
   readCompactDisplayMode,
   subtitlesForCompactView,
+  writeCompactAlwaysOnTop,
   writeCompactDisplayMode,
 } from "../src/shell/compact-mode.ts";
 import type { Subtitle } from "../src/subtitles/types.ts";
@@ -287,6 +291,37 @@ test("compact display mode defaults to fixed and persists scroll mode", () => {
     assert.equal(readCompactDisplayMode(), "scroll");
     stored.set(COMPACT_DISPLAY_MODE_KEY, "unexpected");
     assert.equal(readCompactDisplayMode(), "fixed");
+  } finally {
+    if (originalStorage) Object.defineProperty(globalThis, "localStorage", originalStorage);
+    else delete (globalThis as { localStorage?: Storage }).localStorage;
+  }
+});
+
+test("compact always-on-top defaults to enabled and persists across sessions", () => {
+  assert.equal(parseCompactAlwaysOnTop(null), true);
+  assert.equal(parseCompactAlwaysOnTop("invalid"), true);
+  assert.equal(parseCompactAlwaysOnTop("true"), true);
+  assert.equal(parseCompactAlwaysOnTop("false"), false);
+
+  const stored = new Map<string, string>();
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => { stored.set(key, value); },
+    },
+  });
+  try {
+    assert.equal(readCompactAlwaysOnTop(), true);
+    writeCompactAlwaysOnTop(false);
+    assert.equal(stored.get(COMPACT_ALWAYS_ON_TOP_KEY), "false");
+    assert.equal(readCompactAlwaysOnTop(), false);
+    writeCompactAlwaysOnTop(true);
+    assert.equal(stored.get(COMPACT_ALWAYS_ON_TOP_KEY), "true");
+    assert.equal(readCompactAlwaysOnTop(), true);
+    stored.set(COMPACT_ALWAYS_ON_TOP_KEY, "unexpected");
+    assert.equal(readCompactAlwaysOnTop(), true);
   } finally {
     if (originalStorage) Object.defineProperty(globalThis, "localStorage", originalStorage);
     else delete (globalThis as { localStorage?: Storage }).localStorage;

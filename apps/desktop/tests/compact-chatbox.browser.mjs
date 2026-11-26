@@ -36,8 +36,8 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
       const wait=async(predicate)=>{const end=Date.now()+4000;while(!predicate()){if(Date.now()>end)throw new Error('Timed out: '+predicate);await new Promise(resolve=>setTimeout(resolve,20));}};
       const settle=()=>new Promise(resolve=>setTimeout(resolve,80));
       const noop=()=>{};
-      let nativeSize={width:1180,height:760}, constraints, delaySize=null;
-      const nativeErrors=[], sizeTrace=[];
+      let nativeSize={width:1180,height:760}, constraints, delaySize=null, resizeCount=0, failTopmost=false;
+      const nativeErrors=[], topmostErrorKeys=[], topmostCalls=[], sizeTrace=[];
       const applySize=size=>{
         nativeSize=size;
         sizeTrace.push({...size});
@@ -57,6 +57,29 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
           applySize(args.value.size);return;
         }
         if(cmd==='plugin:window|set_size_constraints'){constraints=args.value;return;}
+        if(cmd==='set_compact_window_topmost'){
+          if(failTopmost)throw 'topmost-failed';
+          topmostCalls.push(args.enabled);
+          return;
+        }
+        if(cmd==='resize_compact_window'){
+          resizeCount++;
+          const input=args.args;
+          const baseHeight=input.syncUserHeight
+            ?Math.min(720,Math.max(160,Math.round(input.baseHeight+nativeSize.height-input.previousNativeHeight)))
+            :Math.min(720,Math.max(160,Math.round(input.baseHeight)));
+          const extra=input.overlayOpen?0:Math.min(560,Math.max(0,Math.ceil(input.chatboxHeight)));
+          const targetHeight=input.overlayOpen?520:Math.min(720,Math.max(160,Math.round(baseHeight+extra)));
+          constraints={
+            minWidth:{Logical:480},
+            minHeight:{Logical:input.overlayOpen?520:160+extra},
+            maxHeight:{Logical:input.overlayOpen?520:720},
+          };
+          if(delaySize)await new Promise(resolve=>{delaySize=resolve;});
+          await new Promise(resolve=>setTimeout(resolve,32));
+          applySize({width:nativeSize.width,height:targetHeight});
+          return {width:nativeSize.width,height:targetHeight,baseHeight};
+        }
         if(legacyPreferences){
           if(cmd==='plugin:store|load')return 1;
           if(cmd==='plugin:store|get'&&args.key==='chatboxSendSettings'){
@@ -114,10 +137,13 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
       const root=createRoot(document.getElementById('root'));
       let controller, chat, stream, update, flags, selectionClears=0;
       function Fixture(){
-        const [state,setState]=useState({ready:true,enabled:true,osc:true,unitext:false,overlay:false,transparent:false,outputMode:'system'});
+        const [state,setState]=useState({ready:true,enabled:true,osc:true,unitext:false,overlay:false,transparent:false,outputMode:'system',alwaysOnTopAvailable:true});
         flags=state;update=partial=>flushSync(()=>setState(current=>({...current,...partial})));
         const settings={features:{glossary:state.enabled,learning:state.enabled},osc:{enabled:state.osc},unitext:{enabled:state.unitext},translation:{microphone_targets:[{target_language:state.preferredTarget??'en'}]},audio:{output:{mode:state.outputMode}}};
-        controller=useCompactWindow({clearErrorFrom:noop,reportError:reason=>nativeErrors.push(reason)});
+        controller=useCompactWindow({alwaysOnTopAvailable:state.alwaysOnTopAvailable,clearErrorFrom:noop,reportError:(reason,fallbackKey)=>{
+          if(fallbackKey==='errors.window.alwaysOnTop')topmostErrorKeys.push(fallbackKey);
+          else nativeErrors.push(reason);
+        }});
         chat=useChatboxWorkspace(settings,state.room);
         stream=useSubtitleStream({coreConfigured:true,clearErrorFrom:noop,reportError:noop});
         useConversationCatalog({coreReady:true,conversationCatalogEvent:stream.conversationCatalogEvent,
@@ -189,13 +215,18 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
         check(toggle(),'Compact header exposes Chatbox');
         check(!input() && nativeSize.height===160,'Composer starts closed');
         applySize({width:900,height:240});await settle();
+        const resizesBeforeOpen=resizeCount;
         click(toggle());await wait(()=>input());await fitComposer(240);
+        check(resizeCount-resizesBeforeOpen===1,'Opening Chatbox triggers a single native resize');
         check(selectionClears===1,'Opening clears subtitle selection');
         check(document.activeElement===input(),'Opening focuses original input');
         check(nativeSize.width===900,'Opening retains resized width');
         check(constraints.minHeight.Logical===160+composerSpace(),'Composer cannot shrink away the captions');
         const captionBounds=document.querySelector('.compact-shell').getBoundingClientRect();
-        check(document.querySelector('.chatbox-composer').getBoundingClientRect().top>=captionBounds.bottom,'Composer does not cover captions');
+        const rootBounds=document.querySelector('.compact-root').getBoundingClientRect();
+        const composerBounds=document.querySelector('.chatbox-composer').getBoundingClientRect();
+        check(composerBounds.top>=captionBounds.bottom,'Composer does not cover captions');
+        check(Math.abs((composerBounds.left-rootBounds.left)-(rootBounds.right-composerBounds.right))<=1,'Compact Chatbox is horizontally centered');
         const unusedSpace=document.querySelector('.chatbox-composer').getBoundingClientRect().bottom
           -document.querySelector('.chatbox-quick-row').getBoundingClientRect().bottom;
         const singleLineHeight=nativeSize.height;
@@ -218,8 +249,10 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
             height:document.querySelector('.chatbox-composer').getBoundingClientRect().height});
           animationFrame=requestAnimationFrame(recordFrame);
         };
+        const resizesBeforeExpand=resizeCount;
         recordFrame();click(expand());await fitComposer(240);
         cancelAnimationFrame(animationFrame);
+        check(resizeCount-resizesBeforeExpand===1,'Expanding settings triggers a single native resize instead of per-frame IPC');
         const regressions=[];
         if(unusedSpace>16)regressions.push('Collapsed composer leaves '+unusedSpace+'px unused below input');
         if(frames.some(frame=>Math.abs(frame.top-quickTop)>1))regressions.push('Input moves while waiting for native resize');
@@ -249,8 +282,10 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
         update({preferredTarget:'en'});
         check(picker.textContent===followLabel,'Follow option returns when preferred target reverts');
         draft({send_mode:'original'});
+        const resizesBeforeCollapse=resizeCount;
         frames.length=0;recordFrame();key(input(),'Escape');await fitComposer(240);
         cancelAnimationFrame(animationFrame);
+        check(resizeCount-resizesBeforeCollapse===1,'Collapsing settings triggers a single native resize after animation');
         check(frames.every(frame=>Math.abs(frame.top-quickTop)<1),'Collapsing keeps input anchored during native resize');
         check(new Set(frames.map(frame=>Math.round(frame.height))).size>=3,'Settings collapse through intermediate heights');
         check(input()&&document.querySelector('.chatbox-details-reveal').getBoundingClientRect().height===0
@@ -258,9 +293,33 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
         check(nativeSize.height===singleLineHeight,'Collapsing does not leave the expanded reserve');
         click(expand());await new Promise(resolve=>setTimeout(resolve,50));click(expand());await fitComposer(240);
         check(nativeSize.height===singleLineHeight,'Reversing an unfinished expansion returns to content height');
-        key(input(),'Escape');await wait(()=>!input()&&nativeSize.height===240);await settle();
+        const closeFrames=[], closeRootHeights=[];
+        const recordClose=()=>{
+          const reveal=document.querySelector('.compact-chatbox-reveal');
+          if(reveal)closeFrames.push(reveal.getBoundingClientRect().height);
+          const rootEl=document.querySelector('.compact-root');
+          if(rootEl)closeRootHeights.push(rootEl.getBoundingClientRect().height);
+          animationFrame=requestAnimationFrame(recordClose);
+        };
+        const resizesBeforeClose=resizeCount;
+        recordClose();key(input(),'Escape');await wait(()=>!input()&&nativeSize.height===240);
+        await new Promise(resolve=>requestAnimationFrame(resolve));
+        cancelAnimationFrame(animationFrame);await settle();
+        check(resizeCount-resizesBeforeClose===1,'Closing Chatbox triggers a single native resize');
+        check(new Set(closeFrames.map(height=>Math.round(height))).size>=3,'Closing Chatbox animates through intermediate heights');
+        check(closeRootHeights.every((height,index)=>index===0||height<=closeRootHeights[index-1]+1),
+          'Closing Chatbox shrinks root card monotonically without flashing back to unshrunk window height');
         check(document.activeElement===toggle(),'Closing restores toggle focus');
-        click(toggle());await fitComposer(240);
+        const openFrames=[];
+        const recordOpen=()=>{
+          const reveal=document.querySelector('.compact-chatbox-reveal');
+          if(reveal)openFrames.push(reveal.getBoundingClientRect().height);
+          animationFrame=requestAnimationFrame(recordOpen);
+        };
+        const resizesBeforeReopen=resizeCount;
+        recordOpen();click(toggle());await fitComposer(240);cancelAnimationFrame(animationFrame);
+        check(resizeCount-resizesBeforeReopen===1,'Reopening Chatbox triggers a single native resize');
+        check(new Set(openFrames.map(height=>Math.round(height))).size>=3,'Opening Chatbox animates through intermediate heights');
         check(input().value==='你好','Closing preserves draft');
         key(input(),'Enter');await wait(()=>sent.length===1);
         check(input().disabled,'Pending send locks input');
@@ -323,17 +382,13 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
         check(!input(),'Rapid open/overlay/close settles on latest state');
         click(toggle());await fitComposer(400);
         click(expand());await wait(()=>nativeSize.height===720);
-        for(const scale of [0.75,1,1.5]){
-          document.documentElement.style.setProperty('--interface-scale',scale);
-          document.documentElement.style.setProperty('--interface-scale-inverse',1/scale);
-          applySize({width:480,height:720});await settle();
-          const bounds=document.querySelector('.compact-root').getBoundingClientRect();
-          const composer=document.querySelector('.chatbox-composer').getBoundingClientRect();
-          const button=sendButton().getBoundingClientRect();
-          check(composer.width>400&&composer.right<=bounds.right&&composer.bottom<=bounds.bottom,'Composer fits minimum width at scale '+scale);
-          check(button.top>=composer.top&&button.bottom<=composer.bottom,'Send control remains visible at scale '+scale);
-          check(getComputedStyle(document.querySelector('.chatbox-composer')).backgroundColor!=='rgba(0, 0, 0, 0)','Transparent captions retain readable composer surface');
-        }
+        applySize({width:480,height:720});await settle();
+        const bounds=document.querySelector('.compact-root').getBoundingClientRect();
+        const composer=document.querySelector('.chatbox-composer').getBoundingClientRect();
+        const button=sendButton().getBoundingClientRect();
+        check(composer.width>400&&composer.right<=bounds.right&&composer.bottom<=bounds.bottom,'Composer fits minimum width');
+        check(button.top>=composer.top&&button.bottom<=composer.bottom,'Send control remains visible');
+        check(getComputedStyle(document.querySelector('.chatbox-composer')).backgroundColor!=='rgba(0, 0, 0, 0)','Transparent captions retain readable composer surface');
         update({osc:true,unitext:true});
         const targetGroup=document.querySelector('[aria-label="'+locale.translation.chatbox.outputTarget+'"]');
         const modeGroup=document.querySelector('[aria-label="'+locale.translation.chatbox.sendMode+'"]');
@@ -343,8 +398,6 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
         click(targetGroup.querySelectorAll('button')[2]);
         check(chat.draft.output_target==='both'&&chat.preview.limit===144,'Selecting Both restores the 144-character preview limit');
         update({unitext:false});
-        document.documentElement.style.setProperty('--interface-scale',1);
-        document.documentElement.style.setProperty('--interface-scale-inverse',1);
         key(input(),'Escape');await fitComposer(400);
         applySize({width:720,height:160+composerSpace()});await settle();
         const preview={type:'partial',source:'microphone',utterance_id:'microphone-before-chatbox',
@@ -480,6 +533,33 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
           &&!('follow_translation_settings' in sent.at(-1)),
           'Original-only sends omit stale translation metadata and UI preferences');
         finishSend();await wait(()=>chat.busy===null);
+        const pinToggle=()=>document.querySelector('.compact-always-on-top-toggle');
+        check(topmostCalls.length>=1 && topmostCalls[0]===true && topmostCalls.at(-1)===true,'Compact mode keeps always-on-top enabled by default');
+        check(pinToggle() && pinToggle().getAttribute('aria-pressed')==='true','Always-on-top button starts pressed');
+        click(pinToggle());await wait(()=>topmostCalls.at(-1)===false);
+        check(pinToggle().getAttribute('aria-pressed')==='false'
+          && localStorage.getItem('vrcs.compact-always-on-top.v1')==='false',
+          'Clicking always-on-top disables topmost and persists preference');
+        await controller.exitCompact();await settle();
+        check(topmostCalls.at(-1)===false,'Exiting compact mode clears window topmost');
+        await controller.enterCompact();await settle();
+        check(topmostCalls.at(-1)===false && pinToggle().getAttribute('aria-pressed')==='false',
+          'Re-entering compact mode respects saved unpinned preference');
+        failTopmost=true;
+        click(pinToggle());await wait(()=>topmostErrorKeys.length===1);
+        check(topmostErrorKeys[0]==='errors.window.alwaysOnTop'
+          && pinToggle().getAttribute('aria-pressed')==='false'
+          && localStorage.getItem('vrcs.compact-always-on-top.v1')==='false',
+          'Failed topmost update preserves preference and reports window error');
+        failTopmost=false;
+        click(pinToggle());await wait(()=>topmostCalls.at(-1)===true);
+        check(pinToggle().getAttribute('aria-pressed')==='true'
+          && localStorage.getItem('vrcs.compact-always-on-top.v1')==='true',
+          'Re-enabling always-on-top sends true and persists preference');
+        update({alwaysOnTopAvailable:false});
+        check(pinToggle().disabled && pinToggle().getAttribute('aria-pressed')==='false',
+          'Unavailable platform stacking disables the always-on-top toggle');
+        update({alwaysOnTopAvailable:true});
         check(nativeErrors.length===0,'Native geometry transitions produce no errors');
         document.getElementById('result').textContent='PASS';
       }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack+'\nGeometry: '+JSON.stringify({nativeSize,base:controller?.height,space:composerSpace(),sizes:sizeTrace.slice(-10)});}

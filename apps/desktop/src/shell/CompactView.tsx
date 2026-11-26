@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
-import { Check, Maximize2, MessageSquare, Mic, Radar, ScrollText, Square, Users, X } from "lucide-react";
+import { Check, Maximize2, MessageSquare, Mic, Pin, PinOff, Radar, ScrollText, Square, Users, X } from "lucide-react";
 
 import type { LookupOrigin, SelectionTarget } from "../app/app-types";
 import type { LiveTranscription } from "../capture/types";
@@ -21,13 +21,16 @@ import { CompactBackgroundControls, CompactWindowIcon } from "./CompactBackgroun
 const EMPTY_PREVIEWS: LiveTranscription[] = [];
 const EMPTY_FILTER: readonly string[] = [];
 
-export function CompactView({ transparentBackground, onToggleBackground, backgroundOpacity, onBackgroundOpacityChange, fontSize, onFontSizeChange, subtitles, subtitleHistory, playerName, selectionTarget, playerLimit, displayMode, onToggleDisplayMode, hiddenTracks = EMPTY_FILTER, hiddenSourceLanguages = EMPTY_FILTER, onCaptionHeight, running, vrchatMuted, captureDisabled, captureReason, networkCaptureVisible = false, networkCaptureRunning = false, networkCaptureDisabled = false, onNetworkCapture, chatboxOpen, chatboxDisabled, chatboxButtonRef, onChatbox, onSelect, onCapture, onRestore, onClose, onResize }: {
+export function CompactView({ transparentBackground, onToggleBackground, backgroundOpacity, onBackgroundOpacityChange, fontSize, onFontSizeChange, alwaysOnTop = true, alwaysOnTopDisabled = false, onToggleAlwaysOnTop, subtitles, subtitleHistory, playerName, selectionTarget, playerLimit, displayMode, onToggleDisplayMode, hiddenTracks = EMPTY_FILTER, hiddenSourceLanguages = EMPTY_FILTER, onCaptionHeight, running, vrchatMuted, captureDisabled, captureReason, networkCaptureVisible = false, networkCaptureRunning = false, networkCaptureDisabled = false, onNetworkCapture, chatboxOpen, chatboxDisabled, chatboxButtonRef, onChatbox, onSelect, onCapture, onRestore, onClose, onResize }: {
   transparentBackground: boolean;
   onToggleBackground: () => void;
   backgroundOpacity: number;
   onBackgroundOpacityChange: (value: number) => void;
   fontSize: CompactFontSize;
   onFontSizeChange: (size: CompactFontSize) => void;
+  alwaysOnTop?: boolean;
+  alwaysOnTopDisabled?: boolean;
+  onToggleAlwaysOnTop?: () => void;
   subtitles: Subtitle[];
   subtitleHistory: Subtitle[];
   playerName?: string;
@@ -89,40 +92,97 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
   });
   const captionTracks = layout.visibleGroups.filter(group => group.source !== "chatbox").length;
   const minimumRows = captionTracks + Number(layout.visibleGroups.some(group => group.source === "chatbox"));
+  const wasParallelRef = useRef(false);
   useEffect(() => {
-    if (layout.parallel && !layout.frozen) {
+    if (layout.frozen) return;
+    if (layout.parallel) {
+      wasParallelRef.current = true;
       void onCaptionHeight?.(playerCaptionMinimumHeight(minimumRows, fontSize));
+    } else if (wasParallelRef.current) {
+      wasParallelRef.current = false;
+      void onCaptionHeight?.(0);
     }
   }, [layout.parallel, layout.frozen, minimumRows, fontSize, onCaptionHeight]);
   const latest = layout.visibleGroups.at(-1);
+  const visibleKeys = layout.visibleGroups.map(group => group.key).join("\0");
   const followingRef = useRef(true);
   const previousLatestKeyRef = useRef<string | undefined>(undefined);
+  const followTailRef = useRef<(() => void) | null>(null);
   useLayoutEffect(() => {
     if (layout.scrollable) followingRef.current = true;
   }, [fixedPlayerMode, scrollPlayerMode, layout.scrollable]);
   useLayoutEffect(() => {
-    const stack = stackRef.current;
-    if (!layout.scrollable || layout.frozen || !stack) return;
+    if (!layout.scrollable || layout.frozen) return;
     if (previousLatestKeyRef.current !== latest?.key) {
       previousLatestKeyRef.current = latest?.key;
       if (latest?.source === "chatbox") followingRef.current = true;
     }
-    const followTail = () => { if (followingRef.current) stack.scrollTop = stack.scrollHeight; };
-    const trackScroll = () => { followingRef.current = stack.scrollHeight - stack.scrollTop - stack.clientHeight <= 4; };
+    followTailRef.current?.();
+  }, [layout.scrollable, layout.frozen, latest?.key, latest?.source, visibleKeys]);
+  const stackObserverRef = useRef<ResizeObserver | null>(null);
+  const observedRowsRef = useRef(new Set<Element>());
+  useLayoutEffect(() => {
+    const stack = stackRef.current;
+    if (!layout.scrollable || layout.frozen || !stack) {
+      followTailRef.current = null;
+      return;
+    }
+    let lastScrollTop = stack.scrollTop;
+    const followTail = () => {
+      if (!followingRef.current) return;
+      stack.scrollTop = stack.scrollHeight;
+      lastScrollTop = stack.scrollTop;
+    };
+    followTailRef.current = followTail;
+    const trackScroll = () => {
+      const atBottom = stack.scrollHeight - stack.scrollTop - stack.clientHeight <= 4;
+      if (atBottom) followingRef.current = true;
+      else if (stack.scrollTop < lastScrollTop) followingRef.current = false;
+      lastScrollTop = stack.scrollTop;
+    };
     followTail();
     const observer = new ResizeObserver(followTail);
+    stackObserverRef.current = observer;
     observer.observe(stack);
-    for (const row of stack.children) observer.observe(row);
+    for (const row of stack.children) {
+      observer.observe(row);
+      observedRowsRef.current.add(row);
+    }
     stack.addEventListener("scroll", trackScroll);
     return () => {
+      followTailRef.current = null;
+      stackObserverRef.current = null;
+      observedRowsRef.current.clear();
       observer.disconnect();
       stack.removeEventListener("scroll", trackScroll);
     };
-  }, [layout.scrollable, layout.frozen, latest?.key, latest?.source, layout.visibleGroups.length]);
+  }, [layout.scrollable, layout.frozen]);
+  useLayoutEffect(() => {
+    const stack = stackRef.current;
+    const observer = stackObserverRef.current;
+    if (!layout.scrollable || layout.frozen || !stack || !observer) return;
+    const currentRows = new Set<Element>(stack.children);
+    for (const row of observedRowsRef.current) {
+      if (!currentRows.has(row)) {
+        observer.unobserve(row);
+        observedRowsRef.current.delete(row);
+      }
+    }
+    for (const row of currentRows) {
+      if (!observedRowsRef.current.has(row)) {
+        observer.observe(row);
+        observedRowsRef.current.add(row);
+      }
+    }
+  }, [layout.scrollable, layout.frozen, visibleKeys]);
   const statusLabel = vrchatMuted ? t("status.pausedVrchatMuted") : latest?.language?.toUpperCase() ?? "AUTO";
   const captureLabel = t(running ? "capture.pause" : "capture.start");
   const networkLabel = t(networkCaptureRunning ? "capture.networkStop" : "capture.networkStart");
   const displayModeLabel = t(fixedPlayerMode ? "window.compactModeScroll" : "window.compactModeFixed");
+  const pinned = !alwaysOnTopDisabled && alwaysOnTop !== false;
+  const alwaysOnTopLabel = alwaysOnTopDisabled
+    ? t("platform.window_stacking_unavailable")
+    : t(pinned ? "window.alwaysOnTopDisable" : "window.alwaysOnTopEnable");
   return (
     <div className="compact-shell">
       <header className="compact-header" data-tauri-drag-region>
@@ -151,6 +211,19 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
           <CompactFontMenu value={fontSize} onChange={onFontSizeChange} />
           <CompactBackgroundControls transparentBackground={transparentBackground} onToggleBackground={onToggleBackground}
             opacity={backgroundOpacity} onOpacityChange={onBackgroundOpacityChange} />
+          {onToggleAlwaysOnTop && (
+            <button
+              type="button"
+              className="compact-always-on-top-toggle"
+              aria-label={alwaysOnTopLabel}
+              data-tooltip={alwaysOnTopLabel}
+              aria-pressed={pinned}
+              disabled={alwaysOnTopDisabled}
+              onClick={onToggleAlwaysOnTop}
+            >
+              <CompactWindowIcon icon={pinned ? Pin : PinOff} />
+            </button>
+          )}
           <button type="button" aria-label={t("window.restore")} data-tooltip={t("window.restore")} onClick={onRestore}><CompactWindowIcon icon={Maximize2} /></button>
           <button className="compact-close-button" type="button" aria-label={t("window.close")} data-tooltip={t("window.close")} onClick={onClose}><CompactWindowIcon icon={X} /></button>
         </div>
@@ -172,15 +245,17 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
               </div>
             )}
           </div>
-          <div ref={layout.measureRef} className="compact-measurements" aria-hidden="true" inert>
-            {layout.measurementGroups.map((group, index) => (
-              <div key={group.key} className={`compact-subtitle-row ${index === layout.measurementGroups.length - 1 ? "compact-subtitle-current" : "compact-subtitle-history"}`}>
-                <CompactSpeaker speaker={group.speaker} source={group.source} playerName={playerName} />
-                {group.text && <p className="compact-original" lang={contentLanguageTag(group.language)}>{group.text}</p>}
-                {group.translation && <p className="compact-translation" lang={contentLanguageTag(group.targetLanguage)}>{group.translation}{group.streaming && <span className="streaming-ellipsis">…</span>}</p>}
-              </div>
-            ))}
-          </div>
+          {layout.measurementGroups.length > 0 && !layout.scrollable && (
+            <div ref={layout.measureRef} className="compact-measurements" aria-hidden="true" inert>
+              {layout.measurementGroups.map((group, index) => (
+                <div key={group.key} className={`compact-subtitle-row ${index === layout.measurementGroups.length - 1 ? "compact-subtitle-current" : "compact-subtitle-history"}`}>
+                  <CompactSpeaker speaker={group.speaker} source={group.source} playerName={playerName} />
+                  {group.text && <p className="compact-original" lang={contentLanguageTag(group.language)}>{group.text}</p>}
+                  {group.translation && <p className="compact-translation" lang={contentLanguageTag(group.targetLanguage)}>{group.translation}{group.streaming && <span className="streaming-ellipsis">…</span>}</p>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <div className="compact-actions">
           {networkCaptureVisible && onNetworkCapture && (

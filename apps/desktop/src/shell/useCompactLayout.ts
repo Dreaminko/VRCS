@@ -154,10 +154,12 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
-  const [availableHeight, setAvailableHeight] = useState(window.innerHeight);
   const preset = COMPACT_FONT_PRESETS[fontSize];
+  const minLineHeight = Math.min(preset.originalLine, preset.translationLine);
   // A nonempty group takes at least one line. This only bounds DOM work.
-  const viewportLimit = Math.ceil(availableHeight / Math.min(preset.originalLine, preset.translationLine)) + 1;
+  const [viewportLimit, setViewportLimit] = useState(() => Math.ceil(window.innerHeight / minLineHeight) + 1);
+  const viewportLimitRef = useRef(viewportLimit);
+  viewportLimitRef.current = viewportLimit;
   const limit = scrollStream ? Math.max(viewportLimit, COMPACT_SCROLL_HISTORY_LIMIT) : viewportLimit;
   const candidates = useCandidateGroups(subtitles, previews, limit, perPlayer);
   const [selectionFrozen, setSelectionFrozen] = useState(false);
@@ -239,8 +241,7 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
     frameRef.current = null;
     const viewport = contentRef.current;
-    const measure = measureRef.current;
-    if (!viewport || !measure) return;
+    if (!viewport) return;
     const {
       groups: currentGroups,
       fontSize: currentFontSize,
@@ -253,18 +254,19 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
     } = layoutInputsRef.current;
     const width = viewport.clientWidth;
     const height = viewport.clientHeight;
-    setAvailableHeight((previous) => previous === height ? previous : height);
     if (!width || !height) return;
+    const nextViewportLimit = Math.ceil(height / Math.min(currentPreset.originalLine, currentPreset.translationLine)) + 1;
+    if (nextViewportLimit !== viewportLimitRef.current) {
+      setViewportLimit(nextViewportLimit);
+    }
     const geometry = `${width}:${height}:${currentFontSize}:${currentTransparentBackground}:${currentPerPlayer}:${currentScrollStream}`;
     if ((currentFrozen || freezeRef.current) && geometryRef.current === geometry
       && measuredSelectionRef.current === currentSelectionTarget) return;
-    const rows = Array.from(measure.children) as HTMLElement[];
-    if (rows.length !== currentGroups.length) return;
     const chatboxStart = currentGroups.findIndex(group => group.source === "chatbox");
     const scrollable = !currentFrozen && (currentScrollStream || chatboxStart >= 0);
     geometryRef.current = geometry;
     measuredSelectionRef.current = currentSelectionTarget;
-    if (!currentFrozen && currentScrollStream) {
+    if (!currentFrozen && scrollable) {
       setLayout(previous => sameGroups(previous.groups, currentGroups) && !previous.parallel
         && previous.scrollable === true && previous.latestBudget === undefined
         ? previous : { groups: currentGroups, latestBudget: undefined, scrollable: true });
@@ -277,6 +279,16 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
         ? previous : { groups: currentGroups, latestBudget: budget, parallel: true, scrollable });
       return;
     }
+    if (!currentGroups.length) {
+      setLayout((previous) => (!previous.groups.length && !previous.parallel && !previous.scrollable
+        && previous.latestBudget === undefined
+        ? previous : { groups: [], latestBudget: undefined, scrollable: false }));
+      return;
+    }
+    const measure = measureRef.current;
+    if (!measure) return;
+    const rows = Array.from(measure.children) as HTMLElement[];
+    if (rows.length !== currentGroups.length) return;
     const heights = rows.map((row) => row.getBoundingClientRect().height);
     let count = fitRecentGroups(heights, height);
     let latestBudget: CompactTextBudget | undefined;
@@ -304,13 +316,18 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
     if (frameRef.current === null) frameRef.current = requestAnimationFrame(reflow);
   }, [reflow]);
 
+  const hasChatbox = groups.some((group) => group.source === "chatbox");
+  const needsMeasurement = frozen
+    || (!scrollStream && !hasChatbox && !(perPlayer && groups.length > 1));
+  const showMeasurements = needsMeasurement && groups.length > 0 && !layout.scrollable;
+
   useLayoutEffect(() => {
     const viewport = contentRef.current;
     const measure = measureRef.current;
-    if (!viewport || !measure) return;
+    if (!viewport) return;
     const observer = new ResizeObserver(scheduleReflow);
     observer.observe(viewport);
-    observer.observe(measure);
+    if (measure) observer.observe(measure);
     let disposed = false;
     // Font changes can affect wrapping even when the measurement layer's total height is unchanged.
     const fontsChanged = () => {
@@ -327,17 +344,15 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
     };
-  }, [scheduleReflow]);
+  }, [scheduleReflow, showMeasurements]);
 
   useLayoutEffect(() => {
-    // Commit the selected group before paint, even when native resizing has not
-    // changed the viewport yet. A frozen list must never hide the lookup target.
-    if (measuredSelectionRef.current !== selectionTarget) reflow();
-    else scheduleReflow();
-  }, [groups, fontSize, frozen, selectionTarget, transparentBackground, perPlayer, scrollStream, reflow, scheduleReflow]);
+    // Commit measured layout before paint instead of lagging behind measurement by a frame.
+    reflow();
+  }, [groups, fontSize, frozen, selectionTarget, transparentBackground, perPlayer, scrollStream, reflow]);
 
   return {
-    contentRef, measureRef, measurementGroups: groups,
+    contentRef, measureRef, measurementGroups: needsMeasurement ? groups : [],
     visibleGroups: layout.groups, parallel: layout.parallel, scrollable: layout.scrollable, latestBudget: layout.latestBudget, frozen,
   };
 }

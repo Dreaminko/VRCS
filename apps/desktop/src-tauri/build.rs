@@ -24,6 +24,7 @@ const COMMANDS: &[&str] = &[
     "download_and_install_update",
     "update_native_labels",
     "set_compact_window_topmost",
+    "resize_compact_window",
     "vr_overlay_status",
     "vr_overlay_retry",
     "vr_ocr_open_bindings",

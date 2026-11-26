@@ -33,7 +33,9 @@
 
   .chatbox-details-reveal,
   .chatbox-details,
-  .chatbox-expand-chevron {
+  .chatbox-expand-chevron,
+  .compact-chatbox-reveal,
+  .compact-chatbox {
     transition: none;
   }
 }

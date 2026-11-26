@@ -7,9 +7,30 @@ export const COMPACT_PANEL_WINDOW_SIZE = { width: 720, height: 520 } as const;
 export const COMPACT_WINDOW_MIN_WIDTH = 480;
 export const COMPACT_WINDOW_MAX_HEIGHT = 720;
 export const COMPACT_DISPLAY_MODE_KEY = "vrcs.compact-display-mode.v1";
+export const COMPACT_ALWAYS_ON_TOP_KEY = "vrcs.compact-always-on-top.v1";
 export const COMPACT_SCROLL_HISTORY_LIMIT = 50;
 
 export type CompactDisplayMode = "scroll" | "fixed";
+
+export function parseCompactAlwaysOnTop(value: string | null | undefined): boolean {
+  return value !== "false";
+}
+
+export function readCompactAlwaysOnTop(): boolean {
+  try {
+    return parseCompactAlwaysOnTop(globalThis.localStorage?.getItem(COMPACT_ALWAYS_ON_TOP_KEY));
+  } catch {
+    return true;
+  }
+}
+
+export function writeCompactAlwaysOnTop(enabled: boolean): void {
+  try {
+    globalThis.localStorage?.setItem(COMPACT_ALWAYS_ON_TOP_KEY, enabled ? "true" : "false");
+  } catch {
+    /* Keep compact mode usable when browser storage is unavailable. */
+  }
+}
 
 export function parseCompactDisplayMode(value: string | null | undefined): CompactDisplayMode {
   return value === "scroll" ? "scroll" : "fixed";

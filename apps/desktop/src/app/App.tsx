@@ -70,46 +70,43 @@ function App() {
     return () => document.removeEventListener("contextmenu", preventBrowserContextMenu);
   }, []);
 
-  let view;
-  if (workspace.onboarding.status !== "complete") {
-    view = (
-      <OnboardingEntry
-        onboarding={workspace.onboarding}
-        runtime={workspace.runtime}
-        capture={workspace.capture}
-        settings={workspace.settings}
-      />
-    );
-  } else if (workspace.compact.compact) {
-    view = (
-      <CompactEntry
-        playerDisplay={workspace.playerDisplay}
-        compact={workspace.compact}
-        runtime={workspace.runtime}
-        capture={workspace.capture}
-        settings={workspace.settings}
-        selection={workspace.selection}
-        learning={workspace.learning}
-        chatbox={workspace.chatbox}
-        providers={workspace.providers}
-      />
-    );
-  } else {
-    view = (
-      <DesktopShell
-        page={page}
-        settingsInitialCategory={settingsInitialCategory}
-        setPage={setPage}
-        setSettingsInitialCategory={setSettingsInitialCategory}
-        workspace={workspace}
-      />
-    );
-  }
+  const onboardingComplete = workspace.onboarding.status === "complete";
+  const compactActive = onboardingComplete && workspace.compact.compact;
 
   return (
     <PlatformCapabilitiesContext.Provider value={workspace.runtime.capabilities}>
       {controlEpoch > 0 && <VrPlayerDisplayBridge epoch={controlEpoch} workspace={workspace} />}
-      {view}
+      {!onboardingComplete && (
+        <OnboardingEntry
+          onboarding={workspace.onboarding}
+          runtime={workspace.runtime}
+          capture={workspace.capture}
+          settings={workspace.settings}
+        />
+      )}
+      {onboardingComplete && (
+        <DesktopShell
+          hidden={compactActive}
+          page={page}
+          settingsInitialCategory={settingsInitialCategory}
+          setPage={setPage}
+          setSettingsInitialCategory={setSettingsInitialCategory}
+          workspace={workspace}
+        />
+      )}
+      {compactActive && (
+        <CompactEntry
+          playerDisplay={workspace.playerDisplay}
+          compact={workspace.compact}
+          runtime={workspace.runtime}
+          capture={workspace.capture}
+          settings={workspace.settings}
+          selection={workspace.selection}
+          learning={workspace.learning}
+          chatbox={workspace.chatbox}
+          providers={workspace.providers}
+        />
+      )}
       {workspace.capture.playerAudioStart.notice && <PlayerAudioStartDialog
         openedAt={workspace.capture.playerAudioStart.notice.openedAt} os={platformOs} onDecision={workspace.capture.playerAudioStart.decide} />}
       {workspace.capture.playerAudioStart.memory.dialog && <MemoryCompressionDialog memory={workspace.capture.playerAudioStart.memory} />}

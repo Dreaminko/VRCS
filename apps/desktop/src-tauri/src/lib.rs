@@ -15,7 +15,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, RunEvent, State, WindowEvent};
@@ -128,9 +128,77 @@ fn retry_core(app: tauri::AppHandle) -> Result<(), String> {
     launch_core(&app)
 }
 
+pub(crate) fn sanitize_default_filename(name: &str, fallback: &str) -> String {
+    let candidate = name.rsplit(['/', '\\']).next().unwrap_or("").trim();
+    let cleaned: String = candidate
+        .chars()
+        .filter(|ch| !ch.is_control())
+        .map(|ch| match ch {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            other => other,
+        })
+        .collect();
+    let cleaned = cleaned.trim_matches(['.', ' ']);
+    let trimmed: String = cleaned.chars().take(128).collect();
+    let stem = trimmed.split('.').next().unwrap_or("");
+    let reserved = matches!(
+        stem.to_ascii_uppercase().as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    );
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        fallback.to_string()
+    } else if reserved {
+        format!("_{trimmed}")
+    } else {
+        trimmed
+    }
+}
+
 #[tauri::command]
-fn write_glossary_file(path: PathBuf, contents: String) -> Result<(), String> {
-    std::fs::write(path, contents.as_bytes()).map_err(|error| error.to_string())
+async fn write_glossary_file(
+    app: tauri::AppHandle,
+    default_name: String,
+    contents: String,
+) -> Result<bool, String> {
+    let file_name = sanitize_default_filename(&default_name, "glossary.json");
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt as _;
+        let Some(selected) = app
+            .dialog()
+            .file()
+            .set_file_name(&file_name)
+            .add_filter("JSON", &["json"])
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        let path = selected.into_path().map_err(|error| error.to_string())?;
+        std::fs::write(path, contents.as_bytes()).map_err(|error| error.to_string())?;
+        Ok(true)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -380,6 +448,121 @@ fn apply_compact_topmost(
     Ok(())
 }
 
+const COMPACT_WINDOW_MIN_WIDTH: f64 = 480.0;
+const COMPACT_WINDOW_MIN_HEIGHT: f64 = 160.0;
+const COMPACT_WINDOW_MAX_HEIGHT: f64 = 720.0;
+const COMPACT_PANEL_WINDOW_HEIGHT: f64 = 520.0;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CompactWindowResizeArgs {
+    base_height: f64,
+    chatbox_height: f64,
+    overlay_open: bool,
+    sync_user_height: bool,
+    previous_native_height: f64,
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CompactWindowResizeResult {
+    width: f64,
+    height: f64,
+    base_height: f64,
+}
+
+fn logical_constraints(min_height: f64, max_height: f64) -> tauri::WindowSizeConstraints {
+    tauri::WindowSizeConstraints {
+        min_width: Some(tauri::PixelUnit::Logical(tauri::LogicalUnit(
+            COMPACT_WINDOW_MIN_WIDTH,
+        ))),
+        min_height: Some(tauri::PixelUnit::Logical(tauri::LogicalUnit(min_height))),
+        max_width: None,
+        max_height: Some(tauri::PixelUnit::Logical(tauri::LogicalUnit(max_height))),
+    }
+}
+
+fn compute_compact_window_resize(
+    current_width: f64,
+    current_height: f64,
+    args: &CompactWindowResizeArgs,
+) -> (CompactWindowResizeResult, tauri::WindowSizeConstraints) {
+    let base_height = if args.sync_user_height {
+        (args.base_height + current_height - args.previous_native_height)
+            .round()
+            .clamp(COMPACT_WINDOW_MIN_HEIGHT, COMPACT_WINDOW_MAX_HEIGHT)
+    } else {
+        args.base_height
+            .round()
+            .clamp(COMPACT_WINDOW_MIN_HEIGHT, COMPACT_WINDOW_MAX_HEIGHT)
+    };
+    let (target_height, constraints) = if args.overlay_open {
+        (
+            COMPACT_PANEL_WINDOW_HEIGHT,
+            logical_constraints(COMPACT_PANEL_WINDOW_HEIGHT, COMPACT_PANEL_WINDOW_HEIGHT),
+        )
+    } else {
+        let extra = args
+            .chatbox_height
+            .ceil()
+            .clamp(0.0, COMPACT_WINDOW_MAX_HEIGHT - COMPACT_WINDOW_MIN_HEIGHT);
+        let target = (base_height + extra)
+            .round()
+            .clamp(COMPACT_WINDOW_MIN_HEIGHT, COMPACT_WINDOW_MAX_HEIGHT);
+        (
+            target,
+            logical_constraints(COMPACT_WINDOW_MIN_HEIGHT + extra, COMPACT_WINDOW_MAX_HEIGHT),
+        )
+    };
+    (
+        CompactWindowResizeResult {
+            width: current_width,
+            height: target_height,
+            base_height,
+        },
+        constraints,
+    )
+}
+
+#[tauri::command]
+fn resize_compact_window(
+    window: tauri::WebviewWindow,
+    args: CompactWindowResizeArgs,
+) -> Result<CompactWindowResizeResult, String> {
+    let inner_size = window.inner_size().map_err(|error| error.to_string())?;
+    let scale_factor = window.scale_factor().map_err(|error| error.to_string())?;
+    let current_width = f64::from(inner_size.width) / scale_factor;
+    let current_height = f64::from(inner_size.height) / scale_factor;
+    let (result, constraints) = compute_compact_window_resize(current_width, current_height, &args);
+    let target_size = tauri::Size::Logical(tauri::LogicalSize::new(result.width, result.height));
+    if result.height > current_height {
+        if current_height <= COMPACT_PANEL_WINDOW_HEIGHT + 1.0
+            && result.height > COMPACT_PANEL_WINDOW_HEIGHT
+        {
+            window
+                .set_size_constraints(logical_constraints(
+                    COMPACT_WINDOW_MIN_HEIGHT,
+                    COMPACT_WINDOW_MAX_HEIGHT,
+                ))
+                .map_err(|error| error.to_string())?;
+        }
+        window
+            .set_size(target_size)
+            .map_err(|error| error.to_string())?;
+        window
+            .set_size_constraints(constraints)
+            .map_err(|error| error.to_string())?;
+    } else {
+        window
+            .set_size_constraints(constraints)
+            .map_err(|error| error.to_string())?;
+        window
+            .set_size(target_size)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(result)
+}
+
 #[tauri::command]
 fn set_compact_window_topmost(
     window: tauri::WebviewWindow,
@@ -467,12 +650,17 @@ pub(crate) fn prepare_for_exit(app: &tauri::AppHandle) {
     }
     app.state::<desktop_ocr::Manager>().stop();
     app.state::<desktop_vision::Manager>().stop();
-    app.state::<vr_overlay::Manager>().stop();
+    let vr_stopped = app.state::<vr_overlay::Manager>().stop();
+    let _ = vr_stopped;
     #[cfg(any(windows, linux_vr))]
-    if let Some(hosts) = app.try_state::<vr_overlay::surface::NativeHostManager>()
-        && let Err(error) = hosts.finish_shutdown(std::time::Duration::from_secs(5))
-    {
-        tracing::warn!("{error}");
+    if vr_stopped {
+        if let Some(hosts) = app.try_state::<vr_overlay::surface::NativeHostManager>()
+            && let Err(error) = hosts.finish_shutdown(std::time::Duration::from_secs(5))
+        {
+            tracing::warn!("{error}");
+        }
+    } else {
+        tracing::warn!("Skipping native surface host teardown while VR worker is still blocked");
     }
     stop_core(app);
 }
@@ -529,6 +717,27 @@ fn stop_core(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(windows)]
+fn launch_as_administrator_enabled() -> bool {
+    let Some(app_data) = std::env::var_os("APPDATA") else {
+        return false;
+    };
+    let path = std::path::PathBuf::from(app_data)
+        .join("app.vrcs.desktop")
+        .join("preferences.json");
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    serde_json::from_str::<serde_json::Value>(&raw)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("runAsAdministrator")
+                .and_then(serde_json::Value::as_bool)
+        })
+        .unwrap_or(false)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let resume_player_audio = match player_audio_elevation::startup() {
@@ -548,6 +757,18 @@ pub fn run() {
     };
     let diagnostic_state = diagnostics::DiagnosticState::new(log_dir.clone());
     diagnostics::install_panic_hook(diagnostic_state.clone());
+
+    #[cfg(windows)]
+    if launch_as_administrator_enabled() {
+        match player_audio_elevation::relaunch_for_startup() {
+            Ok(player_audio_elevation::Outcome::Relaunching) => return,
+            Ok(_) => {}
+            Err(error) => tracing::warn!(
+                %error,
+                "Default administrator launch failed; continuing without elevation"
+            ),
+        }
+    }
 
     let connection = core_connection_config();
     let setup_connection = connection.clone();
@@ -601,6 +822,7 @@ pub fn run() {
             app_updates::download_and_install_update,
             update_native_labels,
             set_compact_window_topmost,
+            resize_compact_window,
             vr_overlay::vr_overlay_status,
             vr_overlay::vr_overlay_retry,
             vr_overlay::vr_ocr_open_bindings,
@@ -754,25 +976,6 @@ pub fn run() {
                 }
             }
             launch_core(app.handle()).map_err(std::io::Error::other)?;
-            #[cfg(windows)]
-            if app
-                .store("preferences.json")?
-                .get("runAsAdministrator")
-                .and_then(|value| value.as_bool())
-                .unwrap_or(false)
-            {
-                let app = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Err(error) = player_audio_elevation::player_audio_ensure_privileges(
-                        app,
-                        player_audio_elevation::Action::LaunchApp,
-                    )
-                    .await
-                    {
-                        tracing::warn!(%error, "Default administrator launch failed; continuing without elevation");
-                    }
-                });
-            }
             Ok(())
         })
         .on_page_load(|webview, payload| {
@@ -816,10 +1019,6 @@ pub fn run() {
                 ) {
                     desktop_capture::finish_shortcut_recording(window.app_handle());
                 }
-                if matches!(event, WindowEvent::Focused(false))
-                    && let Some(window) = window.app_handle().get_webview_window("main") {
-                        reassert_compact_topmost(&window, "focus_lost");
-                    }
                 if let WindowEvent::CloseRequested { api, .. } = event
                     && minimize_to_tray_enabled(window.app_handle()) {
                         api.prevent_close();
@@ -871,7 +1070,11 @@ pub fn release_self_test() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_CORE_PORT, core_connection_config, project_link};
+    use super::{
+        CompactWindowResizeArgs, CompactWindowResizeResult, DEFAULT_CORE_PORT,
+        compute_compact_window_resize, core_connection_config, project_link,
+        sanitize_default_filename,
+    };
 
     const CAPABILITIES: &str = include_str!("../capabilities/default.json");
 
@@ -950,5 +1153,84 @@ mod tests {
         assert_eq!(DEFAULT_CORE_PORT, 8766);
         assert!(![8765, 9000, 9001].contains(&DEFAULT_CORE_PORT));
         assert!(!core_connection_config().token.is_empty());
+    }
+
+    #[test]
+    fn resize_compact_window_computes_bounds_and_syncs_user_height() {
+        let (result, constraints) = compute_compact_window_resize(
+            720.0,
+            160.0,
+            &CompactWindowResizeArgs {
+                base_height: 160.0,
+                chatbox_height: 70.0,
+                overlay_open: false,
+                sync_user_height: true,
+                previous_native_height: 160.0,
+            },
+        );
+        assert_eq!(
+            result,
+            CompactWindowResizeResult {
+                width: 720.0,
+                height: 230.0,
+                base_height: 160.0,
+            }
+        );
+        assert_eq!(
+            constraints.min_height,
+            Some(tauri::PixelUnit::Logical(tauri::LogicalUnit(230.0)))
+        );
+        assert_eq!(
+            constraints.max_height,
+            Some(tauri::PixelUnit::Logical(tauri::LogicalUnit(720.0)))
+        );
+
+        let (capped, _) = compute_compact_window_resize(
+            880.0,
+            600.0,
+            &CompactWindowResizeArgs {
+                base_height: 500.0,
+                chatbox_height: 300.0,
+                overlay_open: false,
+                sync_user_height: true,
+                previous_native_height: 500.0,
+            },
+        );
+        assert_eq!(capped.base_height, 600.0);
+        assert_eq!(capped.height, 720.0);
+
+        let (overlay, overlay_constraints) = compute_compact_window_resize(
+            880.0,
+            240.0,
+            &CompactWindowResizeArgs {
+                base_height: 240.0,
+                chatbox_height: 0.0,
+                overlay_open: true,
+                sync_user_height: false,
+                previous_native_height: 240.0,
+            },
+        );
+        assert_eq!(overlay.height, 520.0);
+        assert_eq!(
+            overlay_constraints.min_height,
+            Some(tauri::PixelUnit::Logical(tauri::LogicalUnit(520.0)))
+        );
+        assert_eq!(
+            overlay_constraints.max_height,
+            Some(tauri::PixelUnit::Logical(tauri::LogicalUnit(520.0)))
+        );
+    }
+
+    #[test]
+    fn sanitize_default_filename_strips_paths_and_controls() {
+        assert_eq!(
+            sanitize_default_filename("../nested/my report?.json", "fallback.json"),
+            "my report_.json"
+        );
+        assert_eq!(
+            sanitize_default_filename("...///\\", "fallback.json"),
+            "fallback.json"
+        );
+        assert_eq!(sanitize_default_filename("COM1", "fallback.txt"), "_COM1");
     }
 }
