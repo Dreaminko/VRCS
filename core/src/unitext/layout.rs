@@ -20,6 +20,7 @@ struct DisplayEntry {
     speaker_color: u8,
     original: String,
     translation: Option<String>,
+    preserve_original_override: Option<bool>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -80,7 +81,7 @@ impl UniTextLayout {
         }
         self.self_player_name = next.clone();
         for entry in &mut self.entries {
-            if entry.source == "microphone" {
+            if is_self_source(&entry.source) {
                 entry.speaker_name = next.clone();
             }
         }
@@ -128,6 +129,7 @@ impl UniTextLayout {
                 speaker_color,
                 original: text,
                 translation: None,
+                preserve_original_override: None,
             });
             if self.entries.len() > MAX_ENTRIES {
                 let drop_count = self.entries.len() - MAX_ENTRIES;
@@ -210,6 +212,7 @@ impl UniTextLayout {
                 speaker_color,
                 original,
                 translation: translated,
+                preserve_original_override: None,
             });
             if self.entries.len() > MAX_ENTRIES {
                 let drop_count = self.entries.len() - MAX_ENTRIES;
@@ -218,6 +221,36 @@ impl UniTextLayout {
             has_trans
         };
         self.status = if has_translation { 0 } else { 2 };
+    }
+
+    pub(crate) fn upsert_manual_chatbox(
+        &mut self,
+        key: String,
+        original: String,
+        translation: Option<String>,
+        preserve_original_override: Option<bool>,
+    ) {
+        let seq = self.next_seq;
+        self.next_seq += 1;
+        self.entries.push(DisplayEntry {
+            seq,
+            key,
+            utterance_id: None,
+            source_utterance_id: None,
+            subtitle_id: None,
+            source: "chatbox".into(),
+            speaker_id: None,
+            speaker_name: self.self_player_name.clone(),
+            speaker_color: speaker_palette_color("chatbox", None),
+            original,
+            translation,
+            preserve_original_override,
+        });
+        if self.entries.len() > MAX_ENTRIES {
+            let drop_count = self.entries.len() - MAX_ENTRIES;
+            self.entries.drain(0..drop_count);
+        }
+        self.status = 0;
     }
 
     pub(crate) fn update_speaker(&mut self, speaker: &SpeakerIdentity) -> bool {
@@ -291,7 +324,10 @@ impl UniTextLayout {
 
             match trans {
                 Some(t) => {
-                    if config.preserve_original_text && !orig.is_empty() {
+                    let preserve_original = entry
+                        .preserve_original_override
+                        .unwrap_or(config.preserve_original_text);
+                    if preserve_original && !orig.is_empty() {
                         for line in advance::wrap_text(&orig, viewport.row_px, viewport.cols) {
                             all_rows.push(RenderedRow {
                                 text: line,
@@ -317,7 +353,7 @@ impl UniTextLayout {
                     }
                 }
                 None if !orig.is_empty() => {
-                    let color = if entry.source == "microphone" {
+                    let color = if is_self_source(&entry.source) {
                         0
                     } else {
                         entry.speaker_color
@@ -446,12 +482,16 @@ fn trimmed_display_name(speaker: &SpeakerIdentity) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn is_self_source(source: &str) -> bool {
+    matches!(source, "microphone" | "chatbox")
+}
+
 fn speaker_label(
     source: &str,
     speaker: Option<&SpeakerIdentity>,
     self_player_name: Option<&str>,
 ) -> Option<String> {
-    if source == "microphone" {
+    if is_self_source(source) {
         return self_player_name.map(str::to_owned);
     }
     let speaker = speaker?;
@@ -462,7 +502,7 @@ fn speaker_label(
 }
 
 fn apply_speaker(entry: &mut DisplayEntry, speaker: Option<&SpeakerIdentity>) -> bool {
-    if entry.source == "microphone" {
+    if is_self_source(&entry.source) {
         return false;
     }
     let Some(speaker) = speaker else {
@@ -508,7 +548,7 @@ fn format_speaker_header(name: &str, max_px: usize, max_cells: usize) -> String 
 }
 
 fn speaker_palette_color(source: &str, speaker: Option<&SpeakerIdentity>) -> u8 {
-    if source == "microphone" {
+    if is_self_source(source) {
         return 3;
     }
     match speaker {
@@ -955,5 +995,40 @@ mod tests {
 
         assert_eq!(screen_row_string(&screen, 0), "My line");
         assert_eq!(screen_row_string(&screen, 1), "");
+    }
+
+    #[test]
+    fn manual_chatbox_respects_send_mode_override_and_self_name() {
+        let mut config = UniTextConfig {
+            preserve_original_text: true,
+            ..UniTextConfig::default()
+        };
+        let viewport = ViewportConfig::default();
+        let mut layout = UniTextLayout::default();
+        let mut screen = VirtualScreen::new(viewport.cols, viewport.rows);
+        layout.set_self_player_name("Alice");
+
+        layout.upsert_manual_chatbox(
+            "cb-1".into(),
+            "Original hidden".into(),
+            Some("Only translation".into()),
+            Some(false),
+        );
+        layout.sync_to_screen(&mut screen, &config, viewport);
+        assert_eq!(screen_row_string(&screen, 0), "Alice：");
+        assert_eq!(screen_row_string(&screen, 1), "Only translation");
+        assert_eq!(screen_row_string(&screen, 2), "");
+
+        config.preserve_original_text = false;
+        layout.upsert_manual_chatbox(
+            "cb-2".into(),
+            "Both shown".into(),
+            Some("Bilingual".into()),
+            Some(true),
+        );
+        layout.sync_to_screen(&mut screen, &config, viewport);
+        assert_eq!(screen_row_string(&screen, 2), "Alice：");
+        assert_eq!(screen_row_string(&screen, 3), "Both shown");
+        assert_eq!(screen_row_string(&screen, 4), "Bilingual");
     }
 }

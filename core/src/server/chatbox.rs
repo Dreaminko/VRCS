@@ -6,8 +6,8 @@ use axum::http::StatusCode;
 use serde_json::{Value, json};
 
 use crate::chatbox::{
-    ChatboxComposeInput, ChatboxMessage, ChatboxTranslationOrigin, NewChatboxMessage,
-    preview_chatbox,
+    CHATBOX_LIMIT, ChatboxComposeInput, ChatboxMessage, ChatboxOutputTarget, ChatboxSendMode,
+    ChatboxTranslationOrigin, NewChatboxMessage, compact_text, preview_chatbox_with_limit,
 };
 use crate::db::conversations::publish_latest_catalog;
 use crate::models::{Subtitle, SubtitleTranslation, now_iso8601};
@@ -17,8 +17,33 @@ use super::{
     ApiResult, OutputContext, api_domain_error, api_error, api_error_with_params, db_call,
 };
 
-pub(super) async fn preview(Json(input): Json<ChatboxComposeInput>) -> ApiResult<Json<Value>> {
-    let preview = preview_chatbox(&input).map_err(validation_error)?;
+fn resolve_outputs(
+    osc_enabled: bool,
+    unitext_enabled: bool,
+    target: ChatboxOutputTarget,
+) -> (bool, bool) {
+    match (osc_enabled, unitext_enabled) {
+        (true, true) => match target {
+            ChatboxOutputTarget::Osc => (true, false),
+            ChatboxOutputTarget::Unitext => (false, true),
+            ChatboxOutputTarget::Both => (true, true),
+        },
+        other => other,
+    }
+}
+
+pub(super) async fn preview(
+    State(state): State<OutputContext>,
+    Json(input): Json<ChatboxComposeInput>,
+) -> ApiResult<Json<Value>> {
+    let (send_osc, send_unitext) = resolve_outputs(
+        state.integrations.osc.is_enabled(),
+        state.integrations.unitext.is_enabled(),
+        input.output_target,
+    );
+    let enforce_osc_limit = send_osc || !send_unitext;
+    let preview =
+        preview_chatbox_with_limit(&input, enforce_osc_limit).map_err(validation_error)?;
     Ok(Json(json!(preview)))
 }
 
@@ -30,21 +55,93 @@ pub(super) async fn send(
 }
 
 async fn send_input(state: &OutputContext, input: ChatboxComposeInput) -> ApiResult<Json<Value>> {
-    let preview = preview_chatbox(&input).map_err(validation_error)?;
+    let (send_osc, send_unitext) = resolve_outputs(
+        state.integrations.osc.is_enabled(),
+        state.integrations.unitext.is_enabled(),
+        input.output_target,
+    );
+    let enforce_osc_limit = send_osc || !send_unitext;
+    let preview =
+        preview_chatbox_with_limit(&input, enforce_osc_limit).map_err(validation_error)?;
     if !preview.sendable {
         return Err(api_error_with_params(
             StatusCode::UNPROCESSABLE_ENTITY,
             "chatbox.over_limit",
-            json!({ "count": preview.char_count, "limit": preview.limit }),
+            json!({
+                "count": preview.char_count,
+                "limit": preview.limit.unwrap_or(CHATBOX_LIMIT)
+            }),
             "Chatbox message exceeds the character limit",
         ));
     }
     let message_id = format!("chatbox-{}", uuid::Uuid::new_v4());
-    let sent = state
-        .integrations
-        .osc
-        .send_manual(preview.text.clone())
-        .await;
+    let unitext_payload = if send_unitext {
+        let compact_original = compact_text(&input.original);
+        let compact_translation = input.translation.as_deref().map(compact_text);
+        match input.send_mode {
+            ChatboxSendMode::Original => (compact_original, None, None),
+            ChatboxSendMode::Translation => (String::new(), compact_translation, Some(false)),
+            ChatboxSendMode::Bilingual => (compact_original, compact_translation, Some(true)),
+        }
+    } else {
+        (String::new(), None, None)
+    };
+    let sent = match (send_osc, send_unitext) {
+        (false, false) => Err(ManualSendError {
+            code: "chatbox.output_disabled",
+            detail: "Enable OSC or UniText in Settings before sending".into(),
+        }),
+        (true, false) => {
+            state
+                .integrations
+                .osc
+                .send_manual(preview.text.clone())
+                .await
+        }
+        (false, true) => {
+            state
+                .integrations
+                .unitext
+                .send_manual(
+                    message_id.clone(),
+                    unitext_payload.0,
+                    unitext_payload.1,
+                    unitext_payload.2,
+                )
+                .await
+        }
+        (true, true) => {
+            let (osc_res, unitext_res) = tokio::join!(
+                state.integrations.osc.send_manual(preview.text.clone()),
+                state.integrations.unitext.send_manual(
+                    message_id.clone(),
+                    unitext_payload.0,
+                    unitext_payload.1,
+                    unitext_payload.2,
+                ),
+            );
+            match (osc_res, unitext_res) {
+                (Ok(sent_at), Ok(_)) => Ok(sent_at),
+                (Ok(sent_at), Err(error)) => {
+                    tracing::warn!(
+                        code = error.code,
+                        detail = %error.detail,
+                        "UniText manual Chatbox send failed while OSC succeeded"
+                    );
+                    Ok(sent_at)
+                }
+                (Err(error), Ok(sent_at)) => {
+                    tracing::warn!(
+                        code = error.code,
+                        detail = %error.detail,
+                        "OSC manual Chatbox send failed while UniText succeeded"
+                    );
+                    Ok(sent_at)
+                }
+                (Err(osc_err), Err(_)) => Err(osc_err),
+            }
+        }
+    };
     let translation_origin = input.translation_origin.clone();
     let record = NewChatboxMessage {
         source: "manual".into(),
@@ -70,7 +167,7 @@ async fn send_input(state: &OutputContext, input: ChatboxComposeInput) -> ApiRes
         Ok(_) => finish_delivery(state, saved, &message_id, translation_origin).await,
         Err(error) => {
             let _ = saved;
-            Err(osc_error(error))
+            Err(send_error(error))
         }
     }
 }
@@ -170,11 +267,14 @@ fn validation_error(error: crate::chatbox::ChatboxValidationError) -> (StatusCod
     api_error(StatusCode::UNPROCESSABLE_ENTITY, error.code, error.detail)
 }
 
-fn osc_error(error: ManualSendError) -> (StatusCode, Json<Value>) {
+fn send_error(error: ManualSendError) -> (StatusCode, Json<Value>) {
     let status = match error.code {
-        "osc.disabled" | "osc.blocked_vrchat_muted" | "osc.blocked_mute_unknown" => {
-            StatusCode::CONFLICT
-        }
+        "chatbox.output_disabled"
+        | "osc.disabled"
+        | "osc.blocked_vrchat_muted"
+        | "osc.blocked_mute_unknown"
+        | "unitext.disabled"
+        | "unitext.not_detected" => StatusCode::CONFLICT,
         "osc.send_timeout" => StatusCode::GATEWAY_TIMEOUT,
         _ => StatusCode::SERVICE_UNAVAILABLE,
     };

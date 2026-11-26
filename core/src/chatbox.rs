@@ -4,6 +4,15 @@ pub const CHATBOX_LIMIT: usize = 144;
 const MAX_TEXT_LENGTH: usize = 5_000;
 pub(crate) const MAX_CUSTOM_FORMAT_LENGTH: usize = 200;
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatboxOutputTarget {
+    Osc,
+    Unitext,
+    #[default]
+    Both,
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatboxSendMode {
@@ -71,6 +80,8 @@ pub struct ChatboxComposeInput {
     #[serde(default)]
     pub target_language: Option<String>,
     pub send_mode: ChatboxSendMode,
+    #[serde(default)]
+    pub output_target: ChatboxOutputTarget,
     pub message_format: ChatboxMessageFormat,
     #[serde(default)]
     pub custom_format: Option<String>,
@@ -81,7 +92,7 @@ pub struct ChatboxComposeInput {
 pub struct ChatboxPreview {
     pub text: String,
     pub char_count: usize,
-    pub limit: usize,
+    pub limit: Option<usize>,
     pub over_limit: bool,
     pub truncated: bool,
     pub sendable: bool,
@@ -139,16 +150,42 @@ pub struct NewChatboxMessage {
 pub fn preview_chatbox(
     input: &ChatboxComposeInput,
 ) -> Result<ChatboxPreview, ChatboxValidationError> {
+    preview_chatbox_with_limit(input, true)
+}
+
+pub fn preview_chatbox_with_limit(
+    input: &ChatboxComposeInput,
+    enforce_osc_limit: bool,
+) -> Result<ChatboxPreview, ChatboxValidationError> {
     let (original, translation) = validate_input(input)?;
-    let template = format_template(input.send_mode, input)?;
+    let template = if enforce_osc_limit {
+        format_template(input.send_mode, input)?
+    } else {
+        match input.send_mode {
+            ChatboxSendMode::Original => "{original}".into(),
+            ChatboxSendMode::Translation => "{translation}".into(),
+            ChatboxSendMode::Bilingual => "{original}\n{translation}".into(),
+        }
+    };
     let full_text = render(&template, &original, translation.as_deref());
     let full_length = full_text.chars().count();
+
+    if !enforce_osc_limit {
+        return Ok(ChatboxPreview {
+            text: full_text,
+            char_count: full_length,
+            limit: None,
+            over_limit: false,
+            truncated: false,
+            sendable: true,
+        });
+    }
 
     if full_length <= CHATBOX_LIMIT {
         return Ok(ChatboxPreview {
             text: full_text,
             char_count: full_length,
-            limit: CHATBOX_LIMIT,
+            limit: Some(CHATBOX_LIMIT),
             over_limit: false,
             truncated: false,
             sendable: true,
@@ -159,7 +196,7 @@ pub fn preview_chatbox(
         return Ok(ChatboxPreview {
             text: full_text,
             char_count: full_length,
-            limit: CHATBOX_LIMIT,
+            limit: Some(CHATBOX_LIMIT),
             over_limit: true,
             truncated: false,
             sendable: false,
@@ -180,7 +217,7 @@ pub fn preview_chatbox(
     Ok(ChatboxPreview {
         char_count: text.chars().count(),
         text,
-        limit: CHATBOX_LIMIT,
+        limit: Some(CHATBOX_LIMIT),
         over_limit: true,
         truncated: true,
         sendable: true,
@@ -205,6 +242,7 @@ pub fn automatic_chatbox_preview(
             (true, false) => ChatboxSendMode::Translation,
             (false, _) => ChatboxSendMode::Original,
         },
+        output_target: ChatboxOutputTarget::Both,
         message_format,
         custom_format: custom_format.map(str::to_owned),
         overflow_policy: ChatboxOverflowPolicy::SmartTruncate,
@@ -220,7 +258,7 @@ pub fn automatic_chatbox_preview(
         ChatboxPreview {
             text: String::new(),
             char_count: 0,
-            limit: CHATBOX_LIMIT,
+            limit: Some(CHATBOX_LIMIT),
             over_limit: false,
             truncated: false,
             sendable: false,
@@ -436,6 +474,7 @@ mod tests {
             } else {
                 ChatboxSendMode::Original
             },
+            output_target: ChatboxOutputTarget::Both,
             message_format: ChatboxMessageFormat::OriginalNewlineTranslation,
             custom_format: None,
             overflow_policy: ChatboxOverflowPolicy::Block,
@@ -538,5 +577,22 @@ mod tests {
         });
 
         assert_eq!(preview_chatbox(&input).unwrap().text, "hello\nこんにちは");
+    }
+
+    #[test]
+    fn unbounded_preview_skips_osc_limit_and_custom_format() {
+        let mut draft = input(&"原".repeat(160), Some(&"訳".repeat(160)));
+        draft.message_format = ChatboxMessageFormat::Custom;
+        draft.custom_format = Some("broken".into());
+
+        let preview = preview_chatbox_with_limit(&draft, false).unwrap();
+        assert_eq!(preview.limit, None);
+        assert!(!preview.over_limit);
+        assert!(!preview.truncated);
+        assert!(preview.sendable);
+        assert_eq!(
+            preview.text,
+            format!("{}\n{}", "原".repeat(160), "訳".repeat(160))
+        );
     }
 }

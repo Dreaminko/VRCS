@@ -7,11 +7,12 @@ use mdns_sd::{ServiceDaemon, ServiceEvent};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::net::UdpSocket;
-use tokio::sync::{broadcast, mpsc, watch};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::config::UniTextConfig;
 use crate::models::now_iso8601;
+use crate::osc::ManualSendError;
 use crate::subtitle_output::PresentationEvent;
 
 use layout::{UniTextLayout, build_test_screen};
@@ -50,6 +51,13 @@ enum UniTextCommand {
         self_player_id: String,
     },
     Muted(Option<bool>),
+    ManualChatbox {
+        key: String,
+        original: String,
+        translation: Option<String>,
+        preserve_original: Option<bool>,
+        responder: oneshot::Sender<Result<String, ManualSendError>>,
+    },
     Test,
     Clear,
 }
@@ -119,10 +127,62 @@ impl UniTextDispatcher {
     }
 
     pub fn update_config(&self, config: UniTextConfig, self_player_id: String) {
+        {
+            let mut status = self.status.lock().expect("UniText status lock");
+            status.enabled = config.enabled;
+            status.target = format!("127.0.0.1:{}", config.port);
+            if !config.enabled {
+                status.status = "disabled".into();
+                status.active_tier = None;
+                status.last_error = None;
+            }
+        }
         let _ = self.sender.try_send(UniTextCommand::Config {
             config,
             self_player_id,
         });
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.status.lock().expect("UniText status lock").enabled
+    }
+
+    pub async fn send_manual(
+        &self,
+        key: String,
+        original: String,
+        translation: Option<String>,
+        preserve_original: Option<bool>,
+    ) -> Result<String, ManualSendError> {
+        if !self.is_enabled() {
+            return Err(ManualSendError {
+                code: "unitext.disabled",
+                detail: "UniText prop output is disabled".into(),
+            });
+        }
+        let (responder, receiver) = oneshot::channel();
+        self.sender
+            .try_send(UniTextCommand::ManualChatbox {
+                key,
+                original,
+                translation,
+                preserve_original,
+                responder,
+            })
+            .map_err(|_| ManualSendError {
+                code: "unitext.queue_full",
+                detail: "UniText command queue is full".into(),
+            })?;
+        tokio::time::timeout(Duration::from_secs(5), receiver)
+            .await
+            .map_err(|_| ManualSendError {
+                code: "unitext.queue_full",
+                detail: "UniText send timed out".into(),
+            })?
+            .map_err(|_| ManualSendError {
+                code: "unitext.queue_full",
+                detail: "UniText worker stopped before handling the message".into(),
+            })?
     }
 
     pub fn update_mute_status(&self, muted: Option<bool>) {
@@ -641,6 +701,42 @@ async fn run_worker(
                 }
                 Some(UniTextCommand::Muted(next_muted)) => {
                     session.muted = next_muted;
+                }
+                Some(UniTextCommand::ManualChatbox {
+                    key,
+                    original,
+                    translation,
+                    preserve_original,
+                    responder,
+                }) => {
+                    let result = if !session.config.enabled {
+                        Err(ManualSendError {
+                            code: "unitext.disabled",
+                            detail: "UniText prop output is disabled".into(),
+                        })
+                    } else if session.active_tier.is_none() {
+                        Err(ManualSendError {
+                            code: "unitext.not_detected",
+                            detail: "UniText avatar parameters have not been detected yet".into(),
+                        })
+                    } else {
+                        session.showing_test_screen = false;
+                        session.layout.upsert_manual_chatbox(
+                            key,
+                            original,
+                            translation,
+                            preserve_original,
+                        );
+                        session.layout.sync_to_screen(
+                            &mut session.target,
+                            &session.config,
+                            session.viewport,
+                        );
+                        session.overflow_ready_since = None;
+                        session.last_content_at = Some(Instant::now());
+                        Ok(now_iso8601())
+                    };
+                    let _ = responder.send(result);
                 }
                 Some(UniTextCommand::Test) => {
                     if session.config.enabled && session.active_tier.is_some() {

@@ -454,6 +454,10 @@ impl OscChatboxDispatcher {
         self.status.lock().expect("OSC status lock").clone()
     }
 
+    pub fn is_enabled(&self) -> bool {
+        self.config.borrow().config.enabled
+    }
+
     #[cfg(any(windows, target_os = "linux", test))]
     pub(crate) fn consume_recent_sent(&self, text: &str) -> bool {
         self.recent_sent.consume(text, Instant::now())

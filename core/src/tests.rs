@@ -1444,6 +1444,236 @@ async fn chatbox_send_is_stored_and_broadcast_as_conversation_message() {
 }
 
 #[tokio::test]
+async fn chatbox_send_supports_unitext_only_and_dual_output() {
+    let directory = tempfile::tempdir().unwrap();
+    let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let handle = start(CoreOptions {
+        config_path: directory.path().join("config.json"),
+        host: Some("127.0.0.1".into()),
+        port: Some(port),
+        session_token: Some("test-token".into()),
+        vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+        asr_model_dir: None,
+    })
+    .await
+    .unwrap();
+    let client = crate::http_client();
+    let base_url = format!("http://{}", handle.address());
+    let osc_udp = tokio::net::UdpSocket::bind(("127.0.0.1", 0)).await.unwrap();
+    let unitext_udp = tokio::net::UdpSocket::bind(("127.0.0.1", 0)).await.unwrap();
+
+    let payload = |text: &str| {
+        serde_json::json!({
+            "original": text,
+            "translation": null,
+            "source_language": null,
+            "target_language": null,
+            "send_mode": "original",
+            "message_format": "original_newline_translation",
+            "custom_format": null,
+            "overflow_policy": "smart_truncate"
+        })
+    };
+
+    // 1. Both disabled -> 409 chatbox.output_disabled
+    let disabled_res = client
+        .post(format!("{base_url}/api/chatbox/messages"))
+        .bearer_auth("test-token")
+        .json(&payload("hello"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(disabled_res.status(), reqwest::StatusCode::CONFLICT);
+    let disabled_body: serde_json::Value = disabled_res.json().await.unwrap();
+    assert_eq!(disabled_body["code"], "chatbox.output_disabled");
+
+    // 2. UniText-only with auto (undetected) -> 409 unitext.not_detected
+    let mut settings: serde_json::Value = client
+        .get(format!("{base_url}/api/settings"))
+        .bearer_auth("test-token")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    settings["unitext"]["enabled"] = serde_json::json!(true);
+    settings["unitext"]["tier"] = serde_json::json!("auto");
+    settings["unitext"]["interval_ms"] = serde_json::json!(80);
+    settings["unitext"]["port"] = serde_json::json!(unitext_udp.local_addr().unwrap().port());
+    client
+        .put(format!("{base_url}/api/settings"))
+        .bearer_auth("test-token")
+        .json(&settings)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    let not_detected_res = client
+        .post(format!("{base_url}/api/chatbox/messages"))
+        .bearer_auth("test-token")
+        .json(&payload("hello"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(not_detected_res.status(), reqwest::StatusCode::CONFLICT);
+    let not_detected_body: serde_json::Value = not_detected_res.json().await.unwrap();
+    assert_eq!(not_detected_body["code"], "unitext.not_detected");
+
+    // 3. UniText-only with manual tier -> >144 chars preview & send succeed
+    settings["unitext"]["tier"] = serde_json::json!("standard");
+    client
+        .put(format!("{base_url}/api/settings"))
+        .bearer_auth("test-token")
+        .json(&settings)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    let long_text = "x".repeat(180);
+    let preview: serde_json::Value = client
+        .post(format!("{base_url}/api/chatbox/preview"))
+        .bearer_auth("test-token")
+        .json(&payload(&long_text))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(preview["limit"].is_null());
+    assert_eq!(preview["sendable"], true);
+    assert_eq!(preview["char_count"], 180);
+
+    let sent_unitext = client
+        .post(format!("{base_url}/api/chatbox/messages"))
+        .bearer_auth("test-token")
+        .json(&payload(&long_text))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(sent_unitext.status(), reqwest::StatusCode::OK);
+    let mut buf = [0u8; 2048];
+    let len = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        unitext_udp.recv(&mut buf),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(len > 0);
+
+    // 4. Both OSC and UniText enabled -> both receive packets concurrently
+    settings["osc"]["enabled"] = serde_json::json!(true);
+    settings["osc"]["mute_sync_enabled"] = serde_json::json!(false);
+    settings["osc"]["port"] = serde_json::json!(osc_udp.local_addr().unwrap().port());
+    client
+        .put(format!("{base_url}/api/settings"))
+        .bearer_auth("test-token")
+        .json(&settings)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    let dual_res = client
+        .post(format!("{base_url}/api/chatbox/messages"))
+        .bearer_auth("test-token")
+        .json(&payload("dual output"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(dual_res.status(), reqwest::StatusCode::OK);
+
+    let osc_len = tokio::time::timeout(std::time::Duration::from_secs(2), osc_udp.recv(&mut buf))
+        .await
+        .unwrap()
+        .unwrap();
+    let (_, packet) = rosc::decoder::decode_udp(&buf[..osc_len]).unwrap();
+    let rosc::OscPacket::Message(message) = packet else {
+        panic!("expected a chatbox OSC message");
+    };
+    assert_eq!(message.addr, "/chatbox/input");
+    assert_eq!(message.args[0], rosc::OscType::String("dual output".into()));
+
+    let unitext_len = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        unitext_udp.recv(&mut buf),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(unitext_len > 0);
+
+    // 5. Explicit output_target routes only to the chosen destination
+    let mut unitext_only_payload = payload(&long_text);
+    unitext_only_payload["output_target"] = serde_json::json!("unitext");
+    let targeted_unitext = client
+        .post(format!("{base_url}/api/chatbox/messages"))
+        .bearer_auth("test-token")
+        .json(&unitext_only_payload)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(targeted_unitext.status(), reqwest::StatusCode::OK);
+    let targeted_unitext_len = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        unitext_udp.recv(&mut buf),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(targeted_unitext_len > 0);
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            osc_udp.recv(&mut buf)
+        )
+        .await
+        .is_err(),
+        "output_target=unitext must not send to OSC"
+    );
+
+    let mut osc_only_payload = payload("osc target only");
+    osc_only_payload["output_target"] = serde_json::json!("osc");
+    let targeted_osc = client
+        .post(format!("{base_url}/api/chatbox/messages"))
+        .bearer_auth("test-token")
+        .json(&osc_only_payload)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(targeted_osc.status(), reqwest::StatusCode::OK);
+    let targeted_osc_len =
+        tokio::time::timeout(std::time::Duration::from_secs(2), osc_udp.recv(&mut buf))
+            .await
+            .unwrap()
+            .unwrap();
+    let (_, osc_packet) = rosc::decoder::decode_udp(&buf[..targeted_osc_len]).unwrap();
+    let rosc::OscPacket::Message(osc_message) = osc_packet else {
+        panic!("expected a chatbox OSC message");
+    };
+    assert_eq!(osc_message.addr, "/chatbox/input");
+    assert_eq!(
+        osc_message.args[0],
+        rosc::OscType::String("osc target only".into())
+    );
+
+    handle.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn microphone_test_requires_a_selected_input_and_stop_is_idempotent() {
     let directory = tempfile::tempdir().unwrap();
     let handle = start(CoreOptions {
