@@ -10,13 +10,15 @@ use windows::Win32::{
             D3D11_BOX, D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
             D3D11_MAP_FLAG_DO_NOT_WAIT, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE,
             D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING, D3D11CreateDevice,
-            ID3D11Device, ID3D11DeviceContext, ID3D11ShaderResourceView, ID3D11Texture2D,
+            ID3D11Device, ID3D11DeviceContext, ID3D11Multithread, ID3D11ShaderResourceView,
+            ID3D11Texture2D,
         },
         Dxgi::{
             Common::{
-                DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM_SRGB,
-                DXGI_FORMAT_B8G8R8X8_UNORM, DXGI_FORMAT_R8G8B8A8_TYPELESS,
-                DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+                DXGI_FORMAT_B8G8R8A8_TYPELESS, DXGI_FORMAT_B8G8R8A8_UNORM,
+                DXGI_FORMAT_B8G8R8A8_UNORM_SRGB, DXGI_FORMAT_B8G8R8X8_UNORM,
+                DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM,
+                DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
             },
             CreateDXGIFactory1, DXGI_ERROR_WAS_STILL_DRAWING, IDXGIAdapter1, IDXGIFactory1,
         },
@@ -105,7 +107,8 @@ impl Device {
             DXGI_FORMAT_R8G8B8A8_TYPELESS
             | DXGI_FORMAT_R8G8B8A8_UNORM
             | DXGI_FORMAT_R8G8B8A8_UNORM_SRGB => false,
-            DXGI_FORMAT_B8G8R8A8_UNORM
+            DXGI_FORMAT_B8G8R8A8_TYPELESS
+            | DXGI_FORMAT_B8G8R8A8_UNORM
             | DXGI_FORMAT_B8G8R8A8_UNORM_SRGB
             | DXGI_FORMAT_B8G8R8X8_UNORM => true,
             _ => return Err("Unsupported mirror pixel format".into()),
@@ -284,9 +287,17 @@ pub(crate) fn acquire_shared_device(
         )
     }
     .map_err(|e| ("Create D3D11 device", e))?;
+    let device = device.ok_or(("Create D3D11 device", E_POINTER.into()))?;
+    let context = context.ok_or(("Create D3D11 device", E_POINTER.into()))?;
+    let multithread: ID3D11Multithread = context
+        .cast()
+        .map_err(|e| ("Enable D3D11 multithread protection", e))?;
+    unsafe {
+        let _ = multithread.SetMultithreadProtected(true);
+    }
     let shared = Rc::new(SharedDevice {
-        device: device.ok_or(("Create D3D11 device", E_POINTER.into()))?,
-        context: context.ok_or(("Create D3D11 device", E_POINTER.into()))?,
+        device,
+        context,
         adapter_index,
     });
     SHARED_DEVICE.with_borrow_mut(|slot| *slot = Some(Rc::downgrade(&shared)));

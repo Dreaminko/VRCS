@@ -113,16 +113,18 @@ export function useVrDashboardBridge(
       if (typeof action === "object" && "save_language_preset" in action) {
         action = { save_language_preset: t("settings.translation.presetDefaultName", { count: current.language_presets.length + 1 }) };
       }
-      const next = applyModelDefaults(applyVrDashboardAction(current, action, profilesRef.current));
-      if (next === current) return;
+      const applied = applyVrDashboardAction(current, action, profilesRef.current);
+      if (applied === current) return;
+      const next = applyModelDefaults(applied);
       settingsRef.current = next;
       const version = ++saveVersionRef.current;
       setSaveState("saving");
       setSaveError(null);
       try {
-        const saved = await saveRef.current((latest) =>
-          applyModelDefaults(applyVrDashboardAction(latest, action, profilesRef.current)),
-        );
+        const saved = await saveRef.current((latest) => {
+          const updated = applyVrDashboardAction(latest, action, profilesRef.current);
+          return updated === latest ? latest : applyModelDefaults(updated);
+        });
         if (version !== saveVersionRef.current) return;
         settingsRef.current = saved;
         setSaveState("saved");

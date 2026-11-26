@@ -43,6 +43,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   const pointerPoint = useRef<[number, number] | null>(null);
   const pressedRef = useRef<number | null>(null);
   const markerReadyRef = useRef(false);
+  const committedKeyRef = useRef<SurfaceKey | null>(null);
   const cancelScroll = useCallback(() => {
     pendingScroll.current = null;
   }, []);
@@ -60,11 +61,21 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
       if (!mounted.current || !activity.current.active) return;
       if (!root.current?.getAnimations({ subtree: true }).some(animation => animation.playState === "running" || animation.pending)) return;
       const now = Number.isFinite(timestamp) ? timestamp : performance.now();
-      if (markerReadyRef.current && current.current && now - lastAnimationPaintAt.current >= OCR_PROGRESS_FRAME_MS) {
+      const activeKey = current.current;
+      const committedKey = committedKeyRef.current;
+      if (
+        markerReadyRef.current
+        && !pendingState.current
+        && paintFrame.current === null
+        && activeKey
+        && committedKey
+        && sameKey(activeKey, committedKey)
+        && now - lastAnimationPaintAt.current >= OCR_PROGRESS_FRAME_MS
+      ) {
         lastAnimationPaintAt.current = now;
         serial.current = ((serial.current + 1) >>> 0) || 1;
-        syncMarkerBits(markerRef.current, current.current, serial.current);
-        void connection.current?.paint(current.current, serial.current)
+        syncMarkerBits(markerRef.current, activeKey, serial.current);
+        void connection.current?.paint(activeKey, serial.current)
           .catch(error => console.error("VR surface paint request failed", error));
       }
       scheduleAnimationTick();
@@ -213,6 +224,17 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
 
   const markerReady = !!state && !!measured && sameKey(measured.key, state.key) && serialAtLeast(paintSerial, measured.serial);
   markerReadyRef.current = markerReady;
+
+  useLayoutEffect(() => {
+    committedKeyRef.current = state?.key ?? null;
+  }, [state]);
+
+  useLayoutEffect(() => {
+    if (!state || !markerReady) return;
+    if (serial.current > paintSerial) {
+      syncMarkerBits(markerRef.current, state.key, serial.current);
+    }
+  }, [state?.key, markerReady, paintSerial]);
 
   useLayoutEffect(() => {
     if (!state || sameKey(restored.current, state.key)) return;
