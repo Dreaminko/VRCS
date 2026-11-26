@@ -184,6 +184,14 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/capture/start", post(capture::capture_start))
         .route("/api/capture/stop", post(capture::capture_stop))
         .route(
+            "/api/capture/network/start",
+            post(capture::network_capture_start),
+        )
+        .route(
+            "/api/capture/network/stop",
+            post(capture::network_capture_stop),
+        )
+        .route(
             "/api/audio/microphone-test/start",
             post(capture::microphone_test_start),
         )
@@ -430,15 +438,39 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
             pipeline.last_error(),
         )
     };
-    let (network_running, player_audio, vrchat_chatbox, network_players) = {
+    let capture_requested = state
+        .capture
+        .capture_requested
+        .load(std::sync::atomic::Ordering::SeqCst);
+    let network_capture_requested = state
+        .capture
+        .network_capture_requested
+        .load(std::sync::atomic::Ordering::SeqCst);
+    let (
+        network_running,
+        network_capture_running,
+        network_capture,
+        player_audio,
+        vrchat_chatbox,
+        network_players,
+    ) = {
         let network = state.capture.network_session.lock().await;
+        let running = network.running();
+        let net_status = network.network_status();
         let voice = network.voice_status();
         let text = network.chatbox_status();
         let players = network.roster();
         let receiving_text = text
             .as_ref()
             .is_some_and(|status| status.phase != "failed" && status.phase != "stopped");
-        (network.running() && receiving_text, voice, text, players)
+        (
+            capture_requested && running && receiving_text,
+            running,
+            net_status,
+            voice,
+            text,
+            players,
+        )
     };
     let (microphone_running, microphone_device, microphone_error) = {
         let pipeline = state.capture.microphone_pipeline.lock().await;
@@ -455,10 +487,6 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
     let last_error = speaker_error.or(microphone_error).or(asr_error);
     let osc = state.integrations.osc.status();
     let unitext = state.integrations.unitext.status();
-    let capture_requested = state
-        .capture
-        .capture_requested
-        .load(std::sync::atomic::Ordering::SeqCst);
     let vrchat_mute_sync = state.integrations.vrchat_mute_sync.status();
     let language_session = state
         .config
@@ -473,6 +501,9 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
         "config_schema": config_schema,
         "capture_running": speaker_running || microphone_running || network_running,
         "capture_requested": capture_requested,
+        "network_capture_requested": network_capture_requested,
+        "network_capture_running": network_capture_running,
+        "network_capture": network_capture,
         "microphone_capture_state": if capture_requested && microphone_enabled
             && vrchat_mute_sync.muted == Some(true) {
             "paused_vrchat_muted"

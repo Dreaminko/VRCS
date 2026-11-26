@@ -69,6 +69,7 @@ pub(super) struct Outputs {
     pub(super) text_generation: u64,
     pub(super) opus_library_path: String,
     pub(super) max_players: usize,
+    pub(super) standby_active: bool,
     keepalive_until: Option<Instant>,
     voice_error: Option<String>,
     pub(super) chatbox_status: ChatboxStatus,
@@ -98,7 +99,8 @@ impl Outputs {
 
     #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn network_closed(&self) -> bool {
-        self.voice.is_none()
+        !self.standby_active
+            && self.voice.is_none()
             && self.chatbox.is_none()
             && self
                 .keepalive_until
@@ -180,6 +182,7 @@ pub(crate) struct VrchatNetworkSession {
     status: SharedStatus,
     outputs: SharedOutputs,
     consumers: NetworkConsumers,
+    session_active: bool,
     room_context: Option<crate::room_context::NetworkCapturePublisher>,
     #[cfg(any(windows, target_os = "linux"))]
     cache: Arc<super::SessionCache>,
@@ -197,6 +200,19 @@ impl VrchatNetworkSession {
         Arc::clone(&self.status)
     }
 
+    pub(crate) fn network_status(&self) -> Option<Status> {
+        (self.session_active || self.consumers.any()).then(|| {
+            let mut status = self.status.lock().expect("network status").clone();
+            if self.consumers.voice
+                && let Some(error) = &self.outputs.lock().expect("network outputs").voice_error
+            {
+                status.phase = "failed";
+                status.detail = Some(error.clone());
+            }
+            status
+        })
+    }
+
     pub(crate) fn voice_status(&self) -> Option<Status> {
         self.consumers.voice.then(|| {
             let mut status = self.status.lock().expect("network status").clone();
@@ -210,7 +226,7 @@ impl VrchatNetworkSession {
 
     /// Player identities are published independently of the voice subscription.
     pub(crate) fn roster(&self) -> Vec<super::PlayerInfo> {
-        if !self.consumers.any() {
+        if !self.session_active && !self.consumers.any() {
             return Vec::new();
         }
         self.status.lock().expect("network status").players.clone()
@@ -234,6 +250,7 @@ impl VrchatNetworkSession {
     pub(crate) async fn reconcile(
         &mut self,
         config: &AppConfig,
+        keep_alive: bool,
         consumers: NetworkConsumers,
         settings: Arc<RwLock<AppConfig>>,
         log: VrchatLog,
@@ -250,7 +267,7 @@ impl VrchatNetworkSession {
         }
         #[cfg(any(windows, target_os = "linux"))]
         let cache = Arc::clone(&self.cache);
-        self.reconcile_with(consumers, move |status, outputs| {
+        self.reconcile_with(keep_alive, consumers, move |status, outputs| {
             Capture::start(
                 options,
                 status,
@@ -267,14 +284,15 @@ impl VrchatNetworkSession {
 
     async fn reconcile_with(
         &mut self,
+        keep_alive: bool,
         consumers: NetworkConsumers,
         start: impl FnOnce(SharedStatus, SharedOutputs) -> Result<Capture, String>,
     ) -> Result<Subscriptions, String> {
         if self.capture.as_ref().is_some_and(Capture::finished) {
             self.stop().await;
         }
-        let subscriptions = self.attach(consumers);
-        if consumers.any() && self.capture.is_none() {
+        let subscriptions = self.attach_with_keepalive(consumers, keep_alive);
+        if (keep_alive || consumers.any()) && self.capture.is_none() {
             *self.status.lock().expect("network status") = Status::default();
             let result = start(Arc::clone(&self.status), Arc::clone(&self.outputs));
             match result {
@@ -284,13 +302,22 @@ impl VrchatNetworkSession {
                     return Err(error);
                 }
             }
-        } else if !consumers.any() {
+        } else if !keep_alive && !consumers.any() {
             self.stop().await;
         }
         Ok(subscriptions)
     }
 
+    #[cfg(test)]
     fn attach(&mut self, consumers: NetworkConsumers) -> Subscriptions {
+        self.attach_with_keepalive(consumers, consumers.any())
+    }
+
+    fn attach_with_keepalive(
+        &mut self,
+        consumers: NetworkConsumers,
+        keep_alive: bool,
+    ) -> Subscriptions {
         let mut outputs = self.outputs.lock().expect("network outputs");
         let mut subscriptions = Subscriptions::default();
         if consumers.voice && !self.consumers.voice {
@@ -313,16 +340,18 @@ impl VrchatNetworkSession {
             outputs.invalidate_text();
             outputs.chatbox.take();
         }
+        outputs.standby_active = keep_alive;
         outputs.keepalive_until = None;
         self.consumers = consumers;
+        self.session_active = keep_alive;
         if let Some(publisher) = &self.room_context {
-            publisher.set_consumers(consumers);
+            publisher.set_session_state(consumers, keep_alive);
         }
         subscriptions
     }
 
     pub(crate) async fn stop(&mut self) {
-        self.attach(NetworkConsumers::default());
+        self.attach_with_keepalive(NetworkConsumers::default(), false);
         if let Some(publisher) = &self.room_context {
             publisher.end_capture();
         }
@@ -334,7 +363,7 @@ impl VrchatNetworkSession {
     #[cfg(test)]
     pub(crate) async fn detach(&mut self, consumers: NetworkConsumers) {
         self.detach_outputs(consumers);
-        if !self.consumers.any() {
+        if !self.session_active && !self.consumers.any() {
             self.stop().await;
         }
     }
@@ -344,7 +373,8 @@ impl VrchatNetworkSession {
     pub(crate) fn detach_outputs(&mut self, consumers: NetworkConsumers) {
         {
             let mut outputs = self.outputs.lock().expect("network outputs");
-            outputs.keepalive_until = Some(Instant::now() + std::time::Duration::from_secs(30));
+            outputs.keepalive_until =
+                (!self.session_active).then(|| Instant::now() + std::time::Duration::from_secs(30));
             if !consumers.voice {
                 outputs.voice.take();
                 super::clear_view_priority();
@@ -357,7 +387,7 @@ impl VrchatNetworkSession {
             }
         }
         if let Some(publisher) = &self.room_context {
-            publisher.set_consumers(self.consumers);
+            publisher.set_session_state(self.consumers, self.session_active);
         }
     }
 }
@@ -471,6 +501,7 @@ mod tests {
         let mut session = VrchatNetworkSession::default();
         let text = session
             .reconcile_with(
+                false,
                 NetworkConsumers {
                     voice: false,
                     chatbox: true,
@@ -481,6 +512,7 @@ mod tests {
             .unwrap();
         let voice = session
             .reconcile_with(
+                false,
                 NetworkConsumers {
                     voice: true,
                     chatbox: true,
@@ -492,6 +524,7 @@ mod tests {
         assert!(text.chatbox.is_some() && voice.voice.is_some());
         session
             .reconcile_with(
+                false,
                 NetworkConsumers {
                     voice: false,
                     chatbox: true,
@@ -503,10 +536,73 @@ mod tests {
         assert!(session.running());
         assert_eq!(starts.load(Ordering::SeqCst), 1);
         session
-            .reconcile_with(NetworkConsumers::default(), starter)
+            .reconcile_with(false, NetworkConsumers::default(), starter)
             .await
             .unwrap();
         assert!(exited.load(Ordering::SeqCst));
+        assert!(!session.running());
+    }
+
+    #[tokio::test]
+    async fn standby_keeps_worker_alive_and_exposes_roster_without_consumers() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let mut session = VrchatNetworkSession::default();
+        let starter = |status: SharedStatus, _: SharedOutputs| {
+            status
+                .lock()
+                .unwrap()
+                .players
+                .push(super::super::PlayerInfo {
+                    speaker: SpeakerIdentity {
+                        id: "trk_1".into(),
+                        index: 0,
+                        display_name: Some("Alice".into()),
+                        user_id: Some("usr_1".into()),
+                    },
+                    selected: true,
+                    active: false,
+                    distance_m: Some(2.5),
+                });
+            let stop = Arc::new(AtomicBool::new(false));
+            let worker_stop = Arc::clone(&stop);
+            let thread = std::thread::spawn(move || {
+                while !worker_stop.load(Ordering::Relaxed) {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+            });
+            Ok(Capture {
+                stop,
+                thread: Some(thread),
+            })
+        };
+        let subs = session
+            .reconcile_with(true, NetworkConsumers::default(), starter)
+            .await
+            .unwrap();
+        assert!(subs.voice.is_none() && subs.chatbox.is_none());
+        assert!(session.running());
+        assert!(!session.outputs.lock().unwrap().network_closed());
+        assert!(session.network_status().is_some());
+        assert!(session.voice_status().is_none());
+        assert!(session.chatbox_status().is_none());
+        assert_eq!(session.roster().len(), 1);
+
+        let attached = session
+            .reconcile_with(
+                true,
+                NetworkConsumers {
+                    voice: true,
+                    chatbox: false,
+                },
+                starter,
+            )
+            .await
+            .unwrap();
+        assert!(attached.voice.is_some());
+        session.detach_outputs(NetworkConsumers::default());
+        assert!(session.running());
+        assert!(!session.outputs.lock().unwrap().network_closed());
+        session.stop().await;
         assert!(!session.running());
     }
 
@@ -534,6 +630,7 @@ mod tests {
         let mut session = VrchatNetworkSession::default();
         session
             .reconcile_with(
+                false,
                 NetworkConsumers {
                     voice: true,
                     chatbox: false,
@@ -547,6 +644,7 @@ mod tests {
         assert!(!session.outputs.lock().unwrap().network_closed());
         session
             .reconcile_with(
+                false,
                 NetworkConsumers {
                     voice: true,
                     chatbox: false,
@@ -585,6 +683,7 @@ mod tests {
         assert!(!subscriptions.voice.as_ref().unwrap().is_closed());
         let replacements = session
             .reconcile_with(
+                false,
                 NetworkConsumers {
                     voice: true,
                     chatbox: false,

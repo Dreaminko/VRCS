@@ -79,6 +79,7 @@ pub(crate) struct CaptureRuntime {
     pub(crate) capture_control: AsyncMutex<()>,
     pub(crate) capture_requested: AtomicBool,
     pub(crate) capture_requested_tx: watch::Sender<bool>,
+    pub(crate) network_capture_requested: AtomicBool,
     /// Standalone VRChat log watcher; consumers read `snapshot()` here.
     pub(crate) vrchat_log: crate::vrchat_log::VrchatLog,
     pub(crate) room_context: crate::room_context::RoomContextStore,
@@ -119,6 +120,7 @@ impl CaptureRuntime {
             capture_control: AsyncMutex::new(()),
             capture_requested: AtomicBool::new(false),
             capture_requested_tx,
+            network_capture_requested: AtomicBool::new(false),
             vrchat_log: input.vrchat_log,
             room_context: input.room_context,
             network_session: AsyncMutex::new(Default::default()),
@@ -146,6 +148,11 @@ impl CaptureRuntime {
     pub(crate) fn set_capture_requested(&self, requested: bool) {
         self.capture_requested.store(requested, Ordering::SeqCst);
         let _ = self.capture_requested_tx.send(requested);
+    }
+
+    pub(crate) fn set_network_capture_requested(&self, requested: bool) {
+        self.network_capture_requested
+            .store(requested, Ordering::SeqCst);
     }
 
     pub(crate) fn subscribe_capture_requested(&self) -> watch::Receiver<bool> {

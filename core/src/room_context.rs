@@ -198,6 +198,7 @@ struct State {
     log_room_key: Option<String>,
     log_world_name: Option<String>,
     consumers: NetworkConsumers,
+    network_active: bool,
     network_stream_ready: bool,
     network_members: Vec<RoomMember>,
     label_map: HashMap<String, String>,
@@ -218,6 +219,7 @@ impl State {
             log_room_key: None,
             log_world_name: None,
             consumers: NetworkConsumers::default(),
+            network_active: false,
             network_stream_ready: false,
             network_members: Vec::new(),
             label_map: HashMap::new(),
@@ -258,10 +260,12 @@ impl State {
             };
             (RoomContextTier::NetworkChatbox, availability)
         } else {
-            (
-                RoomContextTier::LogOnly,
-                RoomContextAvailability::DegradedLogOnly,
-            )
+            let availability = if self.network_active && self.network_stream_ready {
+                RoomContextAvailability::Ready
+            } else {
+                RoomContextAvailability::DegradedLogOnly
+            };
+            (RoomContextTier::LogOnly, availability)
         }
     }
 
@@ -378,10 +382,16 @@ pub(crate) struct NetworkCapturePublisher {
 }
 
 impl NetworkCapturePublisher {
+    #[cfg(test)]
     pub(crate) fn set_consumers(&self, consumers: NetworkConsumers) {
+        self.set_session_state(consumers, consumers.any());
+    }
+
+    pub(crate) fn set_session_state(&self, consumers: NetworkConsumers, active: bool) {
         let mut state = self.store.state.lock().expect("room context state");
         state.consumers = consumers;
-        if !consumers.any() {
+        state.network_active = active;
+        if !active && !consumers.any() {
             state.network_stream_ready = false;
             state.network_members.clear();
         }
@@ -482,6 +492,7 @@ impl NetworkCapturePublisher {
     pub(crate) fn end_capture(&self) {
         let mut state = self.store.state.lock().expect("room context state");
         state.consumers = NetworkConsumers::default();
+        state.network_active = false;
         state.network_stream_ready = false;
         state.network_members.clear();
         state.publish(&self.store.tx);

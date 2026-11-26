@@ -9,6 +9,8 @@ pub(super) struct CaptureChange {
     plan: capture::CaptureReloadPlan,
     pub(super) reload: bool,
     pub(super) resume: bool,
+    stop_network: bool,
+    standby_network_restart: bool,
 }
 
 impl CaptureChange {
@@ -22,6 +24,11 @@ impl CaptureChange {
         current: &AppConfig,
         candidate: &AppConfig,
     ) -> Self {
+        let capture_requested = state.capture.capture_requested.load(Ordering::SeqCst);
+        let network_requested = state
+            .capture
+            .network_capture_requested
+            .load(Ordering::SeqCst);
         let resume = candidate.vrchat_chatbox.enabled
             || (capture::has_audio_sources(candidate)
                 && match candidate.asr.backend.as_str() {
@@ -33,12 +40,22 @@ impl CaptureChange {
         let plan = if resume {
             capture::CaptureReloadPlan::between(current, candidate)
         } else {
-            capture::CaptureReloadPlan::all()
+            capture::CaptureReloadPlan {
+                network_restart: !network_requested,
+                ..capture::CaptureReloadPlan::all()
+            }
         };
+        let stop_network = network_requested && !candidate.audio.output.player_audio.enabled;
+        let standby_network_restart = network_requested
+            && !capture_requested
+            && candidate.audio.output.player_audio.enabled
+            && plan.network_restart;
         Self {
             plan,
-            reload: state.capture.capture_requested.load(Ordering::SeqCst) && !plan.is_empty(),
+            reload: capture_requested && !plan.is_empty(),
             resume,
+            stop_network,
+            standby_network_restart,
         }
     }
 
@@ -56,12 +73,22 @@ impl CaptureChange {
     pub(super) async fn stop(&self, state: &SettingsContext) {
         if self.reload {
             capture::stop_pipelines(state, self.plan).await;
+        } else if self.stop_network || self.standby_network_restart {
+            state.capture.network_session.lock().await.stop().await;
+        }
+        if self.stop_network {
+            state.capture.set_network_capture_requested(false);
+            if self.reload {
+                state.capture.network_session.lock().await.stop().await;
+            }
         }
     }
 
     pub(super) async fn stop_for_rollback(&self, state: &SettingsContext) {
         if self.reload {
             capture::stop_pipelines(state, self.plan).await;
+        } else if self.stop_network || self.standby_network_restart {
+            state.capture.network_session.lock().await.stop().await;
         }
     }
 
@@ -76,6 +103,8 @@ impl CaptureChange {
             } else {
                 state.capture.set_capture_requested(false);
             }
+        } else if self.standby_network_restart {
+            capture::reconcile_network_with(state, candidate, true, Default::default()).await?;
         }
         Ok(())
     }
@@ -85,6 +114,9 @@ impl CaptureChange {
         state: &SettingsContext,
         previous: &AppConfig,
     ) -> Result<(), String> {
+        if self.stop_network {
+            state.capture.set_network_capture_requested(true);
+        }
         if self.reload {
             state.capture.set_capture_requested(true);
             let effective = state
@@ -95,6 +127,17 @@ impl CaptureChange {
                 .apply_to(previous);
             capture::start_pipelines(state, &effective, self.plan)
                 .await
+                .map_err(|error| super::api_detail(&error))?;
+        } else if self.stop_network || self.standby_network_restart {
+            let effective = state
+                .config
+                .language_session
+                .read()
+                .expect("language session lock")
+                .apply_to(previous);
+            capture::reconcile_network_with(state, &effective, true, Default::default())
+                .await
+                .map(|_| ())
                 .map_err(|error| super::api_detail(&error))?;
         }
         Ok(())

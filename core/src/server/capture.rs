@@ -17,10 +17,10 @@ use super::{ApiResult, CaptureContext, api_domain_error, api_error};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct CaptureReloadPlan {
-    speaker: bool,
-    microphone: bool,
-    chatbox: bool,
-    network_restart: bool,
+    pub(crate) speaker: bool,
+    pub(crate) microphone: bool,
+    pub(crate) chatbox: bool,
+    pub(crate) network_restart: bool,
 }
 
 impl CaptureReloadPlan {
@@ -692,8 +692,21 @@ pub(crate) async fn reconcile_network(
     state: &CaptureContext,
     config: &AppConfig,
 ) -> ApiResult<Option<mpsc::Receiver<AudioEvent>>> {
+    let keep_alive = state
+        .capture
+        .network_capture_requested
+        .load(Ordering::SeqCst);
     let consumers = NetworkConsumers::from_config(config);
-    if consumers.voice || consumers.chatbox {
+    reconcile_network_with(state, config, keep_alive, consumers).await
+}
+
+pub(crate) async fn reconcile_network_with(
+    state: &CaptureContext,
+    config: &AppConfig,
+    keep_alive: bool,
+    consumers: NetworkConsumers,
+) -> ApiResult<Option<mpsc::Receiver<AudioEvent>>> {
+    if keep_alive || consumers.any() {
         crate::platform_capabilities::require_network_capture().map_err(platform_error)?;
     }
     let subscriptions = state
@@ -703,6 +716,7 @@ pub(crate) async fn reconcile_network(
         .await
         .reconcile(
             config,
+            keep_alive,
             consumers,
             Arc::clone(&state.config.config),
             state.capture.vrchat_log.clone(),
@@ -800,6 +814,116 @@ pub(crate) async fn reload_glossary_asr_context(state: &CaptureContext) -> ApiRe
     start_pipelines(state, &config, plan).await
 }
 
+pub(super) async fn network_capture_start(
+    State(state): State<CaptureContext>,
+) -> ApiResult<Json<Value>> {
+    let _control = state.capture.capture_control.lock().await;
+    let global = state.config.config.read().expect("config lock").clone();
+    let config = state
+        .config
+        .language_session
+        .read()
+        .expect("language session lock")
+        .apply_to(&global);
+    if !config.audio.output.player_audio.enabled {
+        return Err(api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "capture.network_disabled",
+            "Enable network capture in settings before starting",
+        ));
+    }
+    crate::platform_capabilities::require_network_capture().map_err(platform_error)?;
+    let transcribing = state.capture.capture_requested.load(Ordering::SeqCst);
+    let consumers = if transcribing {
+        NetworkConsumers::from_config(&config)
+    } else {
+        NetworkConsumers::default()
+    };
+    let was_requested = state
+        .capture
+        .network_capture_requested
+        .swap(true, Ordering::SeqCst);
+    let voice = match reconcile_network_with(&state, &config, true, consumers).await {
+        Ok(voice) => voice,
+        Err(error) => {
+            state.capture.set_network_capture_requested(was_requested);
+            return Err(error);
+        }
+    };
+    if transcribing
+        && voice.is_some()
+        && config.audio.output.mode == "vrchat_players"
+        && let Err(error) = start_speaker_pipeline(&state, &config, voice).await
+    {
+        state.capture.speaker_pipeline.lock().await.set_start_error(
+            error.1["detail"]
+                .as_str()
+                .unwrap_or("Audio startup failed")
+                .to_owned(),
+        );
+    }
+    Ok(Json(json!({
+        "running": true,
+        "network_capture_requested": true,
+    })))
+}
+
+pub(super) async fn network_capture_stop(State(state): State<CaptureContext>) -> Json<Value> {
+    let _control = state.capture.capture_control.lock().await;
+    state.capture.set_network_capture_requested(false);
+    if let Some(task) = state.capture.chatbox_task.lock().await.take() {
+        task.abort();
+        let _ = task.await;
+    }
+    let global = state.config.config.read().expect("config lock").clone();
+    let config = state
+        .config
+        .language_session
+        .read()
+        .expect("language session lock")
+        .apply_to(&global);
+    let transcribing = state.capture.capture_requested.load(Ordering::SeqCst);
+    if transcribing && config.audio.output.mode == "vrchat_players" {
+        state.capture.speaker_pipeline.lock().await.stop().await;
+    }
+    state.capture.network_session.lock().await.stop().await;
+    if transcribing {
+        let speaker_active = config.audio.output.mode != "disabled"
+            && config.audio.output.mode != "vrchat_players"
+            && state.capture.speaker_pipeline.lock().await.running();
+        let mic_active = config.audio.microphone.mode != "disabled"
+            && (state.capture.microphone_pipeline.lock().await.running()
+                || state.integrations.vrchat_mute_sync.status().muted == Some(true));
+        if !speaker_active && !mic_active {
+            state.capture.set_capture_requested(false);
+            if let Err(error) = state.capture.qwen_runtime.stop().await {
+                tracing::warn!(%error, "could not stop managed Qwen ASR runtime");
+            }
+            if let Err(error) = state
+                .content
+                .translation_service
+                .stop_capture_runtime()
+                .await
+            {
+                tracing::warn!(%error, "could not stop PLaMo translation runtime");
+            }
+            *state
+                .config
+                .language_session
+                .write()
+                .expect("language session lock") =
+                crate::language_session::ActiveLanguageSession::Global;
+            let osc = crate::config::apply_feature_gates(&global).osc;
+            state.integrations.osc.update_config(osc);
+        }
+    }
+    Json(json!({
+        "running": false,
+        "network_capture_requested": false,
+        "capture_requested": state.capture.capture_requested.load(Ordering::SeqCst),
+    }))
+}
+
 pub(super) async fn capture_start(
     State(state): State<CaptureContext>,
     input: Option<Json<crate::language_session::CaptureStartInput>>,
@@ -852,16 +976,36 @@ pub(super) async fn capture_start(
     }
     state.capture.microphone_monitor.lock().await.stop().await;
 
+    let was_network_requested = state
+        .capture
+        .network_capture_requested
+        .load(Ordering::SeqCst);
+    if NetworkConsumers::from_config(&config).any() && !was_network_requested {
+        state.capture.set_network_capture_requested(true);
+    }
+
     *state
         .config
         .language_session
         .write()
         .expect("language session lock") = session;
     state.integrations.osc.update_config(config.osc.clone());
-    let started = start_planned_pipelines(&state, &config, CaptureReloadPlan::all()).await;
+    let started = start_planned_pipelines(
+        &state,
+        &config,
+        CaptureReloadPlan {
+            network_restart: false,
+            ..CaptureReloadPlan::all()
+        },
+    )
+    .await;
     let (device, microphone) = match started {
         Ok(devices) => devices,
         Err(error) => {
+            if !was_network_requested {
+                state.capture.set_network_capture_requested(false);
+                state.capture.network_session.lock().await.stop().await;
+            }
             if let Err(stop_error) = state.capture.qwen_runtime.stop().await {
                 tracing::warn!(%stop_error, "could not stop Qwen ASR after capture start failed");
             }
@@ -899,8 +1043,19 @@ pub(super) async fn capture_stop(State(state): State<CaptureContext>) -> Json<Va
         tracing::warn!(%error, "could not cancel Qwen ASR startup");
     }
     let _control = state.capture.capture_control.lock().await;
+    let keep_network = state
+        .capture
+        .network_capture_requested
+        .load(Ordering::SeqCst);
     state.capture.set_capture_requested(false);
-    stop_pipelines(&state, CaptureReloadPlan::all()).await;
+    stop_pipelines(
+        &state,
+        CaptureReloadPlan {
+            network_restart: !keep_network,
+            ..CaptureReloadPlan::all()
+        },
+    )
+    .await;
     if let Err(error) = state.capture.qwen_runtime.stop().await {
         tracing::warn!(%error, "could not stop managed Qwen ASR runtime after capture");
     }

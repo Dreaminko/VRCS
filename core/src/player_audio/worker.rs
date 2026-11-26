@@ -717,12 +717,13 @@ struct Engine {
 
 impl Engine {
     fn reconcile_voice(&mut self, path: &std::path::Path) {
-        let (enabled, chatbox_enabled, generation, path) = {
+        let (enabled, chatbox_enabled, standby, generation, path) = {
             let outputs = self.tx.0.lock().expect("network outputs");
             self.maximum = outputs.max_players;
             (
                 outputs.voice_enabled(),
                 outputs.chatbox_enabled(),
+                outputs.standby_active,
                 outputs.voice_generation,
                 if outputs.opus_library_path.is_empty() {
                     path.to_path_buf()
@@ -732,7 +733,7 @@ impl Engine {
             )
         };
         if !enabled {
-            if chatbox_enabled {
+            if chatbox_enabled || standby {
                 self.clear_voice_spatial();
             } else {
                 self.clear_proximity();
@@ -740,7 +741,7 @@ impl Engine {
             self.tracks.clear();
             self.opus = None;
         } else if self.opus.is_none() || generation != self.voice_generation {
-            if chatbox_enabled {
+            if chatbox_enabled || standby {
                 self.clear_voice_spatial();
             } else {
                 self.clear_proximity();
@@ -763,11 +764,12 @@ impl Engine {
     }
 
     fn reconcile_text(&mut self) {
-        let (enabled, voice_enabled, generation) = {
+        let (enabled, voice_enabled, standby, generation) = {
             let outputs = self.tx.0.lock().expect("network outputs");
             (
                 outputs.chatbox_enabled(),
                 outputs.voice_enabled(),
+                outputs.standby_active,
                 outputs.text_generation,
             )
         };
@@ -778,7 +780,7 @@ impl Engine {
             if enabled {
                 self.roster_dirty = true;
                 self.room_context_resync = true;
-            } else if !voice_enabled {
+            } else if !voice_enabled && !standby {
                 self.clear_proximity();
             }
         }
@@ -1181,13 +1183,17 @@ impl Engine {
                 },
             );
         }
-        let (voice_enabled, chatbox_enabled) = {
+        let (voice_enabled, chatbox_enabled, standby) = {
             let outputs = self.tx.0.lock().expect("network outputs");
-            (outputs.voice_enabled(), outputs.chatbox_enabled())
+            (
+                outputs.voice_enabled(),
+                outputs.chatbox_enabled(),
+                outputs.standby_active,
+            )
         };
         let voice_spatial = allow_voice && voice_enabled;
         let text_spatial = self.text_enabled && allow_text && chatbox_enabled;
-        let spatial_enabled = voice_spatial || text_spatial;
+        let spatial_enabled = voice_spatial || text_spatial || standby;
         let flow = self.flows.get_mut(&connection).unwrap();
         let nonce: [u8; 12] = packet[7..19].try_into().unwrap();
         if !flow.nonce_set.insert((incoming, nonce)) {
