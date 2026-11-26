@@ -535,7 +535,26 @@ fn publish_chunk(
         match tx.try_send(chunk) {
             Ok(()) => {}
             Err(mpsc::error::TrySendError::Full(_)) => {
-                tracing::warn!("WASAPI capture queue is full; dropping audio chunk");
+                thread_local! {
+                    static DROP_LOG: std::cell::Cell<(Option<std::time::Instant>, u64)> =
+                        const { std::cell::Cell::new((None, 0)) };
+                }
+                DROP_LOG.with(|state| {
+                    let (last, count) = state.get();
+                    let dropped = count + 1;
+                    let now = std::time::Instant::now();
+                    if last.is_none_or(|at| {
+                        now.saturating_duration_since(at) >= std::time::Duration::from_secs(3)
+                    }) {
+                        tracing::warn!(
+                            dropped,
+                            "WASAPI capture queue is full; dropping audio chunks"
+                        );
+                        state.set((Some(now), 0));
+                    } else {
+                        state.set((last, dropped));
+                    }
+                });
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {}
         }

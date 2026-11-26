@@ -9,6 +9,7 @@ use windows::Win32::Networking::WinSock::*;
 pub(super) struct Network {
     sockets: Vec<SOCKET>,
     events: Vec<WSAEVENT>,
+    socket_ips: Vec<Ipv4Addr>,
     bound_ips: HashSet<Ipv4Addr>,
     pid: u32,
     ports: HashSet<u16>,
@@ -88,6 +89,7 @@ impl Network {
             let mut network = Self {
                 sockets: Vec::new(),
                 events: Vec::new(),
+                socket_ips: Vec::new(),
                 bound_ips: HashSet::new(),
                 pid: owner.pid,
                 ports,
@@ -99,6 +101,7 @@ impl Network {
                 if let Some((socket, event)) = open_interface_socket(address) {
                     network.sockets.push(socket);
                     network.events.push(event);
+                    network.socket_ips.push(address);
                     network.bound_ips.insert(address);
                 }
             }
@@ -114,12 +117,29 @@ impl Network {
             || self.last_packet_at.elapsed() >= std::time::Duration::from_secs(5))
             && let Ok(addresses) = interfaces()
         {
+            let active: HashSet<Ipv4Addr> = addresses.iter().copied().collect();
+            let mut index = 0;
+            while index < self.socket_ips.len() {
+                if active.contains(&self.socket_ips[index]) {
+                    index += 1;
+                    continue;
+                }
+                let ip = self.socket_ips.swap_remove(index);
+                let socket = self.sockets.swap_remove(index);
+                let event = self.events.swap_remove(index);
+                self.bound_ips.remove(&ip);
+                unsafe {
+                    closesocket(socket);
+                    let _ = WSACloseEvent(event);
+                }
+            }
             for address in addresses {
                 if !self.bound_ips.contains(&address)
                     && let Some((socket, event)) = unsafe { open_interface_socket(address) }
                 {
                     self.sockets.push(socket);
                     self.events.push(event);
+                    self.socket_ips.push(address);
                     self.bound_ips.insert(address);
                 }
             }
@@ -135,7 +155,7 @@ impl Network {
             std::thread::sleep(timeout);
             return;
         }
-        let timeout_ms = timeout.as_millis().min(u32::MAX as u128 - 1) as u32;
+        let timeout_ms = timeout.as_millis().clamp(1, u32::MAX as u128 - 1) as u32;
         let count = self.events.len().min(64);
         let mut handles = [windows::Win32::Foundation::HANDLE::default(); 64];
         for (slot, event) in handles[..count].iter_mut().zip(&self.events[..count]) {
@@ -191,11 +211,11 @@ impl Network {
 impl Drop for Network {
     fn drop(&mut self) {
         unsafe {
-            for event in &self.events {
-                let _ = WSACloseEvent(*event);
-            }
             for socket in &self.sockets {
                 closesocket(*socket);
+            }
+            for event in &self.events {
+                let _ = WSACloseEvent(*event);
             }
             WSACleanup();
         }

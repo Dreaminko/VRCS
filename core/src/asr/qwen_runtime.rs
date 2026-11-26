@@ -341,7 +341,7 @@ impl QwenRuntime {
                 .stderr(Stdio::piped())
                 .kill_on_drop(true);
             let diagnostics = Arc::new(StdMutex::new(VecDeque::<String>::new()));
-            let generation = {
+            let mut stderr_task = {
                 let mut state = self.state.lock().await;
                 if state.session != session {
                     return Err("Qwen ASR startup was cancelled".into());
@@ -355,7 +355,7 @@ impl QwenRuntime {
                 let stderr = child.stderr.take().expect("piped stderr");
                 let tail = Arc::clone(&diagnostics);
                 let redacted = token.clone();
-                tokio::spawn(async move {
+                let handle = tokio::spawn(async move {
                     let mut lines = BufReader::new(stderr).lines();
                     while let Ok(Some(line)) = lines.next_line().await {
                         let line = line
@@ -373,7 +373,7 @@ impl QwenRuntime {
                 state.generation = state.generation.wrapping_add(1);
                 state.child = Some(child);
                 state.device = Some(device);
-                state.generation
+                Some(handle)
             };
             let origin = format!("http://127.0.0.1:{port}");
             loop {
@@ -395,16 +395,19 @@ impl QwenRuntime {
                     }
                 };
                 if let Some(error) = exited_error {
-                    if attempt < 2 && Instant::now() < deadline {
-                        tokio::time::sleep(Duration::from_millis(25)).await;
-                        if is_address_in_use_diagnostic(&diagnostics) {
-                            tracing::warn!(
-                                port,
-                                attempt = attempt + 1,
-                                "Qwen ASR ephemeral port conflicted on startup; retrying"
-                            );
-                            continue 'attempts;
-                        }
+                    if let Some(task) = stderr_task.take() {
+                        let _ = tokio::time::timeout(Duration::from_millis(200), task).await;
+                    }
+                    if attempt < 2
+                        && Instant::now() < deadline
+                        && is_address_in_use_diagnostic(&diagnostics)
+                    {
+                        tracing::warn!(
+                            port,
+                            attempt = attempt + 1,
+                            "Qwen ASR ephemeral port conflicted on startup; retrying"
+                        );
+                        continue 'attempts;
                     }
                     return Err(with_diagnostics(error, &diagnostics));
                 }
@@ -418,7 +421,7 @@ impl QwenRuntime {
                             base_url: format!("{origin}/v1"),
                             token,
                             model: selection.alias.clone(),
-                            generation,
+                            generation: state.generation,
                             session,
                         };
                         state.status = "ready";
@@ -427,7 +430,29 @@ impl QwenRuntime {
                         return Ok(connection);
                     }
                     Ok(false) => {}
-                    Err(error) => return Err(with_diagnostics(error, &diagnostics)),
+                    Err(error) => {
+                        if attempt < 2 && Instant::now() < deadline {
+                            {
+                                let mut state = self.state.lock().await;
+                                if state.session != session {
+                                    return Err("Qwen ASR startup was cancelled".into());
+                                }
+                                let _ = stop_child(&mut state).await;
+                            }
+                            if let Some(task) = stderr_task.take() {
+                                let _ =
+                                    tokio::time::timeout(Duration::from_millis(200), task).await;
+                            }
+                            tracing::warn!(
+                                port,
+                                attempt = attempt + 1,
+                                %error,
+                                "Qwen ASR startup probe failed; retrying on a fresh port"
+                            );
+                            continue 'attempts;
+                        }
+                        return Err(with_diagnostics(error, &diagnostics));
+                    }
                 }
                 if Instant::now() >= deadline {
                     return Err(with_diagnostics(
@@ -544,6 +569,10 @@ fn is_address_in_use_diagnostic(diagnostics: &Arc<StdMutex<VecDeque<String>>>) -
         lower.contains("address already in use")
             || lower.contains("only one usage of each socket address")
             || lower.contains("eaddrinuse")
+            || lower.contains("couldn't bind")
+            || lower.contains("failed to bind")
+            || lower.contains("failed to listen")
+            || lower.contains("10048")
     })
 }
 

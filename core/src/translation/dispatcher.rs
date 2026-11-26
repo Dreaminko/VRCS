@@ -265,9 +265,9 @@ const PRIORITY_BURST: i32 = 3;
 const STARVATION: Duration = Duration::from_secs(2);
 const QUEUE_CAPACITY: usize = 64;
 const REMOTE_CAPACITY: usize = 4;
-// Matches PlamoRuntime's 2 active inference slots so queued work stays in
-// Admission without holding active_players.
-const LOCAL_CAPACITY: usize = 2;
+// Allows a single job with up to 3 PlamoLocal targets (config/validation.rs max)
+// to enter Admission; PlamoRuntime still bounds concurrent inference to 2 slots.
+const LOCAL_CAPACITY: usize = 3;
 
 fn player(job: &TranslationJob) -> Option<&str> {
     (job.subtitle.source == "speaker")

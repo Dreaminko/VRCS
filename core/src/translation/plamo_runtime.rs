@@ -287,7 +287,7 @@ impl PlamoRuntime {
                     true,
                 )
             })?;
-            {
+            let mut stderr_task = {
                 let mut state = self.state.lock().await;
                 if state.generation != generation {
                     drop(state);
@@ -301,7 +301,7 @@ impl PlamoRuntime {
                 let stderr = child.stderr.take().expect("piped stderr");
                 let tail = Arc::clone(&diagnostics);
                 let redacted = token.clone();
-                tokio::spawn(async move {
+                let handle = tokio::spawn(async move {
                     let mut lines = BufReader::new(stderr).lines();
                     while let Ok(Some(line)) = lines.next_line().await {
                         let line = line
@@ -317,7 +317,8 @@ impl PlamoRuntime {
                     }
                 });
                 state.child = Some(child);
-            }
+                Some(handle)
+            };
             let origin = format!("http://127.0.0.1:{port}");
             loop {
                 let exited_error = {
@@ -338,16 +339,19 @@ impl PlamoRuntime {
                     }
                 };
                 if let Some(error) = exited_error {
-                    if attempt < 2 && Instant::now() < deadline {
-                        tokio::time::sleep(Duration::from_millis(25)).await;
-                        if is_address_in_use_diagnostic(&diagnostics) {
-                            tracing::warn!(
-                                port,
-                                attempt = attempt + 1,
-                                "Local PLaMo ephemeral port conflicted on startup; retrying"
-                            );
-                            continue 'attempts;
-                        }
+                    if let Some(task) = stderr_task.take() {
+                        let _ = tokio::time::timeout(Duration::from_millis(200), task).await;
+                    }
+                    if attempt < 2
+                        && Instant::now() < deadline
+                        && is_address_in_use_diagnostic(&diagnostics)
+                    {
+                        tracing::warn!(
+                            port,
+                            attempt = attempt + 1,
+                            "Local PLaMo ephemeral port conflicted on startup; retrying"
+                        );
+                        continue 'attempts;
                     }
                     let error = with_diagnostics(error, &diagnostics);
                     return Err(local_error(
@@ -377,6 +381,30 @@ impl PlamoRuntime {
                     }
                     Ok(false) => {}
                     Err(error) => {
+                        if attempt < 2 && Instant::now() < deadline {
+                            {
+                                let mut state = self.state.lock().await;
+                                if state.generation != generation {
+                                    return Err(local_error(
+                                        "translation.local_runtime_unavailable",
+                                        "Local PLaMo startup was cancelled",
+                                        false,
+                                    ));
+                                }
+                                let _ = stop_child(&mut state).await;
+                            }
+                            if let Some(task) = stderr_task.take() {
+                                let _ =
+                                    tokio::time::timeout(Duration::from_millis(200), task).await;
+                            }
+                            tracing::warn!(
+                                port,
+                                attempt = attempt + 1,
+                                %error,
+                                "Local PLaMo startup probe failed; retrying on a fresh port"
+                            );
+                            continue 'attempts;
+                        }
                         let error = with_diagnostics(error, &diagnostics);
                         return Err(local_error(
                             "translation.local_runtime_unavailable",
@@ -422,6 +450,10 @@ fn is_address_in_use_diagnostic(diagnostics: &Arc<StdMutex<VecDeque<String>>>) -
         lower.contains("address already in use")
             || lower.contains("only one usage of each socket address")
             || lower.contains("eaddrinuse")
+            || lower.contains("couldn't bind")
+            || lower.contains("failed to bind")
+            || lower.contains("failed to listen")
+            || lower.contains("10048")
     })
 }
 

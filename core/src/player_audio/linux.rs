@@ -146,9 +146,9 @@ impl HelperChild {
             .spawn(move || {
                 if let Ok(mut child) = receiver.recv() {
                     let _ = child.wait();
-                }
-                if let Some(flag) = active {
-                    flag.store(false, Ordering::Release);
+                    if let Some(flag) = active {
+                        flag.store(false, Ordering::Release);
+                    }
                 }
             })
             .map_err(|error| {
