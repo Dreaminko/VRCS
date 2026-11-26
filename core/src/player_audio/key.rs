@@ -89,6 +89,19 @@ fn scan_pagefile<R: std::io::Read + std::io::Seek + Send>(
                         // Include 39 bytes of overlap to find a 40-byte object
                         // crossing a worker, sector, or physical extent boundary.
                         let begin = at.saturating_sub(39);
+                        if reader.range_is_sparse(extents, begin, end - begin) {
+                            if tx
+                                .send(ScanMessage::Chunk {
+                                    bytes: end - at,
+                                    candidates: 0,
+                                    key: None,
+                                })
+                                .is_err()
+                            {
+                                break;
+                            }
+                            continue;
+                        }
                         let bytes = reader.read_runs_into(
                             extents,
                             begin,
@@ -255,7 +268,7 @@ pub(super) fn acquire(
     let (file_size, extents) = ntfs.pagefile()?;
     let worker_count = std::thread::available_parallelism()
         .map_or(1, usize::from)
-        .clamp(1, 8)
+        .clamp(1, 4)
         .min(file_size.div_ceil(SCAN_CHUNK) as usize)
         .max(1);
     let mut readers = Vec::with_capacity(worker_count);

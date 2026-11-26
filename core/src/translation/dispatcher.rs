@@ -265,8 +265,9 @@ const PRIORITY_BURST: i32 = 3;
 const STARVATION: Duration = Duration::from_secs(2);
 const QUEUE_CAPACITY: usize = 64;
 const REMOTE_CAPACITY: usize = 4;
-// Independent of remote requests: two running local requests and eight waiters.
-const LOCAL_CAPACITY: usize = 10;
+// Matches PlamoRuntime's 2 active inference slots so queued work stays in
+// Admission without holding active_players.
+const LOCAL_CAPACITY: usize = 2;
 
 fn player(job: &TranslationJob) -> Option<&str> {
     (job.subtitle.source == "speaker")
@@ -481,7 +482,7 @@ impl TranslationDispatcher {
                 tokio::select! {
                     // Bound cancellation cleanup and re-evaluate view/aging even
                     // when every queue budget is held and no new job can enter.
-                    _ = tokio::time::sleep(Duration::from_millis(50)), if !pending.is_empty() => {}
+                    _ = tokio::time::sleep(Duration::from_millis(200)), if !pending.is_empty() => {}
                     result = running.join_next_with_id(), if !running.is_empty() => {
                         let task_id = match result.expect("running task") {
                             Ok((id, ())) => id,

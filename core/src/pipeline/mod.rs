@@ -765,7 +765,7 @@ impl PipelineEffectRunner<'_> {
 
 async fn run(
     capture: &mut AudioCapture,
-    mut detector: VoiceDetector,
+    detector: VoiceDetector,
     mut segmenter: SpeechSegmenter,
     context: PipelineRunContext,
     shutdown: &mut watch::Receiver<bool>,
@@ -780,6 +780,7 @@ async fn run(
         discard_on_stop,
         smart_turn,
     } = context;
+    let detector = Arc::new(Mutex::new(detector));
     let mut state = PipelineState::new(sample_rate);
     let (smart_turn_tx, mut smart_turn_rx) = mpsc::unbounded_channel();
     let mut result = loop {
@@ -820,7 +821,28 @@ async fn run(
             },
             PipelineInput::Audio(chunk) => {
                 let (rms_dbfs, peak_dbfs) = audio_level_dbfs(&chunk);
-                let vad_speech = detector.is_speech(&chunk);
+                let is_silero = detector
+                    .lock()
+                    .map_err(|_| "VAD detector lock is poisoned".to_string())?
+                    .is_silero();
+                let (chunk, vad_speech) = if is_silero {
+                    let detector = Arc::clone(&detector);
+                    tokio::task::spawn_blocking(move || {
+                        let speech = detector
+                            .lock()
+                            .map_err(|_| "VAD detector lock is poisoned".to_string())?
+                            .is_speech(&chunk);
+                        Ok::<_, String>((chunk, speech))
+                    })
+                    .await
+                    .map_err(|error| format!("VAD inference task failed: {error}"))??
+                } else {
+                    let speech = detector
+                        .lock()
+                        .map_err(|_| "VAD detector lock is poisoned".to_string())?
+                        .is_speech(&chunk);
+                    (chunk, speech)
+                };
                 PipelineEvent::AudioAnalyzed {
                     chunk,
                     rms_dbfs,

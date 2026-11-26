@@ -607,7 +607,22 @@ fn run(
             if engine.tx.is_closed() {
                 break;
             }
-            std::thread::sleep(Duration::from_millis(2));
+            let now = Instant::now();
+            let refresh_interval = if key.is_none() {
+                Duration::from_millis(250)
+            } else {
+                Duration::from_secs(1)
+            };
+            let next_refresh = refresh_interval.saturating_sub(refresh.elapsed());
+            let next_world = Duration::from_millis(250).saturating_sub(world_poll.elapsed());
+            let timeout = if let Some(playout_wait) = engine.next_playout_delay(now) {
+                playout_wait.min(Duration::from_millis(20))
+            } else if scanner.is_some() {
+                Duration::from_millis(25)
+            } else {
+                next_refresh.min(next_world).max(Duration::from_millis(1))
+            };
+            network.wait(timeout);
         }
         Ok(())
     })();
@@ -623,6 +638,10 @@ fn run(
     engine.close_tracks();
     engine.clear_text();
     engine.clear_proximity();
+    if result.is_err() {
+        engine.identities.clear();
+        engine.roster_dirty = true;
+    }
     engine.publish_roster(Instant::now());
     room_context.invalidate_network_room();
     if result.is_ok() && key.is_some() && stop.load(Ordering::Relaxed) {
@@ -713,6 +732,8 @@ struct Engine {
     proximity_status_at: Instant,
     room_context: Option<NetworkCapturePublisher>,
     room_context_resync: bool,
+    voice_spatial_active: bool,
+    proximity_active: bool,
 }
 
 impl Engine {
@@ -737,6 +758,9 @@ impl Engine {
                 self.clear_voice_spatial();
             } else {
                 self.clear_proximity();
+            }
+            if !self.tracks.is_empty() {
+                self.roster_dirty = true;
             }
             self.tracks.clear();
             self.opus = None;
@@ -931,7 +955,16 @@ impl Engine {
             proximity_status_at: Instant::now() - Duration::from_secs(1),
             room_context: None,
             room_context_resync: false,
+            voice_spatial_active: false,
+            proximity_active: false,
         }
+    }
+
+    fn next_playout_delay(&self, now: Instant) -> Option<Duration> {
+        self.tracks
+            .values()
+            .map(|track| track.next_playout.saturating_duration_since(now))
+            .min()
     }
 
     fn with_room_context(mut self, room_context: NetworkCapturePublisher) -> Self {
@@ -1193,7 +1226,8 @@ impl Engine {
         };
         let voice_spatial = allow_voice && voice_enabled;
         let text_spatial = self.text_enabled && allow_text && chatbox_enabled;
-        let spatial_enabled = voice_spatial || text_spatial || standby;
+        let spatial_enabled =
+            voice_spatial || text_spatial || (standby && self.proximity_config.enabled);
         let flow = self.flows.get_mut(&connection).unwrap();
         let nonce: [u8; 12] = packet[7..19].try_into().unwrap();
         if !flow.nonce_set.insert((incoming, nonce)) {
@@ -1364,6 +1398,7 @@ impl Engine {
                 .observe_player(&id, flow_number, epoch, position, now);
         }
         if spatial_changed {
+            self.proximity_active = true;
             self.publish_spatial_state(now, voice_spatial, true);
         }
         for (voice, participant) in voices {
@@ -1608,6 +1643,9 @@ impl Engine {
             now,
         );
         let count = visible.len();
+        if voice_enabled && (enabled || local_view || count > 0) {
+            self.voice_spatial_active = true;
+        }
         super::publish_view_priority(enabled, visible, valid_until);
         let mut status = self.status.lock().expect("player status");
         status.proximity.view_enabled = enabled;
@@ -1693,6 +1731,13 @@ impl Engine {
         }
     }
     fn clear_voice_spatial(&mut self) {
+        if !self.voice_spatial_active
+            && self.admitted_proximity.is_empty()
+            && self.admission_pending.is_empty()
+        {
+            return;
+        }
+        self.voice_spatial_active = false;
         super::clear_view_priority();
         self.admitted_proximity.clear();
         self.admission_pending.clear();
@@ -1702,6 +1747,15 @@ impl Engine {
         status.proximity.in_view_players = 0;
     }
     fn clear_proximity(&mut self) {
+        if !self.proximity_active
+            && !self.voice_spatial_active
+            && self.admitted_proximity.is_empty()
+            && self.admission_pending.is_empty()
+        {
+            return;
+        }
+        self.proximity_active = false;
+        self.voice_spatial_active = false;
         self.proximity.clear();
         super::clear_view_priority();
         self.admitted_proximity.clear();

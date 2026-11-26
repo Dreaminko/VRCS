@@ -663,22 +663,27 @@ impl PipelineDependencies {
             })
         };
         if let Some((target, prompt, profiles, include_vrcx_context)) = repair {
-            let subtitles = {
-                let database = self
-                    .database
+            let database = Arc::clone(&self.database);
+            let subtitle_ids = items
+                .iter()
+                .map(|item| item.subtitle_id)
+                .collect::<Vec<_>>();
+            let subtitles = tokio::task::spawn_blocking(move || {
+                let database = database
                     .lock()
                     .map_err(|_| "Database lock is unavailable".to_string())?;
-                items
-                    .iter()
-                    .map(|item| {
+                subtitle_ids
+                    .into_iter()
+                    .map(|subtitle_id| {
                         database
-                            .subtitle(item.subtitle_id)
+                            .subtitle(subtitle_id)
                             .map_err(|error| error.to_string())
                     })
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into_iter()
-                    .collect::<Option<Vec<_>>>()
-            };
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(|rows| rows.into_iter().collect::<Option<Vec<_>>>())
+            })
+            .await
+            .map_err(|error| error.to_string())??;
             if let Some(subtitles) = subtitles {
                 self.pending_native
                     .lock()

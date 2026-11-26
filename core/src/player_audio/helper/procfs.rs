@@ -397,7 +397,21 @@ fn read_udp_snapshot(
     let v6_ok = query_netlink_udp(libc::AF_INET6 as u8, |msg| {
         ipv6_ports.insert(u16::from_be_bytes(msg.id.idiag_sport));
     });
-    if v4_ok.is_ok() && (v6_ok.is_ok() || !Path::new("/proc/net/udp6").exists()) {
+    if v4_ok.is_ok() {
+        if v6_ok.is_err()
+            && let Ok(table6) = fs::read_to_string(format!("/proc/{pid}/net/udp6"))
+        {
+            for line in table6.lines().skip(1) {
+                if let Some(port) = line
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|address| address.split_once(':'))
+                    .and_then(|(_, port)| u16::from_str_radix(port, 16).ok())
+                {
+                    ipv6_ports.insert(port);
+                }
+            }
+        }
         return Ok((endpoints, ipv6_ports));
     }
 
@@ -425,7 +439,7 @@ fn read_udp_snapshot(
             }
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            if Path::new("/proc/net/udp6").exists() {
+            if !Path::new(&format!("/proc/{pid}")).exists() {
                 return Err(error);
             }
         }

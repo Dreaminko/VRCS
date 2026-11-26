@@ -76,7 +76,7 @@ enum DetectorBackend {
 
 #[derive(Debug)]
 struct SileroVad {
-    session: Arc<Mutex<Session>>,
+    session: Session,
     state: ArrayD<f32>,
     context: [f32; CONTEXT_SAMPLES],
     input: Vec<f32>,
@@ -84,14 +84,13 @@ struct SileroVad {
 }
 
 #[derive(Clone)]
-struct SharedSileroSession {
+struct ValidatedSilero {
     path: PathBuf,
     bytes: u64,
     modified_nanos: i128,
-    session: Arc<Mutex<Session>>,
 }
 
-static SHARED_SILERO: Mutex<Option<SharedSileroSession>> = Mutex::new(None);
+static SHARED_SILERO: Mutex<Option<ValidatedSilero>> = Mutex::new(None);
 
 fn modified_nanos(metadata: &std::fs::Metadata) -> i128 {
     metadata
@@ -168,6 +167,10 @@ impl VoiceDetector {
             backend: DetectorBackend::Energy,
             runtime,
         }
+    }
+
+    pub fn is_silero(&self) -> bool {
+        matches!(self.backend, DetectorBackend::Silero(_))
     }
 
     #[cfg(test)]
@@ -333,7 +336,7 @@ enum LoadError {
 }
 
 impl SileroVad {
-    fn shared_session(model_path: &Path) -> Result<Arc<Mutex<Session>>, LoadError> {
+    fn ensure_validated(model_path: &Path) -> Result<(), LoadError> {
         let metadata = std::fs::metadata(model_path).map_err(|error| {
             LoadError::ValidationError(format!("Failed to inspect Silero model: {error}"))
         })?;
@@ -341,19 +344,29 @@ impl SileroVad {
         let modified = modified_nanos(&metadata);
         let mut guard = SHARED_SILERO
             .lock()
-            .map_err(|_| LoadError::Init("Silero VAD session cache lock poisoned".into()))?;
+            .map_err(|_| LoadError::Init("Silero VAD validation cache lock poisoned".into()))?;
         if let Some(entry) = guard.as_ref()
             && entry.path == model_path
             && entry.bytes == bytes
             && entry.modified_nanos == modified
         {
-            return Ok(Arc::clone(&entry.session));
+            return Ok(());
         }
         match model_file_is_valid_sync(model_path) {
             Ok(true) => {}
             Ok(false) => return Err(LoadError::ValidationFailed),
             Err(error) => return Err(LoadError::ValidationError(error)),
         }
+        *guard = Some(ValidatedSilero {
+            path: model_path.to_path_buf(),
+            bytes,
+            modified_nanos: modified,
+        });
+        Ok(())
+    }
+
+    fn load(model_path: &Path) -> Result<Self, LoadError> {
+        Self::ensure_validated(model_path)?;
         let session = (|| -> ort::Result<Session> {
             let env = crate::ort_environment()?;
             Session::builder(&env)?
@@ -365,18 +378,6 @@ impl SileroVad {
                 .commit_from_file(model_path)
         })()
         .map_err(|error| LoadError::Init(error.to_string()))?;
-        let session = Arc::new(Mutex::new(session));
-        *guard = Some(SharedSileroSession {
-            path: model_path.to_path_buf(),
-            bytes,
-            modified_nanos: modified,
-            session: Arc::clone(&session),
-        });
-        Ok(session)
-    }
-
-    fn load(model_path: &Path) -> Result<Self, LoadError> {
-        let session = Self::shared_session(model_path)?;
         Ok(Self {
             session,
             state: ArrayD::zeros(vec![2, 1, 128]),
@@ -400,11 +401,8 @@ impl SileroVad {
         let sample_rate = TensorRef::from_array_view(ArrayView1::from(&self.sample_rate))
             .map_err(|error| error.to_string())?;
 
-        let mut session = self
+        let outputs = self
             .session
-            .lock()
-            .map_err(|_| "Silero VAD session lock poisoned".to_string())?;
-        let outputs = session
             .run([(&*input).into(), (&*state).into(), (&*sample_rate).into()])
             .map_err(|error| error.to_string())?;
         let (state_shape, state_data) = outputs

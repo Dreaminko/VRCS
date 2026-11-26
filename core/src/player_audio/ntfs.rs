@@ -38,7 +38,7 @@ fn runs(bytes: &[u8], mut vcn: u64) -> Result<Vec<Run>, String> {
             return Ok(result);
         }
         let (length, offset) = ((header & 15) as usize, (header >> 4) as usize);
-        if !(1..=8).contains(&length) || offset > 8 || result.len() >= 4096 {
+        if !(1..=8).contains(&length) || offset > 8 || result.len() >= 65_536 {
             return Err(BAD.into());
         }
         let mut value = [0; 8];
@@ -218,6 +218,7 @@ impl<R: Read + Seek> Ntfs<R> {
                 fs.mft.extend(attr.runs()?);
             }
         }
+        fs.mft.sort_by_key(|r| r.vcn);
         if fs.mft.is_empty() {
             return Err("NTFS MFT extents are unavailable".into());
         }
@@ -264,6 +265,35 @@ impl<R: Read + Seek> Ntfs<R> {
         Ok(&data[skip..skip + length])
     }
 
+    pub(super) fn range_is_sparse(&self, list: &[Run], offset: u64, length: u64) -> bool {
+        if length == 0 {
+            return true;
+        }
+        let mut position = offset;
+        let end = offset.saturating_add(length);
+        while position < end {
+            let vcn = position / self.cluster;
+            let Some(run) = find_run(list, vcn) else {
+                return false;
+            };
+            if run.lcn.is_some() {
+                return false;
+            }
+            let within = position % self.cluster;
+            let Some(available) = (run.count - (vcn - run.vcn))
+                .checked_mul(self.cluster)
+                .map(|bytes| bytes - within)
+            else {
+                return false;
+            };
+            if available == 0 {
+                return false;
+            }
+            position = position.saturating_add(available).min(end);
+        }
+        true
+    }
+
     fn read_runs(
         &mut self,
         list: &[Run],
@@ -277,10 +307,7 @@ impl<R: Read + Seek> Ntfs<R> {
         let mut position = offset;
         while result.len() < length {
             let vcn = position / self.cluster;
-            let run = list
-                .iter()
-                .find(|r| vcn >= r.vcn && vcn - r.vcn < r.count)
-                .ok_or(BAD)?;
+            let run = find_run(list, vcn).ok_or(BAD)?;
             let within = position % self.cluster;
             let available = (run.count - (vcn - run.vcn))
                 .checked_mul(self.cluster)
@@ -320,7 +347,7 @@ impl<R: Read + Seek> Ntfs<R> {
         // Scan a contiguous physical range directly from its read buffer.
         // Only fragmented/sparse ranges need the assembly buffer below.
         let vcn = offset / self.cluster;
-        if let Some(run) = list.iter().find(|r| vcn >= r.vcn && vcn - r.vcn < r.count) {
+        if let Some(run) = find_run(list, vcn) {
             let within = offset % self.cluster;
             let available = (run.count - (vcn - run.vcn))
                 .checked_mul(self.cluster)
@@ -342,10 +369,7 @@ impl<R: Read + Seek> Ntfs<R> {
         while copied < length {
             let position = offset.checked_add(copied as u64).ok_or(BAD)?;
             let vcn = position / self.cluster;
-            let run = list
-                .iter()
-                .find(|r| vcn >= r.vcn && vcn - r.vcn < r.count)
-                .ok_or(BAD)?;
+            let run = find_run(list, vcn).ok_or(BAD)?;
             let within = position % self.cluster;
             let available = (run.count - (vcn - run.vcn))
                 .checked_mul(self.cluster)
@@ -443,6 +467,7 @@ impl<R: Read + Seek> Ntfs<R> {
                 }
             }
         }
+        allocation.sort_by_key(|r| r.vcn);
         if number.is_none() {
             if !(512..=65536).contains(&index_size) || allocation_size > LIMIT as u64 {
                 return Err(BAD.into());
@@ -487,6 +512,14 @@ impl<R: Read + Seek> Ntfs<R> {
         }
         Ok((size, data_runs))
     }
+}
+
+fn find_run(list: &[Run], vcn: u64) -> Option<&Run> {
+    let index = list.partition_point(|r| r.vcn <= vcn);
+    index
+        .checked_sub(1)
+        .and_then(|i| list.get(i))
+        .filter(|r| vcn >= r.vcn && vcn - r.vcn < r.count)
 }
 
 fn lookup_index(bytes: &[u8], header: usize) -> Result<Option<u64>, String> {

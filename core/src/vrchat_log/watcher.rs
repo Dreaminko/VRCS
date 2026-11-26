@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 const READ_CHUNK: u64 = 1024 * 1024;
+const MAX_STARTUP_BACKWARD_CHUNKS: usize = 16;
 const LINE_LIMIT: usize = 4096;
 
 pub(super) struct WorldWatcher {
@@ -33,10 +34,7 @@ pub(super) struct WorldWatcher {
 impl WorldWatcher {
     #[cfg(windows)]
     pub(super) fn for_process(owner: crate::vrchat_process::ProcessIdentity) -> Self {
-        let directory = std::env::var_os("USERPROFILE")
-            .map(PathBuf::from)
-            .unwrap_or_default()
-            .join("AppData/LocalLow/VRChat/VRChat");
+        let directory = windows_vrchat_log_directory();
         let ticks = owner.created.saturating_sub(116_444_736_000_000_000);
         Self::new(
             directory,
@@ -219,60 +217,117 @@ impl WorldWatcher {
                 self.partial.clear();
             }
         }
-        let mut reused_chunk: Option<(u64, Vec<u8>)> = None;
-        if let Some(end) = self.search_end {
-            let begin = end.saturating_sub(READ_CHUNK);
-            // Overlap covers a marker line split across backwards read blocks.
-            let overlap = begin.saturating_sub(LINE_LIMIT as u64);
-            let bytes = read_range(file, overlap, end - overlap)?;
-            keep_latest_stamp(
-                &mut self.identity_stamp,
-                identity_marker(&bytes, overlap, true),
-            );
-            keep_latest_stamp(
-                &mut self.world_stamp,
-                identity_marker(&bytes, overlap, false),
-            );
-            if let Some(ready) = last_marker(&bytes) {
-                self.ready = ready;
-                self.search_end = None;
-            } else {
-                self.search_end = (begin > 0).then_some(begin);
+        for _ in 0..MAX_STARTUP_BACKWARD_CHUNKS {
+            if self.search_end.is_none() && self.name_search_end.is_none() {
+                break;
             }
-            if end == length && self.partial.is_empty() {
-                if let Some(at) = bytes.iter().rposition(|byte| *byte == b'\n') {
-                    if bytes.len() - at <= LINE_LIMIT {
-                        self.partial.extend_from_slice(&bytes[at + 1..]);
+            let mut reused_chunk: Option<(u64, Vec<u8>)> = None;
+            if let Some(end) = self.search_end {
+                let begin = end.saturating_sub(READ_CHUNK);
+                // Overlap covers a marker line split across backwards read blocks.
+                let overlap = begin.saturating_sub(LINE_LIMIT as u64);
+                let bytes = read_range(file, overlap, end - overlap)?;
+                keep_latest_stamp(
+                    &mut self.identity_stamp,
+                    identity_marker(&bytes, overlap, true),
+                );
+                keep_latest_stamp(
+                    &mut self.world_stamp,
+                    identity_marker(&bytes, overlap, false),
+                );
+                if let Some(ready) = last_marker(&bytes) {
+                    self.ready = ready;
+                    self.search_end = None;
+                } else {
+                    self.search_end = (begin > 0).then_some(begin);
+                }
+                if end == length && self.partial.is_empty() {
+                    if let Some(at) = bytes.iter().rposition(|byte| *byte == b'\n') {
+                        if bytes.len() - at <= LINE_LIMIT {
+                            self.partial.extend_from_slice(&bytes[at + 1..]);
+                        }
+                    } else if bytes.len() <= LINE_LIMIT {
+                        self.partial.extend_from_slice(&bytes);
                     }
-                } else if bytes.len() <= LINE_LIMIT {
-                    self.partial.extend_from_slice(&bytes);
                 }
+                reused_chunk = Some((end, bytes));
             }
-            reused_chunk = Some((end, bytes));
-        }
-        if let Some(end) = self.name_search_end {
-            let begin = end.saturating_sub(READ_CHUNK);
-            let fetched;
-            let bytes = match &reused_chunk {
-                Some((cached_end, bytes)) if *cached_end == end => bytes.as_slice(),
-                _ => {
-                    // Overlap covers a name line split across backwards read blocks.
-                    let overlap = begin.saturating_sub(LINE_LIMIT as u64);
-                    fetched = read_range(file, overlap, end - overlap)?;
-                    fetched.as_slice()
+            if let Some(end) = self.name_search_end {
+                let begin = end.saturating_sub(READ_CHUNK);
+                let fetched;
+                let bytes = match &reused_chunk {
+                    Some((cached_end, bytes)) if *cached_end == end => bytes.as_slice(),
+                    _ => {
+                        // Overlap covers a name line split across backwards read blocks.
+                        let overlap = begin.saturating_sub(LINE_LIMIT as u64);
+                        fetched = read_range(file, overlap, end - overlap)?;
+                        fetched.as_slice()
+                    }
+                };
+                if let Some(update) = latest_name_update(bytes) {
+                    self.world_name = update.into_name();
+                    self.name_search_end = None;
+                } else {
+                    self.name_search_end = (begin > 0).then_some(begin);
                 }
-            };
-            if let Some(update) = latest_name_update(bytes) {
-                self.world_name = update.into_name();
-                self.name_search_end = None;
-            } else {
-                self.name_search_end = (begin > 0).then_some(begin);
             }
         }
         // Catch up to the log's current end before treating an older marker as ready.
         self.caught_up = self.offset >= length;
         Ok(())
     }
+}
+
+#[cfg(windows)]
+fn windows_vrchat_log_directory() -> PathBuf {
+    known_local_app_data_low()
+        .or_else(|| {
+            std::env::var_os("USERPROFILE")
+                .map(|home| PathBuf::from(home).join("AppData").join("LocalLow"))
+        })
+        .unwrap_or_default()
+        .join("VRChat")
+        .join("VRChat")
+}
+
+#[cfg(windows)]
+fn known_local_app_data_low() -> Option<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::core::{GUID, HRESULT, PWSTR};
+
+    const FOLDERID_LOCAL_APP_DATA_LOW: GUID =
+        GUID::from_u128(0xa520a1a4_1780_4ff6_bd18_167343c5af16);
+    type FnGetKnownFolderPath =
+        unsafe extern "system" fn(*const GUID, u32, HANDLE, *mut PWSTR) -> HRESULT;
+
+    let system = std::env::var_os("SystemRoot")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("C:\\Windows"));
+    let library = unsafe { libloading::Library::new(system.join("System32/shell32.dll")) }.ok()?;
+    let func: libloading::Symbol<'_, FnGetKnownFolderPath> =
+        unsafe { library.get(b"SHGetKnownFolderPath\0") }.ok()?;
+    let mut raw_path = PWSTR::null();
+    let hr = unsafe {
+        func(
+            &FOLDERID_LOCAL_APP_DATA_LOW,
+            0,
+            HANDLE::default(),
+            &mut raw_path,
+        )
+    };
+    if hr.is_err() || raw_path.is_null() {
+        if !raw_path.is_null() {
+            unsafe { CoTaskMemFree(Some(raw_path.as_ptr().cast())) };
+        }
+        return None;
+    }
+    let slice = unsafe { raw_path.as_wide() };
+    let path = PathBuf::from(OsString::from_wide(slice));
+    unsafe { CoTaskMemFree(Some(raw_path.as_ptr().cast())) };
+    Some(path)
 }
 
 #[cfg(target_os = "linux")]
@@ -661,8 +716,13 @@ mod tests {
         assert_eq!(watcher.world_name(), Some("test"));
         // Starting long after entering a room still works, without reading the
         // entire log in one poll or a five-minute freshness cutoff.
-        file.write_all(&vec![b'\n'; READ_CHUNK as usize + LINE_LIMIT + 100])
-            .unwrap();
+        file.write_all(&vec![
+            b'\n';
+            MAX_STARTUP_BACKWARD_CHUNKS * READ_CHUNK as usize
+                + LINE_LIMIT
+                + 100
+        ])
+        .unwrap();
         let mut late = WorldWatcher::new(directory.path().into(), SystemTime::UNIX_EPOCH);
         assert!(!late.poll());
         assert!(late.poll());

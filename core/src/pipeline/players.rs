@@ -129,6 +129,13 @@ async fn run_players(
     let mut retiring: HashMap<String, usize> = HashMap::new();
     let mut retry_after: HashMap<String, Instant> = HashMap::new();
     let mut sweep = tokio::time::interval(Duration::from_millis(50));
+    let (speaker_tx, mut speaker_rx) = mpsc::channel::<crate::models::SpeakerIdentity>(256);
+    let speaker_deps = input.dependencies.clone();
+    let speaker_task = tokio::spawn(async move {
+        while let Some(speaker) = speaker_rx.recv().await {
+            speaker_deps.publish_speaker(speaker).await;
+        }
+    });
     loop {
         if *input.shutdown.borrow() || *input.stop.borrow() {
             break;
@@ -182,7 +189,7 @@ async fn run_players(
                 if let Some(task) = tasks.get(&speaker.id) {
                     task.dependencies.update_player(&speaker);
                 }
-                input.dependencies.publish_speaker(speaker).await;
+                let _ = speaker_tx.try_send(speaker);
             }
             AudioEvent::Closed(id) => {
                 if let Some(task) = tasks.remove(&id) {
@@ -256,7 +263,7 @@ async fn run_players(
                 if let Some(task) = tasks.get(&id)
                     && task.dependencies.update_player(&speaker)
                 {
-                    input.dependencies.publish_speaker(speaker.clone()).await;
+                    let _ = speaker_tx.try_send(speaker.clone());
                 }
                 if retry_after
                     .get(&id)
@@ -299,7 +306,7 @@ async fn run_players(
                     if speaker.display_name.is_some() || speaker.user_id.is_some() {
                         // Also repair history if capture backpressure dropped
                         // a metadata notification while this player was idle.
-                        input.dependencies.publish_speaker(speaker.clone()).await;
+                        let _ = speaker_tx.try_send(speaker.clone());
                     }
                     let dependencies = input.dependencies.clone().with_player(speaker);
                     let player_dependencies = dependencies.clone();
@@ -381,6 +388,8 @@ async fn run_players(
         retire_player(id, task, &mut retired, &mut retiring);
     }
     while retired.join_next().await.is_some() {}
+    drop(speaker_tx);
+    let _ = speaker_task.await;
     let status = input.status.lock().expect("player status");
     if status.phase == "failed" {
         Err(status

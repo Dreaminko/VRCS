@@ -16,7 +16,7 @@ use super::devices::{
     ComApartment, default_device_id, endpoint_info, err, init_com, is_endpoint_invalidation,
     resolve_device,
 };
-use super::pcm::{NativeFormat, SampleEncoding, append_mono_f32, resample_linear};
+use super::pcm::{NativeFormat, SampleEncoding, append_mono_f32};
 use super::{CaptureTarget, DeviceDirection};
 
 const SHARED_BUFFER_DURATION_HNS: i64 = 0;
@@ -413,6 +413,8 @@ fn run_stream(
     let mut packet = VecDeque::<u8>::new();
     let mut timeline_origin = None;
     let mut timeline_frames = 0u64;
+    let mut output_resampler =
+        TapResampler::with_output_rate(stream.native.sample_rate, output_rate);
     let mut tap_resampler = TapResampler::new(stream.native.sample_rate);
     let mut next_default_check = std::time::Instant::now() + DEFAULT_DEVICE_CHECK_INTERVAL;
     while !stop.load(Ordering::Relaxed) {
@@ -484,6 +486,7 @@ fn run_stream(
             {
                 tap.discontinuity("Microphone capture timing discontinuity");
                 tap_resampler.reset();
+                output_resampler.reset();
                 origin = read_at - native_duration(pending.len() as u64);
                 timeline_origin = Some(origin);
                 timeline_frames = 0;
@@ -496,7 +499,7 @@ fn run_stream(
                 publish_chunk(
                     &frame,
                     stream.native.sample_rate,
-                    output_rate,
+                    &mut output_resampler,
                     chunk_start,
                     chunk_end,
                     tx,
@@ -511,13 +514,13 @@ fn run_stream(
 fn publish_chunk(
     frame: &[f32],
     native_rate: u32,
-    output_rate: u32,
+    output_resampler: &mut TapResampler,
     start: std::time::Instant,
     end: std::time::Instant,
     tx: &mpsc::Sender<Vec<f32>>,
     microphone_tap: Option<(&crate::vision::MicrophoneTap, &mut TapResampler)>,
 ) {
-    let chunk = resample_linear(frame, output_rate, native_rate);
+    let chunk = output_resampler.resample(frame);
     if let Some((tap, tap_resampler)) = microphone_tap {
         let resampled;
         let samples: &[f32] = if native_rate == TAP_RATE {
@@ -528,10 +531,14 @@ fn publish_chunk(
         };
         tap.push(samples, start, end);
     }
-    if !chunk.is_empty()
-        && let Ok(permit) = tx.try_reserve()
-    {
-        permit.send(chunk);
+    if !chunk.is_empty() {
+        match tx.try_send(chunk) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                tracing::warn!("WASAPI capture queue is full; dropping audio chunk");
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {}
+        }
     }
 }
 
@@ -679,6 +686,8 @@ mod tests {
                 }
                 let tap = crate::vision::MicrophoneTap::default();
                 tap.started();
+                let mut output_resampler =
+                    super::TapResampler::with_output_rate(48_000, output_rate);
                 let mut tap_resampler = super::TapResampler::new(48_000);
                 let start = std::time::Instant::now();
                 let mut window = tap.begin(1).unwrap();
@@ -687,7 +696,7 @@ mod tests {
                 super::publish_chunk(
                     &[0.1; 96],
                     48_000,
-                    output_rate,
+                    &mut output_resampler,
                     start,
                     middle,
                     &tx,
@@ -699,7 +708,7 @@ mod tests {
                 super::publish_chunk(
                     &[0.2; 96],
                     48_000,
-                    output_rate,
+                    &mut output_resampler,
                     middle,
                     std::time::Instant::now(),
                     &tx,

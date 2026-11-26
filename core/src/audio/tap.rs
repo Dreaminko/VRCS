@@ -4,6 +4,7 @@ pub(crate) const TAP_RATE: u32 = 16_000;
 
 pub(crate) struct TapResampler {
     input_rate: u32,
+    output_rate: u32,
     source_frames: u64,
     output_frames: u64,
     previous: f32,
@@ -11,8 +12,13 @@ pub(crate) struct TapResampler {
 
 impl TapResampler {
     pub(crate) fn new(input_rate: u32) -> Self {
+        Self::with_output_rate(input_rate, TAP_RATE)
+    }
+
+    pub(crate) fn with_output_rate(input_rate: u32, output_rate: u32) -> Self {
         Self {
             input_rate,
+            output_rate,
             source_frames: 0,
             output_frames: 0,
             previous: 0.0,
@@ -26,18 +32,27 @@ impl TapResampler {
     }
 
     pub(crate) fn resample(&mut self, samples: &[f32]) -> Vec<f32> {
+        if self.input_rate == self.output_rate || samples.is_empty() {
+            if let Some(&last) = samples.last() {
+                self.source_frames += samples.len() as u64;
+                self.output_frames += samples.len() as u64;
+                self.previous = last;
+            }
+            return samples.to_vec();
+        }
         let mut output = Vec::with_capacity(
-            (samples.len() as u64 * u64::from(TAP_RATE) / u64::from(self.input_rate) + 1) as usize,
+            (samples.len() as u64 * u64::from(self.output_rate) / u64::from(self.input_rate) + 1)
+                as usize,
         );
         for &sample in samples {
             let frame = self.source_frames;
             while self
                 .output_frames
                 .saturating_mul(u64::from(self.input_rate))
-                <= frame.saturating_mul(u64::from(TAP_RATE))
+                <= frame.saturating_mul(u64::from(self.output_rate))
             {
-                let position =
-                    self.output_frames as f64 * f64::from(self.input_rate) / f64::from(TAP_RATE);
+                let position = self.output_frames as f64 * f64::from(self.input_rate)
+                    / f64::from(self.output_rate);
                 let fraction = (position - frame.saturating_sub(1) as f64).clamp(0.0, 1.0) as f32;
                 output.push(if frame == 0 {
                     sample

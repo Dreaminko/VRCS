@@ -318,107 +318,127 @@ impl QwenRuntime {
         device: &'static str,
         deadline: Instant,
     ) -> Result<QwenConnection, String> {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0")
-            .map_err(|error| format!("Could not reserve a Qwen ASR port: {error}"))?;
-        let port = listener
-            .local_addr()
-            .map_err(|error| error.to_string())?
-            .port();
-        let token = uuid::Uuid::new_v4().simple().to_string();
-        let mut command = runtime_command(&selection.executable);
-        command
-            .args(launch_args(
-                &selection.model,
-                &selection.mmproj,
-                port,
-                &selection.alias,
-                device,
-            ))
-            .env("LLAMA_API_KEY", &token)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        let diagnostics = Arc::new(StdMutex::new(VecDeque::<String>::new()));
-        let generation = {
-            let mut state = self.state.lock().await;
-            if state.session != session {
-                return Err("Qwen ASR startup was cancelled".into());
-            }
-            drop(listener);
-            let mut child = command
-                .spawn()
-                .map_err(|error| format!("Could not start Qwen ASR runtime: {error}"))?;
-            let stderr = child.stderr.take().expect("piped stderr");
-            let tail = Arc::clone(&diagnostics);
-            let redacted = token.clone();
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let line = line
-                        .replace(&redacted, "[redacted]")
-                        .chars()
-                        .take(512)
-                        .collect();
-                    let mut tail = tail.lock().expect("runtime diagnostics lock");
-                    if tail.len() == 12 {
-                        tail.pop_front();
-                    }
-                    tail.push_back(line);
-                }
-            });
-            state.generation = state.generation.wrapping_add(1);
-            state.child = Some(child);
-            state.device = Some(device);
-            state.generation
-        };
-        let origin = format!("http://127.0.0.1:{port}");
-        loop {
-            {
+        'attempts: for attempt in 0..3usize {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0")
+                .map_err(|error| format!("Could not reserve a Qwen ASR port: {error}"))?;
+            let port = listener
+                .local_addr()
+                .map_err(|error| error.to_string())?
+                .port();
+            let token = uuid::Uuid::new_v4().simple().to_string();
+            let mut command = runtime_command(&selection.executable);
+            command
+                .args(launch_args(
+                    &selection.model,
+                    &selection.mmproj,
+                    port,
+                    &selection.alias,
+                    device,
+                ))
+                .env("LLAMA_API_KEY", &token)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
+            let diagnostics = Arc::new(StdMutex::new(VecDeque::<String>::new()));
+            let generation = {
                 let mut state = self.state.lock().await;
                 if state.session != session {
                     return Err("Qwen ASR startup was cancelled".into());
                 }
-                check_child(&mut state)?;
-                if state.child.is_none() {
-                    return Err(with_diagnostics(
-                        state
-                            .error
-                            .clone()
-                            .unwrap_or_else(|| "Qwen ASR runtime exited during startup".into()),
-                        &diagnostics,
-                    ));
-                }
-            }
-            match probe_ready(&self.http, &origin, &token, &selection.alias, "Qwen ASR").await {
-                Ok(true) => {
+                state.status = "loading";
+                state.error = None;
+                drop(listener);
+                let mut child = command
+                    .spawn()
+                    .map_err(|error| format!("Could not start Qwen ASR runtime: {error}"))?;
+                let stderr = child.stderr.take().expect("piped stderr");
+                let tail = Arc::clone(&diagnostics);
+                let redacted = token.clone();
+                tokio::spawn(async move {
+                    let mut lines = BufReader::new(stderr).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        let line = line
+                            .replace(&redacted, "[redacted]")
+                            .chars()
+                            .take(512)
+                            .collect();
+                        let mut tail = tail.lock().expect("runtime diagnostics lock");
+                        if tail.len() == 12 {
+                            tail.pop_front();
+                        }
+                        tail.push_back(line);
+                    }
+                });
+                state.generation = state.generation.wrapping_add(1);
+                state.child = Some(child);
+                state.device = Some(device);
+                state.generation
+            };
+            let origin = format!("http://127.0.0.1:{port}");
+            loop {
+                let exited_error = {
                     let mut state = self.state.lock().await;
                     if state.session != session {
                         return Err("Qwen ASR startup was cancelled".into());
                     }
-                    let connection = QwenConnection {
-                        base_url: format!("{origin}/v1"),
-                        token,
-                        model: selection.alias.clone(),
-                        generation,
-                        session,
-                    };
-                    state.status = "ready";
-                    state.error = None;
-                    state.connection = Some(connection.clone());
-                    return Ok(connection);
+                    check_child(&mut state)?;
+                    if state.child.is_none() {
+                        Some(
+                            state
+                                .error
+                                .clone()
+                                .unwrap_or_else(|| "Qwen ASR runtime exited during startup".into()),
+                        )
+                    } else {
+                        None
+                    }
+                };
+                if let Some(error) = exited_error {
+                    if attempt < 2 && Instant::now() < deadline {
+                        tokio::time::sleep(Duration::from_millis(25)).await;
+                        if is_address_in_use_diagnostic(&diagnostics) {
+                            tracing::warn!(
+                                port,
+                                attempt = attempt + 1,
+                                "Qwen ASR ephemeral port conflicted on startup; retrying"
+                            );
+                            continue 'attempts;
+                        }
+                    }
+                    return Err(with_diagnostics(error, &diagnostics));
                 }
-                Ok(false) => {}
-                Err(error) => return Err(with_diagnostics(error, &diagnostics)),
+                match probe_ready(&self.http, &origin, &token, &selection.alias, "Qwen ASR").await {
+                    Ok(true) => {
+                        let mut state = self.state.lock().await;
+                        if state.session != session {
+                            return Err("Qwen ASR startup was cancelled".into());
+                        }
+                        let connection = QwenConnection {
+                            base_url: format!("{origin}/v1"),
+                            token,
+                            model: selection.alias.clone(),
+                            generation,
+                            session,
+                        };
+                        state.status = "ready";
+                        state.error = None;
+                        state.connection = Some(connection.clone());
+                        return Ok(connection);
+                    }
+                    Ok(false) => {}
+                    Err(error) => return Err(with_diagnostics(error, &diagnostics)),
+                }
+                if Instant::now() >= deadline {
+                    return Err(with_diagnostics(
+                        "Qwen ASR runtime did not become ready in time".into(),
+                        &diagnostics,
+                    ));
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
             }
-            if Instant::now() >= deadline {
-                return Err(with_diagnostics(
-                    "Qwen ASR runtime did not become ready in time".into(),
-                    &diagnostics,
-                ));
-            }
-            tokio::time::sleep(Duration::from_millis(200)).await;
         }
+        Err("Qwen ASR runtime failed to bind a local port".into())
     }
 
     pub(crate) async fn connection(&self) -> Result<Option<QwenConnection>, String> {
@@ -517,6 +537,16 @@ pub(crate) fn executable_path() -> Result<PathBuf, String> {
     }
     Ok(bundled)
 }
+fn is_address_in_use_diagnostic(diagnostics: &Arc<StdMutex<VecDeque<String>>>) -> bool {
+    let tail = diagnostics.lock().expect("runtime diagnostics lock");
+    tail.iter().any(|line| {
+        let lower = line.to_ascii_lowercase();
+        lower.contains("address already in use")
+            || lower.contains("only one usage of each socket address")
+            || lower.contains("eaddrinuse")
+    })
+}
+
 fn checked_file(path: &Path) -> Result<PathBuf, String> {
     let absolute = std::fs::canonicalize(path).map_err(|error| {
         format!(

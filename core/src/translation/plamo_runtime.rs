@@ -153,11 +153,9 @@ impl PlamoRuntime {
                 )
             })?
         };
-        // Waiting for one of the two slots must not consume inference time.
-        // The bounded queue can contain eight earlier requests.
-        let _permit = self
-            .acquire_slot(REQUEST_TIMEOUT * MAX_WAITING_REQUESTS as u32)
-            .await?;
+        // Wait at most two request windows for an active inference slot instead
+        // of multiplying by the full queue depth.
+        let _permit = self.acquire_slot(REQUEST_TIMEOUT * 2).await?;
         let result = tokio::time::timeout(REQUEST_TIMEOUT, {
             plamo::translate(
                 &self.http,
@@ -237,91 +235,40 @@ impl PlamoRuntime {
         model: &Path,
         generation: u64,
     ) -> Result<(), TranslationError> {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|error| {
-            local_error(
-                "translation.local_runtime_unavailable",
-                format!("Could not reserve a local PLaMo port: {error}"),
-                true,
-            )
-        })?;
-        let port = listener
-            .local_addr()
-            .map_err(|error| {
+        let deadline = Instant::now() + STARTUP_TIMEOUT;
+        'attempts: for attempt in 0..3usize {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|error| {
                 local_error(
                     "translation.local_runtime_unavailable",
-                    error.to_string(),
+                    format!("Could not reserve a local PLaMo port: {error}"),
                     true,
                 )
-            })?
-            .port();
-        let token = uuid::Uuid::new_v4().simple().to_string();
-        let threads = std::thread::available_parallelism()
-            .map(|count| (count.get() / 2).clamp(1, 4))
-            .unwrap_or(1);
-        let mut command = runtime_command(executable);
-        command
-            .args(launch_args(model, port, threads))
-            .env("LLAMA_API_KEY", &token)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        let diagnostics = Arc::new(StdMutex::new(VecDeque::<String>::new()));
-        {
-            let state = self.state.lock().await;
-            if state.generation != generation {
-                return Err(local_error(
-                    "translation.local_runtime_unavailable",
-                    "Local PLaMo startup was cancelled",
-                    false,
-                ));
-            }
-        }
-        drop(listener);
-        let mut child = command.spawn().map_err(|error| {
-            local_error(
-                "translation.local_runtime_unavailable",
-                format!("Could not start the local PLaMo runtime: {error}"),
-                true,
-            )
-        })?;
-        {
-            let mut state = self.state.lock().await;
-            if state.generation != generation {
-                drop(state);
-                let _ = child.kill().await;
-                return Err(local_error(
-                    "translation.local_runtime_unavailable",
-                    "Local PLaMo startup was cancelled",
-                    false,
-                ));
-            }
-            let stderr = child.stderr.take().expect("piped stderr");
-            let tail = Arc::clone(&diagnostics);
-            let redacted = token.clone();
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let line = line
-                        .replace(&redacted, "[redacted]")
-                        .chars()
-                        .take(512)
-                        .collect();
-                    let mut tail = tail.lock().expect("PLaMo runtime diagnostics lock");
-                    if tail.len() == 12 {
-                        tail.pop_front();
-                    }
-                    tail.push_back(line);
-                }
-            });
-            state.child = Some(child);
-        }
-        let origin = format!("http://127.0.0.1:{port}");
-        let deadline = Instant::now() + STARTUP_TIMEOUT;
-        loop {
+            })?;
+            let port = listener
+                .local_addr()
+                .map_err(|error| {
+                    local_error(
+                        "translation.local_runtime_unavailable",
+                        error.to_string(),
+                        true,
+                    )
+                })?
+                .port();
+            let token = uuid::Uuid::new_v4().simple().to_string();
+            let threads = std::thread::available_parallelism()
+                .map(|count| (count.get() / 2).clamp(1, 4))
+                .unwrap_or(1);
+            let mut command = runtime_command(executable);
+            command
+                .args(launch_args(model, port, threads))
+                .env("LLAMA_API_KEY", &token)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
+            let diagnostics = Arc::new(StdMutex::new(VecDeque::<String>::new()));
             {
                 let mut state = self.state.lock().await;
-                check_child(&mut state)?;
                 if state.generation != generation {
                     return Err(local_error(
                         "translation.local_runtime_unavailable",
@@ -329,24 +276,53 @@ impl PlamoRuntime {
                         false,
                     ));
                 }
-                if state.child.is_none() {
-                    let error = with_diagnostics(
-                        state
-                            .error
-                            .clone()
-                            .unwrap_or_else(|| "Local PLaMo runtime exited during startup".into()),
-                        &diagnostics,
-                    );
+                state.status = "loading";
+                state.error = None;
+            }
+            drop(listener);
+            let mut child = command.spawn().map_err(|error| {
+                local_error(
+                    "translation.local_runtime_unavailable",
+                    format!("Could not start the local PLaMo runtime: {error}"),
+                    true,
+                )
+            })?;
+            {
+                let mut state = self.state.lock().await;
+                if state.generation != generation {
+                    drop(state);
+                    let _ = child.kill().await;
                     return Err(local_error(
                         "translation.local_runtime_unavailable",
-                        error,
-                        true,
+                        "Local PLaMo startup was cancelled",
+                        false,
                     ));
                 }
+                let stderr = child.stderr.take().expect("piped stderr");
+                let tail = Arc::clone(&diagnostics);
+                let redacted = token.clone();
+                tokio::spawn(async move {
+                    let mut lines = BufReader::new(stderr).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        let line = line
+                            .replace(&redacted, "[redacted]")
+                            .chars()
+                            .take(512)
+                            .collect();
+                        let mut tail = tail.lock().expect("PLaMo runtime diagnostics lock");
+                        if tail.len() == 12 {
+                            tail.pop_front();
+                        }
+                        tail.push_back(line);
+                    }
+                });
+                state.child = Some(child);
             }
-            match probe_ready(&self.http, &origin, &token, MODEL_ID, "local PLaMo").await {
-                Ok(true) => {
+            let origin = format!("http://127.0.0.1:{port}");
+            loop {
+                let exited_error = {
                     let mut state = self.state.lock().await;
+                    check_child(&mut state)?;
                     if state.generation != generation {
                         return Err(local_error(
                             "translation.local_runtime_unavailable",
@@ -354,17 +330,25 @@ impl PlamoRuntime {
                             false,
                         ));
                     }
-                    state.connection = Some(Connection {
-                        origin,
-                        token,
-                        generation,
-                    });
-                    state.status = "ready";
-                    state.error = None;
-                    return Ok(());
-                }
-                Ok(false) => {}
-                Err(error) => {
+                    if state.child.is_none() {
+                        let fallback = "Local PLaMo runtime exited during startup".into();
+                        Some(state.error.clone().unwrap_or(fallback))
+                    } else {
+                        None
+                    }
+                };
+                if let Some(error) = exited_error {
+                    if attempt < 2 && Instant::now() < deadline {
+                        tokio::time::sleep(Duration::from_millis(25)).await;
+                        if is_address_in_use_diagnostic(&diagnostics) {
+                            tracing::warn!(
+                                port,
+                                attempt = attempt + 1,
+                                "Local PLaMo ephemeral port conflicted on startup; retrying"
+                            );
+                            continue 'attempts;
+                        }
+                    }
                     let error = with_diagnostics(error, &diagnostics);
                     return Err(local_error(
                         "translation.local_runtime_unavailable",
@@ -372,16 +356,50 @@ impl PlamoRuntime {
                         true,
                     ));
                 }
+                match probe_ready(&self.http, &origin, &token, MODEL_ID, "local PLaMo").await {
+                    Ok(true) => {
+                        let mut state = self.state.lock().await;
+                        if state.generation != generation {
+                            return Err(local_error(
+                                "translation.local_runtime_unavailable",
+                                "Local PLaMo startup was cancelled",
+                                false,
+                            ));
+                        }
+                        state.connection = Some(Connection {
+                            origin,
+                            token,
+                            generation,
+                        });
+                        state.status = "ready";
+                        state.error = None;
+                        return Ok(());
+                    }
+                    Ok(false) => {}
+                    Err(error) => {
+                        let error = with_diagnostics(error, &diagnostics);
+                        return Err(local_error(
+                            "translation.local_runtime_unavailable",
+                            error,
+                            true,
+                        ));
+                    }
+                }
+                if Instant::now() >= deadline {
+                    let error = with_diagnostics(
+                        "Local PLaMo runtime did not become ready in time".into(),
+                        &diagnostics,
+                    );
+                    return Err(local_error("translation.timeout", error, true));
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
             }
-            if Instant::now() >= deadline {
-                let error = with_diagnostics(
-                    "Local PLaMo runtime did not become ready in time".into(),
-                    &diagnostics,
-                );
-                return Err(local_error("translation.timeout", error, true));
-            }
-            tokio::time::sleep(Duration::from_millis(250)).await;
         }
+        Err(local_error(
+            "translation.local_runtime_unavailable",
+            "Local PLaMo runtime failed to bind a local port",
+            true,
+        ))
     }
 
     async fn fail_startup(&self, generation: u64, error: &str) -> Result<(), TranslationError> {
@@ -395,6 +413,16 @@ impl PlamoRuntime {
         }
         Ok(())
     }
+}
+
+fn is_address_in_use_diagnostic(diagnostics: &Arc<StdMutex<VecDeque<String>>>) -> bool {
+    let tail = diagnostics.lock().expect("PLaMo runtime diagnostics lock");
+    tail.iter().any(|line| {
+        let lower = line.to_ascii_lowercase();
+        lower.contains("address already in use")
+            || lower.contains("only one usage of each socket address")
+            || lower.contains("eaddrinuse")
+    })
 }
 
 fn local_error(code: &'static str, detail: impl Into<String>, retryable: bool) -> TranslationError {

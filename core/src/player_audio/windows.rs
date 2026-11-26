@@ -8,10 +8,65 @@ use windows::Win32::Networking::WinSock::*;
 
 pub(super) struct Network {
     sockets: Vec<SOCKET>,
+    events: Vec<WSAEVENT>,
+    bound_ips: HashSet<Ipv4Addr>,
     pid: u32,
     ports: HashSet<u16>,
     buffer: Vec<u8>,
+    last_packet_at: std::time::Instant,
 }
+
+unsafe fn open_interface_socket(address: Ipv4Addr) -> Option<(SOCKET, WSAEVENT)> {
+    unsafe {
+        let Ok(socket) = socket(AF_INET.0 as i32, SOCK_RAW, IPPROTO_IP.0) else {
+            return None;
+        };
+        // Join/property snapshots arrive in bursts and are much larger
+        // than voice frames. Preserve them while the scanner is active.
+        let receive_buffer = (4 * 1024 * 1024i32).to_ne_bytes();
+        let _ = setsockopt(socket, SOL_SOCKET, SO_RCVBUF, Some(&receive_buffer));
+        let addr = SOCKADDR_IN {
+            sin_family: AF_INET,
+            sin_addr: IN_ADDR {
+                S_un: IN_ADDR_0 {
+                    S_addr: u32::from_ne_bytes(address.octets()),
+                },
+            },
+            ..Default::default()
+        };
+        let mode = 3u32; // RCVALL_IPLEVEL: receive local interface packets, no promiscuous mode.
+        let mut returned = 0;
+        let bound = bind(
+            socket,
+            (&addr as *const SOCKADDR_IN).cast(),
+            std::mem::size_of_val(&addr) as i32,
+        ) == 0;
+        let enabled = bound
+            && WSAIoctl(
+                socket,
+                SIO_RCVALL,
+                Some((&mode as *const u32).cast()),
+                4,
+                None,
+                0,
+                &mut returned,
+                None,
+                None,
+            ) == 0;
+        let Ok(event) = WSACreateEvent() else {
+            closesocket(socket);
+            return None;
+        };
+        if enabled && WSAEventSelect(socket, Some(event), FD_READ as i32) == 0 {
+            Some((socket, event))
+        } else {
+            let _ = WSACloseEvent(event);
+            closesocket(socket);
+            None
+        }
+    }
+}
+
 impl Network {
     pub(super) fn open(
         owner: crate::vrchat_process::ProcessIdentity,
@@ -32,52 +87,19 @@ impl Network {
             };
             let mut network = Self {
                 sockets: Vec::new(),
+                events: Vec::new(),
+                bound_ips: HashSet::new(),
                 pid: owner.pid,
                 ports,
                 buffer: vec![0u8; 65_535],
+                last_packet_at: std::time::Instant::now(),
             };
             let addresses = interfaces()?;
             for address in addresses {
-                let Ok(socket) = socket(AF_INET.0 as i32, SOCK_RAW, IPPROTO_IP.0) else {
-                    continue;
-                };
-                // Join/property snapshots arrive in bursts and are much larger
-                // than voice frames. Preserve them while the scanner is active.
-                let receive_buffer = (4 * 1024 * 1024i32).to_ne_bytes();
-                let _ = setsockopt(socket, SOL_SOCKET, SO_RCVBUF, Some(&receive_buffer));
-                let addr = SOCKADDR_IN {
-                    sin_family: AF_INET,
-                    sin_addr: IN_ADDR {
-                        S_un: IN_ADDR_0 {
-                            S_addr: u32::from_ne_bytes(address.octets()),
-                        },
-                    },
-                    ..Default::default()
-                };
-                let mut mode = 3u32; // RCVALL_IPLEVEL: receive local interface packets, no promiscuous mode.
-                let mut returned = 0;
-                let bound = bind(
-                    socket,
-                    (&addr as *const SOCKADDR_IN).cast(),
-                    std::mem::size_of_val(&addr) as i32,
-                ) == 0;
-                let enabled = bound
-                    && WSAIoctl(
-                        socket,
-                        SIO_RCVALL,
-                        Some((&mode as *const u32).cast()),
-                        4,
-                        None,
-                        0,
-                        &mut returned,
-                        None,
-                        None,
-                    ) == 0;
-                mode = 1;
-                if enabled && ioctlsocket(socket, FIONBIO, &mut mode) == 0 {
+                if let Some((socket, event)) = open_interface_socket(address) {
                     network.sockets.push(socket);
-                } else {
-                    closesocket(socket);
+                    network.events.push(event);
+                    network.bound_ips.insert(address);
                 }
             }
             if network.sockets.is_empty() {
@@ -88,27 +110,65 @@ impl Network {
     }
     pub(super) fn refresh(&mut self) -> Result<(), String> {
         self.ports = game_ports(self.pid)?;
+        if (self.sockets.is_empty()
+            || self.last_packet_at.elapsed() >= std::time::Duration::from_secs(5))
+            && let Ok(addresses) = interfaces()
+        {
+            for address in addresses {
+                if !self.bound_ips.contains(&address)
+                    && let Some((socket, event)) = unsafe { open_interface_socket(address) }
+                {
+                    self.sockets.push(socket);
+                    self.events.push(event);
+                    self.bound_ips.insert(address);
+                }
+            }
+        }
         Ok(())
+    }
+
+    pub(super) fn wait(&self, timeout: std::time::Duration) {
+        if timeout.is_zero() {
+            return;
+        }
+        if self.events.is_empty() {
+            std::thread::sleep(timeout);
+            return;
+        }
+        let timeout_ms = timeout.as_millis().min(u32::MAX as u128 - 1) as u32;
+        let count = self.events.len().min(64);
+        let mut handles = [windows::Win32::Foundation::HANDLE::default(); 64];
+        for (slot, event) in handles[..count].iter_mut().zip(&self.events[..count]) {
+            *slot = windows::Win32::Foundation::HANDLE(event.0 as *mut std::ffi::c_void);
+        }
+        unsafe {
+            let _ = WSAWaitForMultipleEvents(&handles[..count], false, timeout_ms, false);
+        }
     }
 
     pub(super) fn receive(
         &mut self,
         mut callback: impl FnMut(super::connection::Datagram),
     ) -> Result<(), String> {
-        for socket in &self.sockets {
+        for (socket, event) in self.sockets.iter().zip(&self.events) {
+            let _ = unsafe { WSAResetEvent(*event) };
+            let mut drained = false;
             // Bound work per interface so an active adapter cannot starve cancellation.
             for _ in 0..64 {
                 let count = unsafe { recv(*socket, &mut self.buffer, SEND_RECV_FLAGS(0)) };
                 if count == SOCKET_ERROR {
                     let error = unsafe { WSAGetLastError() };
                     if error == WSAEWOULDBLOCK {
+                        drained = true;
                         break;
                     }
                     return Err(format!("Raw audio capture failed ({})", error.0));
                 }
                 if count <= 0 {
+                    drained = true;
                     break;
                 }
+                self.last_packet_at = std::time::Instant::now();
                 if let Some((connection, incoming, packet)) =
                     datagram(&self.buffer[..count as usize], &self.ports)
                 {
@@ -120,6 +180,9 @@ impl Network {
                     });
                 }
             }
+            if !drained {
+                let _ = unsafe { WSASetEvent(*event) };
+            }
         }
         Ok(())
     }
@@ -128,6 +191,9 @@ impl Network {
 impl Drop for Network {
     fn drop(&mut self) {
         unsafe {
+            for event in &self.events {
+                let _ = WSACloseEvent(*event);
+            }
             for socket in &self.sockets {
                 closesocket(*socket);
             }

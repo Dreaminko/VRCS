@@ -1090,15 +1090,30 @@ async fn connect_admitted(
     Ok((socket, task_id))
 }
 
+const WS_SEND_TIMEOUT: Duration = Duration::from_secs(5);
+
+async fn send_ws_message(
+    socket: &mut Socket,
+    message: Message,
+    context: &str,
+) -> Result<(), String> {
+    tokio::time::timeout(WS_SEND_TIMEOUT, socket.send(message))
+        .await
+        .map_err(|_| format!("{context}: timed out"))?
+        .map_err(|error| format!("{context}: {error}"))
+}
+
 async fn initialize_socket(
     provider: Provider,
     socket: &mut Socket,
     update: Value,
 ) -> Result<(), String> {
-    socket
-        .send(Message::Text(update.to_string().into()))
-        .await
-        .map_err(|error| format!("Failed to initialize cloud recognition session: {error}"))?;
+    send_ws_message(
+        socket,
+        Message::Text(update.to_string().into()),
+        "Failed to initialize cloud recognition session",
+    )
+    .await?;
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             match provider.initialization_event(&receive_event(socket).await?, &update) {
@@ -1131,10 +1146,12 @@ async fn receive_event(socket: &mut Socket) -> Result<Value, String> {
                 ));
             }
             Message::Ping(value) => {
-                socket
-                    .send(Message::Pong(value))
-                    .await
-                    .map_err(|error| format!("Cloud recognition heartbeat failed: {error}"))?;
+                send_ws_message(
+                    socket,
+                    Message::Pong(value),
+                    "Cloud recognition heartbeat failed",
+                )
+                .await?;
                 continue;
             }
             _ => continue,
@@ -1210,20 +1227,19 @@ async fn send_audio(
     socket: &mut Socket,
     samples: &[f32],
 ) -> Result<(), String> {
-    socket
-        .send(provider.audio_message(samples))
-        .await
-        .map_err(|error| format!("Failed to send cloud recognition audio: {error}"))
+    send_ws_message(
+        socket,
+        provider.audio_message(samples),
+        "Failed to send cloud recognition audio",
+    )
+    .await
 }
 
 async fn commit_utterance(provider: Provider, socket: &mut Socket) -> Result<(), String> {
     let Some(message) = provider.commit_message() else {
         return Ok(());
     };
-    socket
-        .send(message)
-        .await
-        .map_err(|error| format!("Failed to commit cloud recognition audio: {error}"))
+    send_ws_message(socket, message, "Failed to commit cloud recognition audio").await
 }
 
 async fn finish_question(
@@ -1246,10 +1262,7 @@ async fn finish_question(
     let message = provider
         .finish_message(task_id)
         .ok_or_else(|| "Question recognition has no finish message".to_string())?;
-    socket
-        .send(message)
-        .await
-        .map_err(|error| format!("Failed to finish question recognition: {error}"))?;
+    send_ws_message(socket, message, "Failed to finish question recognition").await?;
     // Only the protocol completion event proves that the server drained the PCM.
     // The caller owns the timeout; cancellation aborts this session's worker.
     loop {
@@ -1309,10 +1322,7 @@ async fn finish_aligned(
         }
     }
     if let Some(message) = provider.finish_message(task_id) {
-        socket
-            .send(message)
-            .await
-            .map_err(|e| format!("Failed to close cloud recognition session: {e}"))?;
+        send_ws_message(socket, message, "Failed to close cloud recognition session").await?;
     }
     // Qwen can continue generating several speaker segments after finish.
     // Give each progress event time to arrive, with a bounded total drain.

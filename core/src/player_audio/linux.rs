@@ -6,7 +6,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use super::helper::{
@@ -115,6 +115,7 @@ pub(super) struct Network {
     writer: UnixStream,
     reader: Option<std::thread::JoinHandle<()>>,
     packets: mpsc::Receiver<Datagram>,
+    wake: Arc<(Mutex<bool>, Condvar)>,
     waiter: Arc<Mutex<Option<Waiter>>>,
     fatal: Arc<Mutex<Option<String>>>,
     next_request: AtomicU64,
@@ -126,6 +127,7 @@ pub(super) struct Network {
 struct HelperChild {
     process: Option<Child>,
     reaper: mpsc::Sender<Child>,
+    active: Option<&'static AtomicBool>,
 }
 
 impl HelperChild {
@@ -167,11 +169,26 @@ impl HelperChild {
         Ok(Self {
             process: Some(process),
             reaper,
+            active,
         })
     }
 
     fn process(&mut self) -> &mut Child {
         self.process.as_mut().expect("helper child")
+    }
+
+    fn try_wait_and_clear(&mut self) -> Result<Option<std::process::ExitStatus>, std::io::Error> {
+        let Some(child) = self.process.as_mut() else {
+            return Ok(None);
+        };
+        let status = child.try_wait()?;
+        if status.is_some() {
+            self.process.take();
+            if let Some(flag) = self.active.take() {
+                flag.store(false, Ordering::Release);
+            }
+        }
+        Ok(status)
     }
 }
 
@@ -182,6 +199,8 @@ impl Drop for HelperChild {
             // the helper instead exits on IPC shutdown; kill may return EPERM.
             let _ = child.kill();
             let _ = self.reaper.send(child);
+        } else if let Some(flag) = self.active.take() {
+            flag.store(false, Ordering::Release);
         }
     }
 }
@@ -246,11 +265,18 @@ impl Network {
                 "Cannot authorize network capture: /usr/bin/pkexec is not installed".into(),
             );
         }
-        if PKEXEC_ACTIVE
+        let wait_deadline = Instant::now() + Duration::from_millis(500);
+        while PKEXEC_ACTIVE
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
-            return Err("A network capture authorization prompt is already pending".into());
+            if stop.load(Ordering::Relaxed) {
+                return Err("Player audio stopped".into());
+            }
+            if Instant::now() >= wait_deadline {
+                return Err("A network capture authorization prompt is already pending".into());
+            }
+            std::thread::sleep(Duration::from_millis(25));
         }
         let (runtime, socket_path) = match runtime_path() {
             Ok(pair) => pair,
@@ -295,8 +321,7 @@ impl Network {
             if let Err(error) = stdin.write_all(token.as_bytes()) {
                 if error.kind() == std::io::ErrorKind::BrokenPipe
                     && let Some(state) = child
-                        .process()
-                        .try_wait()
+                        .try_wait_and_clear()
                         .map_err(|wait_err| wait_err.to_string())?
                 {
                     return Err(helper_failure(state.code()));
@@ -316,8 +341,7 @@ impl Network {
                 Ok((stream, _)) => break stream,
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     if let Some(state) = child
-                        .process()
-                        .try_wait()
+                        .try_wait_and_clear()
                         .map_err(|error| error.to_string())?
                     {
                         return Err(helper_failure(state.code()));
@@ -370,8 +394,10 @@ impl Network {
         let writer = hello.try_clone().map_err(|error| error.to_string())?;
         let mut reader_stream = hello;
         let (packet_tx, packets) = mpsc::sync_channel(8192);
+        let wake = Arc::new((Mutex::new(false), Condvar::new()));
         let waiter = Arc::new(Mutex::new(None::<Waiter>));
         let fatal = Arc::new(Mutex::new(None::<String>));
+        let thread_wake = Arc::clone(&wake);
         let thread_waiter = Arc::clone(&waiter);
         let thread_fatal = Arc::clone(&fatal);
         let thread_status = Arc::clone(&status);
@@ -379,6 +405,11 @@ impl Network {
         let reader = std::thread::Builder::new()
             .name("vrcs-linux-network".into())
             .spawn(move || {
+                let notify = || {
+                    let (lock, cvar) = &*thread_wake;
+                    *lock.lock().expect("network wake") = true;
+                    cvar.notify_one();
+                };
                 loop {
                     match read_event(&mut reader_stream) {
                         Ok(Some(Event::Packet(packet))) => {
@@ -407,6 +438,7 @@ impl Network {
                                 // accept packets later at the wrong timeline position.
                                 continue;
                             }
+                            notify();
                         }
                         Ok(Some(Event::ScanProgress(progress))) => {
                             let mut state = thread_status.lock().expect("player status");
@@ -419,6 +451,7 @@ impl Network {
                                 scan_elapsed_ms: progress.elapsed_ms,
                                 workers: 1,
                             });
+                            notify();
                         }
                         Ok(Some(Event::ScanResult(result))) => {
                             tracing::debug!(
@@ -437,11 +470,13 @@ impl Network {
                             {
                                 let _ = wait.sender.try_send(result);
                             }
+                            notify();
                         }
                         Ok(Some(Event::Status { fatal, detail })) => {
                             if fatal {
                                 *thread_fatal.lock().expect("helper fatal") = Some(detail);
                                 thread_waiter.lock().expect("scan waiter").take();
+                                notify();
                                 return;
                             }
                             thread_status.lock().expect("player status").detail = Some(detail);
@@ -450,6 +485,7 @@ impl Network {
                             *thread_fatal.lock().expect("helper fatal") =
                                 Some("The network helper connection closed".into());
                             thread_waiter.lock().expect("scan waiter").take();
+                            notify();
                             return;
                         }
                     }
@@ -461,6 +497,7 @@ impl Network {
             writer,
             reader: Some(reader),
             packets,
+            wake,
             waiter,
             fatal,
             next_request: AtomicU64::new(1),
@@ -483,7 +520,21 @@ impl Network {
         Ok(())
     }
 
+    pub(super) fn wait(&self, timeout: Duration) {
+        if timeout.is_zero() {
+            return;
+        }
+        let (lock, cvar) = &*self.wake;
+        let mut pending = lock.lock().expect("network wake");
+        if !*pending {
+            let (guard, _) = cvar.wait_timeout(pending, timeout).expect("network wake");
+            pending = guard;
+        }
+        *pending = false;
+    }
+
     pub(super) fn receive(&self, mut callback: impl FnMut(Datagram)) -> Result<(), String> {
+        *self.wake.0.lock().expect("network wake") = false;
         if let Some(detail) = self.fatal.lock().expect("helper fatal").take() {
             return Err(detail);
         }
@@ -595,7 +646,9 @@ impl Drop for Network {
             }
             std::thread::sleep(Duration::from_millis(10));
         }
-        self.reader.take();
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
     }
 }
 

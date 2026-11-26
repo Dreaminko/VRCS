@@ -239,39 +239,74 @@ async fn fit_prompt(
     token: &str,
     request: &CompletionRequest<'_>,
 ) -> Result<String, TranslationError> {
-    let context_start = context_start_within_budget(request.context, request.max_chars);
-    for context_start in context_start..=request.context.len() {
-        let context = &request.context[context_start..];
-        let prompt = build_prompt_with_room_context(
+    let min_start = context_start_within_budget(request.context, request.max_chars);
+    let build_context = |start: usize| {
+        build_prompt_with_room_context(
             request.text,
             request.source,
             request.target,
-            context,
+            &request.context[start..],
             request.glossary,
             request.room_context,
-        )?;
-        if token_count(http, origin, token, &prompt).await? <= MAX_PROMPT_TOKENS {
-            return Ok(prompt);
+        )
+    };
+    let full = build_context(min_start)?;
+    if token_count(http, origin, token, &full).await? <= MAX_PROMPT_TOKENS {
+        return Ok(full);
+    }
+    if min_start < request.context.len() {
+        let bare = build_context(request.context.len())?;
+        if token_count(http, origin, token, &bare).await? <= MAX_PROMPT_TOKENS {
+            let mut lo = min_start + 1;
+            let mut hi = request.context.len();
+            let mut best = bare;
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2;
+                let candidate = build_context(mid)?;
+                if token_count(http, origin, token, &candidate).await? <= MAX_PROMPT_TOKENS {
+                    best = candidate;
+                    hi = mid;
+                } else {
+                    lo = mid + 1;
+                }
+            }
+            return Ok(best);
         }
     }
     if let Some(room) = request.room_context {
-        for count in (0..room.participants.len()).rev() {
+        let build_participants = |count: usize| {
             let trimmed = RoomTranslationContext {
                 world_name: room.world_name.clone(),
                 current_speaker: room.current_speaker.clone(),
                 participants: room.participants[..count].to_vec(),
                 speaker_labels: Default::default(),
             };
-            let prompt = build_prompt_with_room_context(
+            build_prompt_with_room_context(
                 request.text,
                 request.source,
                 request.target,
                 &[],
                 request.glossary,
                 Some(&trimmed),
-            )?;
-            if token_count(http, origin, token, &prompt).await? <= MAX_PROMPT_TOKENS {
-                return Ok(prompt);
+            )
+        };
+        if !room.participants.is_empty() {
+            let zero = build_participants(0)?;
+            if token_count(http, origin, token, &zero).await? <= MAX_PROMPT_TOKENS {
+                let mut lo = 1usize;
+                let mut hi = room.participants.len();
+                let mut best = zero;
+                while lo < hi {
+                    let mid = lo + (hi - lo) / 2;
+                    let candidate = build_participants(mid)?;
+                    if token_count(http, origin, token, &candidate).await? <= MAX_PROMPT_TOKENS {
+                        best = candidate;
+                        lo = mid + 1;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                return Ok(best);
             }
         }
         if room.current_speaker.is_some() {
@@ -294,18 +329,32 @@ async fn fit_prompt(
             }
         }
     }
-    for glossary_len in (0..=request.glossary.len()).rev() {
-        let prompt = build_prompt_with_room_context(
+    let build_glossary = |glossary_len: usize| {
+        build_prompt_with_room_context(
             request.text,
             request.source,
             request.target,
             &[],
             &request.glossary[..glossary_len],
             None,
-        )?;
-        if token_count(http, origin, token, &prompt).await? <= MAX_PROMPT_TOKENS {
-            return Ok(prompt);
+        )
+    };
+    let empty_glossary = build_glossary(0)?;
+    if token_count(http, origin, token, &empty_glossary).await? <= MAX_PROMPT_TOKENS {
+        let mut lo = 1usize;
+        let mut hi = request.glossary.len() + 1;
+        let mut best = empty_glossary;
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            let candidate = build_glossary(mid)?;
+            if token_count(http, origin, token, &candidate).await? <= MAX_PROMPT_TOKENS {
+                best = candidate;
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
         }
+        return Ok(best);
     }
     Err(super::error(
         "translation.invalid_text",

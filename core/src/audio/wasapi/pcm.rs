@@ -128,31 +128,6 @@ pub(super) fn append_mono_f32(
     Ok(())
 }
 
-pub(super) fn resample_linear(input: &[f32], output_rate: u32, input_rate: u32) -> Vec<f32> {
-    if input_rate == output_rate || input.len() <= 1 {
-        return input.to_vec();
-    }
-    let size = ((input.len() as u64 * output_rate as u64 + input_rate as u64 / 2)
-        / input_rate as u64) as usize;
-    if size == 0 {
-        return Vec::new();
-    }
-    let input_len = input.len();
-    let mut output = Vec::with_capacity(size);
-    for index in 0..size {
-        let position = (index as f64 / size as f64) * input_len as f64;
-        let left = (position.floor() as usize).min(input_len - 1);
-        let fraction = (position - left as f64) as f32;
-        let value = if left + 1 < input_len {
-            input[left] + fraction * (input[left + 1] - input[left])
-        } else {
-            input[left]
-        };
-        output.push(value);
-    }
-    output
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
