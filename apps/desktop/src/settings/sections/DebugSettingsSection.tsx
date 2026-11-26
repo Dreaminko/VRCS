@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { ChevronDown, Download, FolderOpen, Wrench } from "lucide-react";
 
 import {
@@ -49,13 +48,8 @@ export function DebugSettingsSection({ rows }: { rows: DebugRow[] }) {
     setFeedback("");
     setFeedbackError(false);
     try {
-      const path = await saveDialog({
-        defaultPath: reportFileName(),
-        filters: [{ name: "Text", extensions: ["txt"] }],
-      });
-      if (!path) return;
-      await exportErrorReport(path);
-      setFeedback(t("settings.debug.exported"));
+      const exported = await exportErrorReport(reportFileName());
+      if (exported) setFeedback(t("settings.debug.exported"));
     } catch {
       setFeedbackError(true);
       setFeedback(t("settings.debug.exportFailed"));

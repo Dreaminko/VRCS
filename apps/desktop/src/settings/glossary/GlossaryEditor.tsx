@@ -1,5 +1,4 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   ArrowDown,
   ArrowUp,
@@ -259,12 +258,10 @@ export function GlossaryEditor({
     }, null, 2)}\n`;
     try {
       if (isTauri()) {
-        const path = await saveDialog({
-          defaultPath: exportFileName(source.name),
-          filters: [{ name: "JSON", extensions: ["json"] }],
+        await invoke<boolean>("write_glossary_file", {
+          defaultName: exportFileName(source.name),
+          contents: payload,
         });
-        if (!path) return;
-        await invoke("write_glossary_file", { path, contents: payload });
         return;
       }
       const url = URL.createObjectURL(new Blob([payload], { type: "application/json;charset=utf-8" }));

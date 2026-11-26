@@ -23,7 +23,17 @@ use windows_sys::Win32::{
 };
 
 static WINDOW_CLASS: OnceLock<bool> = OnceLock::new();
+static ACTIVE_PICKER: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 const CLASS_NAME: windows_sys::core::PCWSTR = windows_sys::core::w!("VRCSImageSelection");
+
+pub fn cancel_active() {
+    let hwnd = ACTIVE_PICKER.load(Ordering::Acquire);
+    if hwnd != 0 {
+        unsafe {
+            PostMessageW(hwnd as HWND, WM_CLOSE, 0, 0);
+        }
+    }
+}
 
 struct Picker {
     width: u32,
@@ -248,6 +258,14 @@ pub fn select_region_reserved(
         if window.is_null() {
             return Err("desktop_ocr.unavailable".into());
         }
+        struct ActivePickerGuard;
+        impl Drop for ActivePickerGuard {
+            fn drop(&mut self) {
+                ACTIVE_PICKER.store(0, Ordering::Release);
+            }
+        }
+        ACTIVE_PICKER.store(window as isize, Ordering::Release);
+        let _active_picker = ActivePickerGuard;
         if cancelled.load(Ordering::Acquire) {
             DestroyWindow(window);
             return Ok(None);
@@ -262,21 +280,13 @@ pub fn select_region_reserved(
         UpdateWindow(window);
         let mut message: MSG = zeroed();
         while !picker.finished && !cancelled.load(Ordering::Acquire) {
-            while !picker.finished
-                && !cancelled.load(Ordering::Acquire)
-                && PeekMessageW(&mut message, null_mut(), 0, 0, PM_REMOVE) != 0
-            {
-                if message.message == WM_QUIT {
-                    picker.finished = true;
-                    break;
-                }
-                TranslateMessage(&message);
-                DispatchMessageW(&message);
+            let status = GetMessageW(&mut message, null_mut(), 0, 0);
+            if status <= 0 {
+                picker.finished = true;
+                break;
             }
-
-            if !picker.finished {
-                MsgWaitForMultipleObjectsEx(0, null(), 50, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
-            }
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
         }
         let restore_focus = GetForegroundWindow() == window;
         DestroyWindow(window);

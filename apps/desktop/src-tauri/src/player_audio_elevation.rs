@@ -98,6 +98,14 @@ pub(crate) fn elevated() -> Result<bool, String> {
     }
 }
 
+#[cfg(windows)]
+pub(crate) fn relaunch_for_startup() -> Result<Outcome, String> {
+    if native::elevated()? {
+        return Ok(Outcome::Ready);
+    }
+    native::relaunch(Action::LaunchApp)
+}
+
 #[tauri::command]
 pub(crate) async fn player_audio_ensure_privileges(
     app: tauri::AppHandle,

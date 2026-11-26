@@ -111,7 +111,7 @@ export async function openLogDirectory(): Promise<void> {
   await invoke("open_log_directory");
 }
 
-export async function exportErrorReport(path: string): Promise<void> {
-  if (!isTauri()) return;
-  await invoke("export_error_report", { path });
+export async function exportErrorReport(defaultName: string): Promise<boolean> {
+  if (!isTauri()) return false;
+  return invoke<boolean>("export_error_report", { defaultName });
 }

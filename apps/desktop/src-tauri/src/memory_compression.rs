@@ -18,6 +18,19 @@ pub(crate) struct Status {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct MmAgentState {
+    enabled: bool,
+}
+
+#[cfg(test)]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SystemState {
+    enabled: bool,
+    boot_id: String,
+}
+
+#[cfg(not(test))]
 struct SystemState {
     enabled: bool,
     boot_id: String,
@@ -92,9 +105,8 @@ fn restart_pending(marker: &Path, boot_id: &str) -> Result<bool, String> {
     let saved: RestartMarker = match serde_json::from_slice(&data) {
         Ok(saved) => saved,
         Err(_) => {
-            // Recover an interrupted write without permanently blocking restoration.
-            record_restart(marker, boot_id)?;
-            return Ok(true);
+            let _ = std::fs::remove_file(marker);
+            return Ok(false);
         }
     };
     if saved.boot_id == boot_id {
@@ -158,13 +170,18 @@ try {{
   {operation}
   $compression=(Get-MMAgent -ErrorAction Stop).MemoryCompression;
   if ($compression -isnot [bool]) {{ throw 'Windows did not return a memory compression state' }};
-  $boot=(Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime.ToUniversalTime().Ticks.ToString();
-  @{{enabled=$compression;boot_id=$boot}} | ConvertTo-Json -Compress;
+  @{{enabled=$compression}} | ConvertTo-Json -Compress;
 }} catch {{ [Console]::Error.WriteLine($_.Exception.Message); exit 1 }}"#
     )
 }
 
 #[cfg(any(windows, test))]
+fn parse_mm_agent_state(bytes: &[u8]) -> Result<MmAgentState, String> {
+    serde_json::from_slice(bytes)
+        .map_err(|_| "Windows returned an invalid memory compression status".to_string())
+}
+
+#[cfg(test)]
 fn parse_system_state(bytes: &[u8]) -> Result<SystemState, String> {
     let value: SystemState = serde_json::from_slice(bytes)
         .map_err(|_| "Windows returned an invalid memory compression status".to_string())?;
@@ -177,6 +194,48 @@ fn parse_system_state(bytes: &[u8]) -> Result<SystemState, String> {
     Ok(value)
 }
 
+#[cfg(windows)]
+fn windows_boot_id() -> Result<String, String> {
+    #[repr(C)]
+    #[derive(Default)]
+    struct SystemTimeOfDayInformation {
+        boot_time: i64,
+        _current_time: i64,
+        _time_zone_bias: i64,
+        _time_zone_id: u32,
+        _reserved: u32,
+        _boot_time_bias: u64,
+        _sleep_time_bias: u64,
+    }
+
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtQuerySystemInformation(
+            system_information_class: u32,
+            system_information: *mut std::ffi::c_void,
+            system_information_length: u32,
+            return_length: *mut u32,
+        ) -> i32;
+    }
+
+    const SYSTEM_TIME_OF_DAY_INFORMATION: u32 = 3;
+    let mut info = SystemTimeOfDayInformation::default();
+    let status = unsafe {
+        NtQuerySystemInformation(
+            SYSTEM_TIME_OF_DAY_INFORMATION,
+            (&raw mut info).cast(),
+            std::mem::size_of::<SystemTimeOfDayInformation>() as u32,
+            std::ptr::null_mut(),
+        )
+    };
+    if status < 0 {
+        return Err(format!(
+            "Windows boot identifier query failed ({status:#x})"
+        ));
+    }
+    Ok(info.boot_time.to_string())
+}
+
 #[cfg(not(windows))]
 fn run_system(_: Option<bool>) -> Result<SystemState, String> {
     Err("Memory compression management requires Windows".into())
@@ -186,12 +245,14 @@ fn run_system(_: Option<bool>) -> Result<SystemState, String> {
 fn run_system(change: Option<bool>) -> Result<SystemState, String> {
     use std::io::Read;
     use std::os::windows::ffi::OsStringExt;
+    use std::os::windows::io::AsRawHandle;
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
+    use windows_sys::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
     use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
-    use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
+    use windows_sys::Win32::System::Threading::{CREATE_NO_WINDOW, WaitForSingleObject};
 
+    let boot_id = windows_boot_id()?;
     let mut system_path = vec![0u16; 32_768];
     let size = unsafe { GetSystemDirectoryW(system_path.as_mut_ptr(), system_path.len() as u32) };
     if size == 0 || size as usize >= system_path.len() {
@@ -231,18 +292,11 @@ fn run_system(change: Option<bool>) -> Result<SystemState, String> {
     }
     let output = std::thread::spawn(move || read_bounded(stdout));
     let errors = std::thread::spawn(move || read_bounded(stderr));
-    let started = Instant::now();
-    let result = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Ok(status),
-            Err(error) => break Err(error.to_string()),
-            Ok(None) if started.elapsed() >= Duration::from_secs(30) => {
-                break Err(
-                    "Windows memory compression operation timed out; check the status again".into(),
-                );
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
-        }
+    let wait_result = unsafe { WaitForSingleObject(child.as_raw_handle() as HANDLE, 30_000) };
+    let result = if wait_result == WAIT_OBJECT_0 {
+        child.wait().map_err(|error| error.to_string())
+    } else {
+        Err("Windows memory compression operation timed out; check the status again".into())
     };
     if result.is_err() {
         let _ = child.kill();
@@ -270,7 +324,11 @@ fn run_system(change: Option<bool>) -> Result<SystemState, String> {
     if stdout.len() > 16_384 {
         return Err("Windows memory compression response is too large".into());
     }
-    parse_system_state(&stdout)
+    let mm_agent = parse_mm_agent_state(&stdout)?;
+    Ok(SystemState {
+        enabled: mm_agent.enabled,
+        boot_id,
+    })
 }
 
 #[cfg(test)]
@@ -341,7 +399,15 @@ mod tests {
 
     #[test]
     fn strict_status_and_fixed_commands_reject_ambiguous_results() {
+        assert!(parse_mm_agent_state(br#"{"enabled":false}"#).is_ok());
         assert!(parse_system_state(br#"{"enabled":false,"boot_id":"123"}"#).is_ok());
+        for bytes in [
+            br#"{"enabled":"False"}"#.as_slice(),
+            br#"{"enabled":false,"extra":1}"#,
+            br#"{}"#,
+        ] {
+            assert!(parse_mm_agent_state(bytes).is_err());
+        }
         for bytes in [
             br#"{"enabled":"False","boot_id":"123"}"#.as_slice(),
             br#"{"enabled":false,"boot_id":""}"#,
@@ -366,18 +432,14 @@ mod tests {
         let marker = directory.join("restart.json");
         std::fs::write(&marker, b"{\"boot_id\":").unwrap();
         assert!(
-            operate(&marker, None, |change| {
+            !operate(&marker, None, |change| {
                 assert_eq!(change, None);
                 Ok(state(false, "100"))
             })
             .unwrap()
             .restart_required
         );
-        assert!(
-            !operate(&marker, None, |_| Ok(state(false, "200")))
-                .unwrap()
-                .restart_required
-        );
+        assert!(!marker.exists());
         std::fs::remove_dir(directory).unwrap();
     }
 }

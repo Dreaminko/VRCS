@@ -282,9 +282,10 @@ fn recent_log_files(log_dir: &Path) -> Result<Vec<PathBuf>, String> {
 #[tauri::command]
 pub(crate) async fn export_error_report(
     app: AppHandle,
-    path: PathBuf,
+    default_name: String,
     state: State<'_, DiagnosticState>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
+    let file_name = crate::sanitize_default_filename(&default_name, "VRCS-error-report.txt");
     let log_dir = state.log_dir.clone();
     let session_id = state.session_id.clone();
     let version = app.package_info().version.to_string();
@@ -295,6 +296,17 @@ pub(crate) async fn export_error_report(
         .clone()
         .unwrap_or_else(|| "none".into());
     tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt as _;
+        let Some(selected) = app
+            .dialog()
+            .file()
+            .set_file_name(&file_name)
+            .add_filter("Text", &["txt"])
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        let path = selected.into_path().map_err(|error| error.to_string())?;
         let files = recent_log_files(&log_dir)?;
         let generated_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -325,7 +337,8 @@ pub(crate) async fn export_error_report(
             }
             remaining = remaining.saturating_sub(bytes.len() - start);
         }
-        std::fs::write(path, output).map_err(|error| error.to_string())
+        std::fs::write(path, output).map_err(|error| error.to_string())?;
+        Ok(true)
     })
     .await
     .map_err(|error| error.to_string())?
