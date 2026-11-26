@@ -34,6 +34,7 @@ pub(super) struct SettingsCommitResult {
 
 pub(super) struct SettingsChangePlan {
     current: AppConfig,
+    effective_current: AppConfig,
     candidate: AppConfig,
     effective_candidate: AppConfig,
     capture: CaptureChange,
@@ -148,6 +149,7 @@ impl SettingsChangePlan {
 
         Ok(Self {
             current,
+            effective_current,
             candidate,
             effective_candidate,
             capture,
@@ -243,7 +245,18 @@ impl SettingsChangePlan {
     async fn rollback(&mut self, state: &SettingsContext) -> Result<(), String> {
         let mut errors = Vec::new();
         self.capture.stop_for_rollback(state).await;
-        if let Err(error) = self.external_api.rollback(state, &self.current).await {
+        if let Err(error) = self
+            .osc_inbound
+            .rollback(state, &self.effective_current)
+            .await
+        {
+            errors.push(error);
+        }
+        if let Err(error) = self
+            .external_api
+            .rollback(state, &self.effective_current)
+            .await
+        {
             errors.push(error);
         }
         if let Some((profile, previous)) = self.credential.take()

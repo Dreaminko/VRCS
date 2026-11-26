@@ -731,6 +731,7 @@ pub(super) async fn profile_delete(
                 json!({ "side_effects": profile_usages(&current, &profile_id) }),
             ));
         }
+        #[cfg(not(target_os = "linux"))]
         let previous_credential =
             credentials::read_profile_stored_for_use_async(&profile.id, &profile.provider)
                 .await
@@ -743,6 +744,7 @@ pub(super) async fn profile_delete(
                 tracing::debug!(%error, "Skipping credential cleanup during profile delete because Secret Service is unavailable");
             } else {
                 let mut recovery_errors = Vec::new();
+                #[cfg(not(target_os = "linux"))]
                 if let Err(recovery) = restore_credential(&profile, previous_credential).await {
                     recovery_errors.push(format!("credential rollback failed: {recovery}"));
                 }
@@ -1120,20 +1122,13 @@ async fn reload_after_credential_change(
     profile: &ApiProfile,
     previous: Option<String>,
 ) -> ApiResult<()> {
-    let mut resolved = config.clone();
-    resolved.resolve_model_assignments();
-    if resolved.vision.profile_id.as_deref() == Some(profile.id.as_str()) {
-        state
-            .config
-            .vision_config_tx
-            .send_replace(crate::config::apply_feature_gates(&resolved).vision);
-    }
     if !state
         .capture
         .capture_requested
         .load(std::sync::atomic::Ordering::SeqCst)
         || !super::capture::uses_asr_profile(config, &profile.id)
     {
+        notify_vision_if_matching(state, config, &profile.id);
         return Ok(());
     }
     if let Err(error) = super::capture::validate_capture_config(state, config).await {
@@ -1173,7 +1168,23 @@ async fn reload_after_credential_change(
         }
         return Err(error);
     }
+    notify_vision_if_matching(state, config, &profile.id);
     Ok(())
+}
+
+fn notify_vision_if_matching(
+    state: &SettingsContext,
+    config: &crate::config::AppConfig,
+    profile_id: &str,
+) {
+    let mut resolved = config.clone();
+    resolved.resolve_model_assignments();
+    if resolved.vision.profile_id.as_deref() == Some(profile_id) {
+        state
+            .config
+            .vision_config_tx
+            .send_replace(crate::config::apply_feature_gates(&resolved).vision);
+    }
 }
 
 pub(crate) async fn restore_credential(

@@ -129,7 +129,8 @@ async fn apply_storage_quota(state: &SettingsContext, max_bytes: u64) {
     .await
     {
         tracing::warn!(%error, "subtitle history storage quota could not be enforced immediately");
-    } else if !Arc::ptr_eq(&write_db, &db_read) {
+    }
+    if !Arc::ptr_eq(&write_db, &db_read) {
         let _ = db_call(db_read, move |db| {
             db.set_read_only_quota(max_bytes);
             Ok(())

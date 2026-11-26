@@ -149,6 +149,7 @@ pub struct GlossaryStore {
     subscriptions: RwLock<Vec<SubscriptionState>>,
     llm_snapshot: RwLock<LlmGlossarySnapshot>,
     refresh_control: Mutex<()>,
+    cache_write_lock: Mutex<()>,
     refresh_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
@@ -211,6 +212,7 @@ impl GlossaryStore {
             subscriptions: RwLock::new(subscriptions),
             llm_snapshot: RwLock::new(llm_snapshot),
             refresh_control: Mutex::new(()),
+            cache_write_lock: Mutex::new(()),
             refresh_task: std::sync::Mutex::new(None),
         })
     }
@@ -467,9 +469,37 @@ impl GlossaryStore {
                 state.last_modified.clone(),
             )
         };
+        struct RefreshResetGuard<'a> {
+            subscriptions: &'a RwLock<Vec<SubscriptionState>>,
+            id: &'a str,
+            url: &'a str,
+            armed: bool,
+        }
+        impl Drop for RefreshResetGuard<'_> {
+            fn drop(&mut self) {
+                if self.armed
+                    && let Ok(mut subscriptions) = self.subscriptions.write()
+                    && let Some(state) = matching_state_mut(&mut subscriptions, self.id, self.url)
+                    && state.state == "refreshing"
+                {
+                    state.state = if state.last_success_at.is_some() {
+                        "ready".into()
+                    } else {
+                        "idle".into()
+                    };
+                }
+            }
+        }
+        let mut reset_guard = RefreshResetGuard {
+            subscriptions: &self.subscriptions,
+            id,
+            url: &url,
+            armed: true,
+        };
         let result = self
             .fetch(&url, etag.as_deref(), last_modified.as_deref())
             .await;
+        reset_guard.armed = false;
         match result {
             Ok(FetchResult::NotModified) => {
                 let updated = {
@@ -728,6 +758,7 @@ impl GlossaryStore {
     }
 
     async fn save_cache_async(&self) {
+        let _write_guard = self.cache_write_lock.lock().await;
         let Ok(payload) = self.prepare_cache_payload() else {
             return;
         };

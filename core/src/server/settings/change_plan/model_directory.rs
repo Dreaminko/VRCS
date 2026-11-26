@@ -67,9 +67,19 @@ impl ModelDirectoryChange {
         if !self.models_moved && !self.translation_moved && !self.ocr_moved {
             return Ok(());
         }
-        state.capture.qwen_runtime.stop().await?;
-        state.content.plamo_runtime.stop().await?;
+        state.content.local_translation_models.cancel().await;
+        let lifecycle = state
+            .content
+            .local_translation_models
+            .lock_exclusive()
+            .await;
         let mut errors = Vec::new();
+        if let Err(error) = state.capture.qwen_runtime.stop().await {
+            errors.push(error);
+        }
+        if let Err(error) = state.content.plamo_runtime.stop().await {
+            errors.push(error);
+        }
         if self.ocr_moved {
             match move_ocr_directory(state, self.previous_ocr_path.clone()).await {
                 Ok(()) => self.ocr_moved = false,
@@ -77,11 +87,6 @@ impl ModelDirectoryChange {
             }
         }
         if self.translation_moved {
-            let lifecycle = state
-                .content
-                .local_translation_models
-                .lock_exclusive()
-                .await;
             match move_translation_models(state, self.previous_path.clone(), lifecycle).await {
                 Ok(()) => self.translation_moved = false,
                 Err(error) => errors.push(error),

@@ -10,6 +10,7 @@ use super::super::super::{
 
 pub(super) struct OscInboundChange {
     reload: bool,
+    applied: bool,
 }
 
 impl OscInboundChange {
@@ -17,11 +18,12 @@ impl OscInboundChange {
         Self {
             reload: current.osc.inbound != candidate.osc.inbound
                 || (candidate.osc.inbound.enabled && current.osc.port != candidate.osc.port),
+            applied: false,
         }
     }
 
     pub(super) async fn apply(
-        &self,
+        &mut self,
         state: &SettingsContext,
         candidate: &AppConfig,
     ) -> ApiResult<()> {
@@ -48,6 +50,35 @@ impl OscInboundChange {
                 "settings.osc_inbound_reload_failed",
                 error,
             )
+        })?;
+        self.applied = true;
+        Ok(())
+    }
+
+    pub(super) async fn rollback(
+        &mut self,
+        state: &SettingsContext,
+        previous: &AppConfig,
+    ) -> Result<(), String> {
+        if !self.applied {
+            return Ok(());
+        }
+        let service_ctx = ServiceContext {
+            config: Arc::clone(&state.config),
+            content: Arc::clone(&state.content),
+            integrations: Arc::clone(&state.integrations),
+        };
+        let mut server = state.integrations.osc_inbound_server.lock().await;
+        crate::osc::inbound::reconfigure(
+            &mut server,
+            &previous.osc,
+            osc_inbound_callback(service_ctx),
+            Arc::clone(&state.integrations.osc_inbound_status),
+            state.integrations.shutdown.clone(),
+        )
+        .await
+        .map(|()| {
+            self.applied = false;
         })
     }
 }

@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -33,9 +32,9 @@ pub(super) async fn ws_handler(
         .and_then(|value| value.strip_prefix("Bearer "))
         .is_some_and(|value| token_eq(value, expected));
     let matched_protocol = headers
-        .get(header::SEC_WEBSOCKET_PROTOCOL)
-        .and_then(|value| value.to_str().ok())
-        .into_iter()
+        .get_all(header::SEC_WEBSOCKET_PROTOCOL)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
         .flat_map(|value| value.split(','))
         .map(str::trim)
         .find(|protocol| {
@@ -95,8 +94,17 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
     let mut shutdown = state.integrations.shutdown.clone();
     let (mut sender, mut incoming) = socket.split();
     let (outbound_tx, mut outbound_rx) = mpsc::channel::<Message>(WS_OUTBOUND_CAPACITY);
+    let mut writer_shutdown = shutdown.clone();
     let writer_task = tokio::spawn(async move {
-        while let Some(message) = outbound_rx.recv().await {
+        loop {
+            let message = tokio::select! {
+                biased;
+                _ = writer_shutdown.changed() => return,
+                item = outbound_rx.recv() => match item {
+                    Some(message) => message,
+                    None => break,
+                }
+            };
             match tokio::time::timeout(WS_WRITE_TIMEOUT, sender.send(message)).await {
                 Ok(Ok(())) => {}
                 Ok(Err(_)) | Err(_) => return,
@@ -109,10 +117,10 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
         writer_task.abort();
         return;
     }
-    match super::db_call(Arc::clone(&state.content.db), |db| {
-        db.conversation_catalog()
-    })
-    .await
+    match state
+        .content
+        .db_read_call(|db| db.conversation_catalog())
+        .await
     {
         Ok(catalog) => {
             let payload = json!({
@@ -134,6 +142,7 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
                 let _ = changed;
                 break;
             }
+            _ = outbound_tx.closed() => break,
             message = incoming.next() => {
                 match message {
                     Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
@@ -199,13 +208,7 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
                         }
                     }
                     Ok(LiveTranscription::Partial { .. } | LiveTranscription::Failed { .. }) => continue,
-                    Err(broadcast::error::RecvError::Lagged(dropped)) => {
-                        tracing::warn!(dropped, "live stream lagged; requesting client resync");
-                        if !enqueue_text(&outbound_tx, r#"{"type":"resync_required"}"#, false) {
-                            kicked_slow_client = true;
-                            break;
-                        }
-                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }

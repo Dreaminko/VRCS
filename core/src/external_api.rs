@@ -253,9 +253,9 @@ fn request_has_token(headers: &HeaderMap, expected: &str) -> bool {
         return true;
     }
     headers
-        .get(header::SEC_WEBSOCKET_PROTOCOL)
-        .and_then(|value| value.to_str().ok())
-        .into_iter()
+        .get_all(header::SEC_WEBSOCKET_PROTOCOL)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
         .flat_map(|value| value.split(','))
         .map(str::trim)
         .filter_map(|protocol| protocol.strip_prefix(TOKEN_PROTOCOL_PREFIX))
