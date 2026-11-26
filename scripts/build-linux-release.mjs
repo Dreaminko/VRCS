@@ -419,7 +419,7 @@ try {
         const extracted = join(verifyRoot, `extracted-${pkgChannel}`);
         mkdirSync(extracted, { recursive: true });
         await bundleAndCollectAsync({ config, sourceBin: verifyBin, channel: pkgChannel, outputPath: pkgPath, debug: true });
-        verifyBundledPackage({ channel: pkgChannel, pkgPath, extracted, runSelfTest: false, alreadyValidated: false, alreadyExtracted: false });
+        verifyBundledPackage({ channel: pkgChannel, pkgPath, extracted, runSelfTest: pkgChannel === "deb", alreadyValidated: false, alreadyExtracted: false });
       }));
     }
   } else {

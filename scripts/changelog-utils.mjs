@@ -12,7 +12,8 @@ export function extractChangelogSection(markdown, version) {
   }
   const normalized = markdown.replace(/\r\n/g, "\n");
   const lines = normalized.split("\n");
-  const headingPattern = new RegExp(`^##\\s+\\[?v?${escapeRegExp(version.trim())}\\]?(?:\\s|$|[-–—])`);
+  const escaped = escapeRegExp(version.trim());
+  const headingPattern = new RegExp(`^##\\s+(?:\\[v?${escaped}\\](?:\\s|$|[-–—])|v?${escaped}(?:\\s|$|[–—]))`);
   const startIndex = lines.findIndex((line) => headingPattern.test(line));
   if (startIndex < 0) return null;
 
