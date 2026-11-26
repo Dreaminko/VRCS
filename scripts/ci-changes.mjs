@@ -8,7 +8,7 @@ export function classifyChanges(files, full = false) {
   let frontend = full;
   for (const file of files) {
     const workflow = /^\.github\/workflows\/(ci|release|preview|nightly)\.yml$/.test(file);
-    const releaseScript = /^scripts\/(?:build-.*release|install-linux-deps|verify-linux-package|release-metadata|write-release-metadata|test-release-metadata|find-release-ci|test-release-ci|ci-changes|test-ci-changes)\.(?:ps1|mjs|sh)$/.test(file);
+    const releaseScript = /^scripts\/(?:build-.*release|install-linux-deps|verify-linux-package|release-metadata|write-release-metadata|test-release-metadata|find-release-ci|test-release-ci|ci-changes|test-ci-changes|changelog-utils|nightly-release)\.(?:ps1|mjs|sh)$/.test(file);
     if (workflow || releaseScript || /^(core\/|crates\/|apps\/desktop\/src-tauri\/|packaging\/linux\/)/.test(file) || ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "scripts/run-tauri.ps1", "scripts/run-tauri.mjs"].includes(file) || /^scripts\/(?:check-rust|test-check-rust|test-core|prepare-vulkan-runtime|prepare-qwen-runtime|update-models-dev)\.ps1$/.test(file)) rust = true;
     if (workflow || releaseScript || file.startsWith("apps/desktop/") || ["package.json", "package-lock.json", "scripts/check-i18n.mjs", "scripts/dev-vr.mjs", "scripts/dev-vr.test.mjs"].includes(file)) frontend = true;
   }
@@ -20,7 +20,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   let files = [];
   if (!full) {
     try {
-      files = execFileSync("git", ["diff", "--name-only", `${base}...HEAD`], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+      files = execFileSync("git", ["diff", "--name-only", `${base}...HEAD`], { encoding: "utf8" }).trim().split(/\r?\n/).filter(Boolean);
     } catch {
       full = true;
     }

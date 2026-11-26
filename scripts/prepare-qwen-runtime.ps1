@@ -2,6 +2,7 @@
 param()
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 # Node can pass module paths from a different PowerShell version.
 $env:PSModulePath = "$PSHOME\Modules;$env:PSModulePath"
 $release = "b11501"
@@ -19,12 +20,16 @@ if ((Test-Path -LiteralPath $marker) -and (Get-Content -LiteralPath $marker -Raw
 function Invoke-DownloadWithRetry {
     param(
         [Parameter(Mandatory)][string]$Uri,
-        [Parameter(Mandatory)][string]$OutFile
+        [Parameter(Mandatory)][string]$OutFile,
+        [int]$TimeoutSec = 60
     )
 
     for ($attempt = 1; $attempt -le 3; $attempt++) {
         try {
-            Invoke-WebRequest -Uri $Uri -OutFile $OutFile -TimeoutSec 60
+            Invoke-WebRequest -Uri $Uri -OutFile $OutFile -TimeoutSec $TimeoutSec
+            if (-not (Test-Path -LiteralPath $OutFile -PathType Leaf) -or (Get-Item -LiteralPath $OutFile).Length -eq 0) {
+                throw "Downloaded file was empty"
+            }
             return
         }
         catch {
@@ -37,7 +42,7 @@ function Invoke-DownloadWithRetry {
 
 if (-not (Test-Path -LiteralPath $archive) -or (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $checksum) {
     Write-Host "Downloading Qwen ASR runtime ($release, Vulkan + CPU)"
-    Invoke-DownloadWithRetry -Uri "https://github.com/ggml-org/llama.cpp/releases/download/$release/llama-$release-bin-win-vulkan-x64.zip" -OutFile $archive
+    Invoke-DownloadWithRetry -Uri "https://github.com/ggml-org/llama.cpp/releases/download/$release/llama-$release-bin-win-vulkan-x64.zip" -OutFile $archive -TimeoutSec 300
 }
 if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $checksum) {
     throw "Qwen ASR runtime archive failed SHA256 verification"
@@ -58,9 +63,5 @@ try {
 finally { $zip.Dispose() }
 $licensePath = Join-Path $destination "LICENSE"
 Invoke-DownloadWithRetry -Uri "https://raw.githubusercontent.com/ggml-org/llama.cpp/$commit/LICENSE" -OutFile $licensePath
-if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf) -or (Get-Item -LiteralPath $licensePath).Length -eq 0) {
-    Remove-Item -LiteralPath $licensePath -Force -ErrorAction SilentlyContinue
-    throw "Qwen ASR runtime LICENSE download was empty"
-}
 Set-Content -LiteralPath $marker -Value $checksum -Encoding ascii
 Write-Host "Qwen ASR runtime ready: $release"
