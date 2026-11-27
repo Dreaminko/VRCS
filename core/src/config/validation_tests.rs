@@ -59,7 +59,12 @@ fn player_proximity_radius_is_validated_even_when_disabled() {
 fn mimo_recognition_only_accepts_documented_languages_when_selected() {
     let mut config = AppConfig::default();
     config.asr.backend = crate::providers::SERVICE_MIMO_TRANSCRIPTION.into();
-    for languages in [vec![], vec!["zh".into()], vec!["en".into()], vec!["zh".into(), "ja".into()]] {
+    for languages in [
+        vec![],
+        vec!["zh".into()],
+        vec!["en".into()],
+        vec!["zh".into(), "ja".into()],
+    ] {
         config.asr.preferred_languages = languages;
         config.validate_settings().unwrap();
     }

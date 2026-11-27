@@ -262,7 +262,10 @@ pub fn render_ocr_progress(
         let track = ui.add_box(
             col,
             Style {
-                size: Size { width: auto(), height: length(8.0) },
+                size: Size {
+                    width: auto(),
+                    height: length(8.0),
+                },
                 margin: Rect {
                     top: length(10.0),
                     left: length(0.0),
@@ -328,7 +331,10 @@ pub fn render_ocr_progress(
         panel,
         &progress.detail,
         Style {
-            size: Size { width: percent(1.0), height: auto() },
+            size: Size {
+                width: percent(1.0),
+                height: auto(),
+            },
             ..Default::default()
         },
         single_line_style(22.0, 400, theme.text_secondary, Align::Left),
@@ -388,10 +394,7 @@ pub fn render_headset(
     };
     let avail_h = (h as f32 - 32.0 - 32.0 - 4.0 - notice_h).max(1.0);
     let rows = visible.len();
-    let lang_count: usize = visible
-        .iter()
-        .map(|m| m.text.splitn(4, '\n').count())
-        .sum();
+    let lang_count: usize = visible.iter().map(|m| m.text.splitn(4, '\n').count()).sum();
     let required_h = base_font
         * (rows as f32 * 0.75 * 1.1 + lang_count as f32 * lines as f32 * caption_line_h)
         + rows as f32 * 14.0
@@ -453,7 +456,10 @@ pub fn render_headset(
     let panel = ui.add_box(
         root,
         Style {
-            size: Size { width: percent(1.0), height: auto() },
+            size: Size {
+                width: percent(1.0),
+                height: auto(),
+            },
             flex_direction: FlexDirection::Column,
             align_items: Some(AlignItems::Center),
             padding: Rect {
@@ -481,7 +487,10 @@ pub fn render_headset(
             panel,
             n,
             Style {
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 max_size: Size {
                     width: auto(),
                     height: length(120.0),
@@ -508,7 +517,10 @@ pub fn render_headset(
     let grid = ui.add_box(
         panel,
         Style {
-            size: Size { width: percent(1.0), height: auto() },
+            size: Size {
+                width: percent(1.0),
+                height: auto(),
+            },
             flex_direction: FlexDirection::Column,
             gap: Size {
                 width: length(0.0),
@@ -523,7 +535,10 @@ pub fn render_headset(
         let card = ui.add_box(
             grid,
             Style {
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 flex_direction: FlexDirection::Column,
                 align_items: Some(AlignItems::Center),
                 padding: Rect {
@@ -588,7 +603,10 @@ pub fn render_headset(
                 card,
                 lang_text,
                 Style {
-                    size: Size { width: percent(1.0), height: auto() },
+                    size: Size {
+                        width: percent(1.0),
+                        height: auto(),
+                    },
                     margin: Rect {
                         top: length(if lang_idx > 0 { 8.0 * scale } else { 0.0 }),
                         left: length(0.0),
@@ -635,7 +653,10 @@ pub fn render_ocr_result(
     });
     let placed: HashSet<usize> = scene_layout.cards.iter().map(|c| c.id).collect();
     let aspect = scene.aspect;
-    let mask_color = theme.surface.with_alpha(scene.opacity.clamp(0.0, 1.0)).premultiplied();
+    let mask_color = theme
+        .surface
+        .with_alpha(scene.opacity.clamp(0.0, 1.0))
+        .premultiplied();
     let card_bg = theme.surface.with_alpha(scene.opacity.clamp(0.0, 1.0));
 
     let mut draw = DrawList::new(w, h);

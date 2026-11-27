@@ -331,13 +331,8 @@ impl ShapedText {
                     clip_radius,
                 ));
             } else {
-                draw.instances.push(Instance::mask_r8(
-                    rect,
-                    g.uv,
-                    color,
-                    clip_rect,
-                    clip_radius,
-                ));
+                draw.instances
+                    .push(Instance::mask_r8(rect, g.uv, color, clip_rect, clip_radius));
             }
         }
     }
@@ -525,13 +520,12 @@ impl TextEngine {
             &mut self.font_system,
             Metrics::new(style.font_size.max(1.0), style.line_height.max(1.0)),
         );
-        self.scratch
-            .set_wrap(&mut self.font_system, Wrap::None);
-        self.scratch
-            .set_size(&mut self.font_system, None, None);
+        self.scratch.set_wrap(&mut self.font_system, Wrap::None);
+        self.scratch.set_size(&mut self.font_system, None, None);
         self.scratch
             .set_text(&mut self.font_system, text, &attrs, Shaping::Advanced);
-        self.scratch.shape_until_scroll(&mut self.font_system, false);
+        self.scratch
+            .shape_until_scroll(&mut self.font_system, false);
         let width = self
             .scratch
             .layout_runs()
@@ -572,7 +566,14 @@ impl TextEngine {
         if let Some(hit) = self.shape_cache.get(&key) {
             return Arc::clone(hit);
         }
-        let shaped = Arc::new(self.shape_text(text, max_width, TextStyle { color: Color::WHITE, ..style }));
+        let shaped = Arc::new(self.shape_text(
+            text,
+            max_width,
+            TextStyle {
+                color: Color::WHITE,
+                ..style
+            },
+        ));
         self.sync_cache_generation();
         if self.shape_cache.len() > 4096 {
             self.shape_cache.clear();
@@ -636,7 +637,8 @@ impl TextEngine {
         for line in &mut self.scratch.lines {
             line.set_align(Some(base.align));
         }
-        self.scratch.shape_until_scroll(&mut self.font_system, false);
+        self.scratch
+            .shape_until_scroll(&mut self.font_system, false);
 
         // If single-line ellipsis is requested and overflows, binary-search a fitting prefix.
         if base.ellipsis
@@ -766,7 +768,9 @@ impl TextEngine {
                         .as_chunks::<4>()
                         .0
                         .iter()
-                        .map(|px| ((u16::from(px[0]) + u16::from(px[1]) + u16::from(px[2])) / 3) as u8)
+                        .map(|px| {
+                            ((u16::from(px[0]) + u16::from(px[1]) + u16::from(px[2])) / 3) as u8
+                        })
                         .collect();
                     self.atlas.alloc_r8(w, h, &alpha)?
                 }

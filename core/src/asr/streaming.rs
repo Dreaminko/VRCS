@@ -3438,6 +3438,9 @@ mod tests {
             ..AsrConfig::default()
         };
         let multi_final = normalize(&multi, r#"{"header":{"event":"result-generated"},"payload":{"output":{"sentence":{"sentence_id":2,"text":"こんにちは","sentence_end":true}}}}"#, &mut state).unwrap();
-        assert!(matches!(multi_final, Some(CloudEvent::Final { language: None, .. })));
+        assert!(matches!(
+            multi_final,
+            Some(CloudEvent::Final { language: None, .. })
+        ));
     }
 }

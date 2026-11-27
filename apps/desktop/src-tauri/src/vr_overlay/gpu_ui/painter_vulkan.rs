@@ -78,8 +78,8 @@ pub struct VulkanPainter {
 
 impl VulkanPainter {
     pub fn new() -> Result<Self, String> {
-        let entry = unsafe { ash::Entry::load() }
-            .map_err(|e| format!("Load Vulkan loader failed: {e}"))?;
+        let entry =
+            unsafe { ash::Entry::load() }.map_err(|e| format!("Load Vulkan loader failed: {e}"))?;
         let app_info = vk::ApplicationInfo::default()
             .application_name(c"vrcs-gpu-ui")
             .api_version(vk::API_VERSION_1_1);
@@ -216,7 +216,13 @@ impl VulkanPainter {
             vk::Format::R8G8B8A8_UNORM,
             vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
         )?;
-        let scratch_fb = create_framebuffer(&device, scratch_rp, scratch_img.view, SCRATCH_SIZE, SCRATCH_SIZE)?;
+        let scratch_fb = create_framebuffer(
+            &device,
+            scratch_rp,
+            scratch_img.view,
+            SCRATCH_SIZE,
+            SCRATCH_SIZE,
+        )?;
 
         // Bind descriptors once; underlying image views never reallocate.
         let i0 = [vk::DescriptorImageInfo::default()
@@ -312,7 +318,8 @@ impl VulkanPainter {
             upload_host_buffer(&self.device, self.inst_buf.as_ref().unwrap(), &combined)?;
         }
         if !draw.mask_vertices.is_empty() {
-            let need_bytes = (draw.mask_vertices.len() * std::mem::size_of::<MaskVertex>()) as vk::DeviceSize;
+            let need_bytes =
+                (draw.mask_vertices.len() * std::mem::size_of::<MaskVertex>()) as vk::DeviceSize;
             ensure_host_buffer(
                 &self.device,
                 &self.mem_props,
@@ -320,7 +327,11 @@ impl VulkanPainter {
                 need_bytes,
                 vk::BufferUsageFlags::VERTEX_BUFFER,
             )?;
-            upload_host_buffer(&self.device, self.mask_buf.as_ref().unwrap(), &draw.mask_vertices)?;
+            upload_host_buffer(
+                &self.device,
+                self.mask_buf.as_ref().unwrap(),
+                &draw.mask_vertices,
+            )?;
         }
 
         if self
@@ -346,7 +357,8 @@ impl VulkanPainter {
             self.target_img = Some((img, fb));
         }
 
-        let staging_bytes = (ATLAS_R8_SIZE * ATLAS_R8_SIZE + ATLAS_RGBA_SIZE * ATLAS_RGBA_SIZE * 4) as vk::DeviceSize;
+        let staging_bytes = (ATLAS_R8_SIZE * ATLAS_R8_SIZE + ATLAS_RGBA_SIZE * ATLAS_RGBA_SIZE * 4)
+            as vk::DeviceSize;
         if needs_r8 || needs_rgba {
             ensure_host_buffer(
                 &self.device,
@@ -360,7 +372,8 @@ impl VulkanPainter {
                 self.device
                     .map_memory(sb.memory, 0, staging_bytes, vk::MemoryMapFlags::empty())
             }
-            .map_err(|e| format!("vkMapMemory atlas staging: {e:?}"))? as *mut u8;
+            .map_err(|e| format!("vkMapMemory atlas staging: {e:?}"))?
+                as *mut u8;
             let r8_len = (ATLAS_R8_SIZE * ATLAS_R8_SIZE) as usize;
             unsafe {
                 if needs_r8 {
@@ -404,11 +417,27 @@ impl VulkanPainter {
             let r8_offset = 0u64;
             let rgba_offset = (ATLAS_R8_SIZE * ATLAS_R8_SIZE) as u64;
             if needs_r8 {
-                record_image_upload(&self.device, self.cmd_buf, sb, r8_offset, self.r8_img.image, ATLAS_R8_SIZE, ATLAS_R8_SIZE);
+                record_image_upload(
+                    &self.device,
+                    self.cmd_buf,
+                    sb,
+                    r8_offset,
+                    self.r8_img.image,
+                    ATLAS_R8_SIZE,
+                    ATLAS_R8_SIZE,
+                );
                 self.r8_generation = atlas.r8_generation;
             }
             if needs_rgba {
-                record_image_upload(&self.device, self.cmd_buf, sb, rgba_offset, self.rgba_img.image, ATLAS_RGBA_SIZE, ATLAS_RGBA_SIZE);
+                record_image_upload(
+                    &self.device,
+                    self.cmd_buf,
+                    sb,
+                    rgba_offset,
+                    self.rgba_img.image,
+                    ATLAS_RGBA_SIZE,
+                    ATLAS_RGBA_SIZE,
+                );
                 self.rgba_generation = atlas.rgba_generation;
             }
         }
@@ -419,7 +448,16 @@ impl VulkanPainter {
         }];
 
         // Render main pass (masks + base UI instances) into target
-        begin_rp(&self.device, self.cmd_buf, self.target_rp, t_fb, w, h, &clear, vk::AttachmentLoadOp::CLEAR);
+        begin_rp(
+            &self.device,
+            self.cmd_buf,
+            self.target_rp,
+            t_fb,
+            w,
+            h,
+            &clear,
+            vk::AttachmentLoadOp::CLEAR,
+        );
         let pc_target = DrawParams {
             rt_size: [w as f32, h as f32],
             inv_rt_size: [1.0 / w as f32, 1.0 / h as f32],
@@ -442,17 +480,27 @@ impl VulkanPainter {
         if !draw.mask_vertices.is_empty() {
             let mb = self.mask_buf.as_ref().unwrap().buffer;
             unsafe {
-                self.device.cmd_bind_pipeline(self.cmd_buf, vk::PipelineBindPoint::GRAPHICS, self.mask_pipe);
+                self.device.cmd_bind_pipeline(
+                    self.cmd_buf,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.mask_pipe,
+                );
                 self.device.cmd_bind_vertex_buffers(0, &[mb], &[0]);
-                self.device.cmd_draw(self.cmd_buf, draw.mask_vertices.len() as u32, 1, 0, 0);
+                self.device
+                    .cmd_draw(self.cmd_buf, draw.mask_vertices.len() as u32, 1, 0, 0);
             }
         }
         if !draw.instances.is_empty() {
             let ib = self.inst_buf.as_ref().unwrap().buffer;
             unsafe {
-                self.device.cmd_bind_pipeline(self.cmd_buf, vk::PipelineBindPoint::GRAPHICS, self.ui_pipe);
+                self.device.cmd_bind_pipeline(
+                    self.cmd_buf,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.ui_pipe,
+                );
                 self.device.cmd_bind_vertex_buffers(0, &[ib], &[0]);
-                self.device.cmd_draw(self.cmd_buf, 6, draw.instances.len() as u32, 0, 0);
+                self.device
+                    .cmd_draw(self.cmd_buf, 6, draw.instances.len() as u32, 0, 0);
             }
         }
         unsafe { self.device.cmd_end_render_pass(self.cmd_buf) };
@@ -465,7 +513,16 @@ impl VulkanPainter {
                 first_inst += count;
                 continue;
             };
-            begin_rp(&self.device, self.cmd_buf, self.scratch_rp, self.scratch_fb, SCRATCH_SIZE, SCRATCH_SIZE, &clear, vk::AttachmentLoadOp::CLEAR);
+            begin_rp(
+                &self.device,
+                self.cmd_buf,
+                self.scratch_rp,
+                self.scratch_fb,
+                SCRATCH_SIZE,
+                SCRATCH_SIZE,
+                &clear,
+                vk::AttachmentLoadOp::CLEAR,
+            );
             let pc_scratch = DrawParams {
                 rt_size: [SCRATCH_SIZE as f32, SCRATCH_SIZE as f32],
                 inv_rt_size: [1.0 / SCRATCH_SIZE as f32, 1.0 / SCRATCH_SIZE as f32],
@@ -478,7 +535,11 @@ impl VulkanPainter {
             if count > 0 {
                 let ib = self.inst_buf.as_ref().unwrap().buffer;
                 unsafe {
-                    self.device.cmd_bind_pipeline(self.cmd_buf, vk::PipelineBindPoint::GRAPHICS, self.ui_pipe);
+                    self.device.cmd_bind_pipeline(
+                        self.cmd_buf,
+                        vk::PipelineBindPoint::GRAPHICS,
+                        self.ui_pipe,
+                    );
                     self.device.cmd_bind_descriptor_sets(
                         self.cmd_buf,
                         vk::PipelineBindPoint::GRAPHICS,
@@ -488,7 +549,8 @@ impl VulkanPainter {
                         &[],
                     );
                     self.device.cmd_bind_vertex_buffers(0, &[ib], &[0]);
-                    self.device.cmd_draw(self.cmd_buf, 6, count as u32, 0, first_inst as u32);
+                    self.device
+                        .cmd_draw(self.cmd_buf, 6, count as u32, 0, first_inst as u32);
                 }
             }
             first_inst += count;
@@ -577,9 +639,24 @@ impl Drop for VulkanPainter {
                 destroy_image(&self.device, img);
             }
             self.device.destroy_framebuffer(self.scratch_fb, None);
-            destroy_image(&self.device, AllocatedImage { ..std::mem::replace(&mut self.scratch_img, zero_img()) });
-            destroy_image(&self.device, AllocatedImage { ..std::mem::replace(&mut self.rgba_img, zero_img()) });
-            destroy_image(&self.device, AllocatedImage { ..std::mem::replace(&mut self.r8_img, zero_img()) });
+            destroy_image(
+                &self.device,
+                AllocatedImage {
+                    ..std::mem::replace(&mut self.scratch_img, zero_img())
+                },
+            );
+            destroy_image(
+                &self.device,
+                AllocatedImage {
+                    ..std::mem::replace(&mut self.rgba_img, zero_img())
+                },
+            );
+            destroy_image(
+                &self.device,
+                AllocatedImage {
+                    ..std::mem::replace(&mut self.r8_img, zero_img())
+                },
+            );
             for buf in [
                 self.atlas_staging.take(),
                 self.inst_buf.take(),
@@ -599,7 +676,8 @@ impl Drop for VulkanPainter {
             self.device.destroy_pipeline(self.card_pipe, None);
             self.device.destroy_pipeline_layout(self.pipe_layout, None);
             self.device.destroy_descriptor_pool(self.desc_pool, None);
-            self.device.destroy_descriptor_set_layout(self.set_layout, None);
+            self.device
+                .destroy_descriptor_set_layout(self.set_layout, None);
             self.device.destroy_render_pass(self.target_rp, None);
             self.device.destroy_render_pass(self.scratch_rp, None);
             self.device.destroy_fence(self.fence, None);
@@ -630,7 +708,10 @@ fn find_memory_type(
     })
 }
 
-fn create_render_pass(device: &ash::Device, final_layout: vk::ImageLayout) -> Result<vk::RenderPass, String> {
+fn create_render_pass(
+    device: &ash::Device,
+    final_layout: vk::ImageLayout,
+) -> Result<vk::RenderPass, String> {
     let att = [vk::AttachmentDescription::default()
         .format(vk::Format::R8G8B8A8_UNORM)
         .samples(vk::SampleCountFlags::TYPE_1)
@@ -657,11 +738,15 @@ fn create_render_pass(device: &ash::Device, final_layout: vk::ImageLayout) -> Re
 
 fn shader_module(device: &ash::Device, bytes: &[u8]) -> Result<vk::ShaderModule, String> {
     let words: Vec<u32> = bytes
-        .chunks_exact(4)
-        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
         .collect();
-    unsafe { device.create_shader_module(&vk::ShaderModuleCreateInfo::default().code(&words), None) }
-        .map_err(|e| format!("vkCreateShaderModule: {e:?}"))
+    unsafe {
+        device.create_shader_module(&vk::ShaderModuleCreateInfo::default().code(&words), None)
+    }
+    .map_err(|e| format!("vkCreateShaderModule: {e:?}"))
 }
 
 fn build_pipeline(
@@ -733,41 +818,122 @@ fn build_pipeline(
         .map(|p| p[0])
 }
 
-fn create_ui_pipeline(device: &ash::Device, layout: vk::PipelineLayout, rp: vk::RenderPass) -> Result<vk::Pipeline, String> {
+fn create_ui_pipeline(
+    device: &ash::Device,
+    layout: vk::PipelineLayout,
+    rp: vk::RenderPass,
+) -> Result<vk::Pipeline, String> {
     let bindings = [vk::VertexInputBindingDescription::default()
         .binding(0)
         .stride(std::mem::size_of::<Instance>() as u32)
         .input_rate(vk::VertexInputRate::INSTANCE)];
     let attrs = [
-        vk::VertexInputAttributeDescription { location: 0, binding: 0, format: vk::Format::R32G32B32A32_SFLOAT, offset: 0 },
-        vk::VertexInputAttributeDescription { location: 1, binding: 0, format: vk::Format::R32G32B32A32_SFLOAT, offset: 16 },
-        vk::VertexInputAttributeDescription { location: 2, binding: 0, format: vk::Format::R32G32B32A32_SFLOAT, offset: 32 },
-        vk::VertexInputAttributeDescription { location: 3, binding: 0, format: vk::Format::R32G32B32A32_SFLOAT, offset: 48 },
-        vk::VertexInputAttributeDescription { location: 4, binding: 0, format: vk::Format::R32G32B32A32_SFLOAT, offset: 64 },
-        vk::VertexInputAttributeDescription { location: 5, binding: 0, format: vk::Format::R32G32B32A32_SFLOAT, offset: 80 },
-        vk::VertexInputAttributeDescription { location: 6, binding: 0, format: vk::Format::R32G32_SFLOAT, offset: 96 },
-        vk::VertexInputAttributeDescription { location: 7, binding: 0, format: vk::Format::R32G32_UINT, offset: 104 },
+        vk::VertexInputAttributeDescription {
+            location: 0,
+            binding: 0,
+            format: vk::Format::R32G32B32A32_SFLOAT,
+            offset: 0,
+        },
+        vk::VertexInputAttributeDescription {
+            location: 1,
+            binding: 0,
+            format: vk::Format::R32G32B32A32_SFLOAT,
+            offset: 16,
+        },
+        vk::VertexInputAttributeDescription {
+            location: 2,
+            binding: 0,
+            format: vk::Format::R32G32B32A32_SFLOAT,
+            offset: 32,
+        },
+        vk::VertexInputAttributeDescription {
+            location: 3,
+            binding: 0,
+            format: vk::Format::R32G32B32A32_SFLOAT,
+            offset: 48,
+        },
+        vk::VertexInputAttributeDescription {
+            location: 4,
+            binding: 0,
+            format: vk::Format::R32G32B32A32_SFLOAT,
+            offset: 64,
+        },
+        vk::VertexInputAttributeDescription {
+            location: 5,
+            binding: 0,
+            format: vk::Format::R32G32B32A32_SFLOAT,
+            offset: 80,
+        },
+        vk::VertexInputAttributeDescription {
+            location: 6,
+            binding: 0,
+            format: vk::Format::R32G32_SFLOAT,
+            offset: 96,
+        },
+        vk::VertexInputAttributeDescription {
+            location: 7,
+            binding: 0,
+            format: vk::Format::R32G32_UINT,
+            offset: 104,
+        },
     ];
-    build_pipeline(device, layout, rp, UI_VERT_SPV, UI_FRAG_SPV, &bindings, &attrs)
+    build_pipeline(
+        device,
+        layout,
+        rp,
+        UI_VERT_SPV,
+        UI_FRAG_SPV,
+        &bindings,
+        &attrs,
+    )
 }
 
-fn create_mask_pipeline(device: &ash::Device, layout: vk::PipelineLayout, rp: vk::RenderPass) -> Result<vk::Pipeline, String> {
+fn create_mask_pipeline(
+    device: &ash::Device,
+    layout: vk::PipelineLayout,
+    rp: vk::RenderPass,
+) -> Result<vk::Pipeline, String> {
     let bindings = [vk::VertexInputBindingDescription::default()
         .binding(0)
         .stride(std::mem::size_of::<MaskVertex>() as u32)
         .input_rate(vk::VertexInputRate::VERTEX)];
     let attrs = [
-        vk::VertexInputAttributeDescription { location: 0, binding: 0, format: vk::Format::R32G32_SFLOAT, offset: 0 },
-        vk::VertexInputAttributeDescription { location: 1, binding: 0, format: vk::Format::R32G32B32A32_SFLOAT, offset: 8 },
+        vk::VertexInputAttributeDescription {
+            location: 0,
+            binding: 0,
+            format: vk::Format::R32G32_SFLOAT,
+            offset: 0,
+        },
+        vk::VertexInputAttributeDescription {
+            location: 1,
+            binding: 0,
+            format: vk::Format::R32G32B32A32_SFLOAT,
+            offset: 8,
+        },
     ];
-    build_pipeline(device, layout, rp, MASK_VERT_SPV, MASK_FRAG_SPV, &bindings, &attrs)
+    build_pipeline(
+        device,
+        layout,
+        rp,
+        MASK_VERT_SPV,
+        MASK_FRAG_SPV,
+        &bindings,
+        &attrs,
+    )
 }
 
-fn create_card_pipeline(device: &ash::Device, layout: vk::PipelineLayout, rp: vk::RenderPass) -> Result<vk::Pipeline, String> {
+fn create_card_pipeline(
+    device: &ash::Device,
+    layout: vk::PipelineLayout,
+    rp: vk::RenderPass,
+) -> Result<vk::Pipeline, String> {
     build_pipeline(device, layout, rp, CARD_VERT_SPV, CARD_FRAG_SPV, &[], &[])
 }
 
-fn create_sampler(device: &ash::Device, mode: vk::SamplerAddressMode) -> Result<vk::Sampler, String> {
+fn create_sampler(
+    device: &ash::Device,
+    mode: vk::SamplerAddressMode,
+) -> Result<vk::Sampler, String> {
     let info = vk::SamplerCreateInfo::default()
         .mag_filter(vk::Filter::LINEAR)
         .min_filter(vk::Filter::LINEAR)
@@ -789,16 +955,25 @@ fn create_image(
     let img_info = vk::ImageCreateInfo::default()
         .image_type(vk::ImageType::TYPE_2D)
         .format(format)
-        .extent(vk::Extent3D { width, height, depth: 1 })
+        .extent(vk::Extent3D {
+            width,
+            height,
+            depth: 1,
+        })
         .mip_levels(1)
         .array_layers(1)
         .samples(vk::SampleCountFlags::TYPE_1)
         .tiling(vk::ImageTiling::OPTIMAL)
         .usage(usage);
-    let image = unsafe { device.create_image(&img_info, None) }.map_err(|e| format!("vkCreateImage: {e:?}"))?;
+    let image = unsafe { device.create_image(&img_info, None) }
+        .map_err(|e| format!("vkCreateImage: {e:?}"))?;
     let req = unsafe { device.get_image_memory_requirements(image) };
-    let mem_idx = find_memory_type(mem_props, req.memory_type_bits, vk::MemoryPropertyFlags::DEVICE_LOCAL)
-        .ok_or("No GPU memory type for image")?;
+    let mem_idx = find_memory_type(
+        mem_props,
+        req.memory_type_bits,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    )
+    .ok_or("No GPU memory type for image")?;
     let memory = unsafe {
         device.allocate_memory(
             &vk::MemoryAllocateInfo::default()
@@ -808,7 +983,8 @@ fn create_image(
         )
     }
     .map_err(|e| format!("vkAllocateMemory image: {e:?}"))?;
-    unsafe { device.bind_image_memory(image, memory, 0) }.map_err(|e| format!("vkBindImageMemory: {e:?}"))?;
+    unsafe { device.bind_image_memory(image, memory, 0) }
+        .map_err(|e| format!("vkBindImageMemory: {e:?}"))?;
     let view = unsafe {
         device.create_image_view(
             &vk::ImageViewCreateInfo::default()
@@ -826,7 +1002,13 @@ fn create_image(
         )
     }
     .map_err(|e| format!("vkCreateImageView: {e:?}"))?;
-    Ok(AllocatedImage { image, memory, view, width, height })
+    Ok(AllocatedImage {
+        image,
+        memory,
+        view,
+        width,
+        height,
+    })
 }
 
 fn destroy_image(device: &ash::Device, img: AllocatedImage) {
@@ -841,7 +1023,13 @@ fn destroy_image(device: &ash::Device, img: AllocatedImage) {
     }
 }
 
-fn create_framebuffer(device: &ash::Device, rp: vk::RenderPass, view: vk::ImageView, w: u32, h: u32) -> Result<vk::Framebuffer, String> {
+fn create_framebuffer(
+    device: &ash::Device,
+    rp: vk::RenderPass,
+    view: vk::ImageView,
+    w: u32,
+    h: u32,
+) -> Result<vk::Framebuffer, String> {
     let atts = [view];
     unsafe {
         device.create_framebuffer(
@@ -897,12 +1085,21 @@ fn ensure_host_buffer(
         )
     }
     .map_err(|e| format!("vkAllocateMemory buffer: {e:?}"))?;
-    unsafe { device.bind_buffer_memory(buffer, memory, 0) }.map_err(|e| format!("vkBindBufferMemory: {e:?}"))?;
-    *slot = Some(AllocatedBuffer { buffer, memory, size });
+    unsafe { device.bind_buffer_memory(buffer, memory, 0) }
+        .map_err(|e| format!("vkBindBufferMemory: {e:?}"))?;
+    *slot = Some(AllocatedBuffer {
+        buffer,
+        memory,
+        size,
+    });
     Ok(())
 }
 
-fn upload_host_buffer<T: Copy>(device: &ash::Device, buf: &AllocatedBuffer, items: &[T]) -> Result<(), String> {
+fn upload_host_buffer<T: Copy>(
+    device: &ash::Device,
+    buf: &AllocatedBuffer,
+    items: &[T],
+) -> Result<(), String> {
     let bytes = std::mem::size_of_val(items) as vk::DeviceSize;
     let ptr = unsafe { device.map_memory(buf.memory, 0, bytes, vk::MemoryMapFlags::empty()) }
         .map_err(|e| format!("vkMapMemory: {e:?}"))? as *mut u8;
@@ -942,7 +1139,11 @@ fn record_image_upload(
             base_array_layer: 0,
             layer_count: 1,
         })
-        .image_extent(vk::Extent3D { width: w, height: h, depth: 1 })];
+        .image_extent(vk::Extent3D {
+            width: w,
+            height: h,
+            depth: 1,
+        })];
     let barrier2 = [vk::ImageMemoryBarrier::default()
         .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
         .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
@@ -966,7 +1167,13 @@ fn record_image_upload(
             &[],
             &barrier1,
         );
-        device.cmd_copy_buffer_to_image(cmd, src, dst, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &region);
+        device.cmd_copy_buffer_to_image(
+            cmd,
+            src,
+            dst,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            &region,
+        );
         device.cmd_pipeline_barrier(
             cmd,
             vk::PipelineStageFlags::TRANSFER,
@@ -994,7 +1201,10 @@ fn begin_rp(
         .framebuffer(fb)
         .render_area(vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
-            extent: vk::Extent2D { width: w, height: h },
+            extent: vk::Extent2D {
+                width: w,
+                height: h,
+            },
         })
         .clear_values(clear);
     let vp = [vk::Viewport {
@@ -1007,7 +1217,10 @@ fn begin_rp(
     }];
     let sc = [vk::Rect2D {
         offset: vk::Offset2D { x: 0, y: 0 },
-        extent: vk::Extent2D { width: w, height: h },
+        extent: vk::Extent2D {
+            width: w,
+            height: h,
+        },
     }];
     unsafe {
         device.cmd_begin_render_pass(cmd, &info, vk::SubpassContents::INLINE);
@@ -1016,7 +1229,12 @@ fn begin_rp(
     }
 }
 
-fn push_params(device: &ash::Device, cmd: vk::CommandBuffer, layout: vk::PipelineLayout, params: &DrawParams) {
+fn push_params(
+    device: &ash::Device,
+    cmd: vk::CommandBuffer,
+    layout: vk::PipelineLayout,
+    params: &DrawParams,
+) {
     let bytes = unsafe {
         std::slice::from_raw_parts(
             (params as *const DrawParams).cast::<u8>(),

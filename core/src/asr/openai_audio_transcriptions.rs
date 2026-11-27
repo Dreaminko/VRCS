@@ -224,7 +224,8 @@ async fn request_transcription(
         return Err("A transcription model is required".into());
     }
 
-    let wire_language = if profile.provider == providers::QWEN_LOCAL_PROVIDER || language == "auto" {
+    let wire_language = if profile.provider == providers::QWEN_LOCAL_PROVIDER || language == "auto"
+    {
         language
     } else {
         providers::openai_asr_wire_language(language)

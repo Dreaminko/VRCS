@@ -109,7 +109,7 @@ pub fn dashboard_placeholder(_message: &str) -> Result<Texture, String> {
     let width = DASHBOARD_WIDTH / 2;
     let height = DASHBOARD_HEIGHT / 2;
     let mut pixels = vec![0; width as usize * height as usize * 4];
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel.copy_from_slice(&[35, 39, 48, 255]);
     }
     Ok(Texture {

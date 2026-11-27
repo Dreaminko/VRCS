@@ -34,10 +34,7 @@ fn source_language_key(value: Option<&str>) -> Option<String> {
         _ => lower.as_str(),
     };
     let primary = mapped.split('-').next().unwrap_or(mapped);
-    if matches!(
-        primary,
-        "" | "auto" | "und" | "unknown" | "mul" | "zxx"
-    ) {
+    if matches!(primary, "" | "auto" | "und" | "unknown" | "mul" | "zxx") {
         None
     } else {
         Some(primary.to_owned())
@@ -143,7 +140,11 @@ pub fn visible_caption_messages<'a>(
             let mut text_lanes: BTreeMap<String, &WristMessage> = BTreeMap::new();
             let mut text_order = Vec::new();
             for msg in &filtered {
-                if msg.original.as_ref().is_some_and(|o| o.source == "vrchat_chatbox") {
+                if msg
+                    .original
+                    .as_ref()
+                    .is_some_and(|o| o.source == "vrchat_chatbox")
+                {
                     let key = lane_key(msg);
                     if !text_lanes.contains_key(&key) {
                         text_order.push(key.clone());
@@ -183,9 +184,7 @@ pub fn visible_caption_messages<'a>(
             }
         }
         let mut entries: Vec<_> = lanes.into_values().collect();
-        entries.sort_by(|(oa, a), (ob, b)| {
-            is_live(b).cmp(&is_live(a)).then_with(|| oa.cmp(ob))
-        });
+        entries.sort_by(|(oa, a), (ob, b)| is_live(b).cmp(&is_live(a)).then_with(|| oa.cmp(ob)));
         filtered = entries.into_iter().map(|(_, m)| m).collect();
     }
 
@@ -266,11 +265,7 @@ pub fn visible_tail(text: &str, mut fits: impl FnMut(&str) -> bool) -> String {
         }
     }
     let readable = format!("…{}", text[start..].trim_start());
-    if fits(&readable) {
-        readable
-    } else {
-        fitted
-    }
+    if fits(&readable) { readable } else { fitted }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -286,8 +281,7 @@ pub fn page_geometry(
     requested: usize,
     line_height: f32,
 ) -> PageGeometry {
-    if !height.is_finite() || !viewport.is_finite() || !line_height.is_finite() || viewport <= 0.0
-    {
+    if !height.is_finite() || !viewport.is_finite() || !line_height.is_finite() || viewport <= 0.0 {
         return PageGeometry {
             count: 1,
             page: 0,

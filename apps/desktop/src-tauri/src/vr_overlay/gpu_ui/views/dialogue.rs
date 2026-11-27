@@ -69,7 +69,10 @@ pub fn render_dialogue(
                 right: length(8.0),
                 bottom: auto(),
             },
-            size: Size { width: auto(), height: length(88.0) },
+            size: Size {
+                width: auto(),
+                height: length(88.0),
+            },
             flex_direction: FlexDirection::Row,
             align_items: Some(AlignItems::Center),
             gap: Size {
@@ -128,7 +131,10 @@ pub fn render_dialogue(
                 width: length(0.0),
                 height: length(68.0),
             },
-            size: Size { width: auto(), height: length(68.0) },
+            size: Size {
+                width: auto(),
+                height: length(68.0),
+            },
             flex_direction: FlexDirection::Row,
             align_items: Some(AlignItems::Center),
             justify_content: Some(JustifyContent::Center),
@@ -152,7 +158,11 @@ pub fn render_dialogue(
     if grip_hover {
         ui.set_tooltip(
             grip,
-            lbl(&controls.labels, "dragHint", "Point at the handle and hold grip to drag"),
+            lbl(
+                &controls.labels,
+                "dragHint",
+                "Point at the handle and hold grip to drag",
+            ),
             true,
         );
     }
@@ -286,7 +296,10 @@ pub fn render_dialogue(
             body,
             n,
             Style {
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 margin: Rect {
                     bottom: length(16.0),
                     left: length(0.0),
@@ -312,7 +325,10 @@ pub fn render_dialogue(
                 width: length(0.0),
                 height: length(0.0),
             },
-            size: Size { width: percent(1.0), height: auto() },
+            size: Size {
+                width: percent(1.0),
+                height: auto(),
+            },
             ..Default::default()
         },
         runtime.scroll_y,
@@ -326,7 +342,10 @@ pub fn render_dialogue(
             Style {
                 flex_direction: FlexDirection::Column,
                 justify_content: Some(JustifyContent::FlexEnd),
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 min_size: Size {
                     width: length(0.0),
                     height: percent(1.0),
@@ -353,7 +372,10 @@ pub fn render_dialogue(
                 content,
                 lbl(&controls.labels, "emptyDialogue", "No recent dialogue"),
                 Style {
-                    size: Size { width: percent(1.0), height: auto() },
+                    size: Size {
+                        width: percent(1.0),
+                        height: auto(),
+                    },
                     margin: Rect {
                         top: auto(),
                         bottom: auto(),
@@ -439,11 +461,10 @@ pub fn render_dialogue(
             let icon =
                 IconId::from_message_source(msg.original.as_ref().map(|o| o.source.as_str()));
             ui.add_icon(speaker_row, icon, font_px, 1.8, theme.primary_ink);
-            let speaker_name = msg.speaker.as_deref().unwrap_or(if right {
-                &labels.me
-            } else {
-                &labels.other
-            });
+            let speaker_name =
+                msg.speaker
+                    .as_deref()
+                    .unwrap_or(if right { &labels.me } else { &labels.other });
             ui.add_text(
                 speaker_row,
                 speaker_name,
@@ -461,7 +482,10 @@ pub fn render_dialogue(
                 bubble,
                 &msg.text,
                 Style {
-                    size: Size { width: percent(1.0), height: auto() },
+                    size: Size {
+                        width: percent(1.0),
+                        height: auto(),
+                    },
                     ..Default::default()
                 },
                 TextStyle {
@@ -480,7 +504,10 @@ pub fn render_dialogue(
             body,
             err,
             Style {
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 margin: Rect {
                     top: length(12.0),
                     left: length(0.0),

@@ -598,8 +598,15 @@ fn v47_recognition_language_and_presets_migrate_to_preferred_languages() {
     let migrated = config_from_value(&raw).unwrap();
     assert_eq!(migrated.schema_version, SCHEMA_VERSION);
     assert_eq!(migrated.asr.preferred_languages, vec!["zh"]);
-    assert!(migrated.language_presets[0].recognition_languages.is_empty());
-    assert_eq!(migrated.language_presets[1].recognition_languages, vec!["ja"]);
+    assert!(
+        migrated.language_presets[0]
+            .recognition_languages
+            .is_empty()
+    );
+    assert_eq!(
+        migrated.language_presets[1].recognition_languages,
+        vec!["ja"]
+    );
 }
 
 #[test]

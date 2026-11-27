@@ -58,12 +58,7 @@ impl Color {
     }
 
     pub fn premultiplied(self) -> [f32; 4] {
-        [
-            self.r * self.a,
-            self.g * self.a,
-            self.b * self.a,
-            self.a,
-        ]
+        [self.r * self.a, self.g * self.a, self.b * self.a, self.a]
     }
 }
 

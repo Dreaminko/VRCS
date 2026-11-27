@@ -190,7 +190,9 @@ impl<'a> UiBuilder<'a> {
     }
 
     pub fn set_root_style(&mut self, style: Style) {
-        self.tree.set_style(self.root, style).expect("set root style");
+        self.tree
+            .set_style(self.root, style)
+            .expect("set root style");
     }
 
     pub fn add_box(&mut self, parent: NodeId, style: Style, paint: BoxPaint) -> NodeId {
@@ -477,66 +479,62 @@ impl<'a> UiBuilder<'a> {
             height: AvailableSpace::Definite(self.height as f32),
         };
         self.tree
-            .compute_layout_with_measure(
-                root,
-                avail,
-                |known, available, _node_id, ctx, _style| {
-                    let Some(meta) = ctx else {
-                        return Size::ZERO;
-                    };
-                    let max_w = known.width.or(match available.width {
-                        AvailableSpace::Definite(w) => Some(w),
-                        AvailableSpace::MinContent => Some(1.0),
-                        AvailableSpace::MaxContent => None,
-                    });
-                    match &mut meta.content {
-                        NodeContent::Text {
-                            text: raw,
-                            style,
-                            shaped,
-                        } => {
-                            let measure_style = TextStyle {
-                                align: cosmic_text::Align::Left,
-                                ..*style
-                            };
-                            let s = text.shape_text_cached(raw, max_w, measure_style);
-                            let w = known.width.unwrap_or(s.width);
-                            let h = known.height.unwrap_or(s.height);
-                            *shaped = Some(s);
-                            Size {
-                                width: w,
-                                height: h,
-                            }
+            .compute_layout_with_measure(root, avail, |known, available, _node_id, ctx, _style| {
+                let Some(meta) = ctx else {
+                    return Size::ZERO;
+                };
+                let max_w = known.width.or(match available.width {
+                    AvailableSpace::Definite(w) => Some(w),
+                    AvailableSpace::MinContent => Some(1.0),
+                    AvailableSpace::MaxContent => None,
+                });
+                match &mut meta.content {
+                    NodeContent::Text {
+                        text: raw,
+                        style,
+                        shaped,
+                    } => {
+                        let measure_style = TextStyle {
+                            align: cosmic_text::Align::Left,
+                            ..*style
+                        };
+                        let s = text.shape_text_cached(raw, max_w, measure_style);
+                        let w = known.width.unwrap_or(s.width);
+                        let h = known.height.unwrap_or(s.height);
+                        *shaped = Some(s);
+                        Size {
+                            width: w,
+                            height: h,
                         }
-                        NodeContent::RichText {
-                            spans,
-                            base,
-                            shaped,
-                        } => {
-                            let borrowed: Vec<TextSpan<'_>> = spans
-                                .iter()
-                                .map(|(t, st)| TextSpan {
-                                    text: t.as_str(),
-                                    style: *st,
-                                })
-                                .collect();
-                            let measure_base = TextStyle {
-                                align: cosmic_text::Align::Left,
-                                ..*base
-                            };
-                            let s = text.shape_spans(&borrowed, max_w, measure_base);
-                            let w = known.width.unwrap_or(s.width);
-                            let h = known.height.unwrap_or(s.height);
-                            *shaped = Some(s);
-                            Size {
-                                width: w,
-                                height: h,
-                            }
-                        }
-                        _ => Size::ZERO,
                     }
-                },
-            )
+                    NodeContent::RichText {
+                        spans,
+                        base,
+                        shaped,
+                    } => {
+                        let borrowed: Vec<TextSpan<'_>> = spans
+                            .iter()
+                            .map(|(t, st)| TextSpan {
+                                text: t.as_str(),
+                                style: *st,
+                            })
+                            .collect();
+                        let measure_base = TextStyle {
+                            align: cosmic_text::Align::Left,
+                            ..*base
+                        };
+                        let s = text.shape_spans(&borrowed, max_w, measure_base);
+                        let w = known.width.unwrap_or(s.width);
+                        let h = known.height.unwrap_or(s.height);
+                        *shaped = Some(s);
+                        Size {
+                            width: w,
+                            height: h,
+                        }
+                    }
+                    _ => Size::ZERO,
+                }
+            })
             .expect("taffy compute layout");
     }
 
@@ -554,9 +552,7 @@ impl<'a> UiBuilder<'a> {
     pub fn set_scroll_y(&mut self, scroll_y: f32) {
         if let Some(vp) = self.viewport_node
             && let Some(meta) = self.tree.get_node_context_mut(vp)
-            && let NodeContent::ScrollViewport {
-                scroll_y: slot, ..
-            } = &mut meta.content
+            && let NodeContent::ScrollViewport { scroll_y: slot, .. } = &mut meta.content
         {
             *slot = scroll_y;
         }
@@ -588,14 +584,7 @@ impl<'a> UiBuilder<'a> {
                 text: self.text,
             };
             emit_node(
-                &self.tree,
-                self.root,
-                0.0,
-                0.0,
-                root_clip,
-                0.0,
-                1.0,
-                &mut ctx,
+                &self.tree, self.root, 0.0, 0.0, root_clip, 0.0, 1.0, &mut ctx,
             );
         }
 
@@ -621,11 +610,14 @@ impl<'a> UiBuilder<'a> {
                 align: cosmic_text::Align::Left,
                 ..Default::default()
             };
-            let measured = self.text.shape_text_cached(&label, Some(max_inner_w), tip_style);
+            let measured = self
+                .text
+                .shape_text_cached(&label, Some(max_inner_w), tip_style);
             let inner_w = measured.width.min(max_inner_w).max(1.0);
             let shaped = if measured.line_count > 1 {
                 tip_style.align = cosmic_text::Align::Center;
-                self.text.shape_text_cached(&label, Some(inner_w), tip_style)
+                self.text
+                    .shape_text_cached(&label, Some(inner_w), tip_style)
             } else {
                 measured
             };
@@ -652,7 +644,14 @@ impl<'a> UiBuilder<'a> {
                 root_clip,
                 0.0,
             ));
-            shaped.emit_colored(&mut draw, bx + pad_x, by + pad_y, self.theme.text, root_clip, 0.0);
+            shaped.emit_colored(
+                &mut draw,
+                bx + pad_x,
+                by + pad_y,
+                self.theme.text,
+                root_clip,
+                0.0,
+            );
         }
 
         let layout = SurfaceLayout {
@@ -772,8 +771,15 @@ fn emit_node(
     {
         let exp = meta.paint.shadow_expand;
         ctx.draw.instances.push(Instance::rect(
-            [draw_x - exp, draw_y - exp, draw_w + exp * 2.0, draw_h + exp * 2.0],
-            meta.paint.radii.map(|r| if r > 0.0 { r + exp } else { 0.0 }),
+            [
+                draw_x - exp,
+                draw_y - exp,
+                draw_w + exp * 2.0,
+                draw_h + exp * 2.0,
+            ],
+            meta.paint
+                .radii
+                .map(|r| if r > 0.0 { r + exp } else { 0.0 }),
             shadow.scale_alpha(alpha),
             0.0,
             Color::TRANSPARENT,
@@ -783,7 +789,11 @@ fn emit_node(
     }
 
     if (meta.paint.bg.is_some() || meta.paint.border_width > 0.0) && w > 0.0 && h > 0.0 {
-        let bg = meta.paint.bg.unwrap_or(Color::TRANSPARENT).scale_alpha(alpha);
+        let bg = meta
+            .paint
+            .bg
+            .unwrap_or(Color::TRANSPARENT)
+            .scale_alpha(alpha);
         let bc = meta.paint.border_color.scale_alpha(alpha);
         let mut inst = Instance::rect(
             [draw_x, draw_y, draw_w, draw_h],
@@ -960,34 +970,32 @@ fn emit_node(
         NodeContent::ScrollViewport { .. } => {}
     }
 
-    let (child_clip, child_clip_radius, scroll_y) = if let NodeContent::ScrollViewport {
-        scroll_y, ..
-    } = meta.content
-    {
-        (
-            [
-                clip_rect[0].max(x),
-                clip_rect[1].max(y),
-                clip_rect[2].min(x + w),
-                clip_rect[3].min(y + h),
-            ],
-            0.0,
-            scroll_y,
-        )
-    } else if meta.clip_children {
-        (
-            [
-                clip_rect[0].max(x),
-                clip_rect[1].max(y),
-                clip_rect[2].min(x + w),
-                clip_rect[3].min(y + h),
-            ],
-            meta.paint.radii[0],
-            0.0,
-        )
-    } else {
-        (clip_rect, clip_radius, 0.0)
-    };
+    let (child_clip, child_clip_radius, scroll_y) =
+        if let NodeContent::ScrollViewport { scroll_y, .. } = meta.content {
+            (
+                [
+                    clip_rect[0].max(x),
+                    clip_rect[1].max(y),
+                    clip_rect[2].min(x + w),
+                    clip_rect[3].min(y + h),
+                ],
+                0.0,
+                scroll_y,
+            )
+        } else if meta.clip_children {
+            (
+                [
+                    clip_rect[0].max(x),
+                    clip_rect[1].max(y),
+                    clip_rect[2].min(x + w),
+                    clip_rect[3].min(y + h),
+                ],
+                meta.paint.radii[0],
+                0.0,
+            )
+        } else {
+            (clip_rect, clip_radius, 0.0)
+        };
 
     if let Ok(children) = tree.children(node) {
         for child in children {

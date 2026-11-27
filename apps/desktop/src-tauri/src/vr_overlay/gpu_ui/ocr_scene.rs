@@ -294,7 +294,9 @@ pub fn layout_ocr_scene(
             && r <= WIDTH - 4.0
             && b <= height - 4.0
             && !occupied.iter().any(|other| {
-                other.id != Some(id) && bounds_overlap(box_, other.box_) && overlaps(quad, &other.quad)
+                other.id != Some(id)
+                    && bounds_overlap(box_, other.box_)
+                    && overlaps(quad, &other.quad)
             })
     };
 

@@ -453,7 +453,10 @@ pub fn render_dashboard(
             box_node,
             title,
             Style {
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 margin: Rect {
                     bottom: length(6.0),
                     left: length(0.0),
@@ -585,7 +588,12 @@ pub fn render_dashboard(
         single_line_style(28.0, 650, theme.text, Align::Left),
     );
     let (st_bg, st_bc, st_fg, st_dot) = if view.error.is_some() {
-        (theme.error_soft, theme.error_border, theme.error, theme.error)
+        (
+            theme.error_soft,
+            theme.error_border,
+            theme.error,
+            theme.error,
+        )
     } else if view.enabled {
         (
             theme.primary_softer,
@@ -663,7 +671,11 @@ pub fn render_dashboard(
         );
         ui.add_text(
             sb,
-            if saving { &labels.saving } else { &labels.saved },
+            if saving {
+                &labels.saving
+            } else {
+                &labels.saved
+            },
             Style::default(),
             single_line_style(15.0, 600, theme.primary_ink, Align::Left),
         );
@@ -1060,7 +1072,10 @@ pub fn render_dashboard(
         let card = ui.add_box(
             main,
             Style {
-                size: Size { width: length(620.0), height: auto() },
+                size: Size {
+                    width: length(620.0),
+                    height: auto(),
+                },
                 margin: Rect {
                     top: auto(),
                     bottom: auto(),
@@ -1112,7 +1127,10 @@ pub fn render_dashboard(
             card,
             title,
             Style {
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 ..Default::default()
             },
             text_style(22.0, 600, theme.text),
@@ -1121,7 +1139,10 @@ pub fn render_dashboard(
             card,
             &confirm.label,
             Style {
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 ..Default::default()
             },
             single_line_style(28.0, 700, theme.text, Align::Center),
@@ -1130,7 +1151,10 @@ pub fn render_dashboard(
             card,
             &labels.delete_hint,
             Style {
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 ..Default::default()
             },
             TextStyle {
@@ -1144,7 +1168,10 @@ pub fn render_dashboard(
         let actions = ui.add_box(
             card,
             Style {
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 flex_direction: FlexDirection::Row,
                 gap: Size {
                     width: length(18.0),
@@ -1445,7 +1472,10 @@ pub fn render_dashboard(
         let grid_style = if compact {
             Style {
                 flex_grow: 1.0,
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 max_size: Size {
                     width: length(if single_col { 620.0 } else { 920.0 }),
                     height: auto(),
@@ -2158,7 +2188,11 @@ pub fn render_dashboard(
                     );
                     ui.add_text(
                         chead,
-                        if wrist { &labels.wrist } else { &labels.headset },
+                        if wrist {
+                            &labels.wrist
+                        } else {
+                            &labels.headset
+                        },
                         Style {
                             flex_grow: 1.0,
                             min_size: Size {
@@ -2521,7 +2555,13 @@ pub fn render_dashboard(
                         .border(2.0, theme.border)
                         .radius(20.0),
                 );
-                ui.add_icon(wm_card, IconId::SlidersHorizontal, 24.0, 1.9, theme.primary_ink);
+                ui.add_icon(
+                    wm_card,
+                    IconId::SlidersHorizontal,
+                    24.0,
+                    1.9,
+                    theme.primary_ink,
+                );
                 ui.add_text(
                     wm_card,
                     if labels.wrist_menu.is_empty() {
@@ -2801,12 +2841,11 @@ pub fn render_dashboard(
                     ui.add_icon(btn, IconId::ChevronRight, 22.0, 1.9, fg);
                 }
 
-                let trans_off = view
-                    .language
-                    .mode
-                    .options
-                    .iter()
-                    .any(|o| o.value == "disabled" && (view.language.mode.value == o.label || view.language.mode.value == o.value));
+                let trans_off = view.language.mode.options.iter().any(|o| {
+                    o.value == "disabled"
+                        && (view.language.mode.value == o.label
+                            || view.language.mode.value == o.value)
+                });
                 if trans_off {
                     let b = ui.add_box(
                         main,
@@ -3241,7 +3280,10 @@ pub fn render_dashboard(
                         presets,
                         DashboardCommand::Picker(DashboardPicker::ApplyPreset),
                         Style {
-                            size: Size { width: auto(), height: length(52.0) },
+                            size: Size {
+                                width: auto(),
+                                height: length(52.0),
+                            },
                             flex_shrink: 0.0,
                             flex_direction: FlexDirection::Row,
                             align_items: Some(AlignItems::Center),
@@ -3273,7 +3315,10 @@ pub fn render_dashboard(
                     presets,
                     DashboardCommand::Action(DashboardAction::SaveLanguagePreset(String::new())),
                     Style {
-                        size: Size { width: auto(), height: length(52.0) },
+                        size: Size {
+                            width: auto(),
+                            height: length(52.0),
+                        },
                         flex_shrink: 0.0,
                         flex_direction: FlexDirection::Row,
                         align_items: Some(AlignItems::Center),
@@ -3308,7 +3353,10 @@ pub fn render_dashboard(
                         presets,
                         DashboardCommand::Picker(DashboardPicker::DeletePreset),
                         Style {
-                            size: Size { width: auto(), height: length(52.0) },
+                            size: Size {
+                                width: auto(),
+                                height: length(52.0),
+                            },
                             flex_shrink: 0.0,
                             flex_direction: FlexDirection::Row,
                             align_items: Some(AlignItems::Center),
@@ -3517,7 +3565,10 @@ pub fn render_dashboard(
                     hint,
                     &labels.osc_hint,
                     Style {
-                        size: Size { width: percent(1.0), height: auto() },
+                        size: Size {
+                            width: percent(1.0),
+                            height: auto(),
+                        },
                         ..Default::default()
                     },
                     text_style(18.0, 400, theme.text_secondary),

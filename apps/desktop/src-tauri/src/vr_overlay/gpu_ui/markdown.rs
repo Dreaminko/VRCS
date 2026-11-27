@@ -49,9 +49,8 @@ struct InlineState {
 }
 
 pub fn parse_markdown(source: &str) -> Vec<MdBlock> {
-    let options = Options::ENABLE_TABLES
-        | Options::ENABLE_TASKLISTS
-        | Options::ENABLE_STRIKETHROUGH;
+    let options =
+        Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS | Options::ENABLE_STRIKETHROUGH;
     let parser = Parser::new_ext(source, options);
 
     enum Frame {
@@ -100,7 +99,11 @@ pub fn parse_markdown(source: &str) -> Vec<MdBlock> {
 
     let push_block = |stack: &mut Vec<Frame>, block: MdBlock| match stack.last_mut() {
         Some(Frame::Root(blocks) | Frame::Blockquote(blocks)) => blocks.push(block),
-        Some(Frame::ListItem { blocks, inline: spans, .. }) => {
+        Some(Frame::ListItem {
+            blocks,
+            inline: spans,
+            ..
+        }) => {
             if !spans.is_empty() {
                 blocks.push(MdBlock::Paragraph(std::mem::take(spans)));
             }
@@ -310,14 +313,15 @@ pub fn parse_markdown(source: &str) -> Vec<MdBlock> {
             ),
             Event::Rule => push_block(&mut stack, MdBlock::Rule),
             Event::TaskListMarker(checked) => {
-                if let Some(Frame::ListItem {
-                    checked: slot, ..
-                }) = stack.last_mut()
-                {
+                if let Some(Frame::ListItem { checked: slot, .. }) = stack.last_mut() {
                     *slot = Some(checked);
                 }
             }
-            Event::Html(_) | Event::InlineHtml(_) | Event::FootnoteReference(_) | Event::InlineMath(_) | Event::DisplayMath(_) => {}
+            Event::Html(_)
+            | Event::InlineHtml(_)
+            | Event::FootnoteReference(_)
+            | Event::InlineMath(_)
+            | Event::DisplayMath(_) => {}
         }
     }
 

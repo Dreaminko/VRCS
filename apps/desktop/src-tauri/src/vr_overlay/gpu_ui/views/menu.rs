@@ -68,7 +68,10 @@ pub fn render_menu(
                 bottom: length(8.0),
                 top: auto(),
             },
-            size: Size { width: auto(), height: length(240.0) },
+            size: Size {
+                width: auto(),
+                height: length(240.0),
+            },
             flex_direction: FlexDirection::Row,
             align_items: Some(AlignItems::Center),
             justify_content: Some(JustifyContent::SpaceAround),
@@ -259,7 +262,10 @@ pub fn render_menu(
             paint,
         );
         if !disabled {
-            ui.set_region(btn, RegionPayload::Menu(id, true, Command::Control(actions[index])));
+            ui.set_region(
+                btn,
+                RegionPayload::Menu(id, true, Command::Control(actions[index])),
+            );
         }
         if hovered {
             let tip = match detail {
@@ -495,7 +501,11 @@ fn build_player_display_panel(
         single_line_style(32.0, 650, t.text, Align::Left),
     );
     let status_msg = view.error.as_deref().unwrap_or(if !view.available {
-        label(&view.labels, "unavailable", "Player settings are unavailable")
+        label(
+            &view.labels,
+            "unavailable",
+            "Player settings are unavailable",
+        )
     } else {
         ""
     });
@@ -551,7 +561,10 @@ fn build_player_display_panel(
     let tabs = ui.add_box(
         panel,
         Style {
-            size: Size { width: auto(), height: length(72.0) },
+            size: Size {
+                width: auto(),
+                height: length(72.0),
+            },
             flex_direction: FlexDirection::Row,
             gap: Size {
                 width: length(10.0),
@@ -682,7 +695,11 @@ fn build_player_display_panel(
             parent,
             Style {
                 flex_grow,
-                flex_basis: if flex_grow > 0.0 { length(0.0) } else { length(460.0) },
+                flex_basis: if flex_grow > 0.0 {
+                    length(0.0)
+                } else {
+                    length(460.0)
+                },
                 min_size: Size {
                     width: length(0.0),
                     height: auto(),
@@ -738,8 +755,16 @@ fn build_player_display_panel(
                     ..Default::default()
                 },
                 16.0,
-                Some(if active { t.primary_soft } else { Color::TRANSPARENT }),
-                Some(if active { t.primary_ink } else { Color::TRANSPARENT }),
+                Some(if active {
+                    t.primary_soft
+                } else {
+                    Color::TRANSPARENT
+                }),
+                Some(if active {
+                    t.primary_ink
+                } else {
+                    Color::TRANSPARENT
+                }),
             );
             let txt_color = if active { fg } else { t.text_secondary };
             ui.add_text(
@@ -758,88 +783,89 @@ fn build_player_display_panel(
         }
     };
 
-    let add_pagination = |ui: &mut UiBuilder<'_>, parent: NodeId, page: usize, count: usize, is_players: bool| {
-        let row = ui.add_box(
-            parent,
-            Style {
-                flex_direction: FlexDirection::Row,
-                align_items: Some(AlignItems::Center),
-                gap: Size {
-                    width: length(10.0),
-                    height: length(0.0),
+    let add_pagination =
+        |ui: &mut UiBuilder<'_>, parent: NodeId, page: usize, count: usize, is_players: bool| {
+            let row = ui.add_box(
+                parent,
+                Style {
+                    flex_direction: FlexDirection::Row,
+                    align_items: Some(AlignItems::Center),
+                    gap: Size {
+                        width: length(10.0),
+                        height: length(0.0),
+                    },
+                    margin: Rect {
+                        left: auto(),
+                        right: length(0.0),
+                        top: length(0.0),
+                        bottom: length(0.0),
+                    },
+                    ..Default::default()
                 },
-                margin: Rect {
-                    left: auto(),
-                    right: length(0.0),
-                    top: length(0.0),
-                    bottom: length(0.0),
+                BoxPaint::new(),
+            );
+            let mk_cmd = |p: usize| {
+                if is_players {
+                    Command::PlayerPage(p)
+                } else {
+                    Command::LanguagePage(p)
+                }
+            };
+            let (prev, pfg) = menu_btn(
+                ui,
+                row,
+                15,
+                mk_cmd(page.saturating_sub(1)),
+                false,
+                page == 0,
+                Style {
+                    size: Size {
+                        width: length(72.0),
+                        height: length(72.0),
+                    },
+                    align_items: Some(AlignItems::Center),
+                    justify_content: Some(JustifyContent::Center),
+                    ..Default::default()
                 },
-                ..Default::default()
-            },
-            BoxPaint::new(),
-        );
-        let mk_cmd = |p: usize| {
-            if is_players {
-                Command::PlayerPage(p)
-            } else {
-                Command::LanguagePage(p)
-            }
+                16.0,
+                None,
+                None,
+            );
+            ui.add_icon(prev, IconId::ChevronLeft, 32.0, 1.8, pfg);
+            ui.add_text(
+                row,
+                format!("{} / {}", page + 1, count),
+                Style {
+                    min_size: Size {
+                        width: length(80.0),
+                        height: auto(),
+                    },
+                    ..Default::default()
+                },
+                single_line_style(24.0, 400, t.text_secondary, Align::Center),
+            );
+            let (next, nfg) = menu_btn(
+                ui,
+                row,
+                16,
+                mk_cmd((page + 1).min(count.saturating_sub(1))),
+                false,
+                page + 1 >= count,
+                Style {
+                    size: Size {
+                        width: length(72.0),
+                        height: length(72.0),
+                    },
+                    align_items: Some(AlignItems::Center),
+                    justify_content: Some(JustifyContent::Center),
+                    ..Default::default()
+                },
+                16.0,
+                None,
+                None,
+            );
+            ui.add_icon(next, IconId::ChevronRight, 32.0, 1.8, nfg);
         };
-        let (prev, pfg) = menu_btn(
-            ui,
-            row,
-            15,
-            mk_cmd(page.saturating_sub(1)),
-            false,
-            page == 0,
-            Style {
-                size: Size {
-                    width: length(72.0),
-                    height: length(72.0),
-                },
-                align_items: Some(AlignItems::Center),
-                justify_content: Some(JustifyContent::Center),
-                ..Default::default()
-            },
-            16.0,
-            None,
-            None,
-        );
-        ui.add_icon(prev, IconId::ChevronLeft, 32.0, 1.8, pfg);
-        ui.add_text(
-            row,
-            format!("{} / {}", page + 1, count),
-            Style {
-                min_size: Size {
-                    width: length(80.0),
-                    height: auto(),
-                },
-                ..Default::default()
-            },
-            single_line_style(24.0, 400, t.text_secondary, Align::Center),
-        );
-        let (next, nfg) = menu_btn(
-            ui,
-            row,
-            16,
-            mk_cmd((page + 1).min(count.saturating_sub(1))),
-            false,
-            page + 1 >= count,
-            Style {
-                size: Size {
-                    width: length(72.0),
-                    height: length(72.0),
-                },
-                align_items: Some(AlignItems::Center),
-                justify_content: Some(JustifyContent::Center),
-                ..Default::default()
-            },
-            16.0,
-            None,
-            None,
-        );
-        ui.add_icon(next, IconId::ChevronRight, 32.0, 1.8, nfg);
-    };
 
     match menu_ui.page {
         Page::Players => {
@@ -852,8 +878,8 @@ fn build_player_display_panel(
             };
             let page_count = (active_list.len().div_ceil(PLAYERS_PER_PAGE)).max(1);
             let page = menu_ui.player_page.min(page_count - 1);
-            let slice = &active_list[page * PLAYERS_PER_PAGE
-                ..((page + 1) * PLAYERS_PER_PAGE).min(active_list.len())];
+            let slice = &active_list
+                [page * PLAYERS_PER_PAGE..((page + 1) * PLAYERS_PER_PAGE).min(active_list.len())];
 
             let toolbar = ui.add_box(
                 panel,
@@ -896,8 +922,20 @@ fn build_player_display_panel(
                     .radius(20.0),
             );
             for (id, grp, k, fb, cnt) in [
-                (12u8, Group::Current, "current", "Current world", current.len()),
-                (13u8, Group::History, "historySaved", "History", history.len()),
+                (
+                    12u8,
+                    Group::Current,
+                    "current",
+                    "Current world",
+                    current.len(),
+                ),
+                (
+                    13u8,
+                    Group::History,
+                    "historySaved",
+                    "History",
+                    history.len(),
+                ),
             ] {
                 let active = menu_ui.group == grp;
                 let (btn, fg) = menu_btn(
@@ -930,8 +968,16 @@ fn build_player_display_panel(
                         ..Default::default()
                     },
                     16.0,
-                    Some(if active { t.primary_soft } else { Color::TRANSPARENT }),
-                    Some(if active { t.primary_ink } else { Color::TRANSPARENT }),
+                    Some(if active {
+                        t.primary_soft
+                    } else {
+                        Color::TRANSPARENT
+                    }),
+                    Some(if active {
+                        t.primary_ink
+                    } else {
+                        Color::TRANSPARENT
+                    }),
                 );
                 let txt_c = if active { fg } else { t.text_secondary };
                 ui.add_text(
@@ -979,7 +1025,11 @@ fn build_player_display_panel(
                     single_line_style(
                         18.0,
                         600,
-                        if active { t.primary_ink } else { t.text_secondary },
+                        if active {
+                            t.primary_ink
+                        } else {
+                            t.text_secondary
+                        },
                         Align::Center,
                     ),
                 );
@@ -991,7 +1041,11 @@ fn build_player_display_panel(
                     panel,
                     Style {
                         display: Display::Grid,
-                        grid_template_columns: vec![minmax(length(0.0), fr(1.0_f32)), length(72.0), length(72.0)],
+                        grid_template_columns: vec![
+                            minmax(length(0.0), fr(1.0_f32)),
+                            length(72.0),
+                            length(72.0),
+                        ],
                         align_items: Some(AlignItems::Center),
                         gap: Size {
                             width: length(14.0),
@@ -1042,9 +1096,25 @@ fn build_player_display_panel(
             );
             if slice.is_empty() {
                 let empty_text = if menu_ui.group == Group::Current {
-                    label(&view.labels, "currentEmpty", label(&view.labels, "empty", "Waiting for tracks or loading history."))
+                    label(
+                        &view.labels,
+                        "currentEmpty",
+                        label(
+                            &view.labels,
+                            "empty",
+                            "Waiting for tracks or loading history.",
+                        ),
+                    )
                 } else {
-                    label(&view.labels, "historyEmpty", label(&view.labels, "empty", "Waiting for tracks or loading history."))
+                    label(
+                        &view.labels,
+                        "historyEmpty",
+                        label(
+                            &view.labels,
+                            "empty",
+                            "Waiting for tracks or loading history.",
+                        ),
+                    )
                 };
                 ui.add_text(
                     list,
@@ -1055,7 +1125,10 @@ fn build_player_display_panel(
                             end: span(PLAYERS_PER_PAGE as u16),
                         },
                         align_self: Some(AlignSelf::Center),
-                        size: Size { width: percent(1.0), height: auto() },
+                        size: Size {
+                            width: percent(1.0),
+                            height: auto(),
+                        },
                         ..Default::default()
                     },
                     text_style(24.0, 400, t.text_secondary),
@@ -1109,7 +1182,10 @@ fn build_player_display_panel(
                         info,
                         &player.name,
                         Style {
-                            size: Size { width: percent(1.0), height: auto() },
+                            size: Size {
+                                width: percent(1.0),
+                                height: auto(),
+                            },
                             ..Default::default()
                         },
                         TextStyle {
@@ -1122,7 +1198,12 @@ fn build_player_display_panel(
                         },
                     );
                     let detail = if player.user_id.is_none() {
-                        label(&view.labels, "userIdPending", "Waiting for player user ID before selection").to_owned()
+                        label(
+                            &view.labels,
+                            "userIdPending",
+                            "Waiting for player user ID before selection",
+                        )
+                        .to_owned()
                     } else if player.voice_locked {
                         format!(
                             "{} · {}",
@@ -1136,7 +1217,10 @@ fn build_player_display_panel(
                         info,
                         detail,
                         Style {
-                            size: Size { width: percent(1.0), height: auto() },
+                            size: Size {
+                                width: percent(1.0),
+                                height: auto(),
+                            },
                             margin: Rect {
                                 top: length(2.0),
                                 left: length(0.0),
@@ -1172,8 +1256,9 @@ fn build_player_display_panel(
                     .enumerate()
                     {
                         let btn_id = 33 + index as u8 * 3 + offset as u8;
-                        let btn_disabled =
-                            locked || player.user_id.is_none() || (src == "speaker" && player.voice_locked);
+                        let btn_disabled = locked
+                            || player.user_id.is_none()
+                            || (src == "speaker" && player.voice_locked);
                         let (btn, fg) = menu_btn(
                             ui,
                             row,
@@ -1212,7 +1297,10 @@ fn build_player_display_panel(
             let footer = ui.add_box(
                 panel,
                 Style {
-                    size: Size { width: auto(), height: length(72.0) },
+                    size: Size {
+                        width: auto(),
+                        height: length(72.0),
+                    },
                     flex_direction: FlexDirection::Row,
                     align_items: Some(AlignItems::Center),
                     justify_content: Some(JustifyContent::SpaceBetween),
@@ -1231,7 +1319,10 @@ fn build_player_display_panel(
                 } else {
                     label(&view.labels, "proximityOff", "Off").to_owned()
                 };
-                summary_parts.push(format!("{} {val}", label(&view.labels, "proximityRadius", "Recognition distance")));
+                summary_parts.push(format!(
+                    "{} {val}",
+                    label(&view.labels, "proximityRadius", "Recognition distance")
+                ));
             }
             if let Some(vp) = &view.view_priority {
                 let val = if vp.enabled {
@@ -1239,7 +1330,10 @@ fn build_player_display_panel(
                 } else {
                     label(&view.labels, "proximityOff", "Off").to_owned()
                 };
-                summary_parts.push(format!("{} {val}", label(&view.labels, "viewAngle", "Horizontal view")));
+                summary_parts.push(format!(
+                    "{} {val}",
+                    label(&view.labels, "viewAngle", "Horizontal view")
+                ));
             }
             if !summary_parts.is_empty() {
                 let (btn, _) = menu_btn(
@@ -1420,7 +1514,8 @@ fn build_player_display_panel(
                 ui.add_icon(banner, IconId::TriangleAlert, 24.0, 1.8, t.warning);
                 ui.add_text(
                     banner,
-                    label(&view.labels, 
+                    label(
+                        &view.labels,
                         "processingUnavailable",
                         "Distance filtering requires per-player audio or Chatbox capture; view priority requires per-player audio and a connected Core.",
                     ),
@@ -1455,11 +1550,9 @@ fn build_player_display_panel(
                     locked || !prox_avail,
                     locked || !prox_avail,
                     54,
-                    Command::Display(player_display::Action::SetProximityRadius(if prox.enabled {
-                        0.0
-                    } else {
-                        restore
-                    })),
+                    Command::Display(player_display::Action::SetProximityRadius(
+                        if prox.enabled { 0.0 } else { restore },
+                    )),
                     prox.enabled,
                     32,
                     PROXIMITY_SLIDER,
@@ -1483,7 +1576,8 @@ fn build_player_display_panel(
                     && vp.enabled
                     && !vp.local_view)
                     .then(|| {
-                        label(&view.labels, 
+                        label(
+                            &view.labels,
                             "viewWaiting",
                             "Waiting for view data; players currently run at normal priority.",
                         )
@@ -1552,7 +1646,10 @@ fn build_player_display_panel(
                             end: span(6),
                         },
                         align_self: Some(AlignSelf::Center),
-                        size: Size { width: percent(1.0), height: auto() },
+                        size: Size {
+                            width: percent(1.0),
+                            height: auto(),
+                        },
                         ..Default::default()
                     },
                     text_style(24.0, 400, t.text_secondary),
@@ -1629,7 +1726,10 @@ fn build_player_display_panel(
             let footer = ui.add_box(
                 panel,
                 Style {
-                    size: Size { width: auto(), height: length(72.0) },
+                    size: Size {
+                        width: auto(),
+                        height: length(72.0),
+                    },
                     flex_direction: FlexDirection::Row,
                     align_items: Some(AlignItems::Center),
                     justify_content: Some(JustifyContent::SpaceBetween),
@@ -1836,7 +1936,11 @@ fn build_rule_slider_card(
         single_line_style(
             25.0,
             600,
-            if card_disabled { t.text_secondary } else { t.text },
+            if card_disabled {
+                t.text_secondary
+            } else {
+                t.text
+            },
             Align::Left,
         ),
     );
@@ -2010,7 +2114,10 @@ fn build_rule_slider_card(
     let track = ui.add_box(
         slider_wrap,
         Style {
-            size: Size { width: percent(0.965), height: length(80.0) },
+            size: Size {
+                width: percent(0.965),
+                height: length(80.0),
+            },
             ..Default::default()
         },
         spaint,
@@ -2031,7 +2138,10 @@ fn build_rule_slider_card(
                 right: length(0.0),
                 bottom: auto(),
             },
-            size: Size { width: auto(), height: length(12.0) },
+            size: Size {
+                width: auto(),
+                height: length(12.0),
+            },
             ..Default::default()
         },
         BoxPaint::new().bg(t.border_strong).radius(6.0),

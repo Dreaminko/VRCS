@@ -53,12 +53,13 @@ pub fn render_reader(
                 "error" | "translation_failed" | "timed_out"
             ));
     let translation = if busy {
-        labels.text(if reader.status == "listening" {
-            "listeningHint"
-        } else {
-            "requestingHint"
-        })
-        .to_owned()
+        labels
+            .text(if reader.status == "listening" {
+                "listeningHint"
+            } else {
+                "requestingHint"
+            })
+            .to_owned()
     } else if vision_error {
         format!("{}\n\n{}", labels.text("retryHint"), reader.translation)
     } else {
@@ -227,7 +228,10 @@ pub fn render_reader(
             content,
             Style {
                 flex_direction: FlexDirection::Column,
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 gap: Size {
                     width: length(0.0),
                     height: length(20.0),
@@ -250,7 +254,10 @@ pub fn render_reader(
         let card = ui.add_box(
             content,
             Style {
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 flex_direction: FlexDirection::Column,
                 padding: Rect {
                     left: length(24.0),
@@ -283,7 +290,10 @@ pub fn render_reader(
             card,
             &reader.source,
             Style {
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 ..Default::default()
             },
             TextStyle {
@@ -300,7 +310,10 @@ pub fn render_reader(
         let card = ui.add_box(
             content,
             Style {
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 flex_direction: FlexDirection::Column,
                 padding: Rect {
                     left: length(24.0),
@@ -363,7 +376,10 @@ pub fn render_reader(
                 card,
                 &translation,
                 Style {
-                    size: Size { width: percent(1.0), height: auto() },
+                    size: Size {
+                        width: percent(1.0),
+                        height: auto(),
+                    },
                     ..Default::default()
                 },
                 TextStyle {
@@ -511,7 +527,10 @@ pub fn render_reader(
         reader.pinned,
         false,
         false,
-        Some((labels.text(if reader.pinned { "unpin" } else { "pin" }), false)),
+        Some((
+            labels.text(if reader.pinned { "unpin" } else { "pin" }),
+            false,
+        )),
         RegionPayload::Simple(6, true),
     );
     add_circle_button(
@@ -550,7 +569,12 @@ pub fn render_reader(
     ui.emit(SurfaceId::Reader, state.key, page_count)
 }
 
-fn spans_to_rich(spans: &[MdSpan], size: f32, line_h: f32, color: Color) -> Vec<(String, TextStyle)> {
+fn spans_to_rich(
+    spans: &[MdSpan],
+    size: f32,
+    line_h: f32,
+    color: Color,
+) -> Vec<(String, TextStyle)> {
     spans
         .iter()
         .map(|s| {
@@ -581,7 +605,10 @@ fn emit_markdown_blocks(
     let container = ui.add_box(
         parent,
         Style {
-            size: Size { width: percent(1.0), height: auto() },
+            size: Size {
+                width: percent(1.0),
+                height: auto(),
+            },
             flex_direction: FlexDirection::Column,
             gap: Size {
                 width: length(0.0),
@@ -613,7 +640,10 @@ fn emit_markdown_blocks(
                     container,
                     rich,
                     Style {
-                        size: Size { width: percent(1.0), height: auto() },
+                        size: Size {
+                            width: percent(1.0),
+                            height: auto(),
+                        },
                         ..Default::default()
                     },
                     base,
@@ -631,7 +661,10 @@ fn emit_markdown_blocks(
                     container,
                     rich,
                     Style {
-                        size: Size { width: percent(1.0), height: auto() },
+                        size: Size {
+                            width: percent(1.0),
+                            height: auto(),
+                        },
                         ..Default::default()
                     },
                     base,
@@ -641,7 +674,10 @@ fn emit_markdown_blocks(
                 let bq = ui.add_box(
                     container,
                     Style {
-                        size: Size { width: percent(1.0), height: auto() },
+                        size: Size {
+                            width: percent(1.0),
+                            height: auto(),
+                        },
                         flex_direction: FlexDirection::Row,
                         gap: Size {
                             width: length(font_px * 0.8),
@@ -654,7 +690,10 @@ fn emit_markdown_blocks(
                 ui.add_box(
                     bq,
                     Style {
-                        size: Size { width: length(3.0), height: auto() },
+                        size: Size {
+                            width: length(3.0),
+                            height: auto(),
+                        },
                         flex_shrink: 0.0,
                         ..Default::default()
                     },
@@ -679,7 +718,10 @@ fn emit_markdown_blocks(
                 let box_node = ui.add_box(
                     container,
                     Style {
-                        size: Size { width: percent(1.0), height: auto() },
+                        size: Size {
+                            width: percent(1.0),
+                            height: auto(),
+                        },
                         padding: Rect {
                             left: length(12.0),
                             right: length(12.0),
@@ -697,7 +739,10 @@ fn emit_markdown_blocks(
                     box_node,
                     code,
                     Style {
-                        size: Size { width: percent(1.0), height: auto() },
+                        size: Size {
+                            width: percent(1.0),
+                            height: auto(),
+                        },
                         ..Default::default()
                     },
                     TextStyle {
@@ -718,7 +763,10 @@ fn emit_markdown_blocks(
                 let list_box = ui.add_box(
                     container,
                     Style {
-                        size: Size { width: percent(1.0), height: auto() },
+                        size: Size {
+                            width: percent(1.0),
+                            height: auto(),
+                        },
                         flex_direction: FlexDirection::Column,
                         gap: Size {
                             width: length(0.0),
@@ -738,7 +786,10 @@ fn emit_markdown_blocks(
                     let row = ui.add_box(
                         list_box,
                         Style {
-                            size: Size { width: percent(1.0), height: auto() },
+                            size: Size {
+                                width: percent(1.0),
+                                height: auto(),
+                            },
                             flex_direction: FlexDirection::Row,
                             align_items: Some(AlignItems::FlexStart),
                             gap: Size {
@@ -795,7 +846,10 @@ fn emit_markdown_blocks(
                 ui.add_box(
                     container,
                     Style {
-                        size: Size { width: percent(1.0), height: length(1.0) },
+                        size: Size {
+                            width: percent(1.0),
+                            height: length(1.0),
+                        },
                         margin: Rect {
                             top: length(font_px * 0.4),
                             bottom: length(font_px * 0.4),
@@ -812,7 +866,10 @@ fn emit_markdown_blocks(
                 let cards = ui.add_box(
                     container,
                     Style {
-                        size: Size { width: percent(1.0), height: auto() },
+                        size: Size {
+                            width: percent(1.0),
+                            height: auto(),
+                        },
                         flex_direction: FlexDirection::Column,
                         gap: Size {
                             width: length(0.0),
@@ -832,19 +889,23 @@ fn emit_markdown_blocks(
                     let row_card = ui.add_box(
                         cards,
                         Style {
-                            size: Size { width: percent(1.0), height: auto() },
+                            size: Size {
+                                width: percent(1.0),
+                                height: auto(),
+                            },
                             flex_direction: FlexDirection::Column,
                             ..Default::default()
                         },
-                        BoxPaint::new()
-                            .border(1.0, theme.border)
-                            .radius(16.0),
+                        BoxPaint::new().border(1.0, theme.border).radius(16.0),
                     );
                     for (col_idx, cell_spans) in row_cells.iter().enumerate() {
                         let cell_box = ui.add_box(
                             row_card,
                             Style {
-                                size: Size { width: percent(1.0), height: auto() },
+                                size: Size {
+                                    width: percent(1.0),
+                                    height: auto(),
+                                },
                                 flex_direction: FlexDirection::Column,
                                 gap: Size {
                                     width: length(0.0),
@@ -874,7 +935,10 @@ fn emit_markdown_blocks(
                                 cell_box,
                                 lbl_text,
                                 Style {
-                                    size: Size { width: percent(1.0), height: auto() },
+                                    size: Size {
+                                        width: percent(1.0),
+                                        height: auto(),
+                                    },
                                     ..Default::default()
                                 },
                                 text_style(font_px * 0.85, 600, theme.text_secondary),
@@ -891,7 +955,10 @@ fn emit_markdown_blocks(
                             cell_box,
                             rich,
                             Style {
-                                size: Size { width: percent(1.0), height: auto() },
+                                size: Size {
+                                    width: percent(1.0),
+                                    height: auto(),
+                                },
                                 ..Default::default()
                             },
                             base,
@@ -1008,7 +1075,10 @@ pub fn build_player_audio_prompt(
         panel,
         &notice.scroll_hint,
         Style {
-            size: Size { width: percent(1.0), height: auto() },
+            size: Size {
+                width: percent(1.0),
+                height: auto(),
+            },
             ..Default::default()
         },
         text_style(22.0, 400, theme.text_secondary),
@@ -1037,7 +1107,10 @@ pub fn build_player_audio_prompt(
             content,
             Style {
                 flex_direction: FlexDirection::Column,
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 gap: Size {
                     width: length(0.0),
                     height: length(20.0),
@@ -1052,7 +1125,10 @@ pub fn build_player_audio_prompt(
         content,
         &notice.intro,
         Style {
-            size: Size { width: percent(1.0), height: auto() },
+            size: Size {
+                width: percent(1.0),
+                height: auto(),
+            },
             ..Default::default()
         },
         TextStyle {
@@ -1067,7 +1143,10 @@ pub fn build_player_audio_prompt(
             content,
             &section.title,
             Style {
-                size: Size { width: percent(1.0), height: auto() },
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
                 margin: Rect {
                     top: length(8.0),
                     left: length(0.0),
@@ -1083,7 +1162,10 @@ pub fn build_player_audio_prompt(
                 content,
                 p,
                 Style {
-                    size: Size { width: percent(1.0), height: auto() },
+                    size: Size {
+                        width: percent(1.0),
+                        height: auto(),
+                    },
                     ..Default::default()
                 },
                 TextStyle {
@@ -1118,7 +1200,10 @@ pub fn build_player_audio_prompt(
         footer,
         &notice.reading_status,
         Style {
-            size: Size { width: percent(1.0), height: auto() },
+            size: Size {
+                width: percent(1.0),
+                height: auto(),
+            },
             ..Default::default()
         },
         text_style(22.0, 400, theme.text_secondary),

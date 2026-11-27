@@ -443,7 +443,10 @@ impl D3d11Painter {
             ctx.OMSetBlendState(&self.blend_premul, None, 0xffff_ffff);
             ctx.RSSetState(&self.rasterizer);
             ctx.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            let samplers = [Some(self.linear_clamp.clone()), Some(self.border_zero.clone())];
+            let samplers = [
+                Some(self.linear_clamp.clone()),
+                Some(self.border_zero.clone()),
+            ];
             ctx.PSSetSamplers(0, Some(&samplers));
             let cbs = [Some(self.cb_params.clone())];
             ctx.VSSetConstantBuffers(0, Some(&cbs));
@@ -467,7 +470,13 @@ impl D3d11Painter {
                     ctx.IASetInputLayout(&self.mask_layout);
                     let stride = std::mem::size_of::<MaskVertex>() as u32;
                     let offset = 0u32;
-                    ctx.IASetVertexBuffers(0, 1, Some(&Some(vb.clone())), Some(&stride), Some(&offset));
+                    ctx.IASetVertexBuffers(
+                        0,
+                        1,
+                        Some(&Some(vb.clone())),
+                        Some(&stride),
+                        Some(&offset),
+                    );
                     ctx.VSSetShader(&self.mask_vs, None);
                     ctx.PSSetShader(&self.mask_ps, None);
                     ctx.Draw(draw.mask_vertices.len() as u32, 0);
@@ -678,8 +687,12 @@ impl D3d11Painter {
             ..Default::default()
         };
         let mut staging = None;
-        unsafe { self.shared.device.CreateTexture2D(&desc, None, Some(&mut staging)) }
-            .map_err(|e| format!("CreateTexture2D staging: 0x{:08x}", e.code().0))?;
+        unsafe {
+            self.shared
+                .device
+                .CreateTexture2D(&desc, None, Some(&mut staging))
+        }
+        .map_err(|e| format!("CreateTexture2D staging: 0x{:08x}", e.code().0))?;
         let staging = staging.ok_or("staging None")?;
         let region = windows::Win32::Graphics::Direct3D11::D3D11_BOX {
             left: l,
@@ -690,9 +703,16 @@ impl D3d11Painter {
             back: 1,
         };
         unsafe {
-            self.shared
-                .context
-                .CopySubresourceRegion(&staging, 0, 0, 0, 0, src_tex, 0, Some(&region));
+            self.shared.context.CopySubresourceRegion(
+                &staging,
+                0,
+                0,
+                0,
+                0,
+                src_tex,
+                0,
+                Some(&region),
+            );
             self.shared.context.Flush();
         }
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
@@ -710,7 +730,7 @@ impl D3d11Painter {
                     width as usize * 4,
                 )
             };
-            for px in row.chunks_exact(4) {
+            for px in row.as_chunks::<4>().0 {
                 rgba.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
             }
         }
@@ -752,7 +772,9 @@ fn compile_shader(entry: PCSTR, target: PCSTR) -> Result<ID3DBlob, String> {
 }
 
 fn blob_bytes(blob: &ID3DBlob) -> &[u8] {
-    unsafe { std::slice::from_raw_parts(blob.GetBufferPointer().cast::<u8>(), blob.GetBufferSize()) }
+    unsafe {
+        std::slice::from_raw_parts(blob.GetBufferPointer().cast::<u8>(), blob.GetBufferSize())
+    }
 }
 
 fn create_vs(device: &ID3D11Device, blob: &ID3DBlob) -> Result<ID3D11VertexShader, String> {
@@ -905,7 +927,11 @@ fn upload_dynamic<T: Copy>(
         .map_err(|e| format!("Map dynamic buffer: 0x{:08x}", e.code().0))?;
     let bytes = std::mem::size_of_val(items);
     unsafe {
-        std::ptr::copy_nonoverlapping(items.as_ptr().cast::<u8>(), mapped.pData.cast::<u8>(), bytes);
+        std::ptr::copy_nonoverlapping(
+            items.as_ptr().cast::<u8>(),
+            mapped.pData.cast::<u8>(),
+            bytes,
+        );
         ctx.Unmap(buf, 0);
     }
     Ok(())
