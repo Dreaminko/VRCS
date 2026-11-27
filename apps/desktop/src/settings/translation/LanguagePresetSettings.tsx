@@ -76,7 +76,7 @@ export function LanguagePresetSettings({
                 disabled={disabled}
                 onCommit={(name) => updatePreset(index, { name })}
               />
-              <span>{preset.recognition_language} · {preset.speaker_targets.map((target) => target.target_language).join(" / ")}</span>
+              <span>{(preset.recognition_languages.length ? preset.recognition_languages.join(" / ") : t("languages.auto"))} · {preset.speaker_targets.map((target) => target.target_language).join(" / ")}</span>
               <button type="button" aria-label={t("settings.translation.applyPreset")} disabled={disabled} onClick={() => applyPreset(preset)}><Play size={14} /></button>
               <button
                 type="button"

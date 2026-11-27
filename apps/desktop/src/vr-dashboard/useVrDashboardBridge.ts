@@ -6,7 +6,6 @@ import { playerAudioNotice } from "../capture/player-audio-notice";
 import type { VrOverlayStatus } from "../integrations/types";
 import type { Settings } from "../settings/types";
 import type { ApiProfileView } from "../providers/types";
-import { liveTranslationServiceName } from "../providers/recognition-services";
 import { localizedLanguageName } from "../translation/translation-languages";
 import { supportsTranslation } from "../providers/api-profile-purpose";
 import { applyModelDefaults, resolveModelSelection, translationModelSelection } from "../settings/model-selection";
@@ -358,7 +357,9 @@ export function useVrDashboardBridge(
       },
       language: {
         recognition: {
-          value: languageName(liveTranslationServiceName(settings.asr.backend) ? "auto" : settings.asr.language),
+          value: (choices.recognition.length === 0 || settings.asr.preferred_languages.length === 0)
+            ? languageName("auto")
+            : settings.asr.preferred_languages.map(languageName).join(" / "),
           options: choices.recognition.map((value) => ({ value, label: languageName(value) })),
         },
         mode: {

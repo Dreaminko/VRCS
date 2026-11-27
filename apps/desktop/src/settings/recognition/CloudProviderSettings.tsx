@@ -147,10 +147,12 @@ export function CloudProviderSettings({
           />
         )}
         <RecognitionLanguageSelect
-          value={Boolean(liveTranslationServiceName(service?.id)) ? "auto" : draft.asr.language}
-          disabled={disabled || Boolean(liveTranslationServiceName(service?.id))}
+          value={draft.asr.preferred_languages}
+          mode={service?.recognition_language_mode ?? (liveTranslationServiceName(service?.id) ? "auto_only" : "single")}
+          model={settings.model}
+          disabled={disabled}
           supportedLanguages={service?.recognition_languages}
-          onChange={(value) => onUpdateAsr("language", value)}
+          onChange={(value) => onUpdateAsr("preferred_languages", value)}
         />
         {Boolean(liveTranslationServiceName(service?.id)) && <div className="cloud-transport-hint" role="note"><strong>{liveTranslationServiceName(service?.id)}</strong><small>{t("settings.translation.liveTranslateHint")}</small><small>{t("settings.translation.liveTranslatePreview")}</small></div>}
       </div>
