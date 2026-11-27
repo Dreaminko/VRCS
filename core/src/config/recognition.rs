@@ -17,7 +17,9 @@ pub struct AsrConfig {
     #[serde(default = "default_asr_backend")]
     pub backend: String,
     #[serde(default)]
-    pub preferred_languages: Vec<String>,
+    pub speaker_languages: Vec<String>,
+    #[serde(default)]
+    pub microphone_languages: Vec<String>,
     #[serde(default)]
     pub managed_qwen: ManagedQwenConfig,
     #[serde(default)]
@@ -26,6 +28,9 @@ pub struct AsrConfig {
     pub active_profile_id: Option<String>,
     #[serde(default = "default_service_settings")]
     pub service_settings: BTreeMap<String, RecognitionServiceSettings>,
+    /// Resolved per audio source; never persisted.
+    #[serde(skip)]
+    pub preferred_languages: Vec<String>,
     /// Resolved per audio source; never persisted.
     #[serde(skip)]
     pub live_translation_target: Option<String>,
@@ -69,6 +74,30 @@ pub(super) fn default_language() -> String {
 }
 
 impl AsrConfig {
+    pub fn languages_for_source(&self, source: &str) -> &[String] {
+        if source == "microphone" {
+            &self.microphone_languages
+        } else {
+            &self.speaker_languages
+        }
+    }
+
+    pub fn for_source(&self, source: &str) -> Self {
+        let mut scoped = self.clone();
+        scoped.preferred_languages = self.languages_for_source(source).to_vec();
+        scoped
+    }
+
+    pub fn resolved_test_languages(&self) -> &[String] {
+        if !self.preferred_languages.is_empty() {
+            &self.preferred_languages
+        } else if !self.speaker_languages.is_empty() {
+            &self.speaker_languages
+        } else {
+            &self.microphone_languages
+        }
+    }
+
     pub fn primary_language(&self) -> Option<&str> {
         self.preferred_languages.first().map(String::as_str)
     }
@@ -188,11 +217,13 @@ impl Default for AsrConfig {
     fn default() -> Self {
         Self {
             backend: default_asr_backend(),
-            preferred_languages: Vec::new(),
+            speaker_languages: Vec::new(),
+            microphone_languages: Vec::new(),
             managed_qwen: ManagedQwenConfig::default(),
             api_profiles: Vec::new(),
             active_profile_id: None,
             service_settings: default_service_settings(),
+            preferred_languages: Vec::new(),
             live_translation_target: None,
             live_translation_phrases: BTreeMap::new(),
             single_speaker: false,

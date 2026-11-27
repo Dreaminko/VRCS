@@ -157,7 +157,7 @@ impl VisionService {
         let profile = vision_profile(&snapshot)?;
         let credential_revision = crate::credentials::revision();
         let api_key = credential(profile)?;
-        let question_asr = snapshot.asr.clone();
+        let question_asr = snapshot.asr.for_source("microphone");
         crate::asr::validate_question_backend(&question_asr)?;
         if question_asr.backend != crate::config::QWEN_MANAGED_BACKEND {
             crate::asr::validate_cloud_connection(&question_asr)?;

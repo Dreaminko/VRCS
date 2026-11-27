@@ -493,9 +493,11 @@ fn validate_recognition_options(asr: &AsrConfig) -> Result<(), String> {
     {
         return Err(format!("Unsupported recognition backend: {}", asr.backend));
     }
-    validate_asr_language_list(&asr.preferred_languages, "recognition language")?;
+    validate_asr_language_list(&asr.speaker_languages, "speaker recognition language")?;
+    validate_asr_language_list(&asr.microphone_languages, "microphone recognition language")?;
     if let Some((_, service)) = providers::recognition_service(&asr.backend) {
-        providers::validate_recognition_languages(service, &asr.preferred_languages)?;
+        providers::validate_recognition_languages(service, &asr.speaker_languages)?;
+        providers::validate_recognition_languages(service, &asr.microphone_languages)?;
     }
     if !asr.managed_qwen.package_id.is_empty()
         && !crate::asr::is_supported_qwen_package(&asr.managed_qwen.package_id)
@@ -1000,7 +1002,14 @@ fn validate_language_presets(
                 "Language preset names must be unique and contain 1 to 40 characters".into(),
             );
         }
-        validate_asr_language_list(&preset.recognition_languages, "preset recognition language")?;
+        validate_asr_language_list(
+            &preset.speaker_recognition_languages,
+            "preset speaker recognition language",
+        )?;
+        validate_asr_language_list(
+            &preset.microphone_recognition_languages,
+            "preset microphone recognition language",
+        )?;
         if !["disabled", "manual", "automatic"].contains(&preset.translation_mode.as_str()) {
             return Err(format!(
                 "Unsupported preset translation mode: {}",

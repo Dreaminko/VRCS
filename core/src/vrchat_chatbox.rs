@@ -489,7 +489,8 @@ mod tests {
                 .collect();
             *fixture.consumer.language_session.write().unwrap() = ActiveLanguageSession::Override {
                 snapshot: crate::language_session::LanguageRuntimeConfig {
-                    recognition_languages: vec!["en".into()],
+                    speaker_recognition_languages: vec!["en".into()],
+                    microphone_recognition_languages: vec!["en".into()],
                     translation,
                     osc_translation_strategy: "preferred_only".into(),
                 },

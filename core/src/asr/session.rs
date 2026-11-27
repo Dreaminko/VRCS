@@ -239,11 +239,19 @@ pub async fn test_cloud_service(
         .find(|profile| profile.id == profile_id)
         .ok_or_else(|| "API profile does not exist".to_string())?;
     let resolved = providers::resolve_profile_service(profile, service_id)?;
-    providers::validate_recognition_languages(resolved.service, &config.preferred_languages)?;
-    let language = config.primary_language().unwrap_or("auto");
+    for languages in [
+        &config.preferred_languages,
+        &config.speaker_languages,
+        &config.microphone_languages,
+    ] {
+        providers::validate_recognition_languages(resolved.service, languages)?;
+    }
+    let mut test_config = config.clone();
+    test_config.preferred_languages = config.resolved_test_languages().to_vec();
+    let language = test_config.primary_language().unwrap_or("auto");
     match resolved.service.recognition_transport {
         Some(RecognitionTransport::RealtimeStream) => {
-            streaming::test_streaming_connection(config, profile_id, Some(service_id)).await
+            streaming::test_streaming_connection(&test_config, profile_id, Some(service_id)).await
         }
         Some(RecognitionTransport::SegmentedUpload) => {
             if !matches!(
@@ -256,7 +264,7 @@ pub async fn test_cloud_service(
                 ));
             }
             let key = credential_async(profile).await?;
-            let settings = service_settings(config, service_id)?;
+            let settings = service_settings(&test_config, service_id)?;
             let samples = connection_test_audio();
             if resolved.service.adapter == ServiceAdapter::MimoTranscription {
                 return mimo::transcribe(
@@ -300,7 +308,13 @@ fn active_profile_service(
         .find(|profile| profile.id == active_id)
         .ok_or_else(|| "The active API profile does not exist".to_string())?;
     let resolved = providers::resolve_profile_service(profile, &config.backend)?;
-    providers::validate_recognition_languages(resolved.service, &config.preferred_languages)?;
+    for languages in [
+        &config.preferred_languages,
+        &config.speaker_languages,
+        &config.microphone_languages,
+    ] {
+        providers::validate_recognition_languages(resolved.service, languages)?;
+    }
     Ok((profile, *resolved.service))
 }
 
@@ -349,7 +363,7 @@ mod tests {
     async fn mimo_rejects_unsupported_languages_before_credentials_or_network_access() {
         let mut config = AsrConfig {
             backend: providers::SERVICE_MIMO_TRANSCRIPTION.into(),
-            preferred_languages: vec!["ja".into()],
+            speaker_languages: vec!["ja".into()],
             active_profile_id: Some("mimo".into()),
             ..AsrConfig::default()
         };

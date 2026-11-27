@@ -249,7 +249,8 @@ fn whisper_upgrade_is_backed_up_and_preserves_existing_model_files() {
     fs::write(&path, &original).unwrap();
     let config = load_config(&path).unwrap();
     assert_eq!(config.asr.backend, super::QWEN_MANAGED_BACKEND);
-    assert_eq!(config.asr.preferred_languages, vec!["ja"]);
+    assert_eq!(config.asr.speaker_languages, vec!["ja"]);
+    assert_eq!(config.asr.microphone_languages, vec!["ja"]);
     assert_eq!(config.asr.managed_qwen.device, "cpu");
     assert_eq!(
         fs::read(path.with_extension("v28.backup.json")).unwrap(),

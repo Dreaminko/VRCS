@@ -118,9 +118,11 @@ fn preferred_languages_from_legacy(language: &str) -> Vec<String> {
 }
 
 fn asr_from_legacy(legacy: LegacyAsrConfig) -> AsrConfig {
+    let languages = preferred_languages_from_legacy(&legacy.language);
     AsrConfig {
         backend: super::QWEN_MANAGED_BACKEND.into(),
-        preferred_languages: preferred_languages_from_legacy(&legacy.language),
+        speaker_languages: languages.clone(),
+        microphone_languages: languages,
         managed_qwen: ManagedQwenConfig {
             device: if legacy.device == "cpu" {
                 "cpu"
@@ -838,17 +840,51 @@ fn normalize_translation_default(value: &mut serde_json::Value) -> Result<(), St
     Ok(())
 }
 
+fn legacy_or_list_languages(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    list_key: &str,
+    legacy_key: &str,
+) -> Option<serde_json::Value> {
+    if let Some(list) = object.remove(list_key)
+        && list.is_array()
+    {
+        return Some(list);
+    }
+    object
+        .remove(legacy_key)
+        .and_then(|value| value.as_str().map(preferred_languages_from_legacy))
+        .map(|list| serde_json::json!(list))
+}
+
+fn fill_missing_language_pair(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    speaker_key: &str,
+    microphone_key: &str,
+    list_key: &str,
+    legacy_key: &str,
+) {
+    let Some(languages) = legacy_or_list_languages(object, list_key, legacy_key) else {
+        return;
+    };
+    if !object.contains_key(speaker_key) {
+        object.insert(speaker_key.into(), languages.clone());
+    }
+    if !object.contains_key(microphone_key) {
+        object.insert(microphone_key.into(), languages);
+    }
+}
+
 fn normalize_asr_preferred_languages(value: &mut serde_json::Value) {
     if let Some(asr) = value
         .get_mut("asr")
         .and_then(serde_json::Value::as_object_mut)
-        && !asr.contains_key("preferred_languages")
-        && let Some(language) = asr.remove("language")
-        && let Some(language) = language.as_str()
     {
-        asr.insert(
-            "preferred_languages".into(),
-            serde_json::json!(preferred_languages_from_legacy(language)),
+        fill_missing_language_pair(
+            asr,
+            "speaker_languages",
+            "microphone_languages",
+            "preferred_languages",
+            "language",
         );
     }
     if let Some(presets) = value
@@ -856,14 +892,13 @@ fn normalize_asr_preferred_languages(value: &mut serde_json::Value) {
         .and_then(serde_json::Value::as_array_mut)
     {
         for preset in presets {
-            if let Some(object) = preset.as_object_mut()
-                && !object.contains_key("recognition_languages")
-                && let Some(language) = object.remove("recognition_language")
-                && let Some(language) = language.as_str()
-            {
-                object.insert(
-                    "recognition_languages".into(),
-                    serde_json::json!(preferred_languages_from_legacy(language)),
+            if let Some(object) = preset.as_object_mut() {
+                fill_missing_language_pair(
+                    object,
+                    "speaker_recognition_languages",
+                    "microphone_recognition_languages",
+                    "recognition_languages",
+                    "recognition_language",
                 );
             }
         }
@@ -938,7 +973,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
-        26..=47 => serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?,
+        26..=48 => serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?,
         23..=25 => deserialize_v24(raw.clone())?,
         22 => migrate_v22(raw)?,
         21 => migrate_v21(raw)?,

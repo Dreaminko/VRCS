@@ -67,6 +67,7 @@ impl CaptureReloadPlan {
         Self {
             speaker: shared
                 || live_mode_changed
+                || current.asr.speaker_languages != candidate.asr.speaker_languages
                 || (live
                     && target(&current.translation.speaker_targets)
                         != target(&candidate.translation.speaker_targets))
@@ -77,6 +78,7 @@ impl CaptureReloadPlan {
                 || current_output != candidate_output,
             microphone: shared
                 || live_mode_changed
+                || current.asr.microphone_languages != candidate.asr.microphone_languages
                 || (live
                     && target(&current.translation.microphone_targets)
                         != target(&candidate.translation.microphone_targets))
@@ -155,9 +157,7 @@ fn glossary_used_by_capture(config: &AppConfig) -> bool {
 }
 
 fn asr_config_runtime_changed(current: &AsrConfig, candidate: &AsrConfig) -> bool {
-    if current.backend != candidate.backend
-        || current.preferred_languages != candidate.preferred_languages
-    {
+    if current.backend != candidate.backend {
         return true;
     }
 
@@ -408,7 +408,7 @@ fn asr_context_source(state: &CaptureContext) -> crate::asr::AsrContextSource {
 }
 
 fn effective_asr_config(config: &AppConfig, source: &str) -> AsrConfig {
-    let mut asr = config.asr.clone();
+    let mut asr = config.asr.for_source(source);
     if crate::providers::is_live_translation(&asr.backend) {
         let targets = if source == "microphone" {
             &config.translation.microphone_targets
@@ -1563,6 +1563,44 @@ mod tests {
         candidate.vrchat_context.include_world_name = false;
 
         assert!(CaptureReloadPlan::between(&current, &candidate).is_empty());
+    }
+
+    #[test]
+    fn speaker_and_microphone_recognition_languages_reload_and_resolve_independently() {
+        let mut current = AppConfig::default();
+        current.asr.speaker_languages = vec!["ja".into()];
+        current.asr.microphone_languages = vec!["zh".into()];
+
+        assert_eq!(
+            super::effective_asr_config(&current, "speaker").preferred_languages,
+            vec!["ja"]
+        );
+        assert_eq!(
+            super::effective_asr_config(&current, "microphone").preferred_languages,
+            vec!["zh"]
+        );
+
+        let mut speaker_changed = current.clone();
+        speaker_changed.asr.speaker_languages = vec!["en".into()];
+        assert_eq!(
+            CaptureReloadPlan::between(&current, &speaker_changed),
+            CaptureReloadPlan {
+                speaker: true,
+                microphone: false,
+                ..CaptureReloadPlan::default()
+            }
+        );
+
+        let mut mic_changed = current.clone();
+        mic_changed.asr.microphone_languages = vec!["ko".into()];
+        assert_eq!(
+            CaptureReloadPlan::between(&current, &mic_changed),
+            CaptureReloadPlan {
+                speaker: false,
+                microphone: true,
+                ..CaptureReloadPlan::default()
+            }
+        );
     }
 
     #[test]

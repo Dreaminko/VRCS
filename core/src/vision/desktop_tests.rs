@@ -215,7 +215,7 @@ async fn text_needs_no_asr_and_ignores_speech_display_and_other_mode_changes() {
     fixture.wait_started().await;
     {
         let mut config = fixture.handle.state.config.config.write().unwrap();
-        config.asr.preferred_languages = vec!["ja".into()];
+        config.asr.microphone_languages = vec!["ja".into()];
         config.asr.active_profile_id = Some("missing-speech-profile".into());
         config.asr.api_profiles.push(ApiProfile {
             id: "unrelated".into(),

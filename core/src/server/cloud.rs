@@ -1658,7 +1658,8 @@ mod tests {
         config.language_presets.push(crate::config::LanguagePreset {
             id: "meeting".into(),
             name: "Meeting".into(),
-            recognition_languages: Vec::new(),
+            speaker_recognition_languages: Vec::new(),
+            microphone_recognition_languages: Vec::new(),
             translation_mode: "manual".into(),
             speaker_targets: config.translation.microphone_targets.clone(),
             microphone_targets: Vec::new(),

@@ -358,7 +358,8 @@ fn removed_whisper_migrates_to_qwen_without_changing_storage_or_language() {
         let migrated = config_from_value(&raw).unwrap();
         assert_eq!(migrated.asr.backend, QWEN_MANAGED_BACKEND);
         assert_eq!(migrated.asr.active_profile_id, None);
-        assert_eq!(migrated.asr.preferred_languages, vec!["ja"]);
+        assert_eq!(migrated.asr.speaker_languages, vec!["ja"]);
+        assert_eq!(migrated.asr.microphone_languages, vec!["ja"]);
         assert_eq!(migrated.storage.model_directory, "custom/models");
         assert_eq!(
             migrated.asr.managed_qwen.device,
@@ -565,7 +566,8 @@ fn migrates_v1_layout() {
     assert_eq!(config.audio.microphone.mode, "device");
     assert_eq!(config.audio.microphone.device_id, Some(7));
     assert_eq!(config.asr.managed_qwen.package_id, "qwen3-asr-0.6b-q8_0");
-    assert_eq!(config.asr.preferred_languages, vec!["ja"]);
+    assert_eq!(config.asr.speaker_languages, vec!["ja"]);
+    assert_eq!(config.asr.microphone_languages, vec!["ja"]);
     assert_eq!(config.asr.managed_qwen.device, "auto");
 }
 
@@ -597,15 +599,51 @@ fn v47_recognition_language_and_presets_migrate_to_preferred_languages() {
     });
     let migrated = config_from_value(&raw).unwrap();
     assert_eq!(migrated.schema_version, SCHEMA_VERSION);
-    assert_eq!(migrated.asr.preferred_languages, vec!["zh"]);
+    assert_eq!(migrated.asr.speaker_languages, vec!["zh"]);
+    assert_eq!(migrated.asr.microphone_languages, vec!["zh"]);
     assert!(
         migrated.language_presets[0]
-            .recognition_languages
+            .speaker_recognition_languages
+            .is_empty()
+    );
+    assert!(
+        migrated.language_presets[0]
+            .microphone_recognition_languages
             .is_empty()
     );
     assert_eq!(
-        migrated.language_presets[1].recognition_languages,
+        migrated.language_presets[1].speaker_recognition_languages,
         vec!["ja"]
+    );
+    assert_eq!(
+        migrated.language_presets[1].microphone_recognition_languages,
+        vec!["ja"]
+    );
+
+    let v48_raw = serde_json::json!({
+        "schema_version": 48,
+        "asr": {"preferred_languages": ["zh", "ja"]},
+        "language_presets": [{
+            "id": "e7c4556a-dd7a-47d1-85f8-d4ce9bda3a98",
+            "name": "Bilingual",
+            "recognition_languages": ["en", "ko"],
+            "translation_mode": "disabled",
+            "speaker_targets": [{"target_language": "en"}],
+            "microphone_targets": [{"target_language": "ja"}],
+            "osc_translation_strategy": "preferred_only"
+        }]
+    });
+    let migrated_v48 = config_from_value(&v48_raw).unwrap();
+    assert_eq!(migrated_v48.schema_version, SCHEMA_VERSION);
+    assert_eq!(migrated_v48.asr.speaker_languages, vec!["zh", "ja"]);
+    assert_eq!(migrated_v48.asr.microphone_languages, vec!["zh", "ja"]);
+    assert_eq!(
+        migrated_v48.language_presets[0].speaker_recognition_languages,
+        vec!["en", "ko"]
+    );
+    assert_eq!(
+        migrated_v48.language_presets[0].microphone_recognition_languages,
+        vec!["en", "ko"]
     );
 }
 

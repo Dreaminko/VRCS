@@ -397,6 +397,7 @@ pub async fn test_streaming_connection(
         .await?
         .ok_or_else(|| format!("API key is not configured for {}", profile.name))?;
     let mut test_config = config.clone();
+    test_config.preferred_languages = config.resolved_test_languages().to_vec();
     test_config.backend = streaming_test_backend(config, profile_id, service_id)?;
     test_config.active_profile_id = Some(profile.id.clone());
     let provider = Provider::from_config(&test_config)?;

@@ -7,7 +7,7 @@ use super::{
     VrchatContextConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 48;
+pub const SCHEMA_VERSION: u32 = 49;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -242,8 +242,9 @@ mod tests {
                 "api_profiles",
                 "backend",
                 "managed_qwen",
-                "preferred_languages",
+                "microphone_languages",
                 "service_settings",
+                "speaker_languages",
             ],
         );
         assert_keys(&value["asr"]["managed_qwen"], ["device", "package_id"]);

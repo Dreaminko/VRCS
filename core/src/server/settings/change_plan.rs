@@ -366,7 +366,8 @@ mod tests {
         active_translation.speaker_targets[0].target_language = "pt-BR".into();
         let session = ActiveLanguageSession::Override {
             snapshot: LanguageRuntimeConfig {
-                recognition_languages: Vec::new(),
+                speaker_recognition_languages: Vec::new(),
+                microphone_recognition_languages: Vec::new(),
                 translation: active_translation,
                 osc_translation_strategy: "preferred_only".into(),
             },
