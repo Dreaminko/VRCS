@@ -16,8 +16,8 @@ pub const QWEN_MANAGED_BACKEND: &str = "qwen_local_managed";
 pub struct AsrConfig {
     #[serde(default = "default_asr_backend")]
     pub backend: String,
-    #[serde(default = "default_language")]
-    pub language: String,
+    #[serde(default)]
+    pub preferred_languages: Vec<String>,
     #[serde(default)]
     pub managed_qwen: ManagedQwenConfig,
     #[serde(default)]
@@ -66,6 +66,26 @@ fn default_asr_backend() -> String {
 
 pub(super) fn default_language() -> String {
     "auto".into()
+}
+
+impl AsrConfig {
+    pub fn primary_language(&self) -> Option<&str> {
+        self.preferred_languages.first().map(String::as_str)
+    }
+
+    pub fn single_fallback_language(&self) -> Option<&str> {
+        if self.backend == QWEN_MANAGED_BACKEND {
+            return self.primary_language();
+        }
+        let (_, service) = crate::providers::recognition_service(&self.backend)?;
+        match service.recognition_language_mode {
+            crate::providers::RecognitionLanguageSupport::AutoOnly => None,
+            crate::providers::RecognitionLanguageSupport::Single => self.primary_language(),
+            crate::providers::RecognitionLanguageSupport::PreferredList => {
+                (self.preferred_languages.len() == 1).then(|| self.preferred_languages[0].as_str())
+            }
+        }
+    }
 }
 
 pub(super) fn default_device() -> String {
@@ -168,7 +188,7 @@ impl Default for AsrConfig {
     fn default() -> Self {
         Self {
             backend: default_asr_backend(),
-            language: default_language(),
+            preferred_languages: Vec::new(),
             managed_qwen: ManagedQwenConfig::default(),
             api_profiles: Vec::new(),
             active_profile_id: None,

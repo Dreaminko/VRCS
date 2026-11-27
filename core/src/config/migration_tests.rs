@@ -358,7 +358,7 @@ fn removed_whisper_migrates_to_qwen_without_changing_storage_or_language() {
         let migrated = config_from_value(&raw).unwrap();
         assert_eq!(migrated.asr.backend, QWEN_MANAGED_BACKEND);
         assert_eq!(migrated.asr.active_profile_id, None);
-        assert_eq!(migrated.asr.language, "ja");
+        assert_eq!(migrated.asr.preferred_languages, vec!["ja"]);
         assert_eq!(migrated.storage.model_directory, "custom/models");
         assert_eq!(
             migrated.asr.managed_qwen.device,
@@ -565,8 +565,41 @@ fn migrates_v1_layout() {
     assert_eq!(config.audio.microphone.mode, "device");
     assert_eq!(config.audio.microphone.device_id, Some(7));
     assert_eq!(config.asr.managed_qwen.package_id, "qwen3-asr-0.6b-q8_0");
-    assert_eq!(config.asr.language, "ja");
+    assert_eq!(config.asr.preferred_languages, vec!["ja"]);
     assert_eq!(config.asr.managed_qwen.device, "auto");
+}
+
+#[test]
+fn v47_recognition_language_and_presets_migrate_to_preferred_languages() {
+    let raw = serde_json::json!({
+        "schema_version": 47,
+        "asr": {"language": "zh"},
+        "language_presets": [
+            {
+                "id": "c7c4556a-dd7a-47d1-85f8-d4ce9bda3a96",
+                "name": "Auto",
+                "recognition_language": "auto",
+                "translation_mode": "disabled",
+                "speaker_targets": [{"target_language": "en"}],
+                "microphone_targets": [{"target_language": "ja"}],
+                "osc_translation_strategy": "preferred_only"
+            },
+            {
+                "id": "d7c4556a-dd7a-47d1-85f8-d4ce9bda3a97",
+                "name": "Japanese",
+                "recognition_language": "ja",
+                "translation_mode": "disabled",
+                "speaker_targets": [{"target_language": "en"}],
+                "microphone_targets": [{"target_language": "ja"}],
+                "osc_translation_strategy": "preferred_only"
+            }
+        ]
+    });
+    let migrated = config_from_value(&raw).unwrap();
+    assert_eq!(migrated.schema_version, SCHEMA_VERSION);
+    assert_eq!(migrated.asr.preferred_languages, vec!["zh"]);
+    assert!(migrated.language_presets[0].recognition_languages.is_empty());
+    assert_eq!(migrated.language_presets[1].recognition_languages, vec!["ja"]);
 }
 
 #[test]

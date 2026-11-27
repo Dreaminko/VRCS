@@ -24,7 +24,11 @@ pub(super) fn build_request(key: &str) -> Result<Request<()>, String> {
 
 pub(super) fn setup(config: &AsrConfig) -> Result<Value, String> {
     let settings = service_settings(config, SERVICE_GEMINI_TRANSCRIBE)?;
-    let language_codes: Vec<&str> = language_code(&config.language).into_iter().collect();
+    let language_codes: Vec<&str> = config
+        .preferred_languages
+        .iter()
+        .map(|language| language_code(language))
+        .collect();
     let vocabulary = custom_vocabulary(&settings.context);
     let mut transcription = json!({ "languageCodes": language_codes });
     if !vocabulary.is_empty() {
@@ -119,18 +123,24 @@ pub(super) fn commit_message() -> Message {
     )
 }
 
-fn language_code(language: &str) -> Option<&str> {
-    Some(match language {
-        "auto" => return None,
+fn language_code(language: &str) -> &str {
+    match language {
         "en" => "en-US",
         "ja" => "ja-JP",
         "zh" => "cmn-Hans-CN",
+        "yue" => "yue-Hant-HK",
         "ko" => "ko-KR",
         "es" => "es-419",
         "fr" => "fr-FR",
         "de" => "de-DE",
+        "ru" => "ru-RU",
+        "pt" => "pt-BR",
+        "it" => "it-IT",
+        "th" => "th-TH",
+        "vi" => "vi-VN",
+        "id" => "id-ID",
         other => other,
-    })
+    }
 }
 
 fn custom_vocabulary(context: &str) -> Vec<&str> {
@@ -166,7 +176,7 @@ mod tests {
     #[test]
     fn setup_maps_language_and_context_to_transcription_config() {
         let mut config = AsrConfig {
-            language: "zh".into(),
+            preferred_languages: vec!["zh".into(), "yue".into(), "ja".into()],
             ..Default::default()
         };
         config
@@ -182,7 +192,7 @@ mod tests {
         );
         assert_eq!(
             message.pointer("/setup/inputAudioTranscription/languageCodes"),
-            Some(&json!(["cmn-Hans-CN"]))
+            Some(&json!(["cmn-Hans-CN", "yue-Hant-HK", "ja-JP"]))
         );
         assert_eq!(
             message.pointer("/setup/inputAudioTranscription/customVocabulary"),

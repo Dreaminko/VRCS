@@ -109,7 +109,7 @@ pub(crate) async fn recognize_live_question(
     validate_backend(&config)?;
     let mut config = config;
     if providers::is_live_translation(&config.backend) {
-        config.language = "auto".into();
+        config.preferred_languages.clear();
         config.live_translation_target = Some("en".into());
         config.live_translation_phrases.clear();
         config.single_speaker = true;

@@ -60,8 +60,8 @@ pub(super) fn build_token_plan_request(
 
 pub(super) fn session_update(config: &AsrConfig) -> Result<Value, String> {
     let settings = service_settings(config, SERVICE_QWEN_REALTIME)?;
-    let mut transcription = if config.language != "auto" {
-        json!({ "language": config.language })
+    let mut transcription = if let Some(language) = config.primary_language() {
+        json!({ "language": language })
     } else {
         json!({})
     };

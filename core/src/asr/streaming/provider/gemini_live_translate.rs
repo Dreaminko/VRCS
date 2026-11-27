@@ -69,7 +69,7 @@ pub(super) fn normalize_event(
     let language = input
         .and_then(|v| v.get("languageCode"))
         .and_then(Value::as_str)
-        .or_else(|| (config.language != "auto").then_some(config.language.as_str()))
+        .or_else(|| config.single_fallback_language())
         .or_else(|| {
             if state.source_only_input {
                 state

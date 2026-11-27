@@ -194,7 +194,7 @@ pub const MIMO_CHAT_MODELS: &[&str] = &[
     "mimo-v2.6-pro",
     "mimo-v2.6-pro-ultraspeed",
 ];
-pub const MIMO_ASR_LANGUAGES: &[&str] = &["auto", "zh", "en"];
+pub const MIMO_ASR_LANGUAGES: &[&str] = &["zh", "en"];
 const OPENROUTER_ASR_MODELS: &[&str] = &[
     "openai/whisper-large-v3-turbo",
     "openai/whisper-large-v3",
@@ -305,6 +305,14 @@ pub enum RecognitionTransport {
     SegmentedUpload,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecognitionLanguageSupport {
+    AutoOnly,
+    Single,
+    PreferredList,
+}
+
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct ProviderServiceDefinition {
     pub id: &'static str,
@@ -312,6 +320,7 @@ pub struct ProviderServiceDefinition {
     pub capabilities: &'static [&'static str],
     pub adapter: ServiceAdapter,
     pub recognition_transport: Option<RecognitionTransport>,
+    pub recognition_language_mode: RecognitionLanguageSupport,
     pub recognition_languages: &'static [&'static str],
     pub partial_results: bool,
     pub supports_streaming: bool,
@@ -326,6 +335,7 @@ pub struct ProviderServiceDefinition {
 #[derive(Debug, Clone, Copy)]
 struct RecognitionServiceSpec {
     transport: RecognitionTransport,
+    language_mode: RecognitionLanguageSupport,
     partial_results: bool,
     models: &'static [&'static str],
     context_max_chars: Option<usize>,
@@ -376,6 +386,7 @@ const ALIBABA_SERVICES: &[ProviderServiceDefinition] = &[
         ServiceAdapter::QwenRealtime,
         RecognitionServiceSpec {
             transport: RecognitionTransport::RealtimeStream,
+            language_mode: RecognitionLanguageSupport::Single,
             partial_results: true,
             models: QWEN_MODELS,
             context_max_chars: Some(2_000),
@@ -388,6 +399,7 @@ const ALIBABA_SERVICES: &[ProviderServiceDefinition] = &[
         ServiceAdapter::QwenLiveTranslate,
         RecognitionServiceSpec {
             transport: RecognitionTransport::RealtimeStream,
+            language_mode: RecognitionLanguageSupport::AutoOnly,
             partial_results: true,
             models: &["qwen3.8-livetranslate-flash-realtime"],
             context_max_chars: None,
@@ -400,6 +412,7 @@ const ALIBABA_SERVICES: &[ProviderServiceDefinition] = &[
         ServiceAdapter::FunAsrRealtime,
         RecognitionServiceSpec {
             transport: RecognitionTransport::RealtimeStream,
+            language_mode: RecognitionLanguageSupport::PreferredList,
             partial_results: true,
             models: FUN_ASR_MODELS,
             context_max_chars: Some(400),
@@ -447,6 +460,7 @@ const ALIBABA_TOKEN_PLAN_SERVICES: &[ProviderServiceDefinition] = &[
         ServiceAdapter::AlibabaTokenPlanRealtime,
         RecognitionServiceSpec {
             transport: RecognitionTransport::RealtimeStream,
+            language_mode: RecognitionLanguageSupport::AutoOnly,
             partial_results: true,
             models: TOKEN_PLAN_REALTIME_MODELS,
             context_max_chars: None,
@@ -468,6 +482,7 @@ const OPENAI_SERVICES: &[ProviderServiceDefinition] = &[
         ServiceAdapter::OpenAiRealtime,
         RecognitionServiceSpec {
             transport: RecognitionTransport::RealtimeStream,
+            language_mode: RecognitionLanguageSupport::Single,
             partial_results: true,
             models: OPENAI_ASR_MODELS,
             context_max_chars: None,
@@ -480,6 +495,7 @@ const OPENAI_SERVICES: &[ProviderServiceDefinition] = &[
         ServiceAdapter::OpenAiRealtimeTranslate,
         RecognitionServiceSpec {
             transport: RecognitionTransport::RealtimeStream,
+            language_mode: RecognitionLanguageSupport::AutoOnly,
             partial_results: true,
             models: &["gpt-realtime-translate"],
             context_max_chars: None,
@@ -501,6 +517,7 @@ const GEMINI_SERVICES: &[ProviderServiceDefinition] = &[
         ServiceAdapter::GeminiTranscribe,
         RecognitionServiceSpec {
             transport: RecognitionTransport::RealtimeStream,
+            language_mode: RecognitionLanguageSupport::PreferredList,
             partial_results: true,
             models: GEMINI_ASR_MODELS,
             context_max_chars: Some(4_000),
@@ -513,6 +530,7 @@ const GEMINI_SERVICES: &[ProviderServiceDefinition] = &[
         ServiceAdapter::GeminiLiveTranslate,
         RecognitionServiceSpec {
             transport: RecognitionTransport::RealtimeStream,
+            language_mode: RecognitionLanguageSupport::AutoOnly,
             partial_results: true,
             models: &["gemini-3.5-live-translate-preview"],
             context_max_chars: None,
@@ -557,6 +575,7 @@ const GROQ_SERVICES: &[ProviderServiceDefinition] = &[
         ServiceAdapter::OpenAiAudioTranscriptions,
         RecognitionServiceSpec {
             transport: RecognitionTransport::SegmentedUpload,
+            language_mode: RecognitionLanguageSupport::Single,
             partial_results: false,
             models: GROQ_ASR_MODELS,
             context_max_chars: Some(400),
@@ -582,6 +601,7 @@ const OPENROUTER_SERVICES: &[ProviderServiceDefinition] = &[
             ServiceAdapter::OpenAiAudioTranscriptions,
             RecognitionServiceSpec {
                 transport: RecognitionTransport::SegmentedUpload,
+                language_mode: RecognitionLanguageSupport::Single,
                 partial_results: false,
                 models: OPENROUTER_ASR_MODELS,
                 context_max_chars: None,
@@ -618,6 +638,7 @@ const MIMO_SERVICES: &[ProviderServiceDefinition] = &[
             ServiceAdapter::MimoTranscription,
             RecognitionServiceSpec {
                 transport: RecognitionTransport::SegmentedUpload,
+                language_mode: RecognitionLanguageSupport::Single,
                 partial_results: false,
                 models: &["mimo-v2.5-asr"],
                 context_max_chars: None,
@@ -651,6 +672,7 @@ const QWEN_LOCAL_SERVICES: &[ProviderServiceDefinition] = &[recognition_service_
     ServiceAdapter::OpenAiAudioTranscriptions,
     RecognitionServiceSpec {
         transport: RecognitionTransport::SegmentedUpload,
+        language_mode: RecognitionLanguageSupport::Single,
         partial_results: false,
         models: QWEN_LOCAL_ASR_MODELS,
         context_max_chars: None,
@@ -681,6 +703,7 @@ const fn text_service(
         capabilities: TEXT_CAPABILITIES,
         adapter,
         recognition_transport: None,
+        recognition_language_mode: RecognitionLanguageSupport::AutoOnly,
         recognition_languages: &[],
         partial_results: false,
         supports_streaming: true,
@@ -704,6 +727,7 @@ const fn translation_service(
         capabilities: TRANSLATION_CAPABILITY,
         adapter,
         recognition_transport: None,
+        recognition_language_mode: RecognitionLanguageSupport::AutoOnly,
         recognition_languages: &[],
         partial_results: false,
         supports_streaming: false,
@@ -728,6 +752,7 @@ const fn recognition_service_definition(
         capabilities: SPEECH_CAPABILITY,
         adapter,
         recognition_transport: Some(spec.transport),
+        recognition_language_mode: spec.language_mode,
         recognition_languages: &[],
         partial_results: spec.partial_results,
         supports_streaming: matches!(spec.transport, RecognitionTransport::RealtimeStream),
@@ -1180,19 +1205,31 @@ pub fn recognition_model_supported(_service: &ProviderServiceDefinition, model: 
     model == trimmed && !model.is_empty() && model.chars().count() <= 200
 }
 
-pub fn validate_recognition_language(
+pub fn validate_recognition_languages(
     service: &ProviderServiceDefinition,
-    language: &str,
+    languages: &[String],
 ) -> Result<(), String> {
-    if service.recognition_languages.is_empty() || service.recognition_languages.contains(&language)
-    {
+    if service.recognition_languages.is_empty() {
+        return Ok(());
+    }
+    let Some(primary) = languages.first().map(String::as_str) else {
+        return Ok(());
+    };
+    if service.recognition_languages.contains(&primary) {
         Ok(())
     } else {
         Err(format!(
-            "Unsupported recognition language for {}: {language}. Use {}.",
+            "Unsupported recognition language for {}: {primary}. Use {}.",
             service.id,
             service.recognition_languages.join(", ")
         ))
+    }
+}
+
+pub fn openai_asr_wire_language(language: &str) -> &str {
+    match language {
+        "yue" => "zh",
+        other => other,
     }
 }
 
@@ -1651,7 +1688,7 @@ mod tests {
             Some(RecognitionTransport::SegmentedUpload)
         );
         assert_eq!(asr.service.models, &["mimo-v2.5-asr"]);
-        assert_eq!(asr.service.recognition_languages, &["auto", "zh", "en"]);
+        assert_eq!(asr.service.recognition_languages, &["zh", "en"]);
         assert!(!asr.service.partial_results);
         assert!(!asr.service.supports_context);
         assert_eq!(

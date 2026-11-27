@@ -3182,7 +3182,7 @@ mod tests {
             backend: "qwen_realtime".into(),
             ..AsrConfig::default()
         };
-        qwen.language = "auto".into();
+        qwen.preferred_languages.clear();
         qwen.service_settings
             .get_mut(SERVICE_QWEN_REALTIME)
             .unwrap()
@@ -3225,7 +3225,7 @@ mod tests {
     fn fixed_language_is_forwarded_to_cloud_providers() {
         let qwen = AsrConfig {
             backend: "qwen_realtime".into(),
-            language: "ja".into(),
+            preferred_languages: vec!["ja".into(), "zh".into()],
             ..AsrConfig::default()
         };
         assert_eq!(
@@ -3235,22 +3235,22 @@ mod tests {
 
         let openai = AsrConfig {
             backend: "openai_realtime".into(),
-            language: "ja".into(),
+            preferred_languages: vec!["yue".into(), "en".into()],
             ..AsrConfig::default()
         };
         assert_eq!(
             session_update(&openai, 0.4)["session"]["audio"]["input"]["transcription"]["language"],
-            "ja"
+            "zh"
         );
 
         let fun_asr = AsrConfig {
             backend: "fun_asr_realtime".into(),
-            language: "ja".into(),
+            preferred_languages: vec!["ja".into(), "zh".into()],
             ..AsrConfig::default()
         };
         assert_eq!(
-            fun_run_task(&fun_asr, 0.4, "task-id")["payload"]["parameters"]["language_hints"][0],
-            "ja"
+            fun_run_task(&fun_asr, 0.4, "task-id")["payload"]["parameters"]["language_hints"],
+            serde_json::json!(["ja", "zh"])
         );
     }
 
@@ -3388,7 +3388,7 @@ mod tests {
     fn fun_asr_run_task_contains_streaming_audio_and_context_options() {
         let mut config = AsrConfig {
             backend: "fun_asr_realtime".into(),
-            language: "zh".into(),
+            preferred_languages: vec!["zh".into()],
             ..AsrConfig::default()
         };
         let settings = config
@@ -3431,5 +3431,13 @@ mod tests {
             matches!(failure, Some(CloudEvent::Failed { code, detail, .. }) if code == "InvalidParameter" && detail == "bad request")
         );
         assert_eq!(pcm16_bytes(&[0.0; 1600]).len(), 3200);
+
+        let multi = AsrConfig {
+            backend: "fun_asr_realtime".into(),
+            preferred_languages: vec!["zh".into(), "ja".into()],
+            ..AsrConfig::default()
+        };
+        let multi_final = normalize(&multi, r#"{"header":{"event":"result-generated"},"payload":{"output":{"sentence":{"sentence_id":2,"text":"こんにちは","sentence_end":true}}}}"#, &mut state).unwrap();
+        assert!(matches!(multi_final, Some(CloudEvent::Final { language: None, .. })));
     }
 }
