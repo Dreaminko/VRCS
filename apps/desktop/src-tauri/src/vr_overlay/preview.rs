@@ -1641,6 +1641,38 @@ fn apply_dashboard(view: &mut DashboardViewModel, action: DashboardAction) {
             TargetGroup::Microphone => &mut view.language.microphone_targets,
         }
     }
+    fn recognition(
+        group: TargetGroup,
+        view: &mut DashboardViewModel,
+    ) -> &mut super::dashboard::DashboardRecognitionChoice {
+        match group {
+            TargetGroup::Speaker => &mut view.language.speaker_recognition,
+            TargetGroup::Microphone => &mut view.language.microphone_recognition,
+        }
+    }
+    fn sync_recognition(
+        choice: &mut super::dashboard::DashboardRecognitionChoice,
+        auto_label: &str,
+    ) {
+        for (idx, item) in choice.selected.iter_mut().enumerate() {
+            item.can_prioritize = idx > 0 && choice.options.iter().any(|o| o.value == item.value);
+        }
+        choice.summary = if choice.selected.is_empty() {
+            auto_label.to_owned()
+        } else {
+            choice
+                .selected
+                .iter()
+                .map(|item| item.label.as_str())
+                .collect::<Vec<_>>()
+                .join(" / ")
+        };
+    }
+    let auto_label = if view.labels.recognition_auto.is_empty() {
+        "Auto".to_owned()
+    } else {
+        view.labels.recognition_auto.clone()
+    };
     match action {
         ToggleMaster => view.enabled = !view.enabled,
         ToggleWristFollowView => view.wrist.follow_view = !view.wrist.follow_view,
@@ -1650,10 +1682,50 @@ fn apply_dashboard(view: &mut DashboardViewModel, action: DashboardAction) {
         ToggleOcrGesture => view.ocr.gesture = !view.ocr.gesture,
         ToggleOscOriginal => view.osc.original = !view.osc.original,
         ToggleOscMuteSync => view.osc.mute_sync = !view.osc.mute_sync,
+        ToggleUnitext => view.unitext.enabled = !view.unitext.enabled,
+        ToggleUnitextIncludeMicrophone => {
+            view.unitext.include_microphone = !view.unitext.include_microphone;
+        }
+        ToggleUnitextMuteSync => view.unitext.mute_sync = !view.unitext.mute_sync,
+        ToggleUnitextIncludeSpeaker => {
+            view.unitext.include_speaker = !view.unitext.include_speaker;
+        }
+        ToggleUnitextPreserveOriginal => {
+            view.unitext.preserve_original = !view.unitext.preserve_original;
+        }
         SetDisplayContent(value) => view.content.value = value,
         SetWristHand(value) => view.wrist.hand.value = value,
         SetOscStrategy(value) => view.osc.strategy.value = value,
-        SetRecognitionLanguage(value) => view.language.recognition.value = value,
+        ToggleRecognitionLanguage { group, value } => {
+            let choice = recognition(group, view);
+            if let Some(pos) = choice.selected.iter().position(|item| item.value == value) {
+                choice.selected.remove(pos);
+            } else if choice.selected.len() < choice.max_selected
+                && let Some(opt) = choice.options.iter().find(|opt| opt.value == value)
+            {
+                choice
+                    .selected
+                    .push(super::dashboard::DashboardRecognitionOption {
+                        value: opt.value.clone(),
+                        label: opt.label.clone(),
+                        can_prioritize: !choice.selected.is_empty(),
+                    });
+            }
+            sync_recognition(choice, &auto_label);
+        }
+        PrioritizeRecognitionLanguage { group, index } => {
+            let choice = recognition(group, view);
+            if index > 0 && index < choice.selected.len() {
+                let picked = choice.selected.remove(index);
+                choice.selected.insert(0, picked);
+                sync_recognition(choice, &auto_label);
+            }
+        }
+        ClearRecognitionLanguages(group) => {
+            let choice = recognition(group, view);
+            choice.selected.clear();
+            sync_recognition(choice, &auto_label);
+        }
         SetTranslationMode(value) => view.language.mode.value = value,
         SetTargetLanguage {
             group,

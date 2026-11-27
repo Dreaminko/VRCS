@@ -5,7 +5,8 @@ import { playerAudioNotice } from "../capture/player-audio-notice";
 
 import type { VrOverlayStatus } from "../integrations/types";
 import type { Settings } from "../settings/types";
-import type { ApiProfileView } from "../providers/types";
+import type { ApiProfileView, ProviderDefinition } from "../providers/types";
+import { MAX_ASR_PREFERRED_LANGUAGES } from "../providers/recognition-services";
 import { localizedLanguageName } from "../translation/translation-languages";
 import { supportsTranslation } from "../providers/api-profile-purpose";
 import { applyModelDefaults, resolveModelSelection, translationModelSelection } from "../settings/model-selection";
@@ -28,7 +29,12 @@ import {
   type VrDashboardViewModel,
 } from "../integrations/vr-overlay-native";
 import { subscribeDashboardControlResults } from "../vr-controls/useVrControlBridge";
-import { applyVrDashboardAction, dashboardLanguageChoices, type VrDashboardAction } from "./settings-actions";
+import {
+  applyVrDashboardAction,
+  dashboardLanguageChoices,
+  hasUniTextPortConflict,
+  type VrDashboardAction,
+} from "./settings-actions";
 
 type SaveState = VrDashboardViewModel["save_state"];
 
@@ -47,6 +53,7 @@ export function useVrDashboardBridge(
   },
   display: { hiddenTracks: readonly string[]; hiddenSourceLanguages: readonly string[] },
   sceneCapture: boolean,
+  providerDefinitions: ProviderDefinition[] = [],
 ): void {
   const { t, i18n } = useTranslation();
   const [status, setStatus] = useState<VrOverlayStatus | null>(null);
@@ -57,6 +64,7 @@ export function useVrDashboardBridge(
   const saveRef = useRef(save);
   const saveVersionRef = useRef(0);
   const profilesRef = useRef(profiles);
+  const providerDefinitionsRef = useRef(providerDefinitions);
   const lastPublishedRef = useRef("");
   const statusState = status?.state ?? null;
   const headsetSampleVisible = status?.headset.sample_visible ?? false;
@@ -72,6 +80,7 @@ export function useVrDashboardBridge(
   statusRef.current = status;
   saveRef.current = save;
   profilesRef.current = profiles;
+  providerDefinitionsRef.current = providerDefinitions;
 
   useEffect(() => {
     let disposed = false;
@@ -112,7 +121,7 @@ export function useVrDashboardBridge(
       if (typeof action === "object" && "save_language_preset" in action) {
         action = { save_language_preset: t("settings.translation.presetDefaultName", { count: current.language_presets.length + 1 }) };
       }
-      const applied = applyVrDashboardAction(current, action, profilesRef.current);
+      const applied = applyVrDashboardAction(current, action, profilesRef.current, providerDefinitionsRef.current);
       if (applied === current) return;
       const next = applyModelDefaults(applied);
       settingsRef.current = next;
@@ -121,7 +130,7 @@ export function useVrDashboardBridge(
       setSaveError(null);
       try {
         const saved = await saveRef.current((latest) => {
-          const updated = applyVrDashboardAction(latest, action, profilesRef.current);
+          const updated = applyVrDashboardAction(latest, action, profilesRef.current, providerDefinitionsRef.current);
           return updated === latest ? latest : applyModelDefaults(updated);
         });
         if (version !== saveVersionRef.current) return;
@@ -210,8 +219,12 @@ export function useVrDashboardBridge(
       saved: t("settings.vrDashboard.saved"),
       display_tab: t("settings.vrDashboard.displayTab"),
       language_tab: t("settings.vrDashboard.languageTab"),
-      osc_tab: "OSC",
+      osc_tab: "OSC / UniText",
+      osc_title: "OSC",
       recognition_language: t("settings.recognition.language"),
+      speaker_recognition_language: t("settings.recognition.speakerLanguage"),
+      microphone_recognition_language: t("settings.recognition.microphoneLanguage"),
+      recognition_auto: t("languages.auto"),
       translation_mode: t("settings.translation.mode"),
       translation_languages: t("settings.translation.targetLanguageSettings"),
       speaker_language: t("settings.translation.targetLanguageForOtherParty"),
@@ -226,6 +239,12 @@ export function useVrDashboardBridge(
       osc_mute_sync: t("settings.osc.muteSync"),
       osc_strategy: t("settings.osc.translationStrategy"),
       osc_hint: t("settings.vrDashboard.oscHint"),
+      unitext_title: t("settings.unitext.title"),
+      unitext_include_microphone: t("settings.unitext.includeMicrophone"),
+      unitext_mute_sync: t("settings.unitext.muteSync"),
+      unitext_include_speaker: t("settings.unitext.includeSpeaker"),
+      unitext_preserve_original: t("settings.unitext.preserveOriginal"),
+      unitext_port_conflict: t("settings.oscInbound.portConflictUniText"),
       close: t("common.close"),
       content_hint: t("settings.vrDashboard.contentHint"),
       headset_hint: t("settings.vrDashboard.headsetHint"),
@@ -288,8 +307,44 @@ export function useVrDashboardBridge(
         };
       });
     };
-    const choices = dashboardLanguageChoices(settings, profiles);
+    const choices = dashboardLanguageChoices(settings, profiles, providerDefinitions);
     const languageName = (code: string) => code === "auto" ? t("languages.auto") : localizedLanguageName(code, locale);
+    const buildRecognitionChoice = (codes: string[]) => {
+      const mode = choices.recognition_mode;
+      const supportedCodes = choices.recognition;
+      const model = choices.recognition_model;
+      const formatList = (list: string[]) => (list.length ? list.map(languageName).join(" / ") : languageName("auto"));
+      const summary = mode === "auto_only" ? languageName("auto") : formatList(codes);
+      const selected = codes.map((code, index) => ({
+        value: code,
+        label: languageName(code),
+        can_prioritize: index > 0 && supportedCodes.includes(code),
+      }));
+      const options = supportedCodes.map((value) => ({ value, label: languageName(value) }));
+      let note: string | null = null;
+      let note_is_warning = false;
+      if (mode === "auto_only" && codes.length > 0) {
+        note = t("settings.recognition.autoOnlyPreservedHint", { languages: formatList(codes) });
+      } else if (supportedCodes.length > 0 && codes.length > 0 && !supportedCodes.includes(codes[0])) {
+        note = t("settings.recognition.unsupportedPrimaryLanguageHint", {
+          language: languageName(codes[0]),
+          supported: supportedCodes.map(languageName).join(" / "),
+        });
+        note_is_warning = true;
+      } else if (mode === "single" && codes.length > 1) {
+        note = t("settings.recognition.singleLanguageHint", { language: languageName(codes[0]) });
+      } else if (mode === "preferred_list" && model?.startsWith("fun-asr-realtime") && codes.length > 1) {
+        note = t("settings.recognition.funAsrLegacyHint", { language: languageName(codes[0]) });
+      }
+      return {
+        summary,
+        selected,
+        options,
+        max_selected: MAX_ASR_PREFERRED_LANGUAGES,
+        note,
+        note_is_warning,
+      };
+    };
     const targetChoices = (key: "speaker_targets" | "microphone_targets") => settings.translation[key].map((target, index) => ({
       value: languageName(target.target_language),
       options: choices[key][index].map((value) => ({ value, label: languageName(value) })),
@@ -358,17 +413,8 @@ export function useVrDashboardBridge(
         model: visionBinding.model,
       },
       language: {
-        recognition: {
-          value: (() => {
-            if (choices.recognition.length === 0) return languageName("auto");
-            const formatList = (codes: string[]) => (codes.length ? codes.map(languageName).join(" / ") : languageName("auto"));
-            const { speaker_languages, microphone_languages } = settings.asr;
-            const same = speaker_languages.length === microphone_languages.length
-              && speaker_languages.every((item, index) => item === microphone_languages[index]);
-            return same ? formatList(speaker_languages) : `${formatList(speaker_languages)} · ${formatList(microphone_languages)}`;
-          })(),
-          options: choices.recognition.map((value) => ({ value, label: languageName(value) })),
-        },
+        speaker_recognition: buildRecognitionChoice(settings.asr.speaker_languages),
+        microphone_recognition: buildRecognitionChoice(settings.asr.microphone_languages),
         mode: {
           value: t(`settings.translation.modes.${settings.translation.mode}`),
           options: choices.mode.map((value) => ({ value, label: t(`settings.translation.modes.${value}`) })),
@@ -389,6 +435,15 @@ export function useVrDashboardBridge(
         },
         endpoint: `127.0.0.1:${settings.osc.port}`,
       },
+      unitext: {
+        enabled: settings.unitext.enabled,
+        include_microphone: settings.unitext.include_microphone,
+        mute_sync: settings.unitext.mute_sync_enabled,
+        include_speaker: settings.unitext.include_speaker,
+        preserve_original: settings.unitext.preserve_original_text,
+        port_conflict: hasUniTextPortConflict(settings),
+        endpoint: `127.0.0.1:${settings.unitext.port}`,
+      },
       status: statusState
         ? t(`settings.vrOverlay.runtimeStates.${statusState}`)
         : t("settings.vrDashboard.connecting"),
@@ -399,5 +454,5 @@ export function useVrDashboardBridge(
     if (serialized === lastPublishedRef.current) return;
     lastPublishedRef.current = serialized;
     void updateVrDashboardView(model);
-  }, [capture.running, capture.available, capture.networkVisible, capture.networkRunning, capture.networkAvailable, captionNoticeKey, display.hiddenTracks, display.hiddenSourceLanguages, headsetSampleVisible, locale, profiles, saveError, saveState, sceneCapture, settings, staticLabels, statusState, t, wristSampleVisible]);
+  }, [capture.running, capture.available, capture.networkVisible, capture.networkRunning, capture.networkAvailable, captionNoticeKey, display.hiddenTracks, display.hiddenSourceLanguages, headsetSampleVisible, locale, profiles, providerDefinitions, saveError, saveState, sceneCapture, settings, staticLabels, statusState, t, wristSampleVisible]);
 }

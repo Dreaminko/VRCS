@@ -1,7 +1,8 @@
 {
   "locale": "en-US",
   "labels": {
-    "osc_tab": "OSC",
+    "osc_tab": "OSC / UniText",
+    "osc_title": "OSC",
     "ocr_progress": {
       "prepare": "Prepare",
       "recognize": "Recognize",
@@ -123,6 +124,9 @@
     "display_tab": "Display",
     "language_tab": "Languages",
     "recognition_language": "Spoken language",
+    "speaker_recognition_language": "Other party's speech language",
+    "microphone_recognition_language": "Your speech language",
+    "recognition_auto": "Auto",
     "translation_mode": "Translation mode",
     "translation_languages": "Target languages",
     "speaker_language": "Other party",
@@ -137,6 +141,12 @@
     "osc_mute_sync": "Sync VRChat microphone mute",
     "osc_strategy": "OSC multilingual output",
     "osc_hint": "Enable OSC in VRChat as well. Set the port in the desktop app.",
+    "unitext_title": "UniText",
+    "unitext_include_microphone": "Send my microphone subtitles",
+    "unitext_mute_sync": "Sync VRChat microphone mute",
+    "unitext_include_speaker": "Share others' subtitles",
+    "unitext_preserve_original": "Keep original text in output",
+    "unitext_port_conflict": "Listen port conflicts with the UniText OSC port.",
     "close": "Close",
     "content_hint": "Applies to headset and wrist",
     "headset_hint": "Adjust subtitle size, opacity and position",
@@ -359,90 +369,51 @@
     "model": "Preview"
   },
   "language": {
-    "recognition": {
-      "value": "auto",
+    "speaker_recognition": {
+      "summary": "Auto",
+      "selected": [],
       "options": [
-        {
-          "value": "auto",
-          "label": "auto"
-        },
-        {
-          "value": "en",
-          "label": "en"
-        },
-        {
-          "value": "zh",
-          "label": "zh"
-        },
-        {
-          "value": "ja",
-          "label": "ja"
-        },
-        {
-          "value": "ko",
-          "label": "ko"
-        },
-        {
-          "value": "de",
-          "label": "de"
-        },
-        {
-          "value": "fr",
-          "label": "fr"
-        },
-        {
-          "value": "es",
-          "label": "es"
-        },
-        {
-          "value": "ru",
-          "label": "ru"
-        },
-        {
-          "value": "it",
-          "label": "it"
-        },
-        {
-          "value": "pt",
-          "label": "pt"
-        },
-        {
-          "value": "nl",
-          "label": "nl"
-        },
-        {
-          "value": "ar",
-          "label": "ar"
-        },
-        {
-          "value": "sv",
-          "label": "sv"
-        },
-        {
-          "value": "th",
-          "label": "th"
-        },
-        {
-          "value": "vi",
-          "label": "vi"
-        },
-        {
-          "value": "id",
-          "label": "id"
-        },
-        {
-          "value": "pl",
-          "label": "pl"
-        },
-        {
-          "value": "tr",
-          "label": "tr"
-        },
-        {
-          "value": "uk",
-          "label": "uk"
-        }
-      ]
+        { "value": "zh", "label": "中文" },
+        { "value": "en", "label": "English" },
+        { "value": "ja", "label": "日本語" },
+        { "value": "ko", "label": "한국어" },
+        { "value": "yue", "label": "粵語" },
+        { "value": "es", "label": "Español" },
+        { "value": "fr", "label": "Français" },
+        { "value": "de", "label": "Deutsch" },
+        { "value": "ru", "label": "Русский" },
+        { "value": "pt", "label": "Português" },
+        { "value": "it", "label": "Italiano" },
+        { "value": "th", "label": "ไทย" },
+        { "value": "vi", "label": "Tiếng Việt" },
+        { "value": "id", "label": "Bahasa Indonesia" }
+      ],
+      "max_selected": 4,
+      "note": null,
+      "note_is_warning": false
+    },
+    "microphone_recognition": {
+      "summary": "Auto",
+      "selected": [],
+      "options": [
+        { "value": "zh", "label": "中文" },
+        { "value": "en", "label": "English" },
+        { "value": "ja", "label": "日本語" },
+        { "value": "ko", "label": "한국어" },
+        { "value": "yue", "label": "粵語" },
+        { "value": "es", "label": "Español" },
+        { "value": "fr", "label": "Français" },
+        { "value": "de", "label": "Deutsch" },
+        { "value": "ru", "label": "Русский" },
+        { "value": "pt", "label": "Português" },
+        { "value": "it", "label": "Italiano" },
+        { "value": "th", "label": "ไทย" },
+        { "value": "vi", "label": "Tiếng Việt" },
+        { "value": "id", "label": "Bahasa Indonesia" }
+      ],
+      "max_selected": 4,
+      "note": null,
+      "note_is_warning": false
     },
     "mode": {
       "value": "source_only",
@@ -540,6 +511,15 @@
         }
       ]
     },
+    "endpoint": "127.0.0.1:9000"
+  },
+  "unitext": {
+    "enabled": false,
+    "include_microphone": true,
+    "mute_sync": true,
+    "include_speaker": true,
+    "preserve_original": true,
+    "port_conflict": false,
     "endpoint": "127.0.0.1:9000"
   },
   "status": "Ready",

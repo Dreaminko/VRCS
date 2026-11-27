@@ -15,6 +15,25 @@ export interface VrDashboardChoice {
   options: Array<{ value: string; label: string }>;
 }
 
+export interface VrDashboardRecognitionChoice {
+  summary: string;
+  selected: Array<{ value: string; label: string; can_prioritize?: boolean }>;
+  options: Array<{ value: string; label: string }>;
+  max_selected: number;
+  note?: string | null;
+  note_is_warning?: boolean;
+}
+
+export interface VrDashboardUniText {
+  enabled: boolean;
+  include_microphone: boolean;
+  mute_sync: boolean;
+  include_speaker: boolean;
+  preserve_original: boolean;
+  port_conflict: boolean;
+  endpoint: string;
+}
+
 export interface VrDashboardNumberField {
   field: VrOverlayPositionField;
   label: string;
@@ -69,7 +88,11 @@ export interface VrDashboardViewModel {
     display_tab: string;
     language_tab: string;
     osc_tab: string;
+    osc_title?: string;
     recognition_language: string;
+    speaker_recognition_language?: string;
+    microphone_recognition_language?: string;
+    recognition_auto?: string;
     translation_mode: string;
     translation_languages: string;
     speaker_language: string;
@@ -84,6 +107,12 @@ export interface VrDashboardViewModel {
     osc_mute_sync: string;
     osc_strategy: string;
     osc_hint: string;
+    unitext_title?: string;
+    unitext_include_microphone?: string;
+    unitext_mute_sync?: string;
+    unitext_include_speaker?: string;
+    unitext_preserve_original?: string;
+    unitext_port_conflict?: string;
     close: string;
     content_hint: string;
     headset_hint: string;
@@ -121,11 +150,14 @@ export interface VrDashboardViewModel {
   ocr: { available: boolean; enabled: boolean; backend: string; gesture: boolean };
   vision: { enabled: boolean; configured: boolean; model: string };
   language: {
-    recognition: VrDashboardChoice; mode: VrDashboardChoice;
+    speaker_recognition: VrDashboardRecognitionChoice;
+    microphone_recognition: VrDashboardRecognitionChoice;
+    mode: VrDashboardChoice;
     speaker_targets: VrDashboardChoice[]; microphone_targets: VrDashboardChoice[];
     can_add: boolean; presets: VrDashboardChoice; can_save_preset: boolean;
   };
   osc: { enabled: boolean; original: boolean; mute_sync: boolean; strategy: VrDashboardChoice; endpoint: string };
+  unitext: VrDashboardUniText;
   status: string;
   save_state: "idle" | "saving" | "saved" | "error";
   error: string | null;

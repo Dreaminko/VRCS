@@ -44,6 +44,8 @@ pub struct DashboardViewModel {
     pub vision: DashboardVision,
     pub language: DashboardLanguage,
     pub osc: DashboardOsc,
+    #[serde(default)]
+    pub unitext: DashboardUnitext,
     pub status: String,
     pub save_state: DashboardSaveState,
     pub error: Option<String>,
@@ -102,7 +104,15 @@ pub struct DashboardLabels {
     pub display_tab: String,
     pub language_tab: String,
     pub osc_tab: String,
+    #[serde(default)]
+    pub osc_title: String,
     pub recognition_language: String,
+    #[serde(default)]
+    pub speaker_recognition_language: String,
+    #[serde(default)]
+    pub microphone_recognition_language: String,
+    #[serde(default)]
+    pub recognition_auto: String,
     pub translation_mode: String,
     pub translation_languages: String,
     pub speaker_language: String,
@@ -117,6 +127,18 @@ pub struct DashboardLabels {
     pub osc_mute_sync: String,
     pub osc_strategy: String,
     pub osc_hint: String,
+    #[serde(default)]
+    pub unitext_title: String,
+    #[serde(default)]
+    pub unitext_include_microphone: String,
+    #[serde(default)]
+    pub unitext_mute_sync: String,
+    #[serde(default)]
+    pub unitext_include_speaker: String,
+    #[serde(default)]
+    pub unitext_preserve_original: String,
+    #[serde(default)]
+    pub unitext_port_conflict: String,
     pub close: String,
     pub content_hint: String,
     pub headset_hint: String,
@@ -178,9 +200,39 @@ pub struct DashboardOption {
     pub label: String,
 }
 
+fn default_max_recognition_selected() -> usize {
+    4
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DashboardRecognitionOption {
+    pub value: String,
+    pub label: String,
+    #[serde(default)]
+    pub can_prioritize: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DashboardRecognitionChoice {
+    pub summary: String,
+    #[serde(default)]
+    pub selected: Vec<DashboardRecognitionOption>,
+    #[serde(default)]
+    pub options: Vec<DashboardOption>,
+    #[serde(default = "default_max_recognition_selected")]
+    pub max_selected: usize,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub note_is_warning: bool,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct DashboardLanguage {
-    pub recognition: DashboardChoice,
+    #[serde(default)]
+    pub speaker_recognition: DashboardRecognitionChoice,
+    #[serde(default)]
+    pub microphone_recognition: DashboardRecognitionChoice,
     pub mode: DashboardChoice,
     pub speaker_targets: Vec<DashboardChoice>,
     pub microphone_targets: Vec<DashboardChoice>,
@@ -198,6 +250,13 @@ pub enum TargetGroup {
 
 #[cfg(any(windows, linux_vr, test))]
 impl DashboardLanguage {
+    pub(crate) fn recognition(&self, group: TargetGroup) -> &DashboardRecognitionChoice {
+        match group {
+            TargetGroup::Speaker => &self.speaker_recognition,
+            TargetGroup::Microphone => &self.microphone_recognition,
+        }
+    }
+
     fn targets(&self, group: TargetGroup) -> &[DashboardChoice] {
         match group {
             TargetGroup::Speaker => &self.speaker_targets,
@@ -212,6 +271,19 @@ pub struct DashboardOsc {
     pub original: bool,
     pub mute_sync: bool,
     pub strategy: DashboardChoice,
+    pub endpoint: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DashboardUnitext {
+    pub enabled: bool,
+    pub include_microphone: bool,
+    pub mute_sync: bool,
+    pub include_speaker: bool,
+    pub preserve_original: bool,
+    #[serde(default)]
+    pub port_conflict: bool,
+    #[serde(default)]
     pub endpoint: String,
 }
 
@@ -354,10 +426,23 @@ pub enum DashboardAction {
     ToggleOsc,
     ToggleOscOriginal,
     ToggleOscMuteSync,
+    ToggleUnitext,
+    ToggleUnitextIncludeMicrophone,
+    ToggleUnitextMuteSync,
+    ToggleUnitextIncludeSpeaker,
+    ToggleUnitextPreserveOriginal,
     SetDisplayContent(String),
     SetWristHand(String),
     SetOscStrategy(String),
-    SetRecognitionLanguage(String),
+    ToggleRecognitionLanguage {
+        group: TargetGroup,
+        value: String,
+    },
+    PrioritizeRecognitionLanguage {
+        group: TargetGroup,
+        index: usize,
+    },
+    ClearRecognitionLanguages(TargetGroup),
     SetTranslationMode(String),
     SetTargetLanguage {
         group: TargetGroup,
@@ -433,6 +518,7 @@ pub enum DashboardCommand {
     PickerPage(i32),
     Select(usize),
     Position(DisplayKind),
+    Recognition(TargetGroup),
     Close,
     Confirm,
     Cancel,
@@ -472,7 +558,6 @@ pub enum DashboardPage {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum DashboardPicker {
-    Recognition,
     Mode,
     Target { group: TargetGroup, index: usize },
     ApplyPreset,
@@ -486,7 +571,6 @@ pub const PICKER_PAGE_SIZE: usize = 15;
 impl DashboardPicker {
     pub(crate) fn choice(self, view: &DashboardViewModel) -> Option<&DashboardChoice> {
         Some(match self {
-            Self::Recognition => &view.language.recognition,
             Self::Mode => &view.language.mode,
             Self::Target { group, index } => view.language.targets(group).get(index)?,
             Self::ApplyPreset | Self::DeletePreset => &view.language.presets,
@@ -506,6 +590,7 @@ pub struct DashboardUi {
     pub picker: Option<DashboardPicker>,
     pub picker_page: usize,
     pub display_editor: Option<DisplayKind>,
+    pub recognition_editor: Option<TargetGroup>,
     pub confirmation: Option<DashboardConfirmation>,
 }
 
@@ -552,6 +637,14 @@ impl DashboardState {
                 self.clear_pointer();
             }
             self.language = Some(view.language.clone());
+        }
+        if self
+            .ui
+            .recognition_editor
+            .is_some_and(|group| view.language.recognition(group).options.is_empty())
+        {
+            self.ui.recognition_editor = None;
+            self.clear_pointer();
         }
         if !view.osc_available && self.ui.page == DashboardPage::Osc {
             self.ui = DashboardUi::default();
@@ -622,7 +715,6 @@ impl DashboardState {
                 let option = picker.choice(view)?.options.get(index)?;
                 let value = option.value.clone();
                 let action = match picker {
-                    DashboardPicker::Recognition => DashboardAction::SetRecognitionLanguage(value),
                     DashboardPicker::Mode => DashboardAction::SetTranslationMode(value),
                     DashboardPicker::Target { group, index } => {
                         DashboardAction::SetTargetLanguage {
@@ -641,9 +733,20 @@ impl DashboardState {
                 self.ui.display_editor = Some(kind);
                 None
             }
+            DashboardCommand::Recognition(group)
+                if self.ui.page == DashboardPage::Language
+                    && self.ui.picker.is_none()
+                    && self.ui.recognition_editor.is_none() =>
+            {
+                if !view.language.recognition(group).options.is_empty() {
+                    self.ui.recognition_editor = Some(group);
+                }
+                None
+            }
             DashboardCommand::Close => {
                 self.ui.picker = None;
                 self.ui.display_editor = None;
+                self.ui.recognition_editor = None;
                 None
             }
             DashboardCommand::Action(action) => {
@@ -717,7 +820,9 @@ impl DashboardState {
             ToggleNetworkCapture => {
                 return view.network_capture.visible && view.network_capture.available;
             }
-            SetRecognitionLanguage(_)
+            ToggleRecognitionLanguage { .. }
+            | PrioritizeRecognitionLanguage { .. }
+            | ClearRecognitionLanguages(_)
             | SetTranslationMode(_)
             | SetTargetLanguage { .. }
             | AddTarget(_)
@@ -726,9 +831,15 @@ impl DashboardState {
             | SaveLanguagePreset(_)
             | ApplyLanguagePreset(_)
             | DeleteLanguagePreset(_) => DashboardPage::Language,
-            ToggleOsc | ToggleOscOriginal | ToggleOscMuteSync | SetOscStrategy(_) => {
-                DashboardPage::Osc
-            }
+            ToggleOsc
+            | ToggleOscOriginal
+            | ToggleOscMuteSync
+            | SetOscStrategy(_)
+            | ToggleUnitext
+            | ToggleUnitextIncludeMicrophone
+            | ToggleUnitextMuteSync
+            | ToggleUnitextIncludeSpeaker
+            | ToggleUnitextPreserveOriginal => DashboardPage::Osc,
             _ => DashboardPage::Display,
         };
         if self.ui.page != page || page == DashboardPage::Osc && !view.osc_available {
@@ -746,7 +857,33 @@ impl DashboardState {
             SetDisplayContent(value) => contains(&view.content, value),
             SetWristHand(value) => contains(&view.wrist.hand, value),
             SetOscStrategy(value) => contains(&view.osc.strategy, value),
-            SetRecognitionLanguage(value) => contains(&view.language.recognition, value),
+            ToggleUnitext => view.unitext.enabled || !view.unitext.port_conflict,
+            ToggleUnitextIncludeMicrophone
+            | ToggleUnitextMuteSync
+            | ToggleUnitextIncludeSpeaker
+            | ToggleUnitextPreserveOriginal => true,
+            ToggleRecognitionLanguage { group, value } => {
+                let choice = view.language.recognition(*group);
+                self.ui.recognition_editor == Some(*group)
+                    && (choice.selected.iter().any(|item| item.value == *value)
+                        || (choice.selected.len() < choice.max_selected
+                            && choice.options.iter().any(|opt| opt.value == *value)))
+            }
+            PrioritizeRecognitionLanguage { group, index } => {
+                let choice = view.language.recognition(*group);
+                self.ui.recognition_editor == Some(*group)
+                    && *index > 0
+                    && choice.selected.get(*index).is_some_and(|item| {
+                        item.can_prioritize
+                            || choice.options.iter().any(|opt| opt.value == item.value)
+                    })
+            }
+            ClearRecognitionLanguages(group) => {
+                let choice = view.language.recognition(*group);
+                self.ui.recognition_editor == Some(*group)
+                    && !choice.selected.is_empty()
+                    && !choice.options.is_empty()
+            }
             SetTranslationMode(value) => contains(&view.language.mode, value),
             SetTargetLanguage {
                 group,
@@ -912,7 +1049,26 @@ mod tests {
             },
             vision: DashboardVision::default(),
             language: DashboardLanguage {
-                recognition: choice.clone(),
+                speaker_recognition: DashboardRecognitionChoice {
+                    summary: "English".into(),
+                    selected: vec![DashboardRecognitionOption {
+                        value: "en".into(),
+                        label: "English".into(),
+                        can_prioritize: false,
+                    }],
+                    options: choice.options.clone(),
+                    max_selected: 4,
+                    note: None,
+                    note_is_warning: false,
+                },
+                microphone_recognition: DashboardRecognitionChoice {
+                    summary: "Auto".into(),
+                    selected: vec![],
+                    options: choice.options.clone(),
+                    max_selected: 4,
+                    note: None,
+                    note_is_warning: false,
+                },
                 mode: choice.clone(),
                 speaker_targets: vec![choice.clone(), choice.clone()],
                 microphone_targets: vec![choice.clone()],
@@ -926,6 +1082,15 @@ mod tests {
                 mute_sync: false,
                 strategy: choice,
                 endpoint: String::new(),
+            },
+            unitext: DashboardUnitext {
+                enabled: false,
+                include_microphone: true,
+                mute_sync: true,
+                include_speaker: true,
+                preserve_original: true,
+                port_conflict: false,
+                endpoint: "127.0.0.1:9000".into(),
             },
             status: String::new(),
             save_state: DashboardSaveState::Idle,
@@ -976,7 +1141,7 @@ mod tests {
     fn picker_validates_current_page_options_and_preserves_action_encoding() {
         let mut state = DashboardState::new();
         let mut view = view();
-        view.language.recognition.options = (0..40)
+        view.language.speaker_targets[0].options = (0..40)
             .map(|index| DashboardOption {
                 value: format!("language-{index}"),
                 label: format!("Language {index}"),
@@ -984,7 +1149,10 @@ mod tests {
             .collect();
         state.activate(DashboardCommand::Page(DashboardPage::Language), &view);
         state.activate(
-            DashboardCommand::Picker(DashboardPicker::Recognition),
+            DashboardCommand::Picker(DashboardPicker::Target {
+                group: TargetGroup::Speaker,
+                index: 0,
+            }),
             &view,
         );
         assert_eq!(state.activate(DashboardCommand::Select(15), &view), None);
@@ -992,16 +1160,158 @@ mod tests {
         let selected = state.activate(DashboardCommand::Select(15), &view).unwrap();
         assert_eq!(
             serde_json::to_value(selected).unwrap(),
-            serde_json::json!({ "set_recognition_language": "language-15" })
+            serde_json::json!({
+                "set_target_language": {
+                    "group": "speaker",
+                    "index": 0,
+                    "value": "language-15"
+                }
+            })
         );
         assert!(state.ui.picker.is_none());
         assert_eq!(
             action(
                 &mut state,
                 &view,
-                DashboardAction::SetRecognitionLanguage("missing".into())
+                DashboardAction::SetTargetLanguage {
+                    group: TargetGroup::Speaker,
+                    index: 0,
+                    value: "missing".into(),
+                }
             ),
             None
+        );
+    }
+
+    #[test]
+    fn recognition_editor_persists_across_updates_and_validates_actions() {
+        let mut state = DashboardState::new();
+        let mut view = view();
+        state.activate(DashboardCommand::Page(DashboardPage::Language), &view);
+        assert_eq!(
+            state.activate(
+                DashboardCommand::Recognition(TargetGroup::Microphone),
+                &view
+            ),
+            None
+        );
+        assert_eq!(state.ui.recognition_editor, Some(TargetGroup::Microphone));
+
+        let add = DashboardAction::ToggleRecognitionLanguage {
+            group: TargetGroup::Microphone,
+            value: "ja".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(&add).unwrap(),
+            serde_json::json!({
+                "toggle_recognition_language": {
+                    "group": "microphone",
+                    "value": "ja"
+                }
+            })
+        );
+        assert_eq!(action(&mut state, &view, add.clone()), Some(add));
+        assert_eq!(
+            action(
+                &mut state,
+                &view,
+                DashboardAction::ToggleRecognitionLanguage {
+                    group: TargetGroup::Speaker,
+                    value: "ja".into(),
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            action(
+                &mut state,
+                &view,
+                DashboardAction::ClearRecognitionLanguages(TargetGroup::Microphone)
+            ),
+            None
+        );
+
+        view.language.microphone_recognition.selected = vec![
+            DashboardRecognitionOption {
+                value: "en".into(),
+                label: "English".into(),
+                can_prioritize: false,
+            },
+            DashboardRecognitionOption {
+                value: "ja".into(),
+                label: "Japanese".into(),
+                can_prioritize: true,
+            },
+        ];
+        state.update_view(&view);
+        assert_eq!(state.ui.recognition_editor, Some(TargetGroup::Microphone));
+
+        let prioritize = DashboardAction::PrioritizeRecognitionLanguage {
+            group: TargetGroup::Microphone,
+            index: 1,
+        };
+        assert_eq!(
+            serde_json::to_value(&prioritize).unwrap(),
+            serde_json::json!({
+                "prioritize_recognition_language": {
+                    "group": "microphone",
+                    "index": 1
+                }
+            })
+        );
+        assert_eq!(
+            action(&mut state, &view, prioritize.clone()),
+            Some(prioritize)
+        );
+
+        let clear = DashboardAction::ClearRecognitionLanguages(TargetGroup::Microphone);
+        assert_eq!(
+            serde_json::to_value(&clear).unwrap(),
+            serde_json::json!({ "clear_recognition_languages": "microphone" })
+        );
+        assert_eq!(action(&mut state, &view, clear.clone()), Some(clear));
+
+        view.language.microphone_recognition.options.clear();
+        state.update_view(&view);
+        assert_eq!(state.ui.recognition_editor, None);
+    }
+
+    #[test]
+    fn unitext_actions_encode_snake_case_and_enforce_port_conflict() {
+        let mut state = DashboardState::new();
+        let mut view = view();
+        state.activate(DashboardCommand::Page(DashboardPage::Osc), &view);
+
+        assert_eq!(
+            serde_json::to_value(DashboardAction::ToggleUnitext).unwrap(),
+            serde_json::json!("toggle_unitext")
+        );
+        assert_eq!(
+            serde_json::to_value(DashboardAction::ToggleUnitextIncludeMicrophone).unwrap(),
+            serde_json::json!("toggle_unitext_include_microphone")
+        );
+        assert_eq!(
+            action(&mut state, &view, DashboardAction::ToggleUnitext),
+            Some(DashboardAction::ToggleUnitext)
+        );
+        assert_eq!(
+            action(
+                &mut state,
+                &view,
+                DashboardAction::ToggleUnitextPreserveOriginal
+            ),
+            Some(DashboardAction::ToggleUnitextPreserveOriginal)
+        );
+
+        view.unitext.port_conflict = true;
+        assert_eq!(
+            action(&mut state, &view, DashboardAction::ToggleUnitext),
+            None
+        );
+        view.unitext.enabled = true;
+        assert_eq!(
+            action(&mut state, &view, DashboardAction::ToggleUnitext),
+            Some(DashboardAction::ToggleUnitext)
         );
     }
 

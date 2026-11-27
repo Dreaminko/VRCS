@@ -895,6 +895,22 @@ mod tests {
                 )),
                 "missing ToggleWristMenu region when master_enabled={master_enabled}"
             );
+            let bindings = layout
+                .regions
+                .iter()
+                .find(|r| {
+                    matches!(
+                        r.dashboard,
+                        Some(DashboardCommand::Action(DashboardAction::OpenOcrBindings))
+                    )
+                })
+                .expect("missing OpenOcrBindings region");
+            let bindings_w = (bindings.bounds[2] - bindings.bounds[0]) * 1440.0;
+            let bindings_right = bindings.bounds[2] * 1440.0;
+            assert!(
+                bindings_w < 360.0 && bindings_right > 1360.0,
+                "expected compact right-aligned OpenOcrBindings button, got width={bindings_w}, right={bindings_right}"
+            );
             for region in &layout.regions {
                 assert!(
                     region.bounds[1] >= 0.0 && region.bounds[3] <= 1.0,
@@ -903,5 +919,132 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn dashboard_language_recognition_editor_and_merged_osc_unitext_validate() {
+        use crate::vr_overlay::dashboard::{
+            DashboardAction, DashboardCommand, DashboardPage, DashboardRecognitionOption,
+            TargetGroup,
+        };
+
+        let mut engine = GpuUiEngine::new();
+        let mut rt = SurfaceRuntimeState::default();
+        let mut base: DashboardViewModel =
+            serde_json::from_str(include_str!("../preview-fixture.json")).expect("valid fixture");
+
+        // 1. Language page shows both Microphone and Speaker recognition buttons.
+        let lang_state = sample_state(SurfaceView::Dashboard {
+            dark: false,
+            dashboard: Arc::new(base.clone()),
+            ui: DashboardUi {
+                page: DashboardPage::Language,
+                ..Default::default()
+            },
+        });
+        let (lang_layout, _) = engine.render_surface(&lang_state, &mut rt, Instant::now());
+        lang_layout.validate(SurfaceId::Dashboard).unwrap();
+        assert!(lang_layout.regions.iter().any(|r| {
+            matches!(
+                r.dashboard,
+                Some(DashboardCommand::Recognition(TargetGroup::Microphone))
+            )
+        }));
+        assert!(lang_layout.regions.iter().any(|r| {
+            matches!(
+                r.dashboard,
+                Some(DashboardCommand::Recognition(TargetGroup::Speaker))
+            )
+        }));
+
+        // 2. Recognition editor with 4 selected languages and warning note validates cleanly.
+        let mut with_selected = base.clone();
+        with_selected.language.microphone_recognition.selected = vec![
+            DashboardRecognitionOption {
+                value: "zh".into(),
+                label: "中文".into(),
+                can_prioritize: false,
+            },
+            DashboardRecognitionOption {
+                value: "en".into(),
+                label: "English".into(),
+                can_prioritize: true,
+            },
+            DashboardRecognitionOption {
+                value: "ja".into(),
+                label: "日本語".into(),
+                can_prioritize: true,
+            },
+            DashboardRecognitionOption {
+                value: "ko".into(),
+                label: "한국어".into(),
+                can_prioritize: true,
+            },
+        ];
+        with_selected.language.microphone_recognition.note =
+            Some("This service only accepts a single language and will use 中文 first.".into());
+        with_selected
+            .language
+            .microphone_recognition
+            .note_is_warning = true;
+        let rec_state = sample_state(SurfaceView::Dashboard {
+            dark: false,
+            dashboard: Arc::new(with_selected),
+            ui: DashboardUi {
+                page: DashboardPage::Language,
+                recognition_editor: Some(TargetGroup::Microphone),
+                ..Default::default()
+            },
+        });
+        let (rec_layout, _) = engine.render_surface(&rec_state, &mut rt, Instant::now());
+        rec_layout.validate(SurfaceId::Dashboard).unwrap();
+
+        // 3. Merged OSC / UniText page validates cleanly in normal state and with error + conflict banners.
+        let osc_normal_state = sample_state(SurfaceView::Dashboard {
+            dark: false,
+            dashboard: Arc::new(base.clone()),
+            ui: DashboardUi {
+                page: DashboardPage::Osc,
+                ..Default::default()
+            },
+        });
+        let (osc_normal_layout, _) =
+            engine.render_surface(&osc_normal_state, &mut rt, Instant::now());
+        osc_normal_layout.validate(SurfaceId::Dashboard).unwrap();
+        for expected in [
+            DashboardAction::ToggleUnitext,
+            DashboardAction::ToggleUnitextIncludeMicrophone,
+            DashboardAction::ToggleUnitextMuteSync,
+            DashboardAction::ToggleUnitextIncludeSpeaker,
+            DashboardAction::ToggleUnitextPreserveOriginal,
+        ] {
+            assert!(
+                osc_normal_layout.regions.iter().any(|r| {
+                    r.dashboard.as_ref() == Some(&DashboardCommand::Action(expected.clone()))
+                }),
+                "missing UniText region {expected:?}"
+            );
+        }
+
+        base.error = Some("Save failed".into());
+        base.unitext.port_conflict = true;
+        let osc_conflict_state = sample_state(SurfaceView::Dashboard {
+            dark: false,
+            dashboard: Arc::new(base),
+            ui: DashboardUi {
+                page: DashboardPage::Osc,
+                ..Default::default()
+            },
+        });
+        let (osc_conflict_layout, _) =
+            engine.render_surface(&osc_conflict_state, &mut rt, Instant::now());
+        osc_conflict_layout.validate(SurfaceId::Dashboard).unwrap();
+        assert!(
+            !osc_conflict_layout.regions.iter().any(|r| {
+                r.dashboard.as_ref()
+                    == Some(&DashboardCommand::Action(DashboardAction::ToggleUnitext))
+            }),
+            "ToggleUnitext should be disabled on port conflict when turned off"
+        );
     }
 }

@@ -3,9 +3,16 @@ import type {
   VrOverlayHand,
 } from "../integrations/types";
 import type { Settings } from "../settings/types";
-import type { ApiProfileView } from "../providers/types";
+import type { ApiProfileView, ProviderDefinition, RecognitionLanguageMode } from "../providers/types";
 import { supportsTranslation } from "../providers/api-profile-purpose.ts";
-import { ASR_LANGUAGE_CODES, liveTranslationServiceName } from "../providers/recognition-services.ts";
+import {
+  ASR_LANGUAGE_CODES,
+  MAX_ASR_PREFERRED_LANGUAGES,
+  currentRecognitionProfile,
+  currentRecognitionService,
+  liveTranslationServiceName,
+  recognitionServicesForProfile,
+} from "../providers/recognition-services.ts";
 import {
   PLAMO_LOCAL_MODEL_ID,
   PLAMO_TRANSLATION_LANGUAGE_CODES,
@@ -62,10 +69,17 @@ export type VrDashboardAction =
   | "toggle_osc_original"
   | "toggle_osc_mute_sync"
   | "cycle_osc_strategy"
+  | "toggle_unitext"
+  | "toggle_unitext_include_microphone"
+  | "toggle_unitext_mute_sync"
+  | "toggle_unitext_include_speaker"
+  | "toggle_unitext_preserve_original"
   | { set_display_content: string }
   | { set_wrist_hand: string }
   | { set_osc_strategy: string }
-  | { set_recognition_language: string }
+  | { toggle_recognition_language: { group: "speaker" | "microphone"; value: string } }
+  | { prioritize_recognition_language: { group: "speaker" | "microphone"; index: number } }
+  | { clear_recognition_languages: "speaker" | "microphone" }
   | { set_translation_mode: string }
   | { set_target_language: { group: "speaker" | "microphone"; index: number; value: string } }
   | { add_target: "speaker" | "microphone" }
@@ -89,16 +103,60 @@ export function hasPlamoTranslationConfigured(settings: Settings): boolean {
       .some((target) => target.backend === "plamo_local");
 }
 
-export function dashboardLanguageChoices(settings: Settings, profiles: ApiProfileView[]) {
+export function hasUniTextPortConflict(settings: Settings): boolean {
+  const inbound = settings.osc.inbound;
+  return Boolean(inbound?.enabled && (settings.unitext.port === inbound.port || inbound.port === 9001));
+}
+
+export function dashboardRecognitionConfig(
+  settings: Settings,
+  profiles: ApiProfileView[],
+  providerDefinitions: ProviderDefinition[] = [],
+): {
+  mode: RecognitionLanguageMode;
+  supportedCodes: string[];
+  model?: string;
+} {
+  if (settings.asr.backend === "qwen_local_managed") {
+    return {
+      mode: "single",
+      supportedCodes: [...ASR_LANGUAGE_CODES],
+    };
+  }
+  const selectedProfile = currentRecognitionProfile(settings.asr, profiles);
+  const services = recognitionServicesForProfile(selectedProfile, providerDefinitions);
+  const service = currentRecognitionService(settings.asr, selectedProfile, providerDefinitions)
+    ?? services[0]
+    ?? providerDefinitions.flatMap((provider) => provider.services).find((item) => item.id === settings.asr.backend);
+  const serviceId = service?.id ?? settings.asr.backend;
+  const autoOnlyFallback = Boolean(liveTranslationServiceName(serviceId)) || serviceId === "token_plan_realtime";
+  const mode: RecognitionLanguageMode = service?.recognition_language_mode
+    ?? (autoOnlyFallback ? "auto_only" : "single");
+  const supportedCodes = mode === "auto_only"
+    ? []
+    : service?.recognition_languages?.length
+      ? ASR_LANGUAGE_CODES.filter((code) => service.recognition_languages!.includes(code))
+      : [...ASR_LANGUAGE_CODES];
+  const model = service ? (settings.asr.service_settings?.[service.id]?.model ?? service.models[0] ?? "") : "";
+  return { mode, supportedCodes, model };
+}
+
+export function dashboardLanguageChoices(
+  settings: Settings,
+  profiles: ApiProfileView[],
+  providerDefinitions: ProviderDefinition[] = [],
+) {
   const liveService = liveTranslationServiceName(settings.asr.backend);
-  const autoOnlyRecognition = Boolean(liveService) || settings.asr.backend === "token_plan_realtime";
+  const recognitionConfig = dashboardRecognitionConfig(settings, profiles, providerDefinitions);
   const nativeTranslation = Boolean(liveService && settings.translation.mode === "automatic");
   const targetChoices = (key: "speaker_targets" | "microphone_targets") => settings.translation[key].map((target, index) =>
     targetLanguageCodes(target, settings.translation[key].map((item) => item.target_language), profiles.filter(supportsTranslation), index === 0 && nativeTranslation ? settings.asr.backend : undefined));
   const speaker_targets = targetChoices("speaker_targets");
   const microphone_targets = targetChoices("microphone_targets");
   return {
-    recognition: autoOnlyRecognition ? [] : RECOGNITION_LANGUAGES,
+    recognition: recognitionConfig.supportedCodes,
+    recognition_mode: recognitionConfig.mode,
+    recognition_model: recognitionConfig.model,
     mode: liveService || hasPlamoTranslationConfigured(settings) || profiles.some(supportsTranslation) ? TRANSLATION_MODES : [],
     speaker_targets, microphone_targets,
   };
@@ -117,7 +175,12 @@ function step(value: number, delta: number, minimum: number, maximum: number): n
   return Math.round(stepped * 100) / 100;
 }
 
-export function applyVrDashboardAction(settings: Settings, action: VrDashboardAction, profiles: ApiProfileView[] = []): Settings {
+export function applyVrDashboardAction(
+  settings: Settings,
+  action: VrDashboardAction,
+  profiles: ApiProfileView[] = [],
+  providerDefinitions: ProviderDefinition[] = [],
+): Settings {
   if (!settings.features.vr_overlay) return settings;
   if (typeof action === "string") {
     if (action.includes("ocr") && (!settings.features.ocr || !settings.ocr.master_enabled)) return settings;
@@ -216,18 +279,48 @@ export function applyVrDashboardAction(settings: Settings, action: VrDashboardAc
       }
       return { ...settings, translation: { ...settings.translation, [key]: next } };
     }
-    const choices = dashboardLanguageChoices(settings, profiles);
-    if ("set_recognition_language" in action) {
-      const language = action.set_recognition_language;
-      if (!choices.recognition.includes(language)) return settings;
-      const next = language === "auto" ? [] : [language];
-      const matches = (list: string[]) => list.length === next.length && list.every((item, index) => item === next[index]);
-      if (matches(settings.asr.speaker_languages) && matches(settings.asr.microphone_languages)) {
-        return settings;
+    const choices = dashboardLanguageChoices(settings, profiles, providerDefinitions);
+    if ("toggle_recognition_language" in action) {
+      const { group, value } = action.toggle_recognition_language;
+      if ((group !== "speaker" && group !== "microphone") || choices.recognition_mode === "auto_only") return settings;
+      const key = `${group}_languages` as const;
+      const current = settings.asr[key];
+      if (current.includes(value)) {
+        return {
+          ...settings,
+          asr: { ...settings.asr, [key]: current.filter((item) => item !== value) },
+        };
       }
+      if (!choices.recognition.includes(value) || current.length >= MAX_ASR_PREFERRED_LANGUAGES) return settings;
       return {
         ...settings,
-        asr: { ...settings.asr, speaker_languages: [...next], microphone_languages: [...next] },
+        asr: { ...settings.asr, [key]: [...current, value] },
+      };
+    }
+    if ("prioritize_recognition_language" in action) {
+      const { group, index } = action.prioritize_recognition_language;
+      if ((group !== "speaker" && group !== "microphone") || choices.recognition_mode === "auto_only") return settings;
+      const key = `${group}_languages` as const;
+      const current = settings.asr[key];
+      if (!Number.isInteger(index) || index <= 0 || index >= current.length) return settings;
+      const target = current[index];
+      if (!choices.recognition.includes(target)) return settings;
+      const next = [...current];
+      const [picked] = next.splice(index, 1);
+      next.unshift(picked);
+      return {
+        ...settings,
+        asr: { ...settings.asr, [key]: next },
+      };
+    }
+    if ("clear_recognition_languages" in action) {
+      const group = action.clear_recognition_languages;
+      if ((group !== "speaker" && group !== "microphone") || choices.recognition_mode === "auto_only") return settings;
+      const key = `${group}_languages` as const;
+      if (settings.asr[key].length === 0) return settings;
+      return {
+        ...settings,
+        asr: { ...settings.asr, [key]: [] },
       };
     }
     if ("set_translation_mode" in action) {
@@ -258,6 +351,17 @@ export function applyVrDashboardAction(settings: Settings, action: VrDashboardAc
     }
     case "cycle_osc_strategy":
       return { ...settings, osc: { ...settings.osc, translation_strategy: cycle(OSC_STRATEGIES, settings.osc.translation_strategy) } };
+    case "toggle_unitext":
+      if (!settings.unitext.enabled && hasUniTextPortConflict(settings)) return settings;
+      return { ...settings, unitext: { ...settings.unitext, enabled: !settings.unitext.enabled } };
+    case "toggle_unitext_include_microphone":
+      return { ...settings, unitext: { ...settings.unitext, include_microphone: !settings.unitext.include_microphone } };
+    case "toggle_unitext_mute_sync":
+      return { ...settings, unitext: { ...settings.unitext, mute_sync_enabled: !settings.unitext.mute_sync_enabled } };
+    case "toggle_unitext_include_speaker":
+      return { ...settings, unitext: { ...settings.unitext, include_speaker: !settings.unitext.include_speaker } };
+    case "toggle_unitext_preserve_original":
+      return { ...settings, unitext: { ...settings.unitext, preserve_original_text: !settings.unitext.preserve_original_text } };
     case "toggle_master":
       return patchVrOverlay(settings, { enabled: !settings.vr_overlay.enabled });
     case "toggle_headset":

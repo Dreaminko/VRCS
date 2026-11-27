@@ -62,7 +62,7 @@ function App() {
     networkVisible: workspace.capture.networkCaptureVisible,
     networkRunning: workspace.runtime.health?.network_capture_requested ?? false,
     networkAvailable: networkAvailable && !workspace.capture.networkPending && (Boolean(workspace.runtime.health?.network_capture_requested) || workspace.capture.networkAvailable),
-  }, workspace.playerDisplay, vrSceneCapture);
+  }, workspace.playerDisplay, vrSceneCapture, workspace.providers.catalog.providerDefinitions);
 
   useEffect(() => {
     const preventBrowserContextMenu = (event: MouseEvent) => event.preventDefault();

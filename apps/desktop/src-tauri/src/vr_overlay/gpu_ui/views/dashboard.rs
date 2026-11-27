@@ -1355,7 +1355,6 @@ pub fn render_dashboard(
             },
         );
         let ptitle = match picker {
-            DashboardPicker::Recognition => labels.recognition_language.clone(),
             DashboardPicker::Mode => labels.translation_mode.clone(),
             DashboardPicker::Target { group, index } => format!(
                 "{} · #{}",
@@ -1540,6 +1539,587 @@ pub fn render_dashboard(
                 },
                 &mut region_seq,
             );
+            let fsz = if compact { 22.0 } else { 20.0 };
+            ui.add_text(
+                btn,
+                &opt.label,
+                Style {
+                    flex_grow: 1.0,
+                    min_size: Size {
+                        width: length(0.0),
+                        height: auto(),
+                    },
+                    ..Default::default()
+                },
+                TextStyle {
+                    font_size: fsz,
+                    line_height: (fsz * 1.25f32).round(),
+                    max_lines: Some(2),
+                    color: fg,
+                    ..Default::default()
+                },
+            );
+            if selected {
+                ui.add_icon(btn, IconId::Check, 22.0, 1.9, fg);
+            }
+        }
+    } else if let Some(group) = dash_ui.recognition_editor {
+        let choice = view.language.recognition(group);
+        let card = ui.add_box(
+            main,
+            Style {
+                flex_grow: 1.0,
+                min_size: Size {
+                    width: length(0.0),
+                    height: length(0.0),
+                },
+                flex_direction: FlexDirection::Column,
+                gap: Size {
+                    width: length(0.0),
+                    height: length(12.0),
+                },
+                padding: Rect {
+                    left: length(22.0),
+                    right: length(22.0),
+                    top: length(18.0),
+                    bottom: length(18.0),
+                },
+                ..Default::default()
+            },
+            BoxPaint::new()
+                .bg(theme.surface)
+                .border(2.0, theme.border)
+                .radius(20.0),
+        );
+        let rhead = ui.add_box(
+            card,
+            Style {
+                flex_direction: FlexDirection::Row,
+                align_items: Some(AlignItems::Center),
+                gap: Size {
+                    width: length(12.0),
+                    height: length(0.0),
+                },
+                ..Default::default()
+            },
+            BoxPaint::new(),
+        );
+        let (bbtn, bfg) = add_btn(
+            ui,
+            rhead,
+            DashboardCommand::Close,
+            Style {
+                min_size: Size {
+                    width: length(0.0),
+                    height: length(52.0),
+                },
+                flex_direction: FlexDirection::Row,
+                align_items: Some(AlignItems::Center),
+                gap: Size {
+                    width: length(10.0),
+                    height: length(0.0),
+                },
+                padding: Rect {
+                    left: length(14.0),
+                    right: length(18.0),
+                    top: length(8.0),
+                    bottom: length(8.0),
+                },
+                ..Default::default()
+            },
+            BtnOpts::default(),
+            &mut region_seq,
+        );
+        ui.add_icon(bbtn, IconId::ChevronLeft, 22.0, 1.9, bfg);
+        ui.add_text(
+            bbtn,
+            if labels.back.is_empty() {
+                &labels.close
+            } else {
+                &labels.back
+            },
+            Style::default(),
+            single_line_style(20.0, 400, bfg, Align::Center),
+        );
+        let rtitle_box = ui.add_box(
+            rhead,
+            Style {
+                flex_grow: 1.0,
+                min_size: Size {
+                    width: length(0.0),
+                    height: auto(),
+                },
+                flex_direction: FlexDirection::Row,
+                align_items: Some(AlignItems::Center),
+                gap: Size {
+                    width: length(10.0),
+                    height: length(0.0),
+                },
+                ..Default::default()
+            },
+            BoxPaint::new(),
+        );
+        ui.add_icon(
+            rtitle_box,
+            if group == TargetGroup::Microphone {
+                IconId::Mic
+            } else {
+                IconId::Volume2
+            },
+            24.0,
+            1.9,
+            theme.primary_ink,
+        );
+        let rtitle = match group {
+            TargetGroup::Microphone if !labels.microphone_recognition_language.is_empty() => {
+                &labels.microphone_recognition_language
+            }
+            TargetGroup::Speaker if !labels.speaker_recognition_language.is_empty() => {
+                &labels.speaker_recognition_language
+            }
+            _ => &labels.recognition_language,
+        };
+        ui.add_text(
+            rtitle_box,
+            rtitle,
+            Style {
+                flex_shrink: 1.0,
+                min_size: Size {
+                    width: length(0.0),
+                    height: auto(),
+                },
+                ..Default::default()
+            },
+            single_line_style(22.0, 600, theme.text, Align::Left),
+        );
+        let count_pill = ui.add_box(
+            rtitle_box,
+            Style {
+                padding: Rect {
+                    left: length(12.0),
+                    right: length(12.0),
+                    top: length(4.0),
+                    bottom: length(4.0),
+                },
+                ..Default::default()
+            },
+            BoxPaint::new()
+                .bg(theme.surface_subtle)
+                .border(1.0, theme.border)
+                .radius(999.0),
+        );
+        ui.add_text(
+            count_pill,
+            format!("{} / {}", choice.selected.len(), choice.max_selected),
+            Style::default(),
+            single_line_style(15.0, 600, theme.text_secondary, Align::Center),
+        );
+        let auto_lbl = if labels.recognition_auto.is_empty() {
+            "Auto"
+        } else {
+            &labels.recognition_auto
+        };
+        let (abtn, afg) = add_btn(
+            ui,
+            rhead,
+            DashboardCommand::Action(DashboardAction::ClearRecognitionLanguages(group)),
+            Style {
+                min_size: Size {
+                    width: length(0.0),
+                    height: length(52.0),
+                },
+                flex_direction: FlexDirection::Row,
+                align_items: Some(AlignItems::Center),
+                gap: Size {
+                    width: length(8.0),
+                    height: length(0.0),
+                },
+                padding: Rect {
+                    left: length(16.0),
+                    right: length(16.0),
+                    top: length(8.0),
+                    bottom: length(8.0),
+                },
+                ..Default::default()
+            },
+            BtnOpts {
+                active: choice.selected.is_empty(),
+                disabled: choice.selected.is_empty() || choice.options.is_empty(),
+                ..Default::default()
+            },
+            &mut region_seq,
+        );
+        ui.add_icon(abtn, IconId::RotateCcw, 20.0, 1.9, afg);
+        ui.add_text(
+            abtn,
+            auto_lbl,
+            Style::default(),
+            single_line_style(18.0, 600, afg, Align::Center),
+        );
+
+        let selected_strip = ui.add_box(
+            card,
+            Style {
+                min_size: Size {
+                    width: length(0.0),
+                    height: length(64.0),
+                },
+                flex_direction: FlexDirection::Row,
+                align_items: Some(AlignItems::Center),
+                padding: Rect {
+                    left: length(12.0),
+                    right: length(12.0),
+                    top: length(8.0),
+                    bottom: length(8.0),
+                },
+                ..Default::default()
+            },
+            BoxPaint::new()
+                .bg(theme.surface_subtle)
+                .border(1.0, theme.border)
+                .radius(14.0),
+        );
+        if choice.selected.is_empty() {
+            ui.add_text(
+                selected_strip,
+                auto_lbl,
+                Style {
+                    flex_grow: 1.0,
+                    ..Default::default()
+                },
+                single_line_style(18.0, 400, theme.text_secondary, Align::Left),
+            );
+        } else {
+            let chip_grid = ui.add_box(
+                selected_strip,
+                Style {
+                    flex_grow: 1.0,
+                    display: Display::Grid,
+                    grid_template_columns: vec![minmax(length(0.0), fr(1.0_f32)); 4],
+                    gap: Size {
+                        width: length(10.0),
+                        height: length(0.0),
+                    },
+                    ..Default::default()
+                },
+                BoxPaint::new(),
+            );
+            for (index, item) in choice.selected.iter().enumerate() {
+                let chip = ui.add_box(
+                    chip_grid,
+                    Style {
+                        min_size: Size {
+                            width: length(0.0),
+                            height: length(46.0),
+                        },
+                        flex_direction: FlexDirection::Row,
+                        align_items: Some(AlignItems::Center),
+                        gap: Size {
+                            width: length(6.0),
+                            height: length(0.0),
+                        },
+                        padding: Rect {
+                            left: length(8.0),
+                            right: length(6.0),
+                            top: length(4.0),
+                            bottom: length(4.0),
+                        },
+                        ..Default::default()
+                    },
+                    BoxPaint::new()
+                        .bg(theme.surface)
+                        .border(1.0, theme.border)
+                        .radius(12.0),
+                );
+                let rank = ui.add_box(
+                    chip,
+                    Style {
+                        min_size: Size {
+                            width: length(24.0),
+                            height: auto(),
+                        },
+                        padding: Rect {
+                            left: length(7.0),
+                            right: length(7.0),
+                            top: length(2.0),
+                            bottom: length(2.0),
+                        },
+                        ..Default::default()
+                    },
+                    BoxPaint::new()
+                        .bg(if index == 0 {
+                            theme.primary_soft
+                        } else {
+                            theme.surface_subtle
+                        })
+                        .radius(999.0),
+                );
+                ui.add_text(
+                    rank,
+                    (index + 1).to_string(),
+                    Style::default(),
+                    single_line_style(
+                        14.0,
+                        600,
+                        if index == 0 {
+                            theme.primary_ink
+                        } else {
+                            theme.text_secondary
+                        },
+                        Align::Center,
+                    ),
+                );
+                ui.add_text(
+                    chip,
+                    &item.label,
+                    Style {
+                        flex_grow: 1.0,
+                        min_size: Size {
+                            width: length(0.0),
+                            height: auto(),
+                        },
+                        ..Default::default()
+                    },
+                    single_line_style(17.0, 600, theme.text, Align::Left),
+                );
+                if index > 0 {
+                    let can_prio = item.can_prioritize
+                        || choice.options.iter().any(|opt| opt.value == item.value);
+                    let (pb, pfg) = add_btn(
+                        ui,
+                        chip,
+                        DashboardCommand::Action(DashboardAction::PrioritizeRecognitionLanguage {
+                            group,
+                            index,
+                        }),
+                        Style {
+                            size: Size {
+                                width: length(34.0),
+                                height: length(34.0),
+                            },
+                            align_items: Some(AlignItems::Center),
+                            justify_content: Some(JustifyContent::Center),
+                            ..Default::default()
+                        },
+                        BtnOpts {
+                            icon: true,
+                            disabled: !can_prio,
+                            ..Default::default()
+                        },
+                        &mut region_seq,
+                    );
+                    ui.add_icon(pb, IconId::ArrowUp, 18.0, 1.9, pfg);
+                }
+                let (rb, rfg) = add_btn(
+                    ui,
+                    chip,
+                    DashboardCommand::Action(DashboardAction::ToggleRecognitionLanguage {
+                        group,
+                        value: item.value.clone(),
+                    }),
+                    Style {
+                        size: Size {
+                            width: length(34.0),
+                            height: length(34.0),
+                        },
+                        align_items: Some(AlignItems::Center),
+                        justify_content: Some(JustifyContent::Center),
+                        ..Default::default()
+                    },
+                    BtnOpts {
+                        icon: true,
+                        ..Default::default()
+                    },
+                    &mut region_seq,
+                );
+                ui.add_icon(rb, IconId::X, 18.0, 1.9, rfg);
+            }
+        }
+
+        if let Some(note) = choice.note.as_deref().filter(|s| !s.is_empty()) {
+            let warn = choice.note_is_warning;
+            let nbox = ui.add_box(
+                card,
+                Style {
+                    flex_direction: FlexDirection::Row,
+                    align_items: Some(AlignItems::Center),
+                    gap: Size {
+                        width: length(10.0),
+                        height: length(0.0),
+                    },
+                    padding: Rect {
+                        left: length(14.0),
+                        right: length(14.0),
+                        top: length(8.0),
+                        bottom: length(8.0),
+                    },
+                    ..Default::default()
+                },
+                BoxPaint::new()
+                    .bg(if warn {
+                        theme.error_soft
+                    } else {
+                        theme.surface_subtle
+                    })
+                    .border(
+                        1.0,
+                        if warn {
+                            theme.error_border
+                        } else {
+                            theme.border
+                        },
+                    )
+                    .radius(14.0),
+            );
+            ui.add_icon(
+                nbox,
+                if warn {
+                    IconId::TriangleAlert
+                } else {
+                    IconId::Info
+                },
+                20.0,
+                1.9,
+                if warn {
+                    theme.error
+                } else {
+                    theme.text_secondary
+                },
+            );
+            ui.add_text(
+                nbox,
+                note,
+                Style {
+                    flex_grow: 1.0,
+                    min_size: Size {
+                        width: length(0.0),
+                        height: auto(),
+                    },
+                    ..Default::default()
+                },
+                text_style(
+                    16.0,
+                    400,
+                    if warn {
+                        theme.error
+                    } else {
+                        theme.text_secondary
+                    },
+                ),
+            );
+        }
+
+        let compact = choice.options.len() <= 6;
+        let single_col = compact && choice.options.len() <= 3;
+        let cols = if single_col {
+            1
+        } else if compact {
+            2
+        } else {
+            3
+        };
+        let grid_style = if compact {
+            Style {
+                flex_grow: 1.0,
+                size: Size {
+                    width: percent(1.0),
+                    height: auto(),
+                },
+                max_size: Size {
+                    width: length(if single_col { 620.0 } else { 920.0 }),
+                    height: auto(),
+                },
+                align_self: Some(AlignSelf::Center),
+                justify_content: Some(JustifyContent::Center),
+                display: Display::Grid,
+                grid_template_columns: vec![minmax(length(0.0), fr(1.0_f32)); cols],
+                gap: Size {
+                    width: length(16.0),
+                    height: length(12.0),
+                },
+                ..Default::default()
+            }
+        } else {
+            let rows = choice.options.len().div_ceil(3).max(1);
+            Style {
+                flex_grow: 1.0,
+                min_size: Size {
+                    width: length(0.0),
+                    height: length(0.0),
+                },
+                display: Display::Grid,
+                grid_template_columns: vec![minmax(length(0.0), fr(1.0_f32)); 3],
+                grid_template_rows: vec![minmax(length(0.0), fr(1.0_f32)); rows],
+                gap: Size {
+                    width: length(16.0),
+                    height: length(10.0),
+                },
+                ..Default::default()
+            }
+        };
+        let grid = ui.add_box(card, grid_style, BoxPaint::new());
+        let at_limit = choice.selected.len() >= choice.max_selected;
+        for opt in &choice.options {
+            let selected_pos = choice.selected.iter().position(|s| s.value == opt.value);
+            let selected = selected_pos.is_some();
+            let (btn, fg) = add_btn(
+                ui,
+                grid,
+                DashboardCommand::Action(DashboardAction::ToggleRecognitionLanguage {
+                    group,
+                    value: opt.value.clone(),
+                }),
+                Style {
+                    min_size: Size {
+                        width: length(0.0),
+                        height: length(if compact { 76.0 } else { 0.0 }),
+                    },
+                    flex_direction: FlexDirection::Row,
+                    align_items: Some(AlignItems::Center),
+                    gap: Size {
+                        width: length(10.0),
+                        height: length(0.0),
+                    },
+                    padding: Rect {
+                        left: length(16.0),
+                        right: length(16.0),
+                        top: length(8.0),
+                        bottom: length(8.0),
+                    },
+                    ..Default::default()
+                },
+                BtnOpts {
+                    active: selected,
+                    disabled: !selected && at_limit,
+                    ..Default::default()
+                },
+                &mut region_seq,
+            );
+            if let Some(pos) = selected_pos {
+                let badge = ui.add_box(
+                    btn,
+                    Style {
+                        min_size: Size {
+                            width: length(26.0),
+                            height: auto(),
+                        },
+                        padding: Rect {
+                            left: length(8.0),
+                            right: length(8.0),
+                            top: length(2.0),
+                            bottom: length(2.0),
+                        },
+                        ..Default::default()
+                    },
+                    BoxPaint::new().bg(theme.surface).radius(999.0),
+                );
+                ui.add_text(
+                    badge,
+                    (pos + 1).to_string(),
+                    Style::default(),
+                    single_line_style(14.0, 600, theme.primary_ink, Align::Center),
+                );
+            }
             let fsz = if compact { 22.0 } else { 20.0 };
             ui.add_text(
                 btn,
@@ -2638,6 +3218,7 @@ pub fn render_dashboard(
                         tools,
                         Style {
                             flex_direction: FlexDirection::Row,
+                            align_items: Some(AlignItems::Center),
                             gap: Size {
                                 width: length(10.0),
                                 height: length(0.0),
@@ -2669,13 +3250,8 @@ pub fn render_dashboard(
                         );
                     }
                     if view.vision_available {
-                        let sub = if !view.vision.enabled && !view.vision.configured {
-                            Some(labels.vision_unconfigured.as_str())
-                        } else if !view.vision.model.is_empty() {
-                            Some(view.vision.model.as_str())
-                        } else {
-                            None
-                        };
+                        let sub = (!view.vision.enabled && !view.vision.configured)
+                            .then_some(labels.vision_unconfigured.as_str());
                         add_toggle_row(
                             ui,
                             tgrid,
@@ -2687,29 +3263,36 @@ pub fn render_dashboard(
                             &mut region_seq,
                         );
                     }
+                    ui.add_box(
+                        tgrid,
+                        Style {
+                            flex_grow: 1.0,
+                            ..Default::default()
+                        },
+                        BoxPaint::new(),
+                    );
                     let (bbtn, bfg) = add_btn(
                         ui,
                         tgrid,
                         DashboardCommand::Action(DashboardAction::OpenOcrBindings),
                         Style {
-                            flex_grow: 1.0,
-                            flex_basis: length(0.0),
-                            min_size: Size {
-                                width: length(0.0),
-                                height: length(68.0),
+                            size: Size {
+                                width: auto(),
+                                height: length(52.0),
                             },
+                            flex_shrink: 0.0,
                             flex_direction: FlexDirection::Row,
                             align_items: Some(AlignItems::Center),
-                            justify_content: Some(JustifyContent::FlexStart),
+                            justify_content: Some(JustifyContent::Center),
                             gap: Size {
-                                width: length(10.0),
+                                width: length(8.0),
                                 height: length(0.0),
                             },
                             padding: Rect {
-                                left: length(18.0),
-                                right: length(18.0),
-                                top: length(10.0),
-                                bottom: length(10.0),
+                                left: length(16.0),
+                                right: length(14.0),
+                                top: length(8.0),
+                                bottom: length(8.0),
                             },
                             ..Default::default()
                         },
@@ -2720,21 +3303,14 @@ pub fn render_dashboard(
                         },
                         &mut region_seq,
                     );
-                    ui.add_icon(bbtn, IconId::Settings2, 22.0, 1.9, bfg);
+                    ui.add_icon(bbtn, IconId::Settings2, 20.0, 1.9, bfg);
                     ui.add_text(
                         bbtn,
                         &labels.bindings,
-                        Style {
-                            flex_grow: 1.0,
-                            min_size: Size {
-                                width: length(0.0),
-                                height: auto(),
-                            },
-                            ..Default::default()
-                        },
+                        Style::default(),
                         single_line_style(18.0, 400, bfg, Align::Left),
                     );
-                    ui.add_icon(bbtn, IconId::ChevronRight, 22.0, 1.9, bfg);
+                    ui.add_icon(bbtn, IconId::ChevronRight, 20.0, 1.9, bfg);
                 }
             }
             DashboardPage::Language => {
@@ -2742,66 +3318,101 @@ pub fn render_dashboard(
                     main,
                     Style {
                         display: Display::Grid,
-                        grid_template_columns: vec![minmax(length(0.0), fr(1.0_f32)); 2],
+                        grid_template_columns: vec![minmax(length(0.0), fr(1.0_f32)); 3],
                         gap: Size {
-                            width: length(16.0),
+                            width: length(14.0),
                             height: length(0.0),
                         },
                         ..Default::default()
                     },
                     BoxPaint::new(),
                 );
-                for (picker, icon, lbl, choice, note) in [
+                let locked_note = (!labels.recognition_locked.is_empty())
+                    .then_some(labels.recognition_locked.as_str());
+                let mic_rec_lbl = if labels.microphone_recognition_language.is_empty() {
+                    &labels.recognition_language
+                } else {
+                    &labels.microphone_recognition_language
+                };
+                let spk_rec_lbl = if labels.speaker_recognition_language.is_empty() {
+                    &labels.recognition_language
+                } else {
+                    &labels.speaker_recognition_language
+                };
+                for (cmd, icon, lbl, val, disabled, note) in [
                     (
-                        DashboardPicker::Recognition,
+                        DashboardCommand::Recognition(TargetGroup::Microphone),
                         IconId::Mic,
-                        &labels.recognition_language,
-                        &view.language.recognition,
-                        (view.language.recognition.options.is_empty()
-                            && !labels.recognition_locked.is_empty())
-                        .then_some(labels.recognition_locked.as_str()),
+                        mic_rec_lbl,
+                        &view.language.microphone_recognition.summary,
+                        view.language.microphone_recognition.options.is_empty(),
+                        view.language
+                            .microphone_recognition
+                            .options
+                            .is_empty()
+                            .then_some(locked_note)
+                            .flatten(),
                     ),
                     (
-                        DashboardPicker::Mode,
+                        DashboardCommand::Recognition(TargetGroup::Speaker),
+                        IconId::Volume2,
+                        spk_rec_lbl,
+                        &view.language.speaker_recognition.summary,
+                        view.language.speaker_recognition.options.is_empty(),
+                        view.language
+                            .speaker_recognition
+                            .options
+                            .is_empty()
+                            .then_some(locked_note)
+                            .flatten(),
+                    ),
+                    (
+                        DashboardCommand::Picker(DashboardPicker::Mode),
                         IconId::SlidersHorizontal,
                         &labels.translation_mode,
-                        &view.language.mode,
+                        &view.language.mode.value,
+                        view.language.mode.options.is_empty(),
                         None,
                     ),
                 ] {
                     let (btn, fg) = add_btn(
                         ui,
                         lhead,
-                        DashboardCommand::Picker(picker),
+                        cmd,
                         Style {
                             min_size: Size {
                                 width: length(0.0),
-                                height: length(68.0),
+                                height: length(74.0),
                             },
                             flex_direction: FlexDirection::Row,
                             align_items: Some(AlignItems::Center),
                             gap: Size {
-                                width: length(14.0),
+                                width: length(12.0),
                                 height: length(0.0),
                             },
                             padding: Rect {
-                                left: length(20.0),
-                                right: length(20.0),
-                                top: length(12.0),
-                                bottom: length(12.0),
+                                left: length(16.0),
+                                right: length(16.0),
+                                top: length(10.0),
+                                bottom: length(10.0),
                             },
                             ..Default::default()
                         },
                         BtnOpts {
-                            disabled: choice.options.is_empty(),
+                            disabled,
                             ..Default::default()
                         },
                         &mut region_seq,
                     );
-                    ui.add_icon(btn, icon, 24.0, 1.9, theme.primary_ink);
+                    ui.add_icon(btn, icon, 22.0, 1.9, theme.primary_ink);
                     let copy = ui.add_box(
                         btn,
                         Style {
+                            flex_grow: 1.0,
+                            min_size: Size {
+                                width: length(0.0),
+                                height: auto(),
+                            },
                             flex_direction: FlexDirection::Column,
                             gap: Size {
                                 width: length(0.0),
@@ -2815,30 +3426,23 @@ pub fn render_dashboard(
                         copy,
                         lbl,
                         Style::default(),
-                        single_line_style(20.0, 400, fg, Align::Left),
+                        single_line_style(15.0, 400, theme.text_secondary, Align::Left),
+                    );
+                    ui.add_text(
+                        copy,
+                        val,
+                        Style::default(),
+                        single_line_style(19.0, 600, fg, Align::Left),
                     );
                     if let Some(n) = note {
                         ui.add_text(
                             copy,
                             n,
                             Style::default(),
-                            single_line_style(15.0, 400, theme.text_secondary, Align::Left),
+                            single_line_style(13.0, 400, theme.text_secondary, Align::Left),
                         );
                     }
-                    ui.add_text(
-                        btn,
-                        &choice.value,
-                        Style {
-                            flex_grow: 1.0,
-                            min_size: Size {
-                                width: length(0.0),
-                                height: auto(),
-                            },
-                            ..Default::default()
-                        },
-                        single_line_style(20.0, 600, fg, Align::Right),
-                    );
-                    ui.add_icon(btn, IconId::ChevronRight, 22.0, 1.9, fg);
+                    ui.add_icon(btn, IconId::ChevronRight, 20.0, 1.9, fg);
                 }
 
                 let trans_off = view.language.mode.options.iter().any(|o| {
@@ -3394,13 +3998,13 @@ pub fn render_dashboard(
                         flex_direction: FlexDirection::Column,
                         gap: Size {
                             width: length(0.0),
-                            height: length(16.0),
+                            height: length(10.0),
                         },
                         padding: Rect {
-                            left: length(24.0),
-                            right: length(24.0),
-                            top: length(20.0),
-                            bottom: length(20.0),
+                            left: length(22.0),
+                            right: length(22.0),
+                            top: length(14.0),
+                            bottom: length(14.0),
                         },
                         ..Default::default()
                     },
@@ -3429,7 +4033,11 @@ pub fn render_dashboard(
                 ui.add_icon(chead, IconId::Radio, 24.0, 1.9, theme.primary_ink);
                 ui.add_text(
                     chead,
-                    &labels.osc_tab,
+                    if labels.osc_title.is_empty() {
+                        &labels.osc_tab
+                    } else {
+                        &labels.osc_title
+                    },
                     Style {
                         flex_grow: 1.0,
                         min_size: Size {
@@ -3482,7 +4090,7 @@ pub fn render_dashboard(
                         flex_direction: FlexDirection::Column,
                         gap: Size {
                             width: length(0.0),
-                            height: length(16.0),
+                            height: length(10.0),
                         },
                         ..Default::default()
                     },
@@ -3524,16 +4132,8 @@ pub fn render_dashboard(
                 ui.add_text(
                     obody,
                     &labels.osc_strategy,
-                    Style {
-                        margin: Rect {
-                            top: length(2.0),
-                            left: length(0.0),
-                            right: length(0.0),
-                            bottom: length(0.0),
-                        },
-                        ..Default::default()
-                    },
-                    single_line_style(20.0, 600, theme.text, Align::Left),
+                    Style::default(),
+                    single_line_style(18.0, 600, theme.text, Align::Left),
                 );
                 add_segments(
                     ui,
@@ -3549,10 +4149,10 @@ pub fn render_dashboard(
                     obody,
                     Style {
                         padding: Rect {
-                            left: length(16.0),
-                            right: length(16.0),
-                            top: length(12.0),
-                            bottom: length(12.0),
+                            left: length(14.0),
+                            right: length(14.0),
+                            top: length(8.0),
+                            bottom: length(8.0),
                         },
                         ..Default::default()
                     },
@@ -3571,7 +4171,223 @@ pub fn render_dashboard(
                         },
                         ..Default::default()
                     },
-                    text_style(18.0, 400, theme.text_secondary),
+                    text_style(16.0, 400, theme.text_secondary),
+                );
+
+                // UniText card.
+                let ucard = ui.add_box(
+                    main,
+                    Style {
+                        flex_direction: FlexDirection::Column,
+                        gap: Size {
+                            width: length(0.0),
+                            height: length(10.0),
+                        },
+                        padding: Rect {
+                            left: length(22.0),
+                            right: length(22.0),
+                            top: length(14.0),
+                            bottom: length(14.0),
+                        },
+                        ..Default::default()
+                    },
+                    BoxPaint::new()
+                        .bg(theme.surface)
+                        .border(2.0, theme.border)
+                        .radius(20.0),
+                );
+                let uhead = ui.add_box(
+                    ucard,
+                    Style {
+                        min_size: Size {
+                            width: length(0.0),
+                            height: length(44.0),
+                        },
+                        flex_direction: FlexDirection::Row,
+                        align_items: Some(AlignItems::Center),
+                        gap: Size {
+                            width: length(12.0),
+                            height: length(0.0),
+                        },
+                        ..Default::default()
+                    },
+                    BoxPaint::new(),
+                );
+                ui.add_icon(uhead, IconId::Monitor, 24.0, 1.9, theme.primary_ink);
+                ui.add_text(
+                    uhead,
+                    if labels.unitext_title.is_empty() {
+                        "UniText"
+                    } else {
+                        &labels.unitext_title
+                    },
+                    Style {
+                        flex_grow: 1.0,
+                        min_size: Size {
+                            width: length(0.0),
+                            height: auto(),
+                        },
+                        ..Default::default()
+                    },
+                    single_line_style(22.0, 600, theme.text, Align::Left),
+                );
+                if !view.unitext.endpoint.is_empty() {
+                    let uep = ui.add_box(
+                        uhead,
+                        Style {
+                            padding: Rect {
+                                left: length(12.0),
+                                right: length(12.0),
+                                top: length(4.0),
+                                bottom: length(4.0),
+                            },
+                            ..Default::default()
+                        },
+                        BoxPaint::new()
+                            .bg(theme.surface_subtle)
+                            .border(1.0, theme.border)
+                            .radius(999.0),
+                    );
+                    ui.add_text(
+                        uep,
+                        &view.unitext.endpoint,
+                        Style::default(),
+                        crate::vr_overlay::gpu_ui::text::TextStyle {
+                            mono: true,
+                            ..single_line_style(15.0, 600, theme.text_secondary, Align::Center)
+                        },
+                    );
+                }
+                add_toggle_row(
+                    ui,
+                    uhead,
+                    DashboardAction::ToggleUnitext,
+                    "",
+                    view.unitext.enabled,
+                    !view.unitext.enabled && view.unitext.port_conflict,
+                    None,
+                    &mut region_seq,
+                );
+
+                if view.unitext.port_conflict && !labels.unitext_port_conflict.is_empty() {
+                    let conflict = ui.add_box(
+                        ucard,
+                        Style {
+                            min_size: Size {
+                                width: length(0.0),
+                                height: length(40.0),
+                            },
+                            flex_direction: FlexDirection::Row,
+                            align_items: Some(AlignItems::Center),
+                            gap: Size {
+                                width: length(10.0),
+                                height: length(0.0),
+                            },
+                            padding: Rect {
+                                left: length(14.0),
+                                right: length(14.0),
+                                top: length(6.0),
+                                bottom: length(6.0),
+                            },
+                            ..Default::default()
+                        },
+                        BoxPaint::new()
+                            .bg(theme.error_soft)
+                            .border(1.0, theme.error_border)
+                            .radius(14.0),
+                    );
+                    ui.add_icon(conflict, IconId::TriangleAlert, 20.0, 1.9, theme.error);
+                    ui.add_text(
+                        conflict,
+                        &labels.unitext_port_conflict,
+                        Style {
+                            flex_grow: 1.0,
+                            min_size: Size {
+                                width: length(0.0),
+                                height: auto(),
+                            },
+                            ..Default::default()
+                        },
+                        single_line_style(16.0, 400, theme.error, Align::Left),
+                    );
+                }
+
+                let ubody = ui.add_box(
+                    ucard,
+                    Style {
+                        flex_direction: FlexDirection::Column,
+                        ..Default::default()
+                    },
+                    BoxPaint::new().tap_opacity(if view.unitext.enabled { 1.0 } else { 0.68 }),
+                );
+                let utoggles = ui.add_box(
+                    ubody,
+                    Style {
+                        display: Display::Grid,
+                        grid_template_columns: vec![minmax(length(0.0), fr(1.0_f32)); 2],
+                        gap: Size {
+                            width: length(14.0),
+                            height: length(10.0),
+                        },
+                        ..Default::default()
+                    },
+                    BoxPaint::new(),
+                );
+                add_toggle_row(
+                    ui,
+                    utoggles,
+                    DashboardAction::ToggleUnitextIncludeMicrophone,
+                    if labels.unitext_include_microphone.is_empty() {
+                        "Send my microphone subtitles"
+                    } else {
+                        &labels.unitext_include_microphone
+                    },
+                    view.unitext.include_microphone,
+                    false,
+                    None,
+                    &mut region_seq,
+                );
+                add_toggle_row(
+                    ui,
+                    utoggles,
+                    DashboardAction::ToggleUnitextMuteSync,
+                    if labels.unitext_mute_sync.is_empty() {
+                        "Sync VRChat microphone mute"
+                    } else {
+                        &labels.unitext_mute_sync
+                    },
+                    view.unitext.mute_sync,
+                    false,
+                    None,
+                    &mut region_seq,
+                );
+                add_toggle_row(
+                    ui,
+                    utoggles,
+                    DashboardAction::ToggleUnitextIncludeSpeaker,
+                    if labels.unitext_include_speaker.is_empty() {
+                        "Share others' subtitles"
+                    } else {
+                        &labels.unitext_include_speaker
+                    },
+                    view.unitext.include_speaker,
+                    false,
+                    None,
+                    &mut region_seq,
+                );
+                add_toggle_row(
+                    ui,
+                    utoggles,
+                    DashboardAction::ToggleUnitextPreserveOriginal,
+                    if labels.unitext_preserve_original.is_empty() {
+                        "Keep original text in output"
+                    } else {
+                        &labels.unitext_preserve_original
+                    },
+                    view.unitext.preserve_original,
+                    false,
+                    None,
+                    &mut region_seq,
                 );
             }
         }

@@ -6,7 +6,7 @@ import { applyVrDashboardAction, dashboardLanguageChoices } from "../src/vr-dash
 import { DEFAULT_OCR_SETTINGS, DEFAULT_VR_OVERLAY_SETTINGS } from "../src/settings/vr-overlay-settings.ts";
 import { DEFAULT_VISION_SETTINGS } from "../src/settings/vision-settings.ts";
 import type { Settings } from "../src/settings/types.ts";
-import type { ApiProfileView } from "../src/providers/types.ts";
+import type { ApiProfileView, ProviderDefinition } from "../src/providers/types.ts";
 import { VR_OVERLAY_POSITION_RANGES, type VrOverlayPositionField } from "../src/settings/vr-overlay-settings.ts";
 
 const settings = {
@@ -33,7 +33,7 @@ const settings = {
   unitext: {
     enabled: false, port: 9000, tier: "auto", interval_ms: 150,
     include_microphone: true, include_speaker: true, preserve_original_text: true,
-    mute_sync_enabled: true, clear_after_seconds: 30,
+    show_player_id: true, mute_sync_enabled: true, clear_after_seconds: 30,
   },
   language_presets: [],
   vr_overlay: {
@@ -69,18 +69,76 @@ test("direct display selections preserve other settings and ignore unchanged or 
   assert.equal(applyVrDashboardAction(settings, { set_osc_strategy: "invalid" }), settings);
 });
 
-test("dashboard language selection preserves the recognition engine and rejects invalid values", () => {
-  const next = applyVrDashboardAction(settings, { set_recognition_language: "ja" }, profiles);
-  assert.deepEqual(next.asr.speaker_languages, ["ja"]);
-  assert.deepEqual(next.asr.microphone_languages, ["ja"]);
-  assert.equal(next.asr.managed_qwen, settings.asr.managed_qwen);
-  assert.equal(next.translation, settings.translation);
-  const auto = applyVrDashboardAction(next, { set_recognition_language: "auto" }, profiles);
-  assert.deepEqual(auto.asr.speaker_languages, []);
-  assert.deepEqual(auto.asr.microphone_languages, []);
-  assert.equal(applyVrDashboardAction(settings, { set_recognition_language: "invalid" }, profiles), settings);
-  const live = { ...settings, asr: { ...settings.asr, backend: "gemini_live_translate" } };
-  assert.equal(applyVrDashboardAction(live, { set_recognition_language: "ja" }, profiles), live);
+test("dashboard recognition language selection supports independent ordered lists, provider limits, and clearing", () => {
+  const step1 = applyVrDashboardAction(settings, { toggle_recognition_language: { group: "speaker", value: "ja" } }, profiles);
+  assert.deepEqual(step1.asr.speaker_languages, ["ja"]);
+  assert.deepEqual(step1.asr.microphone_languages, []);
+  assert.equal(step1.asr.managed_qwen, settings.asr.managed_qwen);
+  assert.equal(step1.translation, settings.translation);
+
+  const step2 = applyVrDashboardAction(step1, { toggle_recognition_language: { group: "speaker", value: "en" } }, profiles);
+  const step3 = applyVrDashboardAction(step2, { toggle_recognition_language: { group: "speaker", value: "zh" } }, profiles);
+  const step4 = applyVrDashboardAction(step3, { toggle_recognition_language: { group: "speaker", value: "ko" } }, profiles);
+  assert.deepEqual(step4.asr.speaker_languages, ["ja", "en", "zh", "ko"]);
+  // Max 4 languages enforced.
+  assert.equal(applyVrDashboardAction(step4, { toggle_recognition_language: { group: "speaker", value: "fr" } }, profiles), step4);
+
+  // Prioritize moves target language to first position.
+  const prioritized = applyVrDashboardAction(step4, { prioritize_recognition_language: { group: "speaker", index: 2 } }, profiles);
+  assert.deepEqual(prioritized.asr.speaker_languages, ["zh", "ja", "en", "ko"]);
+  assert.equal(applyVrDashboardAction(prioritized, { prioritize_recognition_language: { group: "speaker", index: 0 } }, profiles), prioritized);
+
+  // Toggle removes an already-selected language; clear resets to auto ([]).
+  const removed = applyVrDashboardAction(prioritized, { toggle_recognition_language: { group: "speaker", value: "en" } }, profiles);
+  assert.deepEqual(removed.asr.speaker_languages, ["zh", "ja", "ko"]);
+  const cleared = applyVrDashboardAction(removed, { clear_recognition_languages: "speaker" }, profiles);
+  assert.deepEqual(cleared.asr.speaker_languages, []);
+  assert.equal(applyVrDashboardAction(cleared, { clear_recognition_languages: "speaker" }, profiles), cleared);
+
+  // Microphone list is independent and rejects invalid codes.
+  const mic = applyVrDashboardAction(cleared, { toggle_recognition_language: { group: "microphone", value: "fr" } }, profiles);
+  assert.deepEqual(mic.asr.microphone_languages, ["fr"]);
+  assert.deepEqual(mic.asr.speaker_languages, []);
+  assert.equal(applyVrDashboardAction(settings, { toggle_recognition_language: { group: "speaker", value: "invalid" } }, profiles), settings);
+
+  // Auto-only backends reject modifications while preserving saved lists.
+  const live = { ...settings, asr: { ...settings.asr, backend: "gemini_live_translate", speaker_languages: ["ja"] } };
+  assert.equal(applyVrDashboardAction(live, { toggle_recognition_language: { group: "speaker", value: "en" } }, profiles), live);
+  assert.equal(applyVrDashboardAction(live, { clear_recognition_languages: "speaker" }, profiles), live);
+
+  // Provider recognition_languages whitelist: allows supported, rejects unsupported add/prioritize, allows removing stale unsupported codes.
+  const mimoProfile = [{
+    id: "mimo-prof",
+    provider: "xiaomi",
+    enabled_capabilities: ["speech_to_text"],
+    capabilities: { supports_translation: false, supported_languages: [] },
+  }] as unknown as ApiProfileView[];
+  const mimoDefs = [{
+    id: "xiaomi",
+    services: [{
+      id: "mimo_transcription",
+      display_name: "MiMo",
+      capabilities: ["speech_to_text"],
+      recognition_language_mode: "single",
+      recognition_languages: ["zh", "en"],
+      models: ["mimo-v2-omni"],
+    }],
+  }] as unknown as ProviderDefinition[];
+  const mimoBase = {
+    ...settings,
+    asr: {
+      ...settings.asr,
+      backend: "mimo_transcription",
+      active_profile_id: "mimo-prof",
+      speaker_languages: ["en", "ja"],
+    },
+  };
+  assert.equal(applyVrDashboardAction(mimoBase, { toggle_recognition_language: { group: "speaker", value: "fr" } }, mimoProfile, mimoDefs), mimoBase);
+  assert.equal(applyVrDashboardAction(mimoBase, { prioritize_recognition_language: { group: "speaker", index: 1 } }, mimoProfile, mimoDefs), mimoBase);
+  const removedStale = applyVrDashboardAction(mimoBase, { toggle_recognition_language: { group: "speaker", value: "ja" } }, mimoProfile, mimoDefs);
+  assert.deepEqual(removedStale.asr.speaker_languages, ["en"]);
+  const addedSupported = applyVrDashboardAction(removedStale, { toggle_recognition_language: { group: "speaker", value: "zh" } }, mimoProfile, mimoDefs);
+  assert.deepEqual(addedSupported.asr.speaker_languages, ["en", "zh"]);
 });
 
 test("dashboard translation selection changes only the first route and respects provider languages", () => {
@@ -361,10 +419,51 @@ test("dashboard OCR actions cannot bypass the master switch", () => {
   assert.notEqual(applyVrDashboardAction(disabled, "toggle_headset"), disabled);
 });
 
+test("dashboard UniText toggles preserve unrelated settings and block enabling on OSC inbound port conflict", () => {
+  const fields = [
+    ["toggle_unitext", "enabled"],
+    ["toggle_unitext_include_microphone", "include_microphone"],
+    ["toggle_unitext_mute_sync", "mute_sync_enabled"],
+    ["toggle_unitext_include_speaker", "include_speaker"],
+    ["toggle_unitext_preserve_original", "preserve_original_text"],
+  ] as const;
+  for (const [action, key] of fields) {
+    const next = applyVrDashboardAction(settings, action);
+    assert.deepEqual(next.unitext, { ...settings.unitext, [key]: !settings.unitext[key] });
+    assert.equal(next.osc, settings.osc);
+    assert.equal(next.vr_overlay, settings.vr_overlay);
+  }
+
+  const conflictInboundPort = {
+    ...settings,
+    osc: {
+      ...settings.osc,
+      inbound: { enabled: true, port: 9000, intercept_chatbox_input: true, forward_unmatched: true },
+    },
+  } as unknown as Settings;
+  assert.equal(applyVrDashboardAction(conflictInboundPort, "toggle_unitext"), conflictInboundPort);
+
+  const conflict9001 = {
+    ...settings,
+    osc: {
+      ...settings.osc,
+      inbound: { enabled: true, port: 9001, intercept_chatbox_input: true, forward_unmatched: true },
+    },
+  } as unknown as Settings;
+  assert.equal(applyVrDashboardAction(conflict9001, "toggle_unitext"), conflict9001);
+
+  const alreadyEnabledWithConflict = {
+    ...conflictInboundPort,
+    unitext: { ...settings.unitext, enabled: true },
+  };
+  assert.equal(applyVrDashboardAction(alreadyEnabledWithConflict, "toggle_unitext").unitext.enabled, false);
+});
+
 test("dashboard actions cannot reactivate unavailable modules", () => {
   const disabledVr = { ...settings, features: { ...settings.features, vr_overlay: false } };
   assert.equal(applyVrDashboardAction(disabledVr, "toggle_master"), disabledVr);
-  assert.equal(applyVrDashboardAction(disabledVr, { set_recognition_language: "en" }), disabledVr);
+  assert.equal(applyVrDashboardAction(disabledVr, { toggle_recognition_language: { group: "speaker", value: "en" } }), disabledVr);
+  assert.equal(applyVrDashboardAction(disabledVr, "toggle_unitext"), disabledVr);
   const disabledModules = { ...settings, features: { ...settings.features, ocr: false } };
   for (const action of ["toggle_ocr", "toggle_ocr_gesture"] as const) {
     assert.equal(applyVrDashboardAction(disabledModules, action), disabledModules);
