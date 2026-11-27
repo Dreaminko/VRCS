@@ -29,7 +29,7 @@ pub struct WristMessage {
     pub original: Option<CaptionOriginal>,
 }
 
-/// Unformatted source data lets every WebView use the same visibility and
+/// Unformatted source data lets every surface use the same visibility and
 /// language-detection rules, even when the caption shows translations only.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct CaptionOriginal {
@@ -97,7 +97,7 @@ struct PresentationTranslation {
 
 const MAX_TERMINATED_UTTERANCES: usize = 1_024;
 // Keep enough candidates to fill the wrist after filtering, without sending
-// an entire conversation through the WebView on every streaming update.
+// an entire conversation into rendering on every streaming update.
 const MAX_WRIST_CANDIDATES: usize = 128;
 
 #[derive(Default)]
@@ -341,7 +341,7 @@ impl HeadsetPresentation {
                 && fade_opacity(now, item.expires_at, config.fade_seconds).is_some()
         }) {
             // Unlimited candidates are filtered and capped by the shared
-            // WebView policy. Keep older visible languages available as well.
+            // caption visibility policy. Keep older visible languages available as well.
             if self.player_limit == Some(0) {
                 lanes.push((item, None, false));
                 continue;

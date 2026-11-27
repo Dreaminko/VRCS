@@ -5,7 +5,7 @@ import type {
 import type { Settings } from "../settings/types";
 import type { ApiProfileView } from "../providers/types";
 import { supportsTranslation } from "../providers/api-profile-purpose.ts";
-import { liveTranslationServiceName } from "../providers/recognition-services.ts";
+import { ASR_LANGUAGE_CODES, liveTranslationServiceName } from "../providers/recognition-services.ts";
 import {
   PLAMO_LOCAL_MODEL_ID,
   PLAMO_TRANSLATION_LANGUAGE_CODES,
@@ -46,6 +46,7 @@ export type VrDashboardAction =
   | "preview_headset"
   | "toggle_wrist"
   | "toggle_wrist_follow_view"
+  | "toggle_wrist_menu"
   | "cycle_wrist_hand"
   | "cycle_wrist_content"
   | "wrist_width_down"
@@ -77,7 +78,7 @@ export type VrDashboardAction =
   | { adjust_display_appearance: { kind: VrOverlayDisplayKind; field: VrOverlayAppearanceField; direction: number; coarse?: boolean } }
   | { reset_display_position: VrOverlayDisplayKind };
 
-export const RECOGNITION_LANGUAGES: Settings["asr"]["language"][] = ["auto", "en", "ja", "zh", "ko", "es", "fr", "de"];
+export const RECOGNITION_LANGUAGES: string[] = ["auto", ...ASR_LANGUAGE_CODES];
 const TRANSLATION_MODES: Settings["translation"]["mode"][] = ["disabled", "manual", "automatic"];
 const OSC_STRATEGIES: Settings["osc"]["translation_strategy"][] = ["preferred_only", "round_robin", "all_languages"];
 
@@ -90,13 +91,14 @@ export function hasPlamoTranslationConfigured(settings: Settings): boolean {
 
 export function dashboardLanguageChoices(settings: Settings, profiles: ApiProfileView[]) {
   const liveService = liveTranslationServiceName(settings.asr.backend);
+  const autoOnlyRecognition = Boolean(liveService) || settings.asr.backend === "token_plan_realtime";
   const nativeTranslation = Boolean(liveService && settings.translation.mode === "automatic");
   const targetChoices = (key: "speaker_targets" | "microphone_targets") => settings.translation[key].map((target, index) =>
     targetLanguageCodes(target, settings.translation[key].map((item) => item.target_language), profiles.filter(supportsTranslation), index === 0 && nativeTranslation ? settings.asr.backend : undefined));
   const speaker_targets = targetChoices("speaker_targets");
   const microphone_targets = targetChoices("microphone_targets");
   return {
-    recognition: liveService ? [] : RECOGNITION_LANGUAGES,
+    recognition: autoOnlyRecognition ? [] : RECOGNITION_LANGUAGES,
     mode: liveService || hasPlamoTranslationConfigured(settings) || profiles.some(supportsTranslation) ? TRANSLATION_MODES : [],
     speaker_targets, microphone_targets,
   };
@@ -216,9 +218,14 @@ export function applyVrDashboardAction(settings: Settings, action: VrDashboardAc
     }
     const choices = dashboardLanguageChoices(settings, profiles);
     if ("set_recognition_language" in action) {
-      const language = action.set_recognition_language as Settings["asr"]["language"];
-      if (!choices.recognition.includes(language) || settings.asr.language === language) return settings;
-      return { ...settings, asr: { ...settings.asr, language } };
+      const language = action.set_recognition_language;
+      if (!choices.recognition.includes(language)) return settings;
+      const next = language === "auto" ? [] : [language];
+      if (settings.asr.preferred_languages.length === next.length
+        && settings.asr.preferred_languages.every((item, index) => item === next[index])) {
+        return settings;
+      }
+      return { ...settings, asr: { ...settings.asr, preferred_languages: next } };
     }
     if ("set_translation_mode" in action) {
       const mode = action.set_translation_mode as Settings["translation"]["mode"];
@@ -270,6 +277,10 @@ export function applyVrDashboardAction(settings: Settings, action: VrDashboardAc
       });
     case "toggle_wrist":
       return patchVrOverlayWrist(settings, { enabled: !settings.vr_overlay.wrist.enabled });
+    case "toggle_wrist_menu":
+      return patchVrOverlay(settings, {
+        wrist_menu: { ...settings.vr_overlay.wrist_menu, enabled: !settings.vr_overlay.wrist_menu.enabled },
+      });
     case "toggle_wrist_follow_view":
       if (settings.vr_overlay.wrist.anchor_mode !== "world") return settings;
       return patchVrOverlayWrist(settings, { follow_view: !settings.vr_overlay.wrist.follow_view });

@@ -65,7 +65,7 @@ fn request_body(
     if model.is_empty() {
         return Err("A transcription model is required".into());
     }
-    if !providers::MIMO_ASR_LANGUAGES.contains(&language) {
+    if language != "auto" && !providers::MIMO_ASR_LANGUAGES.contains(&language) {
         return Err(format!(
             "Unsupported MiMo recognition language: {language}. Use auto, zh or en."
         ));

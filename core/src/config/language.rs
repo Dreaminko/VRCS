@@ -6,7 +6,8 @@ use super::TranslationTargetConfig;
 pub struct LanguagePreset {
     pub id: String,
     pub name: String,
-    pub recognition_language: String,
+    #[serde(default)]
+    pub recognition_languages: Vec<String>,
     pub translation_mode: String,
     pub speaker_targets: Vec<TranslationTargetConfig>,
     pub microphone_targets: Vec<TranslationTargetConfig>,

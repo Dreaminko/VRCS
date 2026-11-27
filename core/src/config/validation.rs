@@ -21,7 +21,28 @@ impl VadConfig {
     }
 }
 
-const ASR_LANGUAGES: [&str; 8] = ["auto", "en", "ja", "zh", "ko", "es", "fr", "de"];
+pub const ASR_LANGUAGES: [&str; 14] = [
+    "zh", "en", "ja", "ko", "yue", "es", "fr", "de", "ru", "pt", "it", "th", "vi", "id",
+];
+pub const MAX_ASR_PREFERRED_LANGUAGES: usize = 4;
+
+fn validate_asr_language_list(languages: &[String], label: &str) -> Result<(), String> {
+    if languages.len() > MAX_ASR_PREFERRED_LANGUAGES {
+        return Err(format!(
+            "{label} cannot exceed {MAX_ASR_PREFERRED_LANGUAGES} languages"
+        ));
+    }
+    let mut seen = HashSet::new();
+    for language in languages {
+        if !ASR_LANGUAGES.contains(&language.as_str()) {
+            return Err(format!("Unsupported {label}: {language}"));
+        }
+        if !seen.insert(language.as_str()) {
+            return Err(format!("Duplicate {label}: {language}"));
+        }
+    }
+    Ok(())
+}
 
 impl AppConfig {
     /// 配置文件与 PUT /api/settings 共用的完整结构校验。
@@ -472,14 +493,9 @@ fn validate_recognition_options(asr: &AsrConfig) -> Result<(), String> {
     {
         return Err(format!("Unsupported recognition backend: {}", asr.backend));
     }
-    if !ASR_LANGUAGES.contains(&asr.language.as_str()) {
-        return Err(format!(
-            "Unsupported recognition language: {}",
-            asr.language
-        ));
-    }
+    validate_asr_language_list(&asr.preferred_languages, "recognition language")?;
     if let Some((_, service)) = providers::recognition_service(&asr.backend) {
-        providers::validate_recognition_language(service, &asr.language)?;
+        providers::validate_recognition_languages(service, &asr.preferred_languages)?;
     }
     if !asr.managed_qwen.package_id.is_empty()
         && !crate::asr::is_supported_qwen_package(&asr.managed_qwen.package_id)
@@ -984,12 +1000,7 @@ fn validate_language_presets(
                 "Language preset names must be unique and contain 1 to 40 characters".into(),
             );
         }
-        if !ASR_LANGUAGES.contains(&preset.recognition_language.as_str()) {
-            return Err(format!(
-                "Unsupported preset recognition language: {}",
-                preset.recognition_language
-            ));
-        }
+        validate_asr_language_list(&preset.recognition_languages, "preset recognition language")?;
         if !["disabled", "manual", "automatic"].contains(&preset.translation_mode.as_str()) {
             return Err(format!(
                 "Unsupported preset translation mode: {}",

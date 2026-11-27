@@ -59,14 +59,35 @@ fn player_proximity_radius_is_validated_even_when_disabled() {
 fn mimo_recognition_only_accepts_documented_languages_when_selected() {
     let mut config = AppConfig::default();
     config.asr.backend = crate::providers::SERVICE_MIMO_TRANSCRIPTION.into();
-    for language in ["auto", "zh", "en"] {
-        config.asr.language = language.into();
+    for languages in [
+        vec![],
+        vec!["zh".into()],
+        vec!["en".into()],
+        vec!["zh".into(), "ja".into()],
+    ] {
+        config.asr.preferred_languages = languages;
         config.validate_settings().unwrap();
     }
-    config.asr.language = "ja".into();
+    config.asr.preferred_languages = vec!["ja".into()];
     assert!(config.validate_settings().unwrap_err().contains("language"));
     config.asr.backend = crate::providers::SERVICE_QWEN_REALTIME.into();
     config.validate_settings().unwrap();
+}
+
+#[test]
+fn preferred_languages_enforce_bounds_uniqueness_and_supported_codes() {
+    let mut config = AppConfig::default();
+    config.asr.preferred_languages = ["zh", "ja", "en", "yue"].map(str::to_owned).to_vec();
+    config.validate_settings().unwrap();
+
+    config.asr.preferred_languages = ["zh", "ja", "en", "ko", "fr"].map(str::to_owned).to_vec();
+    assert!(config.validate_settings().is_err());
+
+    config.asr.preferred_languages = vec!["zh".into(), "zh".into()];
+    assert!(config.validate_settings().is_err());
+
+    config.asr.preferred_languages = vec!["auto".into()];
+    assert!(config.validate_settings().is_err());
 }
 
 #[test]

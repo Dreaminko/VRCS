@@ -158,7 +158,10 @@ pub(crate) async fn spawn_cloud_recognition_session_with_context(
             if settings.model.trim().is_empty() {
                 return Err(format!("A model is required for service {}", service.id));
             }
-            let language = active_config.language.clone();
+            let language = active_config
+                .primary_language()
+                .unwrap_or("auto")
+                .to_owned();
             Ok(CloudRecognitionSession::Segmented(
                 SegmentedUploadSession::spawn_with_context(
                     profile,
@@ -183,8 +186,9 @@ pub(crate) async fn spawn_managed_qwen_session(
     manager: Arc<ModelManager>,
 ) -> Result<CloudRecognitionSession, String> {
     let connection = prepare_managed_qwen(&config, &runtime, &manager).await?;
+    let language = config.primary_language().unwrap_or("auto").to_owned();
     Ok(CloudRecognitionSession::Segmented(
-        SegmentedUploadSession::spawn_managed_qwen(connection, runtime, config.language),
+        SegmentedUploadSession::spawn_managed_qwen(connection, runtime, language),
     ))
 }
 
@@ -235,7 +239,8 @@ pub async fn test_cloud_service(
         .find(|profile| profile.id == profile_id)
         .ok_or_else(|| "API profile does not exist".to_string())?;
     let resolved = providers::resolve_profile_service(profile, service_id)?;
-    providers::validate_recognition_language(resolved.service, &config.language)?;
+    providers::validate_recognition_languages(resolved.service, &config.preferred_languages)?;
+    let language = config.primary_language().unwrap_or("auto");
     match resolved.service.recognition_transport {
         Some(RecognitionTransport::RealtimeStream) => {
             streaming::test_streaming_connection(config, profile_id, Some(service_id)).await
@@ -259,7 +264,7 @@ pub async fn test_cloud_service(
                     profile,
                     &key,
                     settings,
-                    &config.language,
+                    language,
                     &samples,
                     true,
                 )
@@ -271,7 +276,7 @@ pub async fn test_cloud_service(
                 profile,
                 &key,
                 settings,
-                &config.language,
+                language,
                 &samples,
             )
             .await
@@ -295,7 +300,7 @@ fn active_profile_service(
         .find(|profile| profile.id == active_id)
         .ok_or_else(|| "The active API profile does not exist".to_string())?;
     let resolved = providers::resolve_profile_service(profile, &config.backend)?;
-    providers::validate_recognition_language(resolved.service, &config.language)?;
+    providers::validate_recognition_languages(resolved.service, &config.preferred_languages)?;
     Ok((profile, *resolved.service))
 }
 
@@ -344,7 +349,7 @@ mod tests {
     async fn mimo_rejects_unsupported_languages_before_credentials_or_network_access() {
         let mut config = AsrConfig {
             backend: providers::SERVICE_MIMO_TRANSCRIPTION.into(),
-            language: "ja".into(),
+            preferred_languages: vec!["ja".into()],
             active_profile_id: Some("mimo".into()),
             ..AsrConfig::default()
         };

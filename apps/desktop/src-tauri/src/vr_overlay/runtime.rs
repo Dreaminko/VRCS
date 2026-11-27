@@ -907,7 +907,7 @@ fn worker_loop(
     };
     let (config, ocr_config) = config;
     let (mut headset, mut wrist) = (HeadsetPresentation::default(), WristPresentation::default());
-    // Send uncapped candidates: the WebViews share the desktop visibility
+    // Send uncapped candidates: the overlay UI views share the desktop visibility
     // policy and apply player/history limits after filtering original text.
     headset.set_player_limit(Some(0));
     wrist.set_player_limit(Some(0));
@@ -1233,8 +1233,6 @@ fn worker_loop(
                     state.reset_ui();
                     state.reset_headset();
                     state.reset_dashboard();
-                    #[cfg(any(windows, linux_vr))]
-                    app.state::<super::surface::SurfaceHub>().retry(&app);
                     state.next_reconnect = Instant::now();
                     state.next_probe = Instant::now();
                     state.probe_ready = false;
@@ -1316,14 +1314,7 @@ fn worker_loop(
                 .finish_surfaces(&app, state.backend.as_mut());
             #[cfg(windows)]
             state.ocr.finish_surfaces(&app, state.backend.as_mut());
-            if state.backend.is_some() {
-                state.surfaces_dormant = false;
-            } else if !app
-                .state::<super::surface::SurfaceHub>()
-                .needs_surface_maintenance()
-            {
-                state.surfaces_dormant = true;
-            }
+            state.surfaces_dormant = state.backend.is_none();
         }
         if business {
             #[cfg(windows)]
@@ -1601,6 +1592,10 @@ fn tick(
                 }
                 let kind = backend.kind();
                 state.selected_backend = Some(kind);
+                #[cfg(windows)]
+                if let Ok(idx) = backend.surface_adapter_index() {
+                    super::surface::warm_gpu(idx);
+                }
                 state.backend = Some(backend);
                 state.last_connect_error = None;
                 state.probe_incompatibility = None;
@@ -1835,16 +1830,6 @@ fn tick(
     let headset_failed =
         state.config.headset.enabled && status.headset.state == ResourceState::Error;
     let wrist_failed = state.config.wrist.enabled && status.wrist.state == ResourceState::Error;
-    #[cfg(any(windows, linux_vr))]
-    let (headset_failed, wrist_failed) = {
-        let hub = app.state::<super::surface::SurfaceHub>();
-        // Wrist captions render through Dialogue; the wrist menu is a separate surface.
-        (
-            headset_failed && !hub.recovery_failed(super::surface_protocol::SurfaceId::Headset),
-            wrist_failed && !hub.recovery_failed(super::surface_protocol::SurfaceId::Dialogue),
-        )
-    };
-    // A terminal Surface failure stays in Entry until business hide or explicit retry.
     if any_enabled
         && !ocr_enabled
         && !vision_enabled
@@ -1915,7 +1900,7 @@ fn update_dashboard(
             state.dashboard_surface.request(app)?;
         }
         let hub = app.state::<SurfaceHub>();
-        // Keep the tab registered, but never wake its WebView before it is opened.
+        // Keep the tab registered, but avoid rendering the dashboard surface while hidden.
         if !backend.dashboard_visible() {
             let _ = backend.poll_dashboard_events()?;
             state.dashboard.clear_pointer();

@@ -191,7 +191,7 @@ export function useOnboardingRecognition({
           ...latest.asr,
           backend: "qwen_local_managed",
           active_profile_id: null,
-          language: draft.asr.language,
+          preferred_languages: draft.asr.preferred_languages,
           managed_qwen: draft.asr.managed_qwen,
         },
       });

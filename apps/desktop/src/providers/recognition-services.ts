@@ -7,6 +7,10 @@ import type {
 } from "./types";
 
 export const MANAGED_QWEN_RECOGNITION_SOURCE = "managed_qwen";
+export const ASR_LANGUAGE_CODES = [
+  "zh", "en", "ja", "ko", "yue", "es", "fr", "de", "ru", "pt", "it", "th", "vi", "id",
+] as const;
+export const MAX_ASR_PREFERRED_LANGUAGES = 4;
 
 const MANAGED_QWEN_MODEL_LABELS: Record<string, string> = {
   "qwen3-asr-0.6b-q8_0": "Qwen3-ASR 0.6B Q8_0",

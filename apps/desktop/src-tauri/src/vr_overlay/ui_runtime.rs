@@ -187,7 +187,6 @@ pub struct UiRuntime {
     menu_frame: Option<SurfaceView>,
     menu_ui: wrist_menu::Ui,
     pub menu_visible: bool,
-    menu_was_visible: bool,
     pub dialogue_hover: Option<u8>,
     pub dialogue_visible: bool,
     pub dialogue_revision: Option<u64>,
@@ -232,7 +231,6 @@ impl UiRuntime {
             menu_frame: None,
             menu_ui: Default::default(),
             menu_visible: false,
-            menu_was_visible: false,
             dialogue_hover: None,
             dialogue_visible: false,
             dialogue_revision: None,
@@ -367,7 +365,6 @@ impl UiRuntime {
         self.menu_surface.reset();
         self.dialogue_surface.reset();
         self.menu_visible = false;
-        self.menu_was_visible = false;
         self.dialogue_visible = false;
         self.dialogue_revision = None;
         self.dialogue_hover = None;
@@ -959,13 +956,8 @@ impl UiRuntime {
                 }
             }
         }
-        let rising = self.menu_visible && !self.menu_was_visible;
-        self.menu_was_visible = self.menu_visible;
-        if rising {
-            // A faded-out menu may still own a capture that never produced a
-            // frame; rebuild it so the next appearance republishes the state.
-            self.menu_surface.reset();
-        }
+        // Push the cursor pose to SteamVR before rebuilding any panel textures.
+        self.sync_cursor(app, backend);
         let result = (|| -> Result<(), String> {
             let ready = if self.menu_visible && business {
                 let frame = SurfaceView::Menu {

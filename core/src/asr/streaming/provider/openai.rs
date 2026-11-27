@@ -19,8 +19,8 @@ pub(super) fn build_request(key: &str) -> Result<Request<()>, String> {
 pub(super) fn session_update(config: &AsrConfig) -> Result<Value, String> {
     let settings = service_settings(config, SERVICE_OPENAI_REALTIME)?;
     let mut transcription = json!({ "model": settings.model });
-    if config.language != "auto" {
-        transcription["language"] = json!(config.language);
+    if let Some(language) = config.primary_language() {
+        transcription["language"] = json!(crate::providers::openai_asr_wire_language(language));
     }
     Ok(json!({
         "type": "session.update",

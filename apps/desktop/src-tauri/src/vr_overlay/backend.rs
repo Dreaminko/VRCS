@@ -49,9 +49,7 @@ mod platform {
     use crate::vr_overlay::{cursor, ocr_input, transform};
     use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
 
-    #[cfg(windows)]
-    type SurfaceCapture = crate::vr_overlay::surface::windows_wgc::Capture;
-    #[cfg(linux_vr)]
+    #[cfg(any(windows, linux_vr))]
     type SurfaceCapture = crate::vr_overlay::surface::frame::Capture;
 
     type TipPoseMap = HashMap<(u32, u64), Option<[[f32; 4]; 3]>>;
@@ -279,7 +277,7 @@ mod platform {
             table: &openvr_sys::VR_IVROverlay_FnTable,
             error: Option<&str>,
         ) -> Result<(), String> {
-            // Keep an error visible while the WebView retries in the background.
+            // Keep an error visible while the dashboard retries in the background.
             if error.is_none() && self.placeholder.is_some() {
                 return Ok(());
             }
@@ -359,7 +357,6 @@ mod platform {
     impl VrBackend {
         #[cfg(windows)]
         pub fn hide_ocr(&mut self) {
-            // Static WGC surfaces may not produce another frame when shown again.
             self.hide(OverlayKind::OcrFrame);
             self.hide(OverlayKind::OcrResult);
         }
@@ -1419,16 +1416,10 @@ mod platform {
             self.cursor.hide(api)
         }
 
+        #[cfg(windows)]
         pub fn surface_adapter_index(&self) -> Result<u32, String> {
-            #[cfg(windows)]
-            {
-                self.adapter_index
-                    .map_or_else(|| dxgi_adapter_index_from(self.raw_system), Ok)
-            }
-            #[cfg(linux_vr)]
-            {
-                Ok(0)
-            }
+            self.adapter_index
+                .map_or_else(|| dxgi_adapter_index_from(self.raw_system), Ok)
         }
 
         pub fn has_surface_texture(&self, kind: OverlayKind) -> bool {
@@ -2767,6 +2758,7 @@ impl Backend {
 
 #[cfg(any(windows, linux_vr))]
 impl Backend {
+    #[cfg(windows)]
     pub fn surface_adapter_index(&self) -> Result<u32, String> {
         backend_ref!(self, surface_adapter_index())
     }

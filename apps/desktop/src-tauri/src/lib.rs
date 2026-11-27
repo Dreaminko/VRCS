@@ -671,24 +671,10 @@ pub(crate) fn prepare_for_exit(app: &tauri::AppHandle) {
     if EXIT_PREPARED.swap(true, Ordering::AcqRel) {
         return;
     }
-    #[cfg(any(windows, linux_vr))]
-    if let Some(hosts) = app.try_state::<vr_overlay::surface::NativeHostManager>() {
-        hosts.begin_shutdown();
-    }
     app.state::<desktop_ocr::Manager>().stop();
     app.state::<desktop_vision::Manager>().stop();
     let vr_stopped = app.state::<vr_overlay::Manager>().stop();
     let _ = vr_stopped;
-    #[cfg(any(windows, linux_vr))]
-    if vr_stopped {
-        if let Some(hosts) = app.try_state::<vr_overlay::surface::NativeHostManager>()
-            && let Err(error) = hosts.finish_shutdown(std::time::Duration::from_secs(5))
-        {
-            tracing::warn!("{error}");
-        }
-    } else {
-        tracing::warn!("Skipping native surface host teardown while VR worker is still blocked");
-    }
     stop_core(app);
 }
 
@@ -873,6 +859,8 @@ pub fn run() {
             vr_overlay::preview::vr_preview_open,
             #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
             vr_overlay::preview::vr_preview_update,
+            #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
+            vr_overlay::preview::vr_preview_frame,
             desktop_capture::set_shortcut_recording,
             desktop_ocr::desktop_ocr_status,
             desktop_ocr::desktop_ocr_scan,
@@ -977,8 +965,6 @@ pub fn run() {
             app.manage(vr_overlay::Manager::new(app.handle().clone()));
             #[cfg(any(windows, linux_vr))]
             app.manage(vr_overlay::surface::SurfaceHub::default());
-            #[cfg(any(windows, linux_vr))]
-            app.manage(vr_overlay::surface::NativeHostManager::start(app.handle().clone()));
             app.manage(desktop_ocr::Manager::new(app.handle().clone()));
             app.manage(desktop_vision::Manager::new(app.handle().clone()));
             app.manage(CoreRuntime {

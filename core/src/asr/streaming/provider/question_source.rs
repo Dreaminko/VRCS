@@ -156,7 +156,7 @@ fn normalize_qwen(
     let language = value["language"]
         .as_str()
         .map(str::to_owned)
-        .or_else(|| (config.language != "auto").then(|| config.language.clone()));
+        .or_else(|| config.single_fallback_language().map(str::to_owned));
     let done = match kind {
         "conversation.item.input_audio_transcription.completed" => true,
         "conversation.item.input_audio_transcription.delta"

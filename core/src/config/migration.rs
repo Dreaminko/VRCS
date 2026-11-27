@@ -108,10 +108,19 @@ fn migrate_v1(raw: &serde_json::Value) -> AppConfig {
     config
 }
 
+fn preferred_languages_from_legacy(language: &str) -> Vec<String> {
+    let trimmed = language.trim();
+    if trimmed.is_empty() || trimmed == "auto" {
+        Vec::new()
+    } else {
+        vec![trimmed.to_owned()]
+    }
+}
+
 fn asr_from_legacy(legacy: LegacyAsrConfig) -> AsrConfig {
     AsrConfig {
         backend: super::QWEN_MANAGED_BACKEND.into(),
-        language: legacy.language,
+        preferred_languages: preferred_languages_from_legacy(&legacy.language),
         managed_qwen: ManagedQwenConfig {
             device: if legacy.device == "cpu" {
                 "cpu"
@@ -829,12 +838,47 @@ fn normalize_translation_default(value: &mut serde_json::Value) -> Result<(), St
     Ok(())
 }
 
+fn normalize_asr_preferred_languages(value: &mut serde_json::Value) {
+    if let Some(asr) = value
+        .get_mut("asr")
+        .and_then(serde_json::Value::as_object_mut)
+        && !asr.contains_key("preferred_languages")
+        && let Some(language) = asr.remove("language")
+        && let Some(language) = language.as_str()
+    {
+        asr.insert(
+            "preferred_languages".into(),
+            serde_json::json!(preferred_languages_from_legacy(language)),
+        );
+    }
+    if let Some(presets) = value
+        .get_mut("language_presets")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for preset in presets {
+            if let Some(object) = preset.as_object_mut()
+                && !object.contains_key("recognition_languages")
+                && let Some(language) = object.remove("recognition_language")
+                && let Some(language) = language.as_str()
+            {
+                object.insert(
+                    "recognition_languages".into(),
+                    serde_json::json!(preferred_languages_from_legacy(language)),
+                );
+            }
+        }
+    }
+}
+
 pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
     let version = config_version(raw)?;
     let mut normalized = raw.clone();
     if version < SCHEMA_VERSION as u64 {
         normalize_translation_default(&mut normalized)?;
         normalize_removed_whisper(&mut normalized)?;
+        if version >= 4 {
+            normalize_asr_preferred_languages(&mut normalized);
+        }
         if let Some(features) = normalized
             .get_mut("features")
             .and_then(serde_json::Value::as_object_mut)
@@ -894,7 +938,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
-        26..=46 => serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?,
+        26..=47 => serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?,
         23..=25 => deserialize_v24(raw.clone())?,
         22 => migrate_v22(raw)?,
         21 => migrate_v21(raw)?,

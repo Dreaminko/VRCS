@@ -7,7 +7,7 @@ use super::{
     VrchatContextConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 47;
+pub const SCHEMA_VERSION: u32 = 48;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -241,8 +241,8 @@ mod tests {
                 "active_profile_id",
                 "api_profiles",
                 "backend",
-                "language",
                 "managed_qwen",
+                "preferred_languages",
                 "service_settings",
             ],
         );

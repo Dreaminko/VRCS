@@ -1,9 +1,13 @@
-//! Development-only adapter for the production React surfaces.
+//! Development-only interactive preview powered by Rust GPU UI rendering.
 use super::control_protocol::{ControlAction, ControlSnapshot, ControlSource};
 use super::dashboard::{
     DashboardAction, DashboardChoice, DashboardOption, DashboardSaveState, DashboardState,
     DashboardViewModel, DisplayKind, TargetGroup,
 };
+use super::gpu_ui::draw::DrawList;
+#[cfg(windows)]
+use super::gpu_ui::painter_d3d11::{D3d11Painter, D3d11SurfaceTarget};
+use super::gpu_ui::{GpuUiEngine, SurfaceRuntimeState};
 use super::interaction::{Hit, Key, Kind, Router, Sample, Surface};
 use super::ocr_plane::{OcrScene, OcrSceneBlock};
 use super::ocr_wrist::{self, Action, LaserEvent, View, ViewMode};
@@ -14,6 +18,8 @@ use super::surface_protocol::{
 };
 use super::{dialogue, player_display, transform, wrist_menu};
 use serde::{Deserialize, Serialize};
+#[cfg(windows)]
+use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager as _, State, WebviewWindow};
@@ -64,7 +70,7 @@ pub enum Operation {
     OriginChanged,
     Place { mode: Mode },
     Text { source: String, translation: String },
-    Layout { layout: SurfaceLayout },
+    Scroll { delta: f32 },
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -95,8 +101,25 @@ pub struct Info {
     busy: bool,
     pose: Option<Pose>,
     last_action: String,
-    surface: Option<SurfaceState>,
+    frame_id: u64,
+    width: u32,
+    height: u32,
+    has_pointer: bool,
+    pointer: Option<[f32; 2]>,
+    menu_pointer: bool,
+    can_scroll: bool,
     closed: bool,
+}
+
+#[cfg(windows)]
+struct PreviewGpu {
+    painter: D3d11Painter,
+    target: D3d11SurfaceTarget,
+}
+
+#[cfg(windows)]
+thread_local! {
+    static PREVIEW_GPU: RefCell<Option<PreviewGpu>> = const { RefCell::new(None) };
 }
 
 enum Effect {
@@ -116,6 +139,11 @@ struct Preview {
     generation: u32,
     revision: u32,
     dirty: bool,
+    engine: GpuUiEngine,
+    runtime: SurfaceRuntimeState,
+    draw_list: Option<DrawList>,
+    frame_id: u64,
+    frame_rgba: Option<(u64, Vec<u8>)>,
     surface: Option<SurfaceState>,
     layout: Option<SurfaceLayout>,
     controls: ControlSnapshot,
@@ -180,6 +208,11 @@ impl Preview {
             generation: 1,
             revision: 1,
             dirty: true,
+            engine: GpuUiEngine::new(),
+            runtime: SurfaceRuntimeState::default(),
+            draw_list: None,
+            frame_id: 0,
+            frame_rgba: None,
             surface: None,
             layout: None,
             controls,
@@ -229,6 +262,7 @@ impl Preview {
 
     fn info(&self) -> Info {
         let p = self.placement.lock().expect("vr placement lock");
+        let (width, height) = self.surface_id().map_or((0, 0), SurfaceId::size);
         Info {
             session: self.session,
             live: self.live,
@@ -245,7 +279,14 @@ impl Preview {
             busy: p.busy(),
             pose: p.absolute_pose().or_else(|| self.tracking.then(wrist_pose)),
             last_action: self.last_action.clone(),
-            surface: self.surface.clone(),
+            frame_id: self.frame_id,
+            width,
+            height,
+            has_pointer: matches!(self.panel, 0 | 1 | 2 | 4 | 5 | 9),
+            pointer: self.surface.as_ref().and_then(|s| s.pointer),
+            menu_pointer: self.panel == 0,
+            can_scroll: matches!(self.panel, 2 | 4 | 5 | 9)
+                || (self.panel == 1 && self.view.player_audio_notice.is_some()),
             closed: self.closed,
         }
     }
@@ -329,13 +370,23 @@ impl Preview {
     fn update(&mut self, operation: Operation) -> Result<Vec<Effect>, String> {
         let mut effects = Vec::new();
         match operation {
-            Operation::Refresh => {}
-            Operation::Layout { layout } => {
-                let surface = self.surface_id().ok_or("Panel has no React surface")?;
-                layout.validate(surface)?;
-                if layout.key == self.surface_key() {
-                    self.page_count = layout.page_count;
-                    self.layout = Some(layout);
+            Operation::Refresh => {
+                if matches!(self.panel, 8 | 11)
+                    && !matches!(self.scene, Scene::Empty | Scene::Expired)
+                {
+                    self.dirty = true;
+                }
+            }
+            Operation::Scroll { delta } => {
+                if let Some(surface_id) = self.surface_id()
+                    && GpuUiEngine::apply_scroll(
+                        surface_id,
+                        delta,
+                        self.surface.as_ref().map(|s| &s.view),
+                        &mut self.runtime,
+                    )
+                {
+                    self.dirty = true;
                 }
             }
             Operation::Select { panel } => {
@@ -1117,22 +1168,81 @@ impl Preview {
             self.layout_changed();
             view = self.surface_view().ok_or("Unknown preview panel")?;
         }
-        self.surface = Some(SurfaceState {
-            key: self.surface_key(),
-            scroll_key: self.surface_key(),
+        let key = self.surface_key();
+        let scroll_key = self
+            .surface
+            .as_ref()
+            .filter(|prev| prev.view.same_scroll_view(&view))
+            .map_or(key, |prev| prev.scroll_key);
+        let state = SurfaceState {
+            key,
+            scroll_key,
             view,
             hovered: self.hover,
             pressed: self.pressed,
             pointer: self.cursor,
-            activity: super::surface_protocol::SurfaceActivity {
-                active: true,
-                request: 0,
-            },
-            restore_scroll: None,
-        });
+        };
+        let surface_id = self.surface_id().ok_or("Unknown preview panel")?;
+        let (layout, draw) = self
+            .engine
+            .render_surface(&state, &mut self.runtime, Instant::now());
+        layout.validate(surface_id)?;
+        self.page_count = layout.page_count;
+        self.layout = Some(layout);
+        self.draw_list = Some(draw);
+        self.surface = Some(state);
+        self.frame_id = self.frame_id.wrapping_add(1).max(1);
+        self.frame_rgba = None;
         self.dirty = false;
         self.placement_revision = placement_revision;
         Ok(())
+    }
+
+    fn render_rgba(&mut self) -> Result<Vec<u8>, String> {
+        self.render()?;
+        if let Some((frame_id, rgba)) = &self.frame_rgba
+            && *frame_id == self.frame_id
+        {
+            return Ok(rgba.clone());
+        }
+        #[cfg(windows)]
+        {
+            let surface_id = self.surface_id().ok_or("Unknown preview panel")?;
+            let (w, h) = surface_id.size();
+            let draw = self.draw_list.as_ref().ok_or("Missing preview draw list")?;
+            let rgba = PREVIEW_GPU.with(|cell| -> Result<Vec<u8>, String> {
+                let mut slot = cell.borrow_mut();
+                let gpu = match slot.as_mut() {
+                    Some(gpu) => gpu,
+                    None => slot.insert(PreviewGpu {
+                        painter: D3d11Painter::new(0)?,
+                        target: D3d11SurfaceTarget::new(w, h),
+                    }),
+                };
+                gpu.target.resize(w, h);
+                let (shared_handle, _) =
+                    gpu.painter
+                        .render(&mut gpu.target, &self.engine.text.atlas, draw)?;
+                let mut rgba =
+                    gpu.painter
+                        .readback_rgba(&gpu.target, shared_handle, [0, 0, w, h])?;
+                let _ = gpu.target.submitted_handle(shared_handle);
+                // Convert premultiplied GPU output to straight alpha for HTML5 canvas ImageData.
+                for px in rgba.as_chunks_mut::<4>().0 {
+                    let a = px[3] as u32;
+                    if a > 0 && a < 255 {
+                        px[0] = ((px[0] as u32 * 255 + a / 2) / a).min(255) as u8;
+                        px[1] = ((px[1] as u32 * 255 + a / 2) / a).min(255) as u8;
+                        px[2] = ((px[2] as u32 * 255 + a / 2) / a).min(255) as u8;
+                    }
+                }
+                Ok(rgba)
+            })?;
+            self.frame_rgba = Some((self.frame_id, rgba.clone()));
+            Ok(rgba)
+        }
+        #[cfg(not(windows))]
+        Err("GPU preview frame rendering is only supported on Windows".into())
     }
 }
 
@@ -1534,6 +1644,7 @@ fn apply_dashboard(view: &mut DashboardViewModel, action: DashboardAction) {
     match action {
         ToggleMaster => view.enabled = !view.enabled,
         ToggleWristFollowView => view.wrist.follow_view = !view.wrist.follow_view,
+        ToggleWristMenu => view.wrist_menu.enabled = !view.wrist_menu.enabled,
         ToggleOcr => view.ocr.enabled = !view.ocr.enabled,
         ToggleVision => view.vision.enabled = !view.vision.enabled,
         ToggleOcrGesture => view.ocr.gesture = !view.ocr.gesture,
@@ -1926,24 +2037,62 @@ pub fn vr_preview_update(
     Ok(info)
 }
 
+#[tauri::command]
+pub fn vr_preview_frame(
+    window: WebviewWindow,
+    state: State<'_, PreviewState>,
+    session: u32,
+) -> Result<tauri::ipc::Response, String> {
+    require_window(&window)?;
+    let mut p = state.0.lock().map_err(|e| e.to_string())?;
+    if p.session != session {
+        return Err("Stale preview session".into());
+    }
+    let rgba = p.render_rgba()?;
+    Ok(tauri::ipc::Response::new(rgba))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn bounds_center(bounds: [f32; 4]) -> [f32; 2] {
+        [(bounds[0] + bounds[2]) * 0.5, (bounds[1] + bounds[3]) * 0.5]
+    }
+
+    fn region_center(p: &Preview, id: u8) -> [f32; 2] {
+        bounds_center(
+            p.layout
+                .as_ref()
+                .expect("preview layout")
+                .regions
+                .iter()
+                .find(|r| r.id == id)
+                .unwrap_or_else(|| panic!("missing region {id}"))
+                .bounds,
+        )
+    }
+
+    fn menu_region_center(p: &Preview, pred: impl Fn(&wrist_menu::Command) -> bool) -> [f32; 2] {
+        bounds_center(
+            p.layout
+                .as_ref()
+                .expect("preview layout")
+                .regions
+                .iter()
+                .find(|r| r.menu.as_ref().is_some_and(&pred))
+                .expect("missing matching menu region")
+                .bounds,
+        )
+    }
 
     #[test]
     fn personnel_entry_navigates_without_capture_and_stale_release_cannot_hide_a_track() {
         let mut p = mock();
         p.render().unwrap();
-        let set_layout = |p: &mut Preview, command: serde_json::Value| {
-            let layout = serde_json::from_value(serde_json::json!({
-                "key": p.surface_key(),
-                "regions": [{"id": 4, "bounds": [0.4, 0.84, 0.525, 0.965], "circle": true, "menu": command}],
-                "menu_bounds": [0.0125, 0.80625, 0.9875, 0.99375], "page_count": 1
-            })).unwrap();
-            p.update(Operation::Layout { layout }).unwrap();
-        };
-        set_layout(&mut p, serde_json::json!({"page": "players"}));
-        let point = [0.46, 0.9];
+        let point = menu_region_center(&p, |cmd| {
+            matches!(cmd, wrist_menu::Command::Page(wrist_menu::Page::Players))
+        });
         p.input(input(&p, point, 0)).unwrap();
         p.input(input(&p, point, 1)).unwrap();
         assert!(p.input(input(&p, point, 0)).unwrap().is_empty());
@@ -1951,13 +2100,15 @@ mod tests {
         let view = serde_json::to_value(&p.surface.as_ref().unwrap().view).unwrap();
         assert_eq!(view["ui"]["page"], "players");
         assert!(p.pending.iter().all(Option::is_none));
-        set_layout(
-            &mut p,
-            serde_json::json!({"display": {"show_all_tracks": null}}),
-        );
-        p.input(input(&p, point, 0)).unwrap();
-        p.input(input(&p, point, 1)).unwrap();
-        let release = input(&p, point, 0);
+        let track_point = menu_region_center(&p, |cmd| {
+            matches!(
+                cmd,
+                wrist_menu::Command::Display(player_display::Action::SetUserSourceDisabled { .. })
+            )
+        });
+        p.input(input(&p, track_point, 0)).unwrap();
+        p.input(input(&p, track_point, 1)).unwrap();
+        let release = input(&p, track_point, 0);
         p.layout_changed();
         assert!(p.input(release).is_err());
         assert!(p.pressed.is_none());
@@ -2075,8 +2226,7 @@ mod tests {
         );
         p.menu_ui.player_page = 2;
         p.render().unwrap();
-        measure(&mut p);
-        let point = [0.1625, 0.9];
+        let point = region_center(&p, 4);
         p.input(input(&p, point, 0)).unwrap();
         p.input(input(&p, point, 1)).unwrap();
         let release = input(&p, point, 0);
@@ -2105,22 +2255,32 @@ mod tests {
     fn live_personnel_release_emits_a_request_without_mutating_the_snapshot() {
         let mut p = Preview::new(true, Arc::new(Mutex::new(Placement::default())));
         p.sync_control_views(p.controls.clone(), sample_player_display(Scene::Normal));
+        p.menu_ui.apply(
+            &wrist_menu::Command::Page(wrist_menu::Page::Players),
+            &p.players,
+        );
         p.render().unwrap();
-        let action = player_display::Action::SetTrackHidden {
-            track_id: p.players.players[0].track_id.clone().unwrap(),
-            hidden: true,
-        };
         let before = p.players.clone();
-        let layout = serde_json::from_value(serde_json::json!({
-            "key": p.surface_key(),
-            "regions": [{"id": 5, "bounds": [0.1, 0.2, 0.3, 0.3], "menu": {"display": action}}],
-            "menu_bounds": [0.0125, 0.80625, 0.9875, 0.99375],
-            "panels": [{"bounds": [0.0125, 0.0125, 0.9875, 0.79375], "radius": [0.025, 0.025]}],
-            "page_count": 1
-        }))
-        .unwrap();
-        p.update(Operation::Layout { layout }).unwrap();
-        let point = [0.2, 0.25];
+        let region = p
+            .layout
+            .as_ref()
+            .unwrap()
+            .regions
+            .iter()
+            .find(|r| {
+                matches!(
+                    &r.menu,
+                    Some(wrist_menu::Command::Display(
+                        player_display::Action::SetUserSourceDisabled { disabled: true, .. }
+                    ))
+                )
+            })
+            .expect("source toggle region")
+            .clone();
+        let Some(wrist_menu::Command::Display(action)) = region.menu else {
+            unreachable!();
+        };
+        let point = bounds_center(region.bounds);
         for buttons in [0, 1] {
             assert!(p.input(input(&p, point, buttons)).unwrap().is_empty());
         }
@@ -2150,98 +2310,10 @@ mod tests {
         }
         p.refresh();
         p.render().unwrap();
-        measure(p);
-    }
-    fn measure(p: &mut Preview) {
-        use super::super::surface_protocol::Region;
-        let regions = match p.panel {
-            0 => vec![Region {
-                id: 0,
-                bounds: [128., 1072., 288., 1232.].map(|value| value / 1280.),
-                circle: true,
-                dashboard: None,
-                menu: Some(wrist_menu::Command::Control(
-                    ControlAction::SetWristEnabled(!p.controls.items[0].requested),
-                )),
-            }],
-            1 => vec![Region {
-                id: 17,
-                bounds: [0.2, 0.3, 0.4, 0.5],
-                circle: false,
-                dashboard: Some(super::super::dashboard::DashboardCommand::Action(
-                    DashboardAction::ToggleOcr,
-                )),
-                menu: None,
-            }],
-            2 => {
-                let placement = p.placement.lock().unwrap();
-                let mut regions = vec![Region {
-                    id: 0,
-                    bounds: [0.1, 0.02, 0.6, 0.1],
-                    circle: false,
-                    dashboard: None,
-                    menu: None,
-                }];
-                if placement.display_mode() == Mode::World && !placement.busy() {
-                    regions.push(Region {
-                        id: 3,
-                        bounds: [0.7, 0.02, 0.8, 0.12],
-                        circle: true,
-                        dashboard: None,
-                        menu: None,
-                    });
-                }
-                regions
-            }
-            4 | 5 | 9 => vec![Region {
-                id: 7,
-                bounds: [0.85, 0.88, 0.92, 0.95],
-                circle: true,
-                dashboard: None,
-                menu: None,
-            }],
-            3 | 6 | 7 | 8 | 10 | 11 => vec![],
-            _ => return,
-        };
-        p.update(Operation::Layout {
-            layout: SurfaceLayout {
-                key: p.surface_key(),
-                regions,
-                menu_bounds: (p.panel == 0)
-                    .then_some([16., 1032., 1264., 1272.].map(|value| value / 1280.)),
-                panels: match p.panel {
-                    0 if p.menu_ui.page != wrist_menu::Page::Home => {
-                        vec![super::super::surface_protocol::Panel {
-                            bounds: [16., 16., 1264., 1016.].map(|value| value / 1280.),
-                            radius: [0.025, 0.025],
-                        }]
-                    }
-                    2 => vec![
-                        super::super::surface_protocol::Panel {
-                            bounds: [0.01, 0.01, 0.99, 0.125],
-                            radius: [0.0575, 0.0575],
-                        },
-                        super::super::surface_protocol::Panel {
-                            bounds: [0.02, 0.145, 0.98, 0.98],
-                            radius: [0.04, 0.04],
-                        },
-                    ],
-                    4 | 5 | 9 => vec![super::super::surface_protocol::Panel {
-                        bounds: [0.0234375, 0.0234375, 0.9765625, 0.984375],
-                        radius: [0.03125, 0.03125],
-                    }],
-                    _ => Vec::new(),
-                },
-                page_count: 1,
-                unplaced: Vec::new(),
-                capture_bounds: None,
-            },
-        })
-        .unwrap();
     }
 
     #[test]
-    fn passive_panels_use_react_without_pointer_actions_and_hide_expired_content() {
+    fn passive_panels_use_gpu_ui_without_pointer_actions_and_hide_expired_content() {
         let mut p = mock();
         for (panel, kind, content) in [
             (3, "headset", "messages"),
@@ -2249,21 +2321,21 @@ mod tests {
             (11, "ocr_progress", "progress"),
         ] {
             apply(&mut p, Operation::Select { panel });
-            let surface = p.info().surface.expect("passive panel uses React");
-            let view = serde_json::to_value(surface.view).unwrap();
+            let surface = p.surface.as_ref().expect("passive panel uses GpuUi");
+            let view = serde_json::to_value(&surface.view).unwrap();
             assert_eq!(view["kind"], kind);
             assert!(!view[content].is_null());
             let pointer = input(&p, [0.5, 0.5], 1);
             assert!(p.input(pointer).unwrap().is_empty());
             p.render().unwrap();
-            assert_eq!(p.info().surface.unwrap().pointer, None);
+            assert_eq!(p.info().pointer, None);
             apply(
                 &mut p,
                 Operation::Scene {
                     scene: Scene::Expired,
                 },
             );
-            let view = serde_json::to_value(p.info().surface.unwrap().view).unwrap();
+            let view = serde_json::to_value(&p.surface.as_ref().unwrap().view).unwrap();
             assert!(view[content].is_null() || view[content].as_array().is_some_and(Vec::is_empty));
             apply(
                 &mut p,
@@ -2318,12 +2390,15 @@ mod tests {
     }
 
     #[test]
-    fn every_panel_uses_react_and_reset_invalidates_old_input() {
+    fn every_panel_renders_gpu_layout_and_reset_invalidates_old_input() {
         let mut p = mock();
         for panel in 0..PANELS.len() as u32 {
             apply(&mut p, Operation::Select { panel });
             assert!(p.surface_id().is_some());
-            assert!(p.info().surface.is_some());
+            assert!(p.layout.is_some());
+            assert!(p.draw_list.is_some());
+            assert!(p.info().frame_id > 0);
+            assert!(p.info().width > 0 && p.info().height > 0);
         }
         let old = input(&p, [0.5, 0.5], 0);
         apply(&mut p, Operation::Reset);
@@ -2331,30 +2406,31 @@ mod tests {
     }
 
     #[test]
-    fn react_pointer_tracks_panel_background_and_clears_on_leave_or_tracking_loss() {
+    fn gpu_preview_pointer_tracks_panel_background_and_clears_on_leave_or_tracking_loss() {
         let mut p = mock();
         for panel in [1, 2, 4, 5, 9] {
             apply(&mut p, Operation::Select { panel });
             let key = p.surface_key();
             let idle = input(&p, [0.5, 0.5], 0);
             apply(&mut p, Operation::Pointer { input: idle });
-            let surface = p.info().surface.unwrap();
+            assert_eq!(p.info().pointer, Some([0.5, 0.5]));
+            let surface = p.surface.as_ref().unwrap();
             assert_eq!(surface.pointer, Some([0.5, 0.5]));
             assert_eq!(surface.hovered, None);
             assert_eq!(surface.key, key);
             let moved = input(&p, [0.6, 0.6], 0);
             apply(&mut p, Operation::Pointer { input: moved });
-            assert_eq!(p.info().surface.unwrap().pointer, Some([0.6, 0.6]));
+            assert_eq!(p.info().pointer, Some([0.6, 0.6]));
             let mut leave = moved;
             leave.point = None;
             apply(&mut p, Operation::Pointer { input: leave });
-            assert_eq!(p.info().surface.unwrap().pointer, None);
+            assert_eq!(p.info().pointer, None);
             apply(&mut p, Operation::Pointer { input: moved });
             apply(&mut p, Operation::Cancel);
-            assert_eq!(p.info().surface.unwrap().pointer, None);
+            assert_eq!(p.info().pointer, None);
             apply(&mut p, Operation::Pointer { input: moved });
             apply(&mut p, Operation::Tracking { available: false });
-            assert_eq!(p.info().surface.unwrap().pointer, None);
+            assert_eq!(p.info().pointer, None);
             apply(&mut p, Operation::Tracking { available: true });
         }
     }
@@ -2363,23 +2439,22 @@ mod tests {
     fn mock_menu_cursor_covers_background_without_expanding_button_hits() {
         let mut p = mock();
         p.render().unwrap();
-        measure(&mut p);
-        for (pixels, visible, hit) in [
-            ([208., 1152.], true, true),
-            ([640., 1152.], true, false),
-            ([640., 1260.], true, false),
-            ([640., 1044.], true, false),
-            ([52., 1120.], true, false),
-            ([26., 1048.], false, false),
-            ([12., 1152.], false, false),
-            ([640., 640.], false, false),
+        let btn0 = region_center(&p, 0);
+        for (point, visible, hit) in [
+            (btn0, true, true),
+            ([640. / 1280., 1152. / 1280.], true, false),
+            ([640. / 1280., 1260. / 1280.], true, false),
+            ([640. / 1280., 1044. / 1280.], true, false),
+            ([52. / 1280., 1120. / 1280.], true, false),
+            ([26. / 1280., 1048. / 1280.], false, false),
+            ([12. / 1280., 1152. / 1280.], false, false),
+            ([640. / 1280., 640. / 1280.], false, false),
         ] {
-            let point = pixels.map(|value| value / 1280.);
             let idle = input(&p, point, 0);
             apply(&mut p, Operation::Pointer { input: idle });
-            let surface = p.info().surface.unwrap();
-            assert_eq!(surface.pointer, visible.then_some(point), "{point:?}");
-            assert_eq!(surface.hovered, hit.then_some(0));
+            assert_eq!(p.info().pointer, visible.then_some(point), "{point:?}");
+            let surface = p.surface.as_ref().unwrap();
+            assert_eq!(surface.hovered, hit.then_some(0), "{point:?}");
             if !hit {
                 let down = input(&p, point, 1);
                 assert!(p.input(down).unwrap().is_empty());
@@ -2388,13 +2463,12 @@ mod tests {
                 assert!(p.pending.iter().all(Option::is_none));
             }
         }
-        let point = [0.1625, 0.9];
-        let idle = input(&p, point, 0);
+        let idle = input(&p, btn0, 0);
         apply(&mut p, Operation::Pointer { input: idle });
-        let down = input(&p, point, 1);
+        let down = input(&p, btn0, 1);
         apply(&mut p, Operation::Pointer { input: down });
         assert!(p.pending.iter().all(Option::is_none));
-        let up = input(&p, point, 0);
+        let up = input(&p, btn0, 0);
         apply(&mut p, Operation::Pointer { input: up });
         assert!(p.pending[0].is_some());
         p.pending[0].as_mut().unwrap().1 = Instant::now() - Duration::from_secs(1);
@@ -2413,16 +2487,15 @@ mod tests {
             placement.initialize_world(original);
         }
         p.render().unwrap();
-        measure(&mut p);
         let key = p.surface_key();
-        let point = [0.1625, 0.9];
+        let point = region_center(&p, 0);
         let idle = input(&p, point, 0);
         apply(&mut p, Operation::Pointer { input: idle });
         let down = input(&p, point, 1);
         apply(&mut p, Operation::Pointer { input: down });
         std::thread::sleep(Duration::from_millis(350));
         apply(&mut p, Operation::Pointer { input: down });
-        let view = serde_json::to_value(p.info().surface.unwrap().view).unwrap();
+        let view = serde_json::to_value(&p.surface.as_ref().unwrap().view).unwrap();
         let progress = view["hold_progress"].as_f64().expect("hold progress");
         assert!((0. ..1.).contains(&progress));
         assert_eq!(p.info().pose, Some(original));
@@ -2443,7 +2516,7 @@ mod tests {
         assert!(p.pending.iter().all(Option::is_none));
         assert!(p.controls.items[0].requested);
         assert!(
-            serde_json::to_value(p.info().surface.unwrap().view).unwrap()["hold_progress"]
+            serde_json::to_value(&p.surface.as_ref().unwrap().view).unwrap()["hold_progress"]
                 .is_null()
         );
         assert_eq!(p.placement.lock().unwrap().revision, revision);
@@ -2456,9 +2529,8 @@ mod tests {
         p.placement.lock().unwrap().sync_mode(Mode::World);
         p.refresh();
         p.render().unwrap();
-        measure(&mut p);
         let original = p.info().pose;
-        let point = [0.1625, 0.9];
+        let point = region_center(&p, 0);
         for operation in [Operation::Cancel, Operation::Tracking { available: false }] {
             let idle = input(&p, point, 0);
             apply(&mut p, Operation::Pointer { input: idle });
@@ -2477,7 +2549,6 @@ mod tests {
             p.controls.items[0].requested = enabled;
             p.dirty = true;
             p.render().unwrap();
-            measure(&mut p);
             let idle = input(&p, point, 0);
             apply(&mut p, Operation::Pointer { input: idle });
             let down = input(&p, point, 1);
@@ -2491,32 +2562,42 @@ mod tests {
     }
 
     #[test]
-    fn dashboard_activates_current_dom_command_only_after_a_matching_release() {
+    fn dashboard_activates_current_gpu_command_only_after_a_matching_release() {
         let mut p = mock();
         apply(&mut p, Operation::Select { panel: 1 });
-        let point = [0.3, 0.4];
+        let region = p
+            .layout
+            .as_ref()
+            .unwrap()
+            .regions
+            .iter()
+            .find(|r| {
+                matches!(
+                    r.dashboard,
+                    Some(super::super::dashboard::DashboardCommand::Action(_))
+                )
+            })
+            .expect("dashboard action region")
+            .clone();
+        let point = bounds_center(region.bounds);
         assert!(p.input(input(&p, point, 1)).unwrap().is_empty());
         assert!(p.input(input(&p, point, 0)).unwrap().is_empty());
         assert!(p.input(input(&p, point, 1)).unwrap().is_empty());
-        assert_eq!(p.pressed, Some(17));
+        assert_eq!(p.pressed, Some(region.id));
         let effects = p.input(input(&p, point, 0)).unwrap();
         assert!(
             effects
                 .iter()
-                .any(|effect| matches!(effect, Effect::Dashboard(DashboardAction::ToggleOcr)))
+                .any(|effect| matches!(effect, Effect::Dashboard(_) | Effect::Control(_)))
         );
         assert!(p.layout.is_none());
 
         p.render().unwrap();
-        measure(&mut p);
         assert!(p.input(input(&p, point, 0)).unwrap().is_empty());
         assert!(p.input(input(&p, point, 1)).unwrap().is_empty());
         let old_release = input(&p, point, 0);
-        let old_layout = p.layout.take().unwrap();
         p.layout_changed();
         p.render().unwrap();
-        p.update(Operation::Layout { layout: old_layout }).unwrap();
-        assert!(p.layout.is_none());
         assert!(p.input(old_release).is_err());
         assert!(p.pressed.is_none());
     }
@@ -2530,7 +2611,7 @@ mod tests {
         };
         p.refresh();
         p.render().unwrap();
-        let view = serde_json::to_value(p.info().surface).unwrap();
+        let view = serde_json::to_value(&p.surface).unwrap();
         p.placement
             .lock()
             .unwrap()
@@ -2538,14 +2619,14 @@ mod tests {
         p.refresh();
         p.render().unwrap();
         assert!(!p.info().busy);
-        assert_ne!(serde_json::to_value(p.info().surface).unwrap(), view);
+        assert_ne!(serde_json::to_value(&p.surface).unwrap(), view);
     }
 
     #[test]
     fn dialogue_drag_survives_streaming_but_cancel_and_save_failure_restore_anchor() {
         let mut p = mock();
         apply(&mut p, Operation::Select { panel: 2 });
-        let point = [0.2, 0.05];
+        let point = region_center(&p, 0);
         let idle = input(&p, point, 0);
         apply(&mut p, Operation::Pointer { input: idle });
         let down = input(&p, point, 2);
@@ -2581,16 +2662,13 @@ mod tests {
     fn dialogue_follow_button_saves_and_rolls_back_through_the_placement_flow() {
         let mut p = mock();
         apply(&mut p, Operation::Select { panel: 2 });
-        let point = [0.75, 0.07];
-        for buttons in [0, 1, 0] {
-            let sample = input(&p, point, buttons);
-            apply(&mut p, Operation::Pointer { input: sample });
-        }
+        assert!(!p.layout.as_ref().unwrap().regions.iter().any(|r| r.id == 3));
         assert!(!p.placement.lock().unwrap().follow_view());
         apply(&mut p, Operation::Place { mode: Mode::World });
         let pose = p.info().pose;
         for (fail, expected) in [(false, true), (true, true), (false, false)] {
             apply(&mut p, Operation::SaveFailure { enabled: fail });
+            let point = region_center(&p, 3);
             for buttons in [0, 1, 0] {
                 let sample = input(&p, point, buttons);
                 apply(&mut p, Operation::Pointer { input: sample });
@@ -2601,7 +2679,7 @@ mod tests {
             assert!(!placement.busy());
             drop(placement);
             assert_eq!(p.info().pose, pose);
-            let view = serde_json::to_value(p.info().surface.unwrap().view).unwrap();
+            let view = serde_json::to_value(&p.surface.as_ref().unwrap().view).unwrap();
             assert_eq!(view["follow_view"], expected);
         }
     }
@@ -2616,9 +2694,8 @@ mod tests {
         p.placement.lock().unwrap().resolve(anchor.id, true, None);
         p.refresh();
         p.render().unwrap();
-        measure(&mut p);
         let pose = p.info().pose;
-        let point = [0.75, 0.07];
+        let point = region_center(&p, 3);
         for buttons in [0, 1] {
             assert!(p.input(input(&p, point, buttons)).unwrap().is_empty());
         }
@@ -2636,7 +2713,7 @@ mod tests {
         assert!(p.placement.lock().unwrap().follow_view());
         assert!(p.placement.lock().unwrap().head_relative_pose().is_some());
         assert_eq!(p.info().pose, pose);
-        let view = serde_json::to_value(p.info().surface.unwrap().view).unwrap();
+        let view = serde_json::to_value(&p.surface.as_ref().unwrap().view).unwrap();
         assert_eq!(view["follow_view"], true);
     }
 
@@ -2650,15 +2727,14 @@ mod tests {
         p.sync_dashboard_view(view).unwrap();
         p.refresh();
         p.render().unwrap();
-        measure(&mut p);
         assert_eq!(p.info().mode, Mode::World);
         assert!(p.placement.lock().unwrap().follow_view());
         assert!(p.placement.lock().unwrap().head_relative_pose().is_some());
         let pose = p.info().pose;
-        let surface = serde_json::to_value(p.info().surface.unwrap().view).unwrap();
+        let surface = serde_json::to_value(&p.surface.as_ref().unwrap().view).unwrap();
         assert_eq!(surface["follow_view"], true);
 
-        let point = [0.75, 0.07];
+        let point = region_center(&p, 3);
         for buttons in [0, 1] {
             assert!(p.input(input(&p, point, buttons)).unwrap().is_empty());
         }
@@ -2677,7 +2753,7 @@ mod tests {
         assert!(!p.info().busy);
         assert_eq!(p.info().pose, pose);
         assert!(!p.placement.lock().unwrap().follow_view());
-        let surface = serde_json::to_value(p.info().surface.unwrap().view).unwrap();
+        let surface = serde_json::to_value(&p.surface.as_ref().unwrap().view).unwrap();
         assert_eq!(surface["follow_view"], false);
     }
 
@@ -2689,23 +2765,41 @@ mod tests {
     }
 
     #[test]
-    fn react_input_requires_current_dom_layout_and_uses_stable_region_ids() {
+    fn gpu_input_requires_current_layout_and_scroll_updates_runtime_and_rgba_frame() {
         let mut p = mock();
         p.render().unwrap();
-        let point = [0.1625, 0.9];
+        let point = region_center(&p, 0);
+        p.layout = None;
         assert!(p.input(input(&p, point, 0)).unwrap().is_empty());
         assert!(p.input(input(&p, point, 1)).unwrap().is_empty());
         assert!(p.input(input(&p, point, 0)).unwrap().is_empty());
         apply(&mut p, Operation::Select { panel: 5 });
-        let point = [0.88, 0.91];
+        let close_region = p
+            .layout
+            .as_ref()
+            .unwrap()
+            .regions
+            .iter()
+            .find(|r| reader_action(r.id) == Some(Action::Close))
+            .expect("reader close button")
+            .clone();
+        let close_point = bounds_center(close_region.bounds);
         for buttons in [0, 1, 0] {
-            let sample = input(&p, point, buttons);
+            let sample = input(&p, close_point, buttons);
             apply(&mut p, Operation::Pointer { input: sample });
         }
         assert!(p.info().closed);
-        let old = p.layout.take().unwrap();
-        p.layout_changed();
-        p.update(Operation::Layout { layout: old }).unwrap();
-        assert!(p.layout.is_none());
+
+        apply(&mut p, Operation::Select { panel: 4 });
+        apply(&mut p, Operation::Scene { scene: Scene::Long });
+        let rgba = p.render_rgba().unwrap();
+        let info = p.info();
+        assert_eq!(rgba.len(), (info.width * info.height * 4) as usize);
+        assert!(rgba.as_chunks::<4>().0.iter().any(|px| px[3] > 0));
+        let frame_before = info.frame_id;
+        let scroll_before = p.runtime.scroll_y;
+        apply(&mut p, Operation::Scroll { delta: 0.4 });
+        assert!(p.runtime.scroll_y > scroll_before);
+        assert!(p.info().frame_id > frame_before);
     }
 }

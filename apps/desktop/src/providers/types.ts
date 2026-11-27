@@ -7,7 +7,7 @@ export interface RecognitionServiceSettings {
 
 export interface AsrSettings {
   backend: string;
-  language: "auto" | "en" | "ja" | "zh" | "ko" | "es" | "fr" | "de";
+  preferred_languages: string[];
   managed_qwen: {
     package_id: string;
     device: "auto" | "cpu" | "gpu";
@@ -20,6 +20,7 @@ export type ApiProvider = string;
 export type ApiCapability = "speech_to_text" | "text_generation" | "text_translation" | "image_understanding";
 export type ProviderCategory = "cloud_provider" | "local_service" | "custom_protocol";
 export type RecognitionTransport = "realtime_stream" | "segmented_upload";
+export type RecognitionLanguageMode = "auto_only" | "single" | "preferred_list";
 export type ProviderSupportLevel = "native" | "protocol_compatible";
 export type ApiAuthMode = "bearer" | "none";
 
@@ -85,6 +86,7 @@ export interface ProviderServiceDefinition {
   capabilities: ApiCapability[];
   adapter: string;
   recognition_transport: RecognitionTransport | null;
+  recognition_language_mode?: RecognitionLanguageMode;
   recognition_languages?: string[];
   partial_results: boolean;
   models: string[];

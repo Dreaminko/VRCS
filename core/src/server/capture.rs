@@ -155,7 +155,9 @@ fn glossary_used_by_capture(config: &AppConfig) -> bool {
 }
 
 fn asr_config_runtime_changed(current: &AsrConfig, candidate: &AsrConfig) -> bool {
-    if current.backend != candidate.backend || current.language != candidate.language {
+    if current.backend != candidate.backend
+        || current.preferred_languages != candidate.preferred_languages
+    {
         return true;
     }
 

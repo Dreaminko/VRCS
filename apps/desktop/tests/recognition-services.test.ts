@@ -47,7 +47,7 @@ const definitions: ProviderDefinition[] = [{
 
 const asr: AsrSettings = {
   backend: "qwen_local_managed",
-  language: "auto",
+  preferred_languages: [],
   managed_qwen: { package_id: "qwen3-asr-0.6b-q8_0", device: "auto" },
   active_profile_id: "profile",
   service_settings: {},
@@ -107,7 +107,7 @@ test("engine labels use catalog display names and safely fall back to service ID
 test("managed Qwen is a local source without an API profile", () => {
   const configured: AsrSettings = {
     ...asr,
-    language: "ja",
+    preferred_languages: ["ja"],
     managed_qwen: { ...asr.managed_qwen, device: "cpu" },
     service_settings: { "groq-transcribe": { model: "whisper-large-v3", context: "saved context" } },
   };
@@ -116,7 +116,7 @@ test("managed Qwen is a local source without an API profile", () => {
   assert.equal(selected.active_profile_id, null);
   assert.equal(recognitionSourceValue(selected), "managed_qwen");
   assert.equal(recognitionEngineLabel(selected, [], []), "Qwen3-ASR 0.6B Q8_0");
-  assert.equal(selected.language, "ja");
+  assert.deepEqual(selected.preferred_languages, ["ja"]);
   assert.deepEqual(selected.managed_qwen, configured.managed_qwen);
   assert.deepEqual(selected.service_settings, configured.service_settings);
 });

@@ -40,6 +40,40 @@ opt-level = 3
 [profile.dev.package.ring]
 opt-level = 3
 
+# Keep VR GPU UI shaping, layout, and SVG rasterization smooth in debug builds.
+[profile.dev.package.cosmic-text]
+opt-level = 2
+
+[profile.dev.package.rustybuzz]
+opt-level = 2
+
+[profile.dev.package.swash]
+opt-level = 2
+
+[profile.dev.package.ttf-parser]
+opt-level = 2
+
+[profile.dev.package.fontdb]
+opt-level = 2
+
+[profile.dev.package.taffy]
+opt-level = 2
+
+[profile.dev.package.resvg]
+opt-level = 2
+
+[profile.dev.package.usvg]
+opt-level = 2
+
+[profile.dev.package.tiny-skia]
+opt-level = 2
+
+[profile.dev.package.zeno]
+opt-level = 2
+
+[profile.dev.package.kurbo]
+opt-level = 2
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

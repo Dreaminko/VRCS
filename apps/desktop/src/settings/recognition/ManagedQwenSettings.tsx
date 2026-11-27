@@ -126,9 +126,10 @@ export function ManagedQwenSettings({
           onChange={(value) => onUpdateQwen("package_id", value)}
         />
         <RecognitionLanguageSelect
-          value={draft.asr.language}
+          value={draft.asr.preferred_languages}
+          mode="single"
           disabled={disabled}
-          onChange={(value) => onUpdateAsr("language", value)}
+          onChange={(value) => onUpdateAsr("preferred_languages", value)}
         />
       </div>
     </div>

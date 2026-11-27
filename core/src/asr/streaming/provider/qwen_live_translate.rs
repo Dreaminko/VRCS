@@ -370,7 +370,7 @@ pub(super) fn normalize_event(
                 .as_str()
                 .map(str::to_owned)
                 .or(source.language.take())
-                .or_else(|| (config.language != "auto").then(|| config.language.clone()));
+                .or_else(|| config.single_fallback_language().map(str::to_owned));
             source.done = done;
             if !done {
                 state.active = Some(id);

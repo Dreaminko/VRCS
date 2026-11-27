@@ -100,6 +100,6 @@ function languageOption(code: string, locale: string): DropdownOption {
     description: language && language.nativeName !== localizedName
       ? `${language.nativeName} · ${code}`
       : code,
-    searchText: language ? languageSearchText(language, locale) : code,
+    searchText: language ? languageSearchText(language, locale) : `${localizedName} ${code}`,
   };
 }

@@ -20,7 +20,7 @@ pub enum ActiveLanguageSession {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LanguageRuntimeConfig {
-    pub recognition_language: String,
+    pub recognition_languages: Vec<String>,
     pub translation: TranslationConfig,
     pub osc_translation_strategy: String,
 }
@@ -37,7 +37,8 @@ pub struct CaptureStartInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LanguageOverrideInput {
-    pub recognition_language: String,
+    #[serde(default)]
+    pub recognition_languages: Vec<String>,
     pub translation_mode: String,
     pub speaker_targets: Vec<TranslationTargetConfig>,
     pub microphone_targets: Vec<TranslationTargetConfig>,
@@ -60,7 +61,7 @@ impl ActiveLanguageSession {
     pub fn apply_to(&self, global: &AppConfig) -> AppConfig {
         let mut effective = global.clone();
         let runtime = self.resolve(global);
-        effective.asr.language = runtime.recognition_language;
+        effective.asr.preferred_languages = runtime.recognition_languages;
         effective.translation = runtime.translation;
         effective.osc.translation_strategy = runtime.osc_translation_strategy;
         crate::config::apply_feature_gates(&effective)
@@ -70,7 +71,7 @@ impl ActiveLanguageSession {
 impl LanguageRuntimeConfig {
     fn from_global(config: &AppConfig) -> Self {
         Self {
-            recognition_language: config.asr.language.clone(),
+            recognition_languages: config.asr.preferred_languages.clone(),
             translation: config.translation.clone(),
             osc_translation_strategy: config.osc.translation_strategy.clone(),
         }
@@ -95,7 +96,7 @@ pub fn select_session(
                 preset_id: preset.id.clone(),
                 preset_name: preset.name.clone(),
                 snapshot: LanguageRuntimeConfig {
-                    recognition_language: preset.recognition_language.clone(),
+                    recognition_languages: preset.recognition_languages.clone(),
                     translation: TranslationConfig {
                         model_selection: global.translation.model_selection.clone(),
                         mode: preset.translation_mode.clone(),
@@ -109,7 +110,7 @@ pub fn select_session(
         }
         (None, Some(override_config)) => {
             let snapshot = LanguageRuntimeConfig {
-                recognition_language: override_config.recognition_language,
+                recognition_languages: override_config.recognition_languages,
                 translation: TranslationConfig {
                     model_selection: global.translation.model_selection.clone(),
                     mode: override_config.translation_mode,
@@ -120,7 +121,7 @@ pub fn select_session(
                 osc_translation_strategy: override_config.osc_translation_strategy,
             };
             let mut candidate = global.clone();
-            candidate.asr.language = snapshot.recognition_language.clone();
+            candidate.asr.preferred_languages = snapshot.recognition_languages.clone();
             candidate.translation = snapshot.translation.clone();
             candidate.osc.translation_strategy = snapshot.osc_translation_strategy.clone();
             candidate.resolve_model_assignments();
@@ -141,7 +142,7 @@ mod tests {
             CaptureStartInput {
                 language_preset_id: Some("preset".into()),
                 language_override: Some(LanguageOverrideInput {
-                    recognition_language: "en".into(),
+                    recognition_languages: vec!["en".into()],
                     translation_mode: "disabled".into(),
                     speaker_targets: vec![TranslationTargetConfig::new("ja")],
                     microphone_targets: vec![TranslationTargetConfig::new("en")],
@@ -159,7 +160,7 @@ mod tests {
         global.language_presets.push(crate::config::LanguagePreset {
             id: "c7c4556a-dd7a-47d1-85f8-d4ce9bda3a96".into(),
             name: "Japanese".into(),
-            recognition_language: "ja".into(),
+            recognition_languages: vec!["ja".into()],
             translation_mode: "disabled".into(),
             speaker_targets: vec![TranslationTargetConfig::new("en")],
             microphone_targets: vec![TranslationTargetConfig::new("ja")],
@@ -173,11 +174,11 @@ mod tests {
             &global,
         )
         .unwrap();
-        global.asr.language = "de".into();
+        global.asr.preferred_languages = vec!["de".into()];
         global.translation.speaker_targets[0].target_language = "fr".into();
 
         let runtime = session.resolve(&global);
-        assert_eq!(runtime.recognition_language, "ja");
+        assert_eq!(runtime.recognition_languages, vec!["ja"]);
         assert_eq!(runtime.translation.speaker_targets[0].target_language, "en");
         assert_eq!(runtime.osc_translation_strategy, "round_robin");
     }

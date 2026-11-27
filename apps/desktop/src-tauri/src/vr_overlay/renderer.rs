@@ -104,47 +104,14 @@ pub fn dashboard_placeholder(message: &str) -> Result<Texture, String> {
 }
 
 #[cfg(linux_vr)]
-pub fn dashboard_placeholder(message: &str) -> Result<Texture, String> {
+pub fn dashboard_placeholder(_message: &str) -> Result<Texture, String> {
     use super::dashboard::{DASHBOARD_HEIGHT, DASHBOARD_WIDTH};
     let width = DASHBOARD_WIDTH / 2;
     let height = DASHBOARD_HEIGHT / 2;
-    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, width as i32, height as i32)
-        .map_err(|error| error.to_string())?;
-    {
-        let context = cairo::Context::new(&surface).map_err(|error| error.to_string())?;
-        context.set_source_rgba(35.0 / 255.0, 39.0 / 255.0, 48.0 / 255.0, 1.0);
-        context.paint().map_err(|error| error.to_string())?;
-        context.set_source_rgba(220.0 / 255.0, 224.0 / 255.0, 229.0 / 255.0, 1.0);
-        context.select_font_face(
-            "sans-serif",
-            cairo::FontSlant::Normal,
-            cairo::FontWeight::Normal,
-        );
-        context.set_font_size(20.0);
-        for (line, y) in message.lines().take(12).zip((48..).step_by(26)) {
-            context.move_to(24.0, y as f64);
-            context.show_text(line).map_err(|error| error.to_string())?;
-        }
-    }
-    let stride = surface.stride() as usize;
     let mut pixels = vec![0; width as usize * height as usize * 4];
-    surface
-        .with_data(|data| {
-            for y in 0..height as usize {
-                for x in 0..width as usize {
-                    let offset = y * stride + x * 4;
-                    let word = u32::from_ne_bytes(data[offset..offset + 4].try_into().unwrap());
-                    let dest = &mut pixels[(y * width as usize + x) * 4..][..4];
-                    dest.copy_from_slice(&[
-                        ((word >> 16) & 255) as u8,
-                        ((word >> 8) & 255) as u8,
-                        (word & 255) as u8,
-                        (word >> 24) as u8,
-                    ]);
-                }
-            }
-        })
-        .map_err(|error| error.to_string())?;
+    for pixel in pixels.as_chunks_mut::<4>().0 {
+        pixel.copy_from_slice(&[35, 39, 48, 255]);
+    }
     Ok(Texture {
         pixels,
         width,

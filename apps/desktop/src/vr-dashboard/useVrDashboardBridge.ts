@@ -6,7 +6,6 @@ import { playerAudioNotice } from "../capture/player-audio-notice";
 import type { VrOverlayStatus } from "../integrations/types";
 import type { Settings } from "../settings/types";
 import type { ApiProfileView } from "../providers/types";
-import { liveTranslationServiceName } from "../providers/recognition-services";
 import { localizedLanguageName } from "../translation/translation-languages";
 import { supportsTranslation } from "../providers/api-profile-purpose";
 import { applyModelDefaults, resolveModelSelection, translationModelSelection } from "../settings/model-selection";
@@ -249,6 +248,7 @@ export function useVrDashboardBridge(
       anchor_mode: t("settings.vrOverlay.anchorMode"),
       anchor_world: t("settings.vrOverlay.anchorWorld"),
       follow_view: t("settings.vrOverlay.followView"),
+      wrist_menu: t("settings.vrOverlay.wristMenuEnable"),
     };
   }, [i18n, locale, ocrTargetsKey, playerIdLabel, t]);
 
@@ -344,6 +344,7 @@ export function useVrDashboardBridge(
         position: positionFields("wrist"),
         appearance: appearanceFields("wrist"),
       },
+      wrist_menu: { enabled: overlay.wrist_menu.enabled },
       ocr: {
         enabled: settings.ocr.master_enabled && settings.ocr.enabled,
         backend: t("settings.vrOcr.localModel"),
@@ -358,7 +359,9 @@ export function useVrDashboardBridge(
       },
       language: {
         recognition: {
-          value: languageName(liveTranslationServiceName(settings.asr.backend) ? "auto" : settings.asr.language),
+          value: (choices.recognition.length === 0 || settings.asr.preferred_languages.length === 0)
+            ? languageName("auto")
+            : settings.asr.preferred_languages.map(languageName).join(" / "),
           options: choices.recognition.map((value) => ({ value, label: languageName(value) })),
         },
         mode: {

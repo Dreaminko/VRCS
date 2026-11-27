@@ -290,7 +290,7 @@ mod tests {
         config.language_presets.push(super::super::LanguagePreset {
             id: "preset".into(),
             name: "Preset".into(),
-            recognition_language: "ja".into(),
+            recognition_languages: vec!["ja".into()],
             translation_mode: "automatic".into(),
             speaker_targets: config.translation.speaker_targets.clone(),
             microphone_targets: config.translation.microphone_targets.clone(),

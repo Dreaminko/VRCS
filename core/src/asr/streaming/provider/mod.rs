@@ -505,5 +505,5 @@ pub(super) fn event_language(config: &AsrConfig, value: &Value) -> Option<String
         .get("language")
         .and_then(Value::as_str)
         .map(str::to_owned)
-        .or_else(|| (config.language != "auto").then(|| config.language.clone()))
+        .or_else(|| config.single_fallback_language().map(str::to_owned))
 }

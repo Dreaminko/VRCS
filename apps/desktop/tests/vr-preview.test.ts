@@ -45,10 +45,27 @@ test("equal-scale preview maps texture coordinates and rejects letterboxing", ()
   assert.equal(texturePoint(Number.NaN, 1, box, texture), null);
 });
 
-test("React preview maps wide menu and portrait subtitle surfaces at equal scale", () => {
+test("Preview maps wide menu and portrait subtitle surfaces at equal scale", () => {
   const box = { width: 800, height: 600 };
   assert.deepEqual(texturePoint(400, 300, box, { width: 1024, height: 256 }), [0.5, 0.5]);
   assert.equal(texturePoint(400, 199, box, { width: 1024, height: 256 }), null);
   assert.deepEqual(texturePoint(400, 300, box, { width: 1024, height: 1360 }), [0.5, 0.5]);
   assert.equal(texturePoint(100, 300, box, { width: 1024, height: 1360 }), null);
+});
+
+test("preview queue coalesces consecutive scroll deltas", async () => {
+  const deltas: number[] = [];
+  let release!: () => void;
+  const first = new Promise<void>((resolve) => { release = resolve; });
+  const queue = previewQueue(async (op) => {
+    deltas.push(Number(op.delta ?? 0));
+    if (deltas.length === 1) await first;
+  });
+  queue.push({ type: "scroll", delta: 0.1 });
+  queue.push({ type: "scroll", delta: 0.25 });
+  queue.push({ type: "scroll", delta: 0.15 });
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(deltas, [0.1, 0.4]);
+  queue.close();
 });

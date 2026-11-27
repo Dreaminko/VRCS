@@ -44,8 +44,8 @@ pub(super) fn run_task(
         "semantic_punctuation_enabled": false,
         "max_sentence_silence": (silence_seconds * 1000.0).round() as u64,
     });
-    if config.language != "auto" {
-        parameters["language_hints"] = json!([config.language]);
+    if !config.preferred_languages.is_empty() {
+        parameters["language_hints"] = json!(config.preferred_languages);
     }
     let context = settings.context.trim();
     let input = if context.is_empty() {
@@ -127,7 +127,7 @@ pub(super) fn normalize_event(
             .map(str::to_owned)
             .unwrap_or_else(|| id.to_string())
     });
-    let language = (config.language != "auto").then(|| config.language.clone());
+    let language = config.single_fallback_language().map(str::to_owned);
     if sentence
         .get("sentence_end")
         .and_then(Value::as_bool)

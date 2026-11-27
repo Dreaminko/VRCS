@@ -194,6 +194,7 @@ fn service_value(service: &ProviderServiceDefinition) -> Value {
         "capabilities": service.capabilities,
         "adapter": adapter_id(service.adapter),
         "recognition_transport": service.recognition_transport,
+        "recognition_language_mode": service.recognition_language_mode,
         "recognition_languages": service.recognition_languages,
         "partial_results": service.partial_results,
         "models": service.models,
@@ -1657,7 +1658,7 @@ mod tests {
         config.language_presets.push(crate::config::LanguagePreset {
             id: "meeting".into(),
             name: "Meeting".into(),
-            recognition_language: "auto".into(),
+            recognition_languages: Vec::new(),
             translation_mode: "manual".into(),
             speaker_targets: config.translation.microphone_targets.clone(),
             microphone_targets: Vec::new(),
