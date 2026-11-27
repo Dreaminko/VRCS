@@ -17,6 +17,10 @@ export function previewQueue(run: (operation: PreviewOperation) => Promise<void>
       if (closed) return;
       const last = pending.at(-1);
       if (operation.type === "refresh" && (running || pending.length)) return;
+      if (last?.type === "scroll" && operation.type === "scroll") {
+        last.delta = Number(last.delta ?? 0) + Number(operation.delta ?? 0);
+        return;
+      }
       if (last?.type === "pointer" && operation.type === "pointer") {
         const a = last.input as Record<string, unknown>;
         const b = operation.input as Record<string, unknown>;
