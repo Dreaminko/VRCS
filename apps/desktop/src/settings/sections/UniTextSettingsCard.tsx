@@ -17,6 +17,7 @@ export function UniTextSettingsCard({
   saveState,
   oscInboundEnabled = false,
   oscInboundPort = 9002,
+  playerAudioEnabled = false,
   onChange,
 }: {
   config: UniTextSettings;
@@ -24,6 +25,7 @@ export function UniTextSettingsCard({
   saveState: SaveState;
   oscInboundEnabled?: boolean;
   oscInboundPort?: number;
+  playerAudioEnabled?: boolean;
   onChange: (patch: Partial<UniTextSettings>) => void;
 }) {
   const { t } = useTranslation();
@@ -247,6 +249,15 @@ export function UniTextSettingsCard({
               disabled={false}
               onChange={(preserve_original_text) => onChange({ preserve_original_text })}
             />
+            {playerAudioEnabled && (
+              <PreferenceToggle
+                title={t("settings.unitext.showPlayerId")}
+                description={t("settings.unitext.showPlayerIdDescription")}
+                checked={config.show_player_id ?? true}
+                disabled={false}
+                onChange={(show_player_id) => onChange({ show_player_id })}
+              />
+            )}
           </div>
 
           <div className="osc-endpoint-row">

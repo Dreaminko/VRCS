@@ -19,6 +19,13 @@ type AnchorProps = {
   onClick?: (event: { preventDefault: () => void }) => void;
 };
 
+type SwitchProps = {
+  role?: string;
+  "aria-label"?: string;
+  "aria-checked"?: boolean;
+  onClick?: () => void;
+};
+
 type JsonObject = Record<string, unknown>;
 
 const enTranslation = (JSON.parse(
@@ -43,25 +50,31 @@ const defaultConfig: UniTextSettings = {
   include_microphone: true,
   include_speaker: true,
   preserve_original_text: true,
+  show_player_id: true,
   mute_sync_enabled: true,
 };
 
 async function loadUniTextSettingsCard(t: test.TestContext) {
   const key = `unitextCardTest${Math.random().toString(36).slice(2)}`;
   const capturedLinks: AnchorProps[] = [];
+  const capturedSwitches: SwitchProps[] = [];
   const invokeCalls: Array<[string, unknown]> = [];
   let tauriRuntime = false;
   let invokeImpl: (command: string, args?: unknown) => Promise<unknown> = async () => undefined;
 
   const reactBridge = { ...React, useLayoutEffect: React.useEffect };
+  const captureElement = (type: unknown, props: Record<string, unknown>) => {
+    if (type === "a") capturedLinks.push(props as AnchorProps);
+    if (type === "button" && props?.role === "switch") capturedSwitches.push(props as SwitchProps);
+  };
   const jsxBridge = {
     Fragment: ReactJsxRuntime.Fragment,
     jsx(type: unknown, props: Record<string, unknown>, itemKey?: unknown) {
-      if (type === "a") capturedLinks.push(props as AnchorProps);
+      captureElement(type, props);
       return ReactJsxRuntime.jsx(type as never, props, itemKey as never);
     },
     jsxs(type: unknown, props: Record<string, unknown>, itemKey?: unknown) {
-      if (type === "a") capturedLinks.push(props as AnchorProps);
+      captureElement(type, props);
       return ReactJsxRuntime.jsxs(type as never, props, itemKey as never);
     },
   };
@@ -139,6 +152,7 @@ async function loadUniTextSettingsCard(t: test.TestContext) {
   return {
     UniTextSettingsCard: mod.UniTextSettingsCard,
     capturedLinks,
+    capturedSwitches,
     invokeCalls,
     setTauriRuntime(value: boolean) { tauriRuntime = value; },
     setInvokeImpl(impl: (command: string, args?: unknown) => Promise<unknown>) { invokeImpl = impl; },
@@ -222,4 +236,51 @@ test("UniText repository link preserves browser navigation outside Tauri and inv
   onClick({ preventDefault: () => {} });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(errors.length, 1);
+});
+
+test("UniText show_player_id toggle only renders when per-player audio tracks are enabled", async (t) => {
+  const { UniTextSettingsCard, capturedSwitches } = await loadUniTextSettingsCard(t);
+  const label = translate("settings.unitext.showPlayerId");
+  const description = translate("settings.unitext.showPlayerIdDescription");
+
+  for (const playerAudioEnabled of [undefined, false]) {
+    capturedSwitches.length = 0;
+    const html = renderToStaticMarkup(
+      React.createElement(UniTextSettingsCard, {
+        config: { ...defaultConfig, enabled: true },
+        runtime: undefined,
+        saveState: "idle",
+        playerAudioEnabled,
+        onChange: () => {},
+      }),
+    );
+    assert.ok(!html.includes(label), `showPlayerId should be hidden when playerAudioEnabled=${String(playerAudioEnabled)}`);
+    assert.ok(!capturedSwitches.some((item) => item["aria-label"] === label));
+  }
+
+  const patches: Array<Partial<UniTextSettings>> = [];
+  for (const show_player_id of [true, false]) {
+    capturedSwitches.length = 0;
+    const html = renderToStaticMarkup(
+      React.createElement(UniTextSettingsCard, {
+        config: { ...defaultConfig, enabled: true, show_player_id },
+        runtime: undefined,
+        saveState: "idle",
+        playerAudioEnabled: true,
+        onChange: (patch) => patches.push(patch),
+      }),
+    );
+    const normalizedHtml = html.replaceAll("&#x27;", "'");
+    assert.ok(normalizedHtml.includes(label));
+    assert.ok(normalizedHtml.includes(description));
+    const toggle = capturedSwitches.find((item) => item["aria-label"] === label);
+    assert.ok(toggle, "Expected showPlayerId switch");
+    assert.equal(toggle["aria-checked"], show_player_id);
+    toggle.onClick?.();
+  }
+
+  assert.deepEqual(patches, [
+    { show_player_id: false },
+    { show_player_id: true },
+  ]);
 });

@@ -253,6 +253,7 @@ export interface UniTextSettings {
   include_microphone: boolean;
   include_speaker: boolean;
   preserve_original_text: boolean;
+  show_player_id: boolean;
   mute_sync_enabled: boolean;
   clear_after_seconds: number;
 }

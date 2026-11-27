@@ -1938,6 +1938,8 @@
         "includeSpeakerDescription": "相手の音声認識や Chatbox の翻訳もプロップに出力します。",
         "preserveOriginal": "出力に原文を残す",
         "preserveOriginalDescription": "翻訳がある場合は原文と翻訳を一緒に表示します。オフにすると翻訳のみ表示します。",
+        "showPlayerId": "プレイヤーIDを表示",
+        "showPlayerIdDescription": "各字幕の上に話者のプレイヤーIDを表示します。オフにすると表示行数を節約できます。",
         "muteSync": "VRChat のマイクミュートと同期",
         "address": "IP アドレス",
         "port": "ポート",

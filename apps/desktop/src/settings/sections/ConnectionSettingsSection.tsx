@@ -8,6 +8,7 @@ import type { Settings } from "../types";
 import type { ApplySettings, SaveState, SettingOption } from "../settings-types";
 import type { ChatboxMessageFormat } from "../../chatbox/types";
 import { isValidChatboxCustomFormat } from "../../chatbox/chatbox";
+import { playerAudioTrackEnabled } from "../../capture/vrchat-network";
 import { PreferenceToggle, Select } from "../SettingsControls";
 import { SettingsDisclosure } from "../components/SettingsDisclosure";
 import { ExternalApiSettingsCard } from "../system/ExternalApiSettingsCard";
@@ -357,6 +358,7 @@ export function ConnectionSettingsSection({
           saveState={saveState}
           oscInboundEnabled={Boolean(draft.osc.inbound?.enabled)}
           oscInboundPort={draft.osc.inbound?.port ?? 9002}
+          playerAudioEnabled={playerAudioTrackEnabled(draft)}
           onChange={updateUniText}
         />
         {features.anki && <AnkiSettingsSection

@@ -1938,6 +1938,8 @@
         "includeSpeakerDescription": "將對方語音辨識與 Chatbox 譯文一併輸出到道具上。",
         "preserveOriginal": "輸出中保留原文",
         "preserveOriginalDescription": "有譯文時同時顯示原文與譯文；關閉後僅顯示譯文。",
+        "showPlayerId": "顯示玩家ID",
+        "showPlayerIdDescription": "在每條字幕上方顯示說話者的玩家ID；關閉後可節省顯示行數。",
         "muteSync": "同步 VRChat 麥克風靜音",
         "address": "IP 位址",
         "port": "連線埠",

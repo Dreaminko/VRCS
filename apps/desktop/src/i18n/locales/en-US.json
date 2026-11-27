@@ -1938,6 +1938,8 @@
         "includeSpeakerDescription": "Forward recognized speech and VRChat chatbox translations from other players to the prop.",
         "preserveOriginal": "Keep original text in output",
         "preserveOriginalDescription": "Show original text above translations when available.",
+        "showPlayerId": "Show player ID",
+        "showPlayerIdDescription": "Display the speaker's player ID above each subtitle; turn off to save display rows.",
         "muteSync": "Sync VRChat microphone mute",
         "address": "IP address",
         "port": "Port",

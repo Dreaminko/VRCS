@@ -4,7 +4,7 @@ import type { TFunction } from "i18next";
 
 import type { Health } from "../src/core-client/types.ts";
 import type { Settings } from "../src/settings/types.ts";
-import { networkCaptureFeatureEnabled, usesVrchatNetwork } from "../src/capture/vrchat-network.ts";
+import { networkCaptureFeatureEnabled, playerAudioTrackEnabled, usesVrchatNetwork } from "../src/capture/vrchat-network.ts";
 import { vrchatNetworkStatus } from "../src/capture/vrchat-network-status.ts";
 
 test("network preparation requires the master switch and a voice or Chatbox consumer", () => {
@@ -14,11 +14,18 @@ test("network preparation requires the master switch and a voice or Chatbox cons
       assert.equal(usesVrchatNetwork(consumers), false, "A missing master switch defaults off");
       assert.equal(usesVrchatNetwork({ ...consumers, audio: { output: { mode, player_audio: { enabled: false } } } }), false);
       assert.equal(usesVrchatNetwork({ ...consumers, audio: { output: { mode, player_audio: { enabled: true } } } }), enabled || mode === "vrchat_players");
+      assert.equal(playerAudioTrackEnabled(consumers), false);
+      assert.equal(playerAudioTrackEnabled({ ...consumers, audio: { output: { mode, player_audio: { enabled: false } } } }), false);
+      assert.equal(playerAudioTrackEnabled({ ...consumers, audio: { output: { mode, player_audio: { enabled: true } } } }), mode === "vrchat_players");
     }
   }
   assert.equal(usesVrchatNetwork(null), false);
   assert.equal(usesVrchatNetwork(undefined), false);
   assert.equal(usesVrchatNetwork({ audio: { output: { mode: "system" } } }), false);
+  assert.equal(playerAudioTrackEnabled(null), false);
+  assert.equal(playerAudioTrackEnabled(undefined), false);
+  assert.equal(playerAudioTrackEnabled({}), false);
+  assert.equal(playerAudioTrackEnabled({ audio: {} }), false);
 });
 
 test("the status bar reports the active VRChat network capture phase", () => {
