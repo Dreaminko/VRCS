@@ -154,8 +154,20 @@
 .player-history-list-toolbar > .secondary-button { flex: 0 0 auto; }
 .player-history-body .player-history-show-all { width: 30px; height: 30px; flex: 0 0 30px; justify-content: center; padding: 0; border-radius: 50%; }
 .player-history-language-list { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
-.player-history-language { gap: 5px; border: 0; cursor: pointer; }
-.player-history-language:hover { background: var(--primary-softer); }
+.player-history-language-list > small { animation: player-lang-fade-in 150ms cubic-bezier(0.16, 1, 0.3, 1); }
+.player-history-language {
+  gap: 5px;
+  border: 0;
+  cursor: pointer;
+  animation: player-lang-chip-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background-color 120ms ease-out, transform 120ms ease-out;
+}
+.player-history-language:hover:not(:disabled) { background: var(--primary-softer); }
+.player-history-language:active:not(:disabled) { transform: scale(0.95); }
+.player-history-language.is-removing {
+  pointer-events: none;
+  animation: player-lang-chip-out 115ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
 .player-history-language-add { display: inline-flex; }
 .player-history-language-add .dropdown-field { min-width: 0; }
 .player-history-language-add .dropdown-trigger {
@@ -167,8 +179,12 @@
   color: var(--primary-ink);
   background: transparent;
   box-shadow: none;
+  transition: border-color 140ms ease-out, color 140ms ease-out, background-color 140ms ease-out, transform 140ms ease-out;
 }
+.player-history-language-add .dropdown-trigger:active:not(:disabled) { transform: scale(0.92); }
 .player-history-language-add .dropdown-icon { color: inherit; }
+.player-history-language-add .dropdown-icon svg { transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1); }
+.player-history-language-add .dropdown-field.open .dropdown-icon svg { transform: rotate(45deg); }
 .player-history-language-add .dropdown-trigger:hover:not(:disabled),
 .player-history-language-add .dropdown-field-compact.open .dropdown-trigger {
   border-color: var(--primary);
@@ -253,7 +269,27 @@
 .player-history-controls :focus-visible { outline: 2px solid var(--primary-ink); outline-offset: 2px; }
 @media (max-width: 480px) { .player-history-row { gap: 7px; } }
 @media (max-width: 450px) { .player-history-list-toolbar > .secondary-button { order: 3; margin-left: auto; } .player-history-groups { order: 2; margin-left: 0; } }
+@keyframes player-lang-chip-in {
+  from { opacity: 0; transform: scale(0.88); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes player-lang-chip-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.86); }
+}
+@keyframes player-lang-fade-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 @media (prefers-reduced-motion: reduce) {
   .player-history-rules-chevron,
-  .player-history-rules::details-content { transition: none; }
+  .player-history-rules::details-content,
+  .player-history-language-list > small,
+  .player-history-language,
+  .player-history-language.is-removing,
+  .player-history-language-add .dropdown-trigger,
+  .player-history-language-add .dropdown-icon svg {
+    animation: none;
+    transition: none;
+  }
 }

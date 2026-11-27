@@ -12,6 +12,7 @@ import type { PlayerSourceMode, PlayerSourceOverride } from "../../capture/types
 import { playerUserId } from "../../capture/player-selection";
 import { localizedLanguageName } from "../../translation/translation-languages";
 import { LanguagePicker } from "../../shared/ui/LanguagePicker";
+import { useAnimatedList } from "../../shared/hooks/use-animated-list";
 import { useDismissibleLayer } from "../../shared/hooks/use-dismissible-layer";
 import { useDropdownMenuMotion } from "../../shared/hooks/use-dropdown-menu-motion";
 import { PreferenceToggle, RangeField } from "../../settings/SettingsControls";
@@ -116,6 +117,9 @@ export function PlayerHistoryControls({ subtitles, status, roster, useLiveHealth
   const languageName = (language: string) => localizedLanguageName(language, i18n.resolvedLanguage ?? "en-US");
   const display = (action: PlayerVisibilityAction) => onPreferences(value => applyPlayerVisibilityAction(value, action, defaultLanguages));
   const setLanguageHidden = (language: string, hidden: boolean) => display({ set_source_language_hidden: { language, hidden } });
+  const setLanguageHiddenRef = useRef(setLanguageHidden);
+  setLanguageHiddenRef.current = setLanguageHidden;
+  const hiddenLanguageList = useAnimatedList(languages, panelMounted && open);
   const setSource = async (speaker: SpeakerIdentity, source: "vrchat_chatbox" | "speaker", disabled: boolean) => {
     const userId = playerUserId(speaker);
     if (!onSource || !userId) return;
@@ -181,13 +185,18 @@ export function PlayerHistoryControls({ subtitles, status, roster, useLiveHealth
           </div>}
         </div>
       </details>}
-      <fieldset className="player-history-languages">
+      <fieldset className="player-history-languages" ref={hiddenLanguageList.bindContainerRef}>
         <legend>{t("live.players.languages")}</legend>
-        <div className="player-history-language-list">{languages.map((language) => <button type="button" className="language-chip player-history-language" key={language} value={language}
-          aria-label={t("live.players.removeHiddenLanguage", { language: languageName(language) })} onClick={() => setLanguageHidden(language, false)}>
-          {languageName(language)}<X size={13} aria-hidden="true" />
-        </button>)}{!languages.length && <small>{t("live.players.noHiddenLanguages")}</small>}
-          <span className="player-history-language-add">
+        <div className="player-history-language-list">{languages.map((language) => {
+          const removing = hiddenLanguageList.isRemoving(language);
+          return <button type="button" className={removing ? "language-chip player-history-language is-removing" : "language-chip player-history-language"} key={language} value={language}
+            ref={hiddenLanguageList.bindItemRef(language)} disabled={removing}
+            aria-label={t("live.players.removeHiddenLanguage", { language: languageName(language) })}
+            onClick={() => hiddenLanguageList.scheduleRemove(language, () => setLanguageHiddenRef.current(language, false))}>
+            {languageName(language)}<X size={13} aria-hidden="true" />
+          </button>;
+        })}{!languages.length && <small>{t("live.players.noHiddenLanguages")}</small>}
+          <span className="player-history-language-add" ref={hiddenLanguageList.bindItemRef("__add__")}>
             <LanguagePicker label={t("live.players.addHiddenLanguage")} value="" languageCodes={languageCodes}
               icon={<Plus size={14} aria-hidden="true" />} iconOnly compact floating disabled={!open || !languageCodes.length}
               onChange={(language) => setLanguageHidden(language, true)} />

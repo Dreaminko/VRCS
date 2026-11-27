@@ -1,4 +1,5 @@
-import { ArrowUp, X } from "lucide-react";
+import { useRef } from "react";
+import { ArrowUp, Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -6,9 +7,12 @@ import {
   MAX_ASR_PREFERRED_LANGUAGES,
 } from "../../providers/recognition-services";
 import type { RecognitionLanguageMode } from "../../providers/types";
+import { useAnimatedList } from "../../shared/hooks/use-animated-list";
 import { LanguagePicker } from "../../shared/ui/LanguagePicker";
 import { localizedLanguageName } from "../../translation/translation-languages";
 import { Select } from "../SettingsControls";
+
+const ADD_BUTTON_KEY = "__add__";
 
 export function RecognitionLanguageSelect({
   label,
@@ -37,11 +41,22 @@ export function RecognitionLanguageSelect({
     ? ASR_LANGUAGE_CODES.filter((code) => supportedLanguages.includes(code))
     : [...ASR_LANGUAGE_CODES];
 
+  const valueRef = useRef(value);
+  const onChangeRef = useRef(onChange);
+  valueRef.current = value;
+  onChangeRef.current = onChange;
+
+  const animatedList = useAnimatedList(value, mode !== "auto_only");
+
   if (mode === "auto_only") {
     return (
-      <div className="asr-language-field">
+      <div className="field asr-language-field">
+        <div className="asr-language-header">
+          <span>{resolvedLabel}</span>
+        </div>
         <Select
           label={resolvedLabel}
+          hideLabel
           value="auto"
           options={[{ value: "auto", label: t("languages.auto") }]}
           disabled
@@ -49,13 +64,11 @@ export function RecognitionLanguageSelect({
           onChange={() => undefined}
         />
         {value.length > 0 && (
-          <div className="cloud-transport-hint" role="note">
-            <small>
-              {t("settings.recognition.autoOnlyPreservedHint", {
-                languages: value.map(labelFor).join(" / "),
-              })}
-            </small>
-          </div>
+          <small role="note">
+            {t("settings.recognition.autoOnlyPreservedHint", {
+              languages: value.map(labelFor).join(" / "),
+            })}
+          </small>
         )}
       </div>
     );
@@ -73,36 +86,52 @@ export function RecognitionLanguageSelect({
     next.unshift(picked);
     onChange(next);
   };
-  const removeAt = (index: number) => {
-    onChange(value.filter((_, itemIndex) => itemIndex !== index));
+  const removeCode = (code: string) => {
+    animatedList.scheduleRemove(code, () => {
+      const latest = valueRef.current;
+      if (latest.includes(code)) {
+        onChangeRef.current(latest.filter((item) => item !== code));
+      }
+    });
+  };
+  const clearAll = () => {
+    animatedList.clearPendingRemovals();
+    onChange([]);
   };
 
   return (
-    <div className="asr-language-field">
-      <div className="field">
-        <div className="asr-language-header">
-          <span>{resolvedLabel}</span>
-          {value.length > 0 && (
-            <button
-              className="asr-language-clear"
-              type="button"
-              disabled={disabled}
-              onClick={() => onChange([])}
-            >
-              {t("languages.auto")}
-            </button>
-          )}
-        </div>
+    <div className="field asr-language-field">
+      <div className="asr-language-header">
+        <span>{resolvedLabel}</span>
         {value.length > 0 && (
-          <div className="asr-language-chips" role="list">
-            {value.map((code, index) => (
-              <span className="asr-language-chip" key={code} role="listitem">
-                <span className="asr-language-rank">{index + 1}</span>
+          <button
+            className="asr-language-clear"
+            type="button"
+            disabled={disabled}
+            onClick={clearAll}
+          >
+            {t("languages.auto")}
+          </button>
+        )}
+      </div>
+      <div className={`asr-language-box${disabled ? " is-disabled" : ""}`} ref={animatedList.bindContainerRef}>
+        {value.length === 0 ? (
+          <span className="asr-language-auto">{t("languages.auto")}</span>
+        ) : (
+          value.map((code, index) => {
+            const removing = animatedList.isRemoving(code);
+            return (
+              <span
+                className={removing ? "language-chip asr-language-chip is-removing" : "language-chip asr-language-chip"}
+                key={code}
+                ref={animatedList.bindItemRef(code)}
+              >
+                {value.length > 1 && <span className="asr-language-rank">{index + 1}</span>}
                 <span>{labelFor(code)}</span>
                 {index > 0 && (
                   <button
                     type="button"
-                    disabled={disabled}
+                    disabled={disabled || removing}
                     aria-label={t("settings.recognition.prioritizeLanguage", {
                       language: labelFor(code),
                     })}
@@ -113,72 +142,58 @@ export function RecognitionLanguageSelect({
                 )}
                 <button
                   type="button"
-                  disabled={disabled}
+                  disabled={disabled || removing}
                   aria-label={t("settings.recognition.removeLanguage", {
                     language: labelFor(code),
                   })}
-                  onClick={() => removeAt(index)}
+                  onClick={() => removeCode(code)}
                 >
                   <X size={12} aria-hidden="true" />
                 </button>
               </span>
-            ))}
-          </div>
+            );
+          })
         )}
-        <LanguagePicker
-          label={resolvedLabel}
-          value=""
-          placeholder={
-            value.length === 0
-              ? t("languages.auto")
-              : value.length >= MAX_ASR_PREFERRED_LANGUAGES
-                ? t("settings.recognition.preferredLanguagesLimit", {
-                    max: MAX_ASR_PREFERRED_LANGUAGES,
-                  })
-                : t("settings.recognition.addPreferredLanguage")
-          }
-          languageCodes={remainingCodes}
-          leadingOptions={value.length > 0 ? [{ value: "auto", label: t("languages.auto") }] : undefined}
-          compact
-          disabled={disabled || value.length >= MAX_ASR_PREFERRED_LANGUAGES || remainingCodes.length === 0}
-          floating={Boolean(floating)}
-          onChange={(next) => {
-            if (next === "auto") {
-              onChange([]);
-              return;
-            }
-            if (value.includes(next) || value.length >= MAX_ASR_PREFERRED_LANGUAGES) return;
-            onChange([...value, next]);
-          }}
-        />
+        <span className="asr-language-add" ref={animatedList.bindItemRef(ADD_BUTTON_KEY)}>
+          <LanguagePicker
+            label={value.length >= MAX_ASR_PREFERRED_LANGUAGES
+              ? t("settings.recognition.preferredLanguagesLimit", { max: MAX_ASR_PREFERRED_LANGUAGES })
+              : t("settings.recognition.addPreferredLanguage")}
+            value=""
+            languageCodes={remainingCodes}
+            icon={<Plus size={14} aria-hidden="true" />}
+            iconOnly
+            compact
+            floating
+            disabled={disabled || value.length >= MAX_ASR_PREFERRED_LANGUAGES || remainingCodes.length === 0}
+            onChange={(next) => {
+              if (!next || value.includes(next) || value.length >= MAX_ASR_PREFERRED_LANGUAGES) return;
+              onChange([...value, next]);
+            }}
+          />
+        </span>
       </div>
       {mode === "single" && value.length > 1 && (
-        <div className="cloud-transport-hint" role="note">
-          <small>
-            {t("settings.recognition.singleLanguageHint", {
-              language: labelFor(value[0]),
-            })}
-          </small>
-        </div>
+        <small role="note">
+          {t("settings.recognition.singleLanguageHint", {
+            language: labelFor(value[0]),
+          })}
+        </small>
       )}
       {mode === "preferred_list" && model?.startsWith("fun-asr-realtime") && value.length > 1 && (
-        <div className="cloud-transport-hint" role="note">
-          <small>
-            {t("settings.recognition.funAsrLegacyHint", {
-              language: labelFor(value[0]),
-            })}
-          </small>
-        </div>
+        <small role="note">
+          {t("settings.recognition.funAsrLegacyHint", {
+            language: labelFor(value[0]),
+          })}
+        </small>
       )}
       {unsupportedPrimary && supportedLanguages && (
-        <div className="cloud-transport-hint" role="note">
-          <small>
-            {t("settings.recognition.unsupportedPrimaryLanguageHint", {
-              language: labelFor(value[0]),
-              supported: supportedLanguages.map(labelFor).join(" / "),
-            })}
-          </small>
-        </div>
+        <small role="alert">
+          {t("settings.recognition.unsupportedPrimaryLanguageHint", {
+            language: labelFor(value[0]),
+            supported: supportedLanguages.map(labelFor).join(" / "),
+          })}
+        </small>
       )}
     </div>
   );

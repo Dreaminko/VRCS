@@ -1,8 +1,10 @@
+import { useRef } from "react";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { liveTranslationServiceName } from "../../providers/recognition-services";
 import type { ApiProfileView } from "../../providers/types";
+import { useAnimatedList } from "../../shared/hooks/use-animated-list";
 import { LanguagePicker } from "../../shared/ui/LanguagePicker";
 import {
   PLAMO_TRANSLATION_LANGUAGE_CODES,
@@ -22,6 +24,12 @@ export function TranslationRouteList({ title, liveService, targets, profiles, mo
   onChange: (targets: TranslationTargetSettings[]) => void;
 }) {
   const { t } = useTranslation();
+  const targetsRef = useRef(targets);
+  const onChangeRef = useRef(onChange);
+  targetsRef.current = targets;
+  onChangeRef.current = onChange;
+  const animatedList = useAnimatedList(targets.map((item) => item.target_language));
+
   const addTarget = () => {
     if (targets.length >= 3) return;
     const used = new Set(targets.map((target) => target.target_language));
@@ -38,7 +46,14 @@ export function TranslationRouteList({ title, liveService, targets, profiles, mo
     [next[index], next[index + offset]] = [next[index + offset], next[index]];
     onChange(next);
   };
-  return <section className="translation-route-group">
+  const removeTarget = (language: string) => {
+    animatedList.scheduleRemove(language, () => {
+      const latest = targetsRef.current;
+      if (latest.length <= 1) return;
+      onChangeRef.current(latest.filter((item) => item.target_language !== language));
+    });
+  };
+  return <section className="translation-route-group" ref={animatedList.bindContainerRef}>
     <header className="translation-route-group-header"><div><strong>{title}</strong></div></header>
     <div className="translation-route-list">
       {targets.map((target, index) => {
@@ -46,24 +61,30 @@ export function TranslationRouteList({ title, liveService, targets, profiles, mo
         const native = liveTranslationServiceName(service);
         const resolved = { ...target, ...resolveModelSelection(target, modelSelection) };
         const profile = profiles.find((item) => item.id === resolved.profile_id);
-        return <div className="translation-route-row" key={`${target.target_language}-${index}`}>
+        const removing = animatedList.isRemoving(target.target_language);
+        return <div
+          className={removing ? "translation-route-row is-removing" : "translation-route-row"}
+          key={target.target_language}
+          ref={animatedList.bindItemRef(target.target_language)}
+        >
           <div className="translation-route-rank">{index + 1}</div>
           <LanguagePicker compact label={t("settings.translation.targetLanguageSettings")} value={target.target_language}
             languageCodes={targetLanguageCodes(resolved, targets.map((item) => item.target_language), profiles, service)}
-            allowCustom={!native && (profile?.capabilities.supports_custom_translation_language ?? false)} disabled={disabled}
+            allowCustom={!native && (profile?.capabilities.supports_custom_translation_language ?? false)} disabled={disabled || removing}
             onChange={(target_language) => onChange(targets.map((item, i) => i === index ? { ...item, target_language } : item))} />
           <div className="translation-route-actions">
             <button type="button" aria-label={t("settings.translation.moveUp")} data-tooltip={t("settings.translation.moveUp")}
-              disabled={disabled || index === 0} onClick={() => move(index, -1)}><ArrowUp size={14} /></button>
+              disabled={disabled || removing || index === 0} onClick={() => move(index, -1)}><ArrowUp size={14} /></button>
             <button type="button" aria-label={t("settings.translation.moveDown")} data-tooltip={t("settings.translation.moveDown")}
-              disabled={disabled || index === targets.length - 1} onClick={() => move(index, 1)}><ArrowDown size={14} /></button>
+              disabled={disabled || removing || index === targets.length - 1} onClick={() => move(index, 1)}><ArrowDown size={14} /></button>
             <button type="button" aria-label={t("common.delete")} data-tooltip={t("common.delete")}
-              disabled={disabled || targets.length <= 1} onClick={() => onChange(targets.filter((_, i) => i !== index))}><Trash2 size={14} /></button>
+              disabled={disabled || removing || targets.length <= 1} onClick={() => removeTarget(target.target_language)}><Trash2 size={14} /></button>
           </div>
         </div>;
       })}
     </div>
-    <button className="secondary-button translation-route-add" type="button" disabled={disabled || targets.length >= 3}
+    <button className="secondary-button translation-route-add" type="button" ref={animatedList.bindItemRef("__add__")}
+      disabled={disabled || targets.length >= 3}
       onClick={addTarget}><Plus size={14} />{t("settings.translation.addRoute")}</button>
   </section>;
 }

@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BookmarkPlus, Play, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { useAnimatedList } from "../../shared/hooks/use-animated-list";
 import type {
   LanguagePreset,
   Settings,
@@ -46,6 +47,12 @@ export function LanguagePresetSettings({
   onChange: (settings: Settings) => void;
 }) {
   const { t } = useTranslation();
+  const settingsRef = useRef(settings);
+  const onChangeRef = useRef(onChange);
+  settingsRef.current = settings;
+  onChangeRef.current = onChange;
+  const animatedList = useAnimatedList(settings.language_presets.map((item) => item.id));
+
   const savePreset = () => {
     if (settings.language_presets.length >= 5) return;
     onChange(saveLanguagePreset(settings, t("settings.translation.presetDefaultName", {
@@ -58,9 +65,18 @@ export function LanguagePresetSettings({
     onChange({ ...settings, language_presets });
   };
   const applyPreset = (preset: LanguagePreset) => onChange(applyLanguagePreset(settings, preset.id));
+  const deletePreset = (id: string) => {
+    animatedList.scheduleRemove(id, () => {
+      const latest = settingsRef.current;
+      onChangeRef.current({
+        ...latest,
+        language_presets: latest.language_presets.filter((item) => item.id !== id),
+      });
+    });
+  };
 
   return (
-    <section className="translation-preset-group">
+    <section className="translation-preset-group" ref={animatedList.bindContainerRef}>
       <header className="translation-route-group-header">
         <div>
           <strong>{t("settings.translation.presets")}</strong>
@@ -75,29 +91,37 @@ export function LanguagePresetSettings({
               && preset.speaker_recognition_languages.every((code, itemIndex) => code === preset.microphone_recognition_languages[itemIndex])
               ? formatRecognition(preset.speaker_recognition_languages)
               : `${formatRecognition(preset.speaker_recognition_languages)} | ${formatRecognition(preset.microphone_recognition_languages)}`;
+            const removing = animatedList.isRemoving(preset.id);
             return (
-              <div className="translation-preset-row" key={preset.id}>
+              <div
+                className={removing ? "translation-preset-row is-removing" : "translation-preset-row"}
+                key={preset.id}
+                ref={animatedList.bindItemRef(preset.id)}
+              >
                 <PresetNameInput
                   name={preset.name}
-                  disabled={disabled}
+                  disabled={disabled || removing}
                   onCommit={(name) => updatePreset(index, { name })}
                 />
                 <span>{recognitionSummary} · {preset.speaker_targets.map((target) => target.target_language).join(" / ")}</span>
-                <button type="button" aria-label={t("settings.translation.applyPreset")} disabled={disabled} onClick={() => applyPreset(preset)}><Play size={14} /></button>
+                <button type="button" aria-label={t("settings.translation.applyPreset")} disabled={disabled || removing} onClick={() => applyPreset(preset)}><Play size={14} /></button>
                 <button
                   type="button"
                   aria-label={t("common.delete")}
-                  disabled={disabled}
-                  onClick={() => onChange({
-                    ...settings,
-                    language_presets: settings.language_presets.filter((item) => item.id !== preset.id),
-                  })}
+                  disabled={disabled || removing}
+                  onClick={() => deletePreset(preset.id)}
                 ><Trash2 size={14} /></button>
               </div>
             );
           })}
         </div>
-        <button className="secondary-button" type="button" disabled={disabled || settings.language_presets.length >= 5} onClick={savePreset}>
+        <button
+          className="secondary-button"
+          type="button"
+          ref={animatedList.bindItemRef("__save__")}
+          disabled={disabled || settings.language_presets.length >= 5}
+          onClick={savePreset}
+        >
           <BookmarkPlus size={14} />
           {t("settings.translation.savePreset")}
         </button>
