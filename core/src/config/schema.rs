@@ -336,6 +336,7 @@ mod tests {
                 "mute_sync_enabled",
                 "port",
                 "preserve_original_text",
+                "show_player_id",
                 "tier",
             ],
         );
@@ -567,6 +568,26 @@ mod tests {
                 .unwrap()
                 .get("glossary")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn unitext_show_player_id_defaults_true_and_round_trips_false() {
+        let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+        value["unitext"]
+            .as_object_mut()
+            .unwrap()
+            .remove("show_player_id");
+        let config: AppConfig = serde_json::from_value(value).unwrap();
+        assert!(config.unitext.show_player_id);
+
+        let mut updated = serde_json::to_value(config).unwrap();
+        updated["unitext"]["show_player_id"] = false.into();
+        let round_trip: AppConfig = serde_json::from_value(updated).unwrap();
+        assert!(!round_trip.unitext.show_player_id);
+        assert_eq!(
+            serde_json::to_value(round_trip).unwrap()["unitext"]["show_player_id"],
+            false
         );
     }
 

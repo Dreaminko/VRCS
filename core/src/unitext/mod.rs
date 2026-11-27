@@ -660,6 +660,7 @@ async fn run_worker(
                 let became_enabled = !session.config.enabled && next.enabled;
                 let preserve_changed =
                     session.config.preserve_original_text != next.preserve_original_text;
+                let show_player_id_changed = session.config.show_player_id != next.show_player_id;
                 let player_name_changed =
                     session.layout.set_self_player_name(&self_player_id);
                 session.config = next;
@@ -701,7 +702,7 @@ async fn run_worker(
                             session.shadow.invalidate_all();
                         }
                     }
-                } else if (preserve_changed || player_name_changed)
+                } else if (preserve_changed || show_player_id_changed || player_name_changed)
                     && !session.showing_test_screen
                 {
                     session.overflow_ready_since = None;
@@ -1623,5 +1624,72 @@ mod tests {
         assert_eq!(session.viewport.rows, 8);
         assert_eq!(session.viewport.row_px, 256);
         assert!(session.viewport.send_row_page);
+    }
+
+    #[test]
+    fn show_player_id_toggle_updates_existing_worker_session_rows_and_tracks_speaker_updates() {
+        let config = UniTextConfig {
+            enabled: true,
+            show_player_id: false,
+            ..UniTextConfig::default()
+        };
+        let mut session = WorkerSession::new(config, &ProbeState::default());
+        let now = Instant::now();
+        let unresolved = crate::models::SpeakerIdentity {
+            id: "track:1".into(),
+            index: 0,
+            display_name: None,
+            user_id: None,
+        };
+
+        session.handle_presentation_event(
+            PresentationEvent::Final {
+                utterance_id: Some("u1".into()),
+                subtitle: crate::models::Subtitle {
+                    id: Some(1),
+                    conversation_id: None,
+                    text: "Hello".into(),
+                    speaker: Some(unresolved),
+                    language: Some("en".into()),
+                    started_at: None,
+                    ended_at: None,
+                    source: "speaker".into(),
+                    created_at: "00:00:00".into(),
+                    translations: Vec::new(),
+                },
+            },
+            now,
+        );
+
+        let read_row = |target: &VirtualScreen, row: usize| -> String {
+            target
+                .visual_row_cells(row)
+                .into_iter()
+                .take_while(|&cp| cp != 0)
+                .map(|cp| char::from_u32(cp as u32).unwrap_or('\u{FFFD}'))
+                .collect()
+        };
+        assert_eq!(read_row(&session.target, 0), "Hello");
+        assert_eq!(read_row(&session.target, 1), "");
+
+        session.handle_presentation_event(
+            PresentationEvent::SpeakerUpdated {
+                speaker: crate::models::SpeakerIdentity {
+                    id: "track:1".into(),
+                    index: 0,
+                    display_name: Some("Alice".into()),
+                    user_id: Some("usr_alice".into()),
+                },
+            },
+            now,
+        );
+        assert_eq!(read_row(&session.target, 0), "Hello");
+
+        session.config.show_player_id = true;
+        session
+            .layout
+            .sync_to_screen(&mut session.target, &session.config, session.viewport);
+        assert_eq!(read_row(&session.target, 0), "Alice：");
+        assert_eq!(read_row(&session.target, 1), "Hello");
     }
 }

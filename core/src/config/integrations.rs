@@ -72,6 +72,7 @@ pub struct UniTextConfig {
     pub include_microphone: bool,
     pub include_speaker: bool,
     pub preserve_original_text: bool,
+    pub show_player_id: bool,
     pub mute_sync_enabled: bool,
     pub clear_after_seconds: u16,
 }
@@ -86,6 +87,7 @@ impl Default for UniTextConfig {
             include_microphone: true,
             include_speaker: true,
             preserve_original_text: true,
+            show_player_id: true,
             mute_sync_enabled: true,
             clear_after_seconds: 30,
         }

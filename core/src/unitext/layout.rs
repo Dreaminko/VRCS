@@ -36,6 +36,15 @@ struct OverflowState {
     revealed_len: usize,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct LayoutCacheKey {
+    cols: usize,
+    rows: usize,
+    row_px: usize,
+    preserve_original_text: bool,
+    show_player_id: bool,
+}
+
 #[derive(Default)]
 pub(crate) struct UniTextLayout {
     entries: Vec<DisplayEntry>,
@@ -43,7 +52,7 @@ pub(crate) struct UniTextLayout {
     cached_rows: Vec<RenderedRow>,
     cached_last_entry_start: usize,
     cached_last_entry_seq: Option<u64>,
-    cached_layout_key: Option<(usize, usize, usize, bool)>,
+    cached_layout_key: Option<LayoutCacheKey>,
     layout_dirty: bool,
     status: u8,
     next_seq: u64,
@@ -328,7 +337,8 @@ impl UniTextLayout {
                 .map(compact_whitespace)
                 .filter(|t| !t.is_empty() && t != &orig);
 
-            if (trans.is_some() || !orig.is_empty())
+            if config.show_player_id
+                && (trans.is_some() || !orig.is_empty())
                 && let Some(name) = entry.speaker_name.as_deref()
             {
                 all_rows.push(RenderedRow {
@@ -405,12 +415,13 @@ impl UniTextLayout {
         debug_assert_eq!(screen.cols, viewport.cols);
         debug_assert_eq!(screen.rows, viewport.rows);
 
-        let layout_key = (
-            viewport.cols,
-            viewport.rows,
-            viewport.row_px,
-            config.preserve_original_text,
-        );
+        let layout_key = LayoutCacheKey {
+            cols: viewport.cols,
+            rows: viewport.rows,
+            row_px: viewport.row_px,
+            preserve_original_text: config.preserve_original_text,
+            show_player_id: config.show_player_id,
+        };
         if self.layout_dirty || self.cached_layout_key != Some(layout_key) {
             self.rebuild_cached_rows(config, viewport);
             self.cached_layout_key = Some(layout_key);
@@ -1074,5 +1085,80 @@ mod tests {
         assert_eq!(screen_row_string(&screen, 2), "Alice：");
         assert_eq!(screen_row_string(&screen, 3), "Both shown");
         assert_eq!(screen_row_string(&screen, 4), "Bilingual");
+    }
+
+    #[test]
+    fn hiding_player_id_skips_speaker_header_rows_and_toggling_restores_them() {
+        let mut config = UniTextConfig {
+            preserve_original_text: true,
+            show_player_id: false,
+            ..UniTextConfig::default()
+        };
+        let viewport = ViewportConfig::default();
+        let mut layout = UniTextLayout::default();
+        let mut screen = VirtualScreen::new(viewport.cols, viewport.rows);
+        layout.set_self_player_name("Dreaminko");
+
+        let unresolved = SpeakerIdentity {
+            id: "track:alice".into(),
+            index: 1,
+            display_name: None,
+            user_id: None,
+        };
+        layout.upsert_final(
+            Some("u1"),
+            Some(1),
+            "speaker",
+            Some(&unresolved),
+            "Hello world".into(),
+        );
+        layout.update_translation(1, "你好世界".into(), true);
+        layout.upsert_final(Some("m1"), Some(2), "microphone", None, "My mic".into());
+        layout.upsert_manual_chatbox("cb-1".into(), "Chat line".into(), None, None);
+
+        layout.sync_to_screen(&mut screen, &config, viewport);
+        assert_eq!(screen_row_string(&screen, 0), "Hello world");
+        assert_eq!(screen_row_string(&screen, 1), "你好世界");
+        assert_eq!(screen_row_string(&screen, 2), "My mic");
+        assert_eq!(screen_row_string(&screen, 3), "Chat line");
+        assert_eq!(screen_row_string(&screen, 4), "");
+        let styles = screen.read_visual_row_styles();
+        assert_eq!(styles[0].0, 1);
+        assert_eq!(styles[1].0, SPEAKER_COLORS[1]);
+
+        let resolved = SpeakerIdentity {
+            id: "track:alice".into(),
+            index: 1,
+            display_name: Some("Alice".into()),
+            user_id: Some("usr_alice".into()),
+        };
+        assert!(layout.update_speaker(&resolved));
+
+        config.show_player_id = true;
+        layout.sync_to_screen(&mut screen, &config, viewport);
+        assert_eq!(screen_row_string(&screen, 0), "Hello world");
+        assert_eq!(screen_row_string(&screen, 1), "你好世界");
+        assert_eq!(screen_row_string(&screen, 2), "Dreaminko：");
+        assert_eq!(screen_row_string(&screen, 3), "My mic");
+        assert_eq!(screen_row_string(&screen, 4), "Dreaminko：");
+        assert_eq!(screen_row_string(&screen, 5), "Chat line");
+
+        // Verify Alice's resolved header is present by testing in a 12-row viewport.
+        let large = ViewportConfig {
+            cols: 64,
+            rows: 12,
+            row_px: 384,
+            send_bank: true,
+            send_row_page: true,
+        };
+        let mut large_screen = VirtualScreen::new(large.cols, large.rows);
+        layout.sync_to_screen(&mut large_screen, &config, large);
+        assert_eq!(screen_row_string(&large_screen, 0), "Alice：");
+        assert_eq!(screen_row_string(&large_screen, 1), "Hello world");
+        assert_eq!(screen_row_string(&large_screen, 2), "你好世界");
+        assert_eq!(screen_row_string(&large_screen, 3), "Dreaminko：");
+        assert_eq!(screen_row_string(&large_screen, 4), "My mic");
+        assert_eq!(screen_row_string(&large_screen, 5), "Dreaminko：");
+        assert_eq!(screen_row_string(&large_screen, 6), "Chat line");
     }
 }
