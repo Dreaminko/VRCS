@@ -301,10 +301,13 @@ impl PipelineDependencies {
     pub(crate) fn publish_live_translation(
         &self,
         source: &str,
-        snapshot: crate::models::LiveTranslation,
+        mut snapshot: crate::models::LiveTranslation,
     ) {
         if !self.current_player_selected() {
             return;
+        }
+        if source == "microphone" {
+            snapshot.speaker = None;
         }
         if self.player.is_some() {
             self.player_previews
@@ -443,7 +446,11 @@ impl PipelineDependencies {
             RecognizedText {
                 text: transcript.text,
                 language: transcript.language,
-                speaker: transcript.speaker,
+                speaker: if source == "microphone" {
+                    None
+                } else {
+                    transcript.speaker
+                },
             },
             source,
             transcript.utterance_id,
@@ -2270,5 +2277,29 @@ mod tests {
             .unwrap();
         assert_eq!(history[0].speaker.as_ref(), Some(&speaker));
         assert_eq!(history[0].translations[0].text, "你好。");
+    }
+    #[tokio::test]
+    async fn microphone_native_translation_strips_synthetic_speaker_metadata() {
+        let dependencies =
+            super::super::tests::test_dependencies(crate::domain_events::DomainEventHub::new());
+        let mut result = native_result();
+        result.transcript.speaker = Some(crate::models::SpeakerIdentity {
+            id: "qwen-session-3".into(),
+            index: 3,
+            display_name: None,
+            user_id: None,
+        });
+        dependencies
+            .publish_native_translation("microphone", result)
+            .await
+            .unwrap();
+        let history = dependencies
+            .database
+            .lock()
+            .unwrap()
+            .subtitle_history(10)
+            .unwrap();
+        assert_eq!(history[0].source, "microphone");
+        assert!(history[0].speaker.is_none());
     }
 }

@@ -409,6 +409,9 @@ fn asr_context_source(state: &CaptureContext) -> crate::asr::AsrContextSource {
 
 fn effective_asr_config(config: &AppConfig, source: &str) -> AsrConfig {
     let mut asr = config.asr.for_source(source);
+    if source == "microphone" {
+        asr.single_speaker = true;
+    }
     if crate::providers::is_live_translation(&asr.backend) {
         let targets = if source == "microphone" {
             &config.translation.microphone_targets
@@ -1575,10 +1578,12 @@ mod tests {
             super::effective_asr_config(&current, "speaker").preferred_languages,
             vec!["ja"]
         );
+        assert!(!super::effective_asr_config(&current, "speaker").single_speaker);
         assert_eq!(
             super::effective_asr_config(&current, "microphone").preferred_languages,
             vec!["zh"]
         );
+        assert!(super::effective_asr_config(&current, "microphone").single_speaker);
 
         let mut speaker_changed = current.clone();
         speaker_changed.asr.speaker_languages = vec!["en".into()];
