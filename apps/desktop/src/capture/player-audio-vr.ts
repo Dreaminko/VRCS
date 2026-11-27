@@ -1,7 +1,17 @@
 import type { TFunction } from "i18next";
 import type { PlayerAudioStatus } from "../core-client/types";
-import type { ProgressView } from "../vr-surface/protocol";
 import { playerAudioDisclaimer } from "./player-audio-disclaimer.ts";
+
+export interface ProgressView {
+  task?: "ocr" | "key";
+  scan_id: number;
+  status: string;
+  detail: string;
+  elapsed_seconds: number;
+  stages: ("pending" | "active" | "complete" | "skipped" | "failed")[];
+  stage_labels: string[];
+  translation_fraction: [number, number] | null;
+}
 
 export const PLAYER_AUDIO_READING_MS = 3_000;
 export interface PlayerAudioPreparation {
