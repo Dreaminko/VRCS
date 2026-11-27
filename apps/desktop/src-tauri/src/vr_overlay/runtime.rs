@@ -1601,6 +1601,10 @@ fn tick(
                 }
                 let kind = backend.kind();
                 state.selected_backend = Some(kind);
+                #[cfg(windows)]
+                if let Ok(idx) = backend.surface_adapter_index() {
+                    super::surface::warm_gpu(idx);
+                }
                 state.backend = Some(backend);
                 state.last_connect_error = None;
                 state.probe_incompatibility = None;

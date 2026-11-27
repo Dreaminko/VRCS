@@ -9,6 +9,8 @@ mod dashboard;
 #[cfg(any(windows, linux_vr))]
 mod dialogue;
 #[cfg(any(windows, linux_vr, test))]
+pub(crate) mod gpu_ui;
+#[cfg(any(windows, linux_vr, test))]
 mod interaction;
 #[cfg(windows)]
 pub(crate) mod ocr_capture;
@@ -46,14 +48,8 @@ pub(crate) mod renderer;
 mod runtime;
 #[cfg(any(windows, linux_vr))]
 pub(crate) mod surface;
-// The surface protocol and recovery rules are shared by both VR implementations.
-#[cfg(any(windows, linux_vr, test))]
-pub(crate) mod frame_receipt;
 #[cfg(any(windows, linux_vr, test))]
 pub(crate) mod surface_protocol;
-#[cfg(any(windows, linux_vr, test))]
-#[path = "surface/recovery.rs"]
-pub(crate) mod surface_recovery;
 #[cfg(any(windows, linux_vr, test))]
 mod transform;
 #[cfg(any(windows, linux_vr))]

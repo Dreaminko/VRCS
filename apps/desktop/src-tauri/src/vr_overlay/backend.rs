@@ -49,9 +49,7 @@ mod platform {
     use crate::vr_overlay::{cursor, ocr_input, transform};
     use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
 
-    #[cfg(windows)]
-    type SurfaceCapture = crate::vr_overlay::surface::windows_wgc::Capture;
-    #[cfg(linux_vr)]
+    #[cfg(any(windows, linux_vr))]
     type SurfaceCapture = crate::vr_overlay::surface::frame::Capture;
 
     type TipPoseMap = HashMap<(u32, u64), Option<[[f32; 4]; 3]>>;
