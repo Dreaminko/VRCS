@@ -4,6 +4,7 @@ pub mod caption;
 pub mod draw;
 pub mod icons;
 pub mod layout;
+#[cfg(any(windows, test))]
 pub mod markdown;
 pub mod ocr_scene;
 #[cfg(windows)]
@@ -193,6 +194,7 @@ mod tests {
         let dashboard: DashboardViewModel =
             serde_json::from_str(include_str!("../preview-fixture.json")).expect("valid fixture");
         let dark = false;
+        #[cfg_attr(not(windows), allow(unused_mut))]
         let mut views = vec![
             (
                 SurfaceId::Menu,

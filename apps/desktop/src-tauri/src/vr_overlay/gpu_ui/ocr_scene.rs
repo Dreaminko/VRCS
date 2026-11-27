@@ -1,15 +1,24 @@
 //! Rust port of `apps/desktop/src/vr-surface/ocr-scene.ts`.
 
+#[cfg(windows)]
 use std::collections::HashSet;
 
+#[cfg(windows)]
 use crate::vr_overlay::ocr_plane::{OcrScene, Quad};
+#[cfg(not(windows))]
+type Quad = [[f32; 2]; 4];
 
+#[cfg(windows)]
 const WIDTH: f32 = 2048.0;
+#[cfg(windows)]
 const PADDING: f32 = 12.0;
+#[cfg(windows)]
 const LINE_HEIGHT: f32 = 1.4;
 
+#[cfg(windows)]
 type Bounds = [f32; 4];
 
+#[cfg(windows)]
 #[derive(Debug, Clone)]
 pub struct OcrCard {
     pub id: usize,
@@ -22,6 +31,7 @@ pub struct OcrCard {
     pub connected: bool,
 }
 
+#[cfg(windows)]
 #[derive(Debug, Clone)]
 pub struct OcrSceneLayout {
     pub cards: Vec<OcrCard>,
@@ -30,6 +40,7 @@ pub struct OcrSceneLayout {
     pub capture_bounds: [u32; 4],
 }
 
+#[cfg(windows)]
 fn bounds(quad: &Quad) -> Bounds {
     [
         quad.iter().map(|p| p[0]).fold(f32::INFINITY, f32::min),
@@ -39,18 +50,22 @@ fn bounds(quad: &Quad) -> Bounds {
     ]
 }
 
+#[cfg(windows)]
 fn bounds_overlap(a: Bounds, b: Bounds) -> bool {
     a[2] > b[0] && b[2] > a[0] && a[3] > b[1] && b[3] > a[1]
 }
 
+#[cfg(windows)]
 fn rectangle([l, t, r, b]: Bounds) -> Quad {
     [[l, t], [r, t], [r, b], [l, b]]
 }
 
+#[cfg(windows)]
 fn edge(a: [f32; 2], b: [f32; 2]) -> f32 {
     (a[0] - b[0]).hypot(a[1] - b[1])
 }
 
+#[cfg(windows)]
 fn separated_on_axes(source: &Quad, a: &Quad, b: &Quad) -> bool {
     for index in 0..4 {
         let from = source[index];
@@ -74,10 +89,12 @@ fn separated_on_axes(source: &Quad, a: &Quad, b: &Quad) -> bool {
     false
 }
 
+#[cfg(windows)]
 fn overlaps(a: &Quad, b: &Quad) -> bool {
     !separated_on_axes(a, a, b) && !separated_on_axes(b, a, b)
 }
 
+#[cfg(windows)]
 fn tokenize(paragraph: &str) -> Vec<&str> {
     let mut tokens = Vec::new();
     let mut start = 0usize;
@@ -100,6 +117,7 @@ fn tokenize(paragraph: &str) -> Vec<&str> {
     tokens
 }
 
+#[cfg(windows)]
 fn wrap_text(
     text: &str,
     width: f32,
@@ -146,12 +164,14 @@ fn wrap_text(
     Some(lines)
 }
 
+#[cfg(windows)]
 struct FittedText {
     font_size: f32,
     lines: Vec<String>,
     height: f32,
 }
 
+#[cfg(windows)]
 fn fit_text(
     text: &str,
     width: f32,
@@ -180,6 +200,10 @@ fn fit_text(
 
 /// Validates and computes a 3x3 projective homography mapping `[0..width, 0..height]` -> `quad`.
 /// Returns `Some([h00, h01, h02, h10, h11, h12, h20, h21, 1.0])` (row-major).
+#[cfg_attr(
+    not(any(windows, all(linux_vr, target_arch = "x86_64"))),
+    allow(dead_code)
+)]
 pub fn quad_homography(quad: &Quad, width: f32, height: f32) -> Option<[f32; 9]> {
     if !quad.iter().flatten().all(|v| v.is_finite()) || width <= 0.0 || height <= 0.0 {
         return None;
@@ -216,6 +240,7 @@ pub fn quad_homography(quad: &Quad, width: f32, height: f32) -> Option<[f32; 9]>
     ])
 }
 
+#[cfg(windows)]
 pub fn layout_ocr_scene(
     scene: &OcrScene,
     measure: &mut impl FnMut(&str, f32) -> f32,

@@ -94,6 +94,7 @@ struct Entry {
     layout: Option<Arc<SurfaceLayout>>,
     runtime: SurfaceRuntimeState,
     dirty: bool,
+    #[cfg(windows)]
     last_anim_paint: Option<Instant>,
 }
 
@@ -106,6 +107,7 @@ impl Default for Entry {
             layout: None,
             runtime: SurfaceRuntimeState::default(),
             dirty: false,
+            #[cfg(windows)]
             last_anim_paint: None,
         }
     }
@@ -164,6 +166,7 @@ impl Entry {
         }
     }
 
+    #[cfg(windows)]
     fn needs_animation_tick(&self, now: Instant) -> bool {
         if !self.active {
             return false;
@@ -179,6 +182,11 @@ impl Entry {
             && self
                 .last_anim_paint
                 .is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_millis(16))
+    }
+
+    #[cfg(not(windows))]
+    fn needs_animation_tick(&self, _now: Instant) -> bool {
+        false
     }
 }
 
@@ -473,7 +481,10 @@ impl SurfaceRenderer {
             layout.validate(self.surface)?;
             entry.layout = Some(Arc::new(layout));
             entry.dirty = false;
-            entry.last_anim_paint = Some(now);
+            #[cfg(windows)]
+            {
+                entry.last_anim_paint = Some(now);
+            }
 
             #[cfg(windows)]
             let captured = {

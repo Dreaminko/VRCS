@@ -3,18 +3,24 @@
 use cosmic_text::{Align, Wrap};
 use taffy::prelude::*;
 
-use super::{add_circle_button, single_line_style, surface_size, text_style};
+#[cfg(windows)]
+use super::add_circle_button;
+use super::{single_line_style, surface_size, text_style};
 use crate::vr_overlay::dashboard::DashboardCommand;
 use crate::vr_overlay::gpu_ui::SurfaceRuntimeState;
+#[cfg(windows)]
 use crate::vr_overlay::gpu_ui::caption::page_geometry;
 use crate::vr_overlay::gpu_ui::draw::DrawList;
 use crate::vr_overlay::gpu_ui::icons::IconId;
 use crate::vr_overlay::gpu_ui::layout::{BoxPaint, RegionPayload, UiBuilder, length, percent};
+#[cfg(windows)]
 use crate::vr_overlay::gpu_ui::markdown::{MdBlock, MdSpan, parse_markdown};
 use crate::vr_overlay::gpu_ui::text::{TextEngine, TextStyle};
 use crate::vr_overlay::gpu_ui::theme::{Color, Theme};
 use crate::vr_overlay::player_audio_ui::{self, Prompt};
-use crate::vr_overlay::surface_protocol::{SurfaceId, SurfaceLayout, SurfaceState, SurfaceView};
+#[cfg(windows)]
+use crate::vr_overlay::surface_protocol::SurfaceView;
+use crate::vr_overlay::surface_protocol::{SurfaceId, SurfaceLayout, SurfaceState};
 
 #[cfg(windows)]
 pub fn render_reader(
@@ -569,6 +575,7 @@ pub fn render_reader(
     ui.emit(SurfaceId::Reader, state.key, page_count)
 }
 
+#[cfg(windows)]
 fn spans_to_rich(
     spans: &[MdSpan],
     size: f32,
@@ -594,6 +601,7 @@ fn spans_to_rich(
         .collect()
 }
 
+#[cfg(windows)]
 fn emit_markdown_blocks(
     ui: &mut UiBuilder<'_>,
     parent: NodeId,

@@ -1,5 +1,6 @@
 //! Passive VR surfaces: OcrSelection, DashboardThumbnail, OcrProgress, Headset, OcrResult.
 
+#[cfg(windows)]
 use std::time::Instant;
 
 use cosmic_text::{Align, Wrap};
@@ -8,14 +9,20 @@ use taffy::prelude::*;
 use super::{single_line_style, surface_size};
 use crate::vr_overlay::caption_status::CaptionLabels;
 use crate::vr_overlay::dashboard::CaptionVisibility;
+#[cfg(windows)]
 use crate::vr_overlay::gpu_ui::SurfaceRuntimeState;
 use crate::vr_overlay::gpu_ui::caption::{visible_caption_messages, visible_tail};
-use crate::vr_overlay::gpu_ui::draw::{DrawList, Instance, MaskVertex, OcrCardDraw};
+use crate::vr_overlay::gpu_ui::draw::DrawList;
+#[cfg(windows)]
+use crate::vr_overlay::gpu_ui::draw::{Instance, MaskVertex, OcrCardDraw};
 use crate::vr_overlay::gpu_ui::icons::IconId;
 use crate::vr_overlay::gpu_ui::layout::{BoxPaint, UiBuilder, length, percent};
+#[cfg(windows)]
 use crate::vr_overlay::gpu_ui::ocr_scene::{layout_ocr_scene, quad_homography};
 use crate::vr_overlay::gpu_ui::text::{TextEngine, TextStyle};
-use crate::vr_overlay::gpu_ui::theme::{Color, Theme};
+#[cfg(windows)]
+use crate::vr_overlay::gpu_ui::theme::Color;
+use crate::vr_overlay::gpu_ui::theme::Theme;
 #[cfg(windows)]
 use crate::vr_overlay::ocr_plane::OcrScene;
 #[cfg(windows)]
@@ -23,6 +30,7 @@ use crate::vr_overlay::ocr_progress::{ProgressTask, ProgressView, Stage};
 use crate::vr_overlay::presentation::{MessageSide, WristMessage};
 use crate::vr_overlay::surface_protocol::{SurfaceId, SurfaceKey, SurfaceLayout};
 
+#[cfg(windows)]
 pub fn render_ocr_selection(
     text: &mut TextEngine,
     key: SurfaceKey,

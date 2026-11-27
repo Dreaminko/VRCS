@@ -281,6 +281,7 @@ pub struct ShapedText {
 }
 
 impl ShapedText {
+    #[cfg(windows)]
     pub fn emit(
         &self,
         draw: &mut DrawList,

@@ -268,6 +268,7 @@ pub fn visible_tail(text: &str, mut fits: impl FnMut(&str) -> bool) -> String {
     if fits(&readable) { readable } else { fitted }
 }
 
+#[cfg(windows)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PageGeometry {
     pub count: usize,
@@ -275,6 +276,7 @@ pub struct PageGeometry {
     pub offset: f32,
 }
 
+#[cfg(windows)]
 pub fn page_geometry(
     height: f32,
     viewport: f32,

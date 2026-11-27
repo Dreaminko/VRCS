@@ -86,6 +86,7 @@ enum NodeContent {
         style: TextStyle,
         shaped: Option<Arc<ShapedText>>,
     },
+    #[cfg(windows)]
     RichText {
         spans: Vec<(String, TextStyle)>,
         base: TextStyle,
@@ -311,6 +312,7 @@ impl<'a> UiBuilder<'a> {
         id
     }
 
+    #[cfg(windows)]
     pub fn add_rich_text(
         &mut self,
         parent: NodeId,
@@ -507,6 +509,7 @@ impl<'a> UiBuilder<'a> {
                             height: h,
                         }
                     }
+                    #[cfg(windows)]
                     NodeContent::RichText {
                         spans,
                         base,
@@ -861,6 +864,7 @@ fn emit_node(
                 clip_radius,
             );
         }
+        #[cfg(windows)]
         NodeContent::RichText {
             spans,
             base,
@@ -898,7 +902,9 @@ fn emit_node(
                 final_shaped.emit(ctx.draw, content_x, content_y, clip_rect, clip_radius);
             }
         }
-        NodeContent::Text { shaped: None, .. } | NodeContent::RichText { shaped: None, .. } => {}
+        NodeContent::Text { shaped: None, .. } => {}
+        #[cfg(windows)]
+        NodeContent::RichText { shaped: None, .. } => {}
         NodeContent::Icon {
             id,
             size,

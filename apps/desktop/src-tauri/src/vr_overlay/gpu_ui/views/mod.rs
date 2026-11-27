@@ -27,6 +27,7 @@ pub fn render_surface(
     now: Instant,
 ) -> (SurfaceLayout, DrawList) {
     match &state.view {
+        #[cfg(windows)]
         SurfaceView::OcrSelection { dark } => passive::render_ocr_selection(text, state.key, *dark),
         #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
         SurfaceView::DashboardThumbnail { dark } => {

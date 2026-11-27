@@ -485,7 +485,8 @@ impl VulkanPainter {
                     vk::PipelineBindPoint::GRAPHICS,
                     self.mask_pipe,
                 );
-                self.device.cmd_bind_vertex_buffers(0, &[mb], &[0]);
+                self.device
+                    .cmd_bind_vertex_buffers(self.cmd_buf, 0, &[mb], &[0]);
                 self.device
                     .cmd_draw(self.cmd_buf, draw.mask_vertices.len() as u32, 1, 0, 0);
             }
@@ -498,7 +499,8 @@ impl VulkanPainter {
                     vk::PipelineBindPoint::GRAPHICS,
                     self.ui_pipe,
                 );
-                self.device.cmd_bind_vertex_buffers(0, &[ib], &[0]);
+                self.device
+                    .cmd_bind_vertex_buffers(self.cmd_buf, 0, &[ib], &[0]);
                 self.device
                     .cmd_draw(self.cmd_buf, 6, draw.instances.len() as u32, 0, 0);
             }
@@ -548,7 +550,8 @@ impl VulkanPainter {
                         &[self.desc_set],
                         &[],
                     );
-                    self.device.cmd_bind_vertex_buffers(0, &[ib], &[0]);
+                    self.device
+                        .cmd_bind_vertex_buffers(self.cmd_buf, 0, &[ib], &[0]);
                     self.device
                         .cmd_draw(self.cmd_buf, 6, count as u32, 0, first_inst as u32);
                 }
