@@ -1,7 +1,14 @@
 import { AudioLines, HardDrive, Languages } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { recognitionProfiles } from "../../providers/recognition-services";
+import {
+  MANAGED_QWEN_RECOGNITION_SOURCE,
+  currentRecognitionProfile,
+  currentRecognitionService,
+  liveTranslationServiceName,
+  recognitionProfiles,
+  recognitionServicesForProfile,
+} from "../../providers/recognition-services";
 import type {
   ApiProfileView,
   ProviderDefinition,
@@ -9,9 +16,9 @@ import type {
 import type { Settings } from "../types";
 import { CloudProviderSettings } from "../recognition/CloudProviderSettings";
 import { ManagedQwenSettings } from "../recognition/ManagedQwenSettings";
+import { RecognitionLanguagesGroup } from "../recognition/RecognitionLanguageSelect";
 import { VadSettings } from "../recognition/VadSettings";
 import { recognitionSourceValue } from "../settings-derived";
-import { MANAGED_QWEN_RECOGNITION_SOURCE } from "../../providers/recognition-services";
 import type { RecognitionActions, RecognitionModels } from "../settings-types";
 import { Select } from "../SettingsControls";
 import { CapabilityNotice, usePlatformCapabilities } from "../../core-client/capabilities";
@@ -59,6 +66,18 @@ export function RecognitionSettingsSection({
   if (!recognitionSource) {
     sourceOptions.unshift({ value: "", label: t("settings.recognition.selectApiProfile") });
   }
+  const selectedProfile = usesManagedQwen ? undefined : currentRecognitionProfile(draft.asr, apiProfiles);
+  const services = usesManagedQwen ? [] : recognitionServicesForProfile(selectedProfile, providerDefinitions);
+  const service = usesManagedQwen
+    ? undefined
+    : (currentRecognitionService(draft.asr, selectedProfile, providerDefinitions) ?? services[0]);
+  const languageMode = usesManagedQwen
+    ? "single"
+    : (service?.recognition_language_mode ?? (liveTranslationServiceName(service?.id) ? "auto_only" : "single"));
+  const languageModel = usesManagedQwen
+    ? undefined
+    : (service ? (draft.asr.service_settings[service.id]?.model ?? service.models[0] ?? "") : "");
+  const supportedLanguages = usesManagedQwen ? undefined : service?.recognition_languages;
 
   return (
     <div className="settings-section settings-section-active recognition-section" id="settings-panel-recognition" role="tabpanel" aria-labelledby="settings-tab-recognition">
@@ -103,9 +122,26 @@ export function RecognitionSettingsSection({
           ready={models.qwenReady}
           runtime={models.qwenRuntime}
           disabled={!core?.inference.qwen_cpu.supported}
-          onUpdateAsr={actions.updateAsr}
           onUpdateQwen={actions.updateManagedQwen}
         />}
+        <div className="recognition-config-row">
+          <div className="recognition-config-title">
+            <Languages size={17} />
+            <span><strong>{t("settings.recognition.recognitionLanguage")}</strong></span>
+          </div>
+          <div className="recognition-config-fields">
+            <RecognitionLanguagesGroup
+              speakerLanguages={draft.asr.speaker_languages}
+              microphoneLanguages={draft.asr.microphone_languages}
+              mode={languageMode}
+              model={languageModel}
+              disabled={usesManagedQwen ? !core?.inference.qwen_cpu.supported : false}
+              supportedLanguages={supportedLanguages}
+              onChangeSpeaker={(value) => actions.updateAsr("speaker_languages", value)}
+              onChangeMicrophone={(value) => actions.updateAsr("microphone_languages", value)}
+            />
+          </div>
+        </div>
         <VadSettings vad={draft.vad} backend={draft.asr.backend} disabled={false} onUpdate={actions.updateVad} />
       </div>
     </div>

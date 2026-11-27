@@ -174,7 +174,6 @@ export function RecognitionStep({
             ready={asr.qwenModelsReady}
             runtime={asr.qwenRuntime}
             disabled={operationBusy}
-            onUpdateAsr={asr.updateAsr}
             onUpdateQwen={asr.updateManagedQwen}
             onDownloadRuntime={asr.downloadQwenRuntime}
             onCancelRuntimeDownload={asr.cancelQwenRuntimeDownload}

@@ -99,7 +99,8 @@ export type ActiveLanguageSession =
   | ({ kind: "override" } & LanguageSessionSnapshot);
 
 export interface LanguageSessionSnapshot {
-  recognition_languages: LanguagePreset["recognition_languages"];
+  speaker_recognition_languages: LanguagePreset["speaker_recognition_languages"];
+  microphone_recognition_languages: LanguagePreset["microphone_recognition_languages"];
   translation: TranslationSettings;
   osc_translation_strategy: OscTranslationStrategy;
 }

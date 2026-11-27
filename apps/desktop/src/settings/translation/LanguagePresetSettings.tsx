@@ -69,26 +69,33 @@ export function LanguagePresetSettings({
       </header>
       <div className="translation-preset-settings">
         <div className="translation-preset-list">
-          {settings.language_presets.map((preset, index) => (
-            <div className="translation-preset-row" key={preset.id}>
-              <PresetNameInput
-                name={preset.name}
-                disabled={disabled}
-                onCommit={(name) => updatePreset(index, { name })}
-              />
-              <span>{(preset.recognition_languages.length ? preset.recognition_languages.join(" / ") : t("languages.auto"))} · {preset.speaker_targets.map((target) => target.target_language).join(" / ")}</span>
-              <button type="button" aria-label={t("settings.translation.applyPreset")} disabled={disabled} onClick={() => applyPreset(preset)}><Play size={14} /></button>
-              <button
-                type="button"
-                aria-label={t("common.delete")}
-                disabled={disabled}
-                onClick={() => onChange({
-                  ...settings,
-                  language_presets: settings.language_presets.filter((item) => item.id !== preset.id),
-                })}
-              ><Trash2 size={14} /></button>
-            </div>
-          ))}
+          {settings.language_presets.map((preset, index) => {
+            const formatRecognition = (codes: string[]) => (codes.length ? codes.join(" / ") : t("languages.auto"));
+            const recognitionSummary = preset.speaker_recognition_languages.length === preset.microphone_recognition_languages.length
+              && preset.speaker_recognition_languages.every((code, itemIndex) => code === preset.microphone_recognition_languages[itemIndex])
+              ? formatRecognition(preset.speaker_recognition_languages)
+              : `${formatRecognition(preset.speaker_recognition_languages)} | ${formatRecognition(preset.microphone_recognition_languages)}`;
+            return (
+              <div className="translation-preset-row" key={preset.id}>
+                <PresetNameInput
+                  name={preset.name}
+                  disabled={disabled}
+                  onCommit={(name) => updatePreset(index, { name })}
+                />
+                <span>{recognitionSummary} · {preset.speaker_targets.map((target) => target.target_language).join(" / ")}</span>
+                <button type="button" aria-label={t("settings.translation.applyPreset")} disabled={disabled} onClick={() => applyPreset(preset)}><Play size={14} /></button>
+                <button
+                  type="button"
+                  aria-label={t("common.delete")}
+                  disabled={disabled}
+                  onClick={() => onChange({
+                    ...settings,
+                    language_presets: settings.language_presets.filter((item) => item.id !== preset.id),
+                  })}
+                ><Trash2 size={14} /></button>
+              </div>
+            );
+          })}
         </div>
         <button className="secondary-button" type="button" disabled={disabled || settings.language_presets.length >= 5} onClick={savePreset}>
           <BookmarkPlus size={14} />

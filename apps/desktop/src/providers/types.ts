@@ -7,7 +7,8 @@ export interface RecognitionServiceSettings {
 
 export interface AsrSettings {
   backend: string;
-  preferred_languages: string[];
+  speaker_languages: string[];
+  microphone_languages: string[];
   managed_qwen: {
     package_id: string;
     device: "auto" | "cpu" | "gpu";

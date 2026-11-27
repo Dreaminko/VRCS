@@ -7,7 +7,6 @@ import { managedQwenModelLabel } from "../../providers/recognition-services";
 import type { Settings } from "../types";
 import { Select } from "../SettingsControls";
 import { formatBytes } from "../settings-derived";
-import { RecognitionLanguageSelect } from "./RecognitionLanguageSelect";
 
 export function QwenRuntimePanel({
   runtime,
@@ -74,7 +73,6 @@ export function ManagedQwenSettings({
   ready,
   runtime,
   disabled,
-  onUpdateAsr,
   onUpdateQwen,
   onDownloadRuntime,
   onCancelRuntimeDownload,
@@ -84,7 +82,6 @@ export function ManagedQwenSettings({
   ready: boolean;
   runtime: QwenRuntimeStatus | null;
   disabled: boolean;
-  onUpdateAsr: <K extends keyof Settings["asr"]>(key: K, value: Settings["asr"][K]) => void;
   onUpdateQwen: <K extends keyof Settings["asr"]["managed_qwen"]>(key: K, value: Settings["asr"]["managed_qwen"][K]) => void;
   onDownloadRuntime?: () => Promise<void>;
   onCancelRuntimeDownload?: () => Promise<void>;
@@ -124,12 +121,6 @@ export function ManagedQwenSettings({
           ]}
           disabled={disabled || !ready}
           onChange={(value) => onUpdateQwen("package_id", value)}
-        />
-        <RecognitionLanguageSelect
-          value={draft.asr.preferred_languages}
-          mode="single"
-          disabled={disabled}
-          onChange={(value) => onUpdateAsr("preferred_languages", value)}
         />
       </div>
     </div>

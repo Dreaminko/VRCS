@@ -23,7 +23,8 @@ export function saveLanguagePreset(settings: Settings, name: string): Settings {
     ...settings,
     language_presets: [...settings.language_presets, {
       id: crypto.randomUUID(), name,
-      recognition_languages: [...settings.asr.preferred_languages],
+      speaker_recognition_languages: [...settings.asr.speaker_languages],
+      microphone_recognition_languages: [...settings.asr.microphone_languages],
       translation_mode: settings.translation.mode,
       speaker_targets: structuredClone(settings.translation.speaker_targets),
       microphone_targets: structuredClone(settings.translation.microphone_targets),
@@ -37,7 +38,11 @@ export function applyLanguagePreset(settings: Settings, id: string): Settings {
   if (!preset) return settings;
   return {
     ...settings,
-    asr: { ...settings.asr, preferred_languages: [...preset.recognition_languages] },
+    asr: {
+      ...settings.asr,
+      speaker_languages: [...preset.speaker_recognition_languages],
+      microphone_languages: [...preset.microphone_recognition_languages],
+    },
     translation: { ...settings.translation, mode: preset.translation_mode,
       speaker_targets: structuredClone(preset.speaker_targets),
       microphone_targets: structuredClone(preset.microphone_targets) },

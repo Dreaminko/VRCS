@@ -10,11 +10,11 @@ import type { ApiProfileView } from "../src/providers/types.ts";
 import { VR_OVERLAY_POSITION_RANGES, type VrOverlayPositionField } from "../src/settings/vr-overlay-settings.ts";
 
 const settings = {
-  schema_version: 48,
+  schema_version: 49,
   vrchat_chatbox: { enabled: false },
   conversation_titles: { auto_generate: false, profile_id: null, model: "", output_language: "auto" },
   features: { ...DEFAULT_FEATURE_SETTINGS },
-  asr: { backend: "qwen_local_managed", preferred_languages: [], managed_qwen: { package_id: "qwen3-asr-0.6b-q8_0", device: "auto" } },
+  asr: { backend: "qwen_local_managed", speaker_languages: [], microphone_languages: [], managed_qwen: { package_id: "qwen3-asr-0.6b-q8_0", device: "auto" } },
   translation: {
     mode: "automatic",
     speaker_targets: [
@@ -71,10 +71,13 @@ test("direct display selections preserve other settings and ignore unchanged or 
 
 test("dashboard language selection preserves the recognition engine and rejects invalid values", () => {
   const next = applyVrDashboardAction(settings, { set_recognition_language: "ja" }, profiles);
-  assert.deepEqual(next.asr.preferred_languages, ["ja"]);
+  assert.deepEqual(next.asr.speaker_languages, ["ja"]);
+  assert.deepEqual(next.asr.microphone_languages, ["ja"]);
   assert.equal(next.asr.managed_qwen, settings.asr.managed_qwen);
   assert.equal(next.translation, settings.translation);
-  assert.deepEqual(applyVrDashboardAction(next, { set_recognition_language: "auto" }, profiles).asr.preferred_languages, []);
+  const auto = applyVrDashboardAction(next, { set_recognition_language: "auto" }, profiles);
+  assert.deepEqual(auto.asr.speaker_languages, []);
+  assert.deepEqual(auto.asr.microphone_languages, []);
   assert.equal(applyVrDashboardAction(settings, { set_recognition_language: "invalid" }, profiles), settings);
   const live = { ...settings, asr: { ...settings.asr, backend: "gemini_live_translate" } };
   assert.equal(applyVrDashboardAction(live, { set_recognition_language: "ja" }, profiles), live);
@@ -176,9 +179,10 @@ test("VR language presets restore complete desktop language and OSC configuratio
   assert.equal(saved.language_presets.length, 1);
   assert.deepEqual(saved.language_presets[0].speaker_targets, settings.translation.speaker_targets);
   assert.notEqual(saved.language_presets[0].speaker_targets[0], settings.translation.speaker_targets[0]);
-  const changed = { ...saved, asr: { ...saved.asr, preferred_languages: ["fr"] }, translation: { ...saved.translation, speaker_targets: [] }, osc: { ...saved.osc, translation_strategy: "all_languages" as const } };
+  const changed = { ...saved, asr: { ...saved.asr, speaker_languages: ["fr"], microphone_languages: ["en"] }, translation: { ...saved.translation, speaker_targets: [] }, osc: { ...saved.osc, translation_strategy: "all_languages" as const } };
   const restored = applyVrDashboardAction(changed, { apply_language_preset: saved.language_presets[0].id }, profiles);
-  assert.deepEqual(restored.asr.preferred_languages, settings.asr.preferred_languages);
+  assert.deepEqual(restored.asr.speaker_languages, settings.asr.speaker_languages);
+  assert.deepEqual(restored.asr.microphone_languages, settings.asr.microphone_languages);
   assert.deepEqual(restored.translation.speaker_targets, settings.translation.speaker_targets);
   assert.equal(restored.osc.translation_strategy, settings.osc.translation_strategy);
   assert.equal(restored.translation.prompt, settings.translation.prompt);

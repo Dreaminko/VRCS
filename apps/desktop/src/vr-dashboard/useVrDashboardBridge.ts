@@ -359,9 +359,14 @@ export function useVrDashboardBridge(
       },
       language: {
         recognition: {
-          value: (choices.recognition.length === 0 || settings.asr.preferred_languages.length === 0)
-            ? languageName("auto")
-            : settings.asr.preferred_languages.map(languageName).join(" / "),
+          value: (() => {
+            if (choices.recognition.length === 0) return languageName("auto");
+            const formatList = (codes: string[]) => (codes.length ? codes.map(languageName).join(" / ") : languageName("auto"));
+            const { speaker_languages, microphone_languages } = settings.asr;
+            const same = speaker_languages.length === microphone_languages.length
+              && speaker_languages.every((item, index) => item === microphone_languages[index]);
+            return same ? formatList(speaker_languages) : `${formatList(speaker_languages)} · ${formatList(microphone_languages)}`;
+          })(),
           options: choices.recognition.map((value) => ({ value, label: languageName(value) })),
         },
         mode: {

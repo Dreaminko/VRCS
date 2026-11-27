@@ -20,7 +20,7 @@ import { targetLanguageCodes } from "../src/settings/translation/language-settin
 import type { Settings } from "../src/settings/types.ts";
 
 const settings: Settings = {
-  schema_version: 48,
+  schema_version: 49,
   model_defaults: {
     text: { profile_id: null, model: "" },
     translation: { profile_id: null, model: "" },
@@ -48,7 +48,7 @@ const settings: Settings = {
     microphone: { mode: "default", device_id: null, trigger_threshold_dbfs: -45 },
   },
   vad: { endpointing: "silence", silence_seconds: 0.4, max_speech_seconds: 6 },
-  asr: { backend: "qwen_local_managed", preferred_languages: [], managed_qwen: { package_id: "qwen3-asr-0.6b-q8_0", device: "auto" }, active_profile_id: null, service_settings: {} },
+  asr: { backend: "qwen_local_managed", speaker_languages: [], microphone_languages: [], managed_qwen: { package_id: "qwen3-asr-0.6b-q8_0", device: "auto" }, active_profile_id: null, service_settings: {} },
   translation: { mode: "disabled", speaker_targets: [{ target_language: "zh-Hans", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }], microphone_targets: [{ target_language: "en", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }], prompt: { system_prompt: "", context_enabled: false, include_speaker: true, include_microphone: true, include_chatbox: true, max_messages: 5, max_chars: 4000 } },
   local_translation: { device: "cpu" },
   language_presets: [],

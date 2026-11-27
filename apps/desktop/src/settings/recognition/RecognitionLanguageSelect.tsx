@@ -11,6 +11,7 @@ import { localizedLanguageName } from "../../translation/translation-languages";
 import { Select } from "../SettingsControls";
 
 export function RecognitionLanguageSelect({
+  label,
   value,
   mode = "single",
   model,
@@ -19,6 +20,7 @@ export function RecognitionLanguageSelect({
   supportedLanguages,
   onChange,
 }: {
+  label?: string;
   value: string[];
   mode?: RecognitionLanguageMode;
   model?: string;
@@ -29,6 +31,7 @@ export function RecognitionLanguageSelect({
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
+  const resolvedLabel = label ?? t("settings.recognition.language");
   const labelFor = (code: string) => localizedLanguageName(code, locale);
   const allCodes = supportedLanguages?.length
     ? ASR_LANGUAGE_CODES.filter((code) => supportedLanguages.includes(code))
@@ -38,7 +41,7 @@ export function RecognitionLanguageSelect({
     return (
       <div className="asr-language-field">
         <Select
-          label={t("settings.recognition.language")}
+          label={resolvedLabel}
           value="auto"
           options={[{ value: "auto", label: t("languages.auto") }]}
           disabled
@@ -78,7 +81,7 @@ export function RecognitionLanguageSelect({
     <div className="asr-language-field">
       <div className="field">
         <div className="asr-language-header">
-          <span>{t("settings.recognition.language")}</span>
+          <span>{resolvedLabel}</span>
           {value.length > 0 && (
             <button
               className="asr-language-clear"
@@ -123,7 +126,7 @@ export function RecognitionLanguageSelect({
           </div>
         )}
         <LanguagePicker
-          label={t("settings.recognition.language")}
+          label={resolvedLabel}
           value=""
           placeholder={
             value.length === 0
@@ -178,5 +181,87 @@ export function RecognitionLanguageSelect({
         </div>
       )}
     </div>
+  );
+}
+
+export function RecognitionLanguagesGroup({
+  speakerLanguages,
+  microphoneLanguages,
+  mode = "single",
+  model,
+  disabled,
+  floating,
+  supportedLanguages,
+  onChangeSpeaker,
+  onChangeMicrophone,
+}: {
+  speakerLanguages: string[];
+  microphoneLanguages: string[];
+  mode?: RecognitionLanguageMode;
+  model?: string;
+  disabled: boolean;
+  floating?: "page" | "dialog";
+  supportedLanguages?: readonly string[];
+  onChangeSpeaker: (value: string[]) => void;
+  onChangeMicrophone: (value: string[]) => void;
+}) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? "en-US";
+  const same = speakerLanguages.length === microphoneLanguages.length
+    && speakerLanguages.every((code, index) => code === microphoneLanguages[index]);
+
+  if (mode === "auto_only") {
+    const labelFor = (code: string) => localizedLanguageName(code, locale);
+    const formatList = (codes: string[]) => (codes.length ? codes.map(labelFor).join(" / ") : t("languages.auto"));
+    const preserved = same
+      ? formatList(speakerLanguages)
+      : `${t("settings.recognition.speakerLanguage")}: ${formatList(speakerLanguages)} · ${t("settings.recognition.microphoneLanguage")}: ${formatList(microphoneLanguages)}`;
+
+    return (
+      <>
+        <Select
+          label={t("settings.recognition.language")}
+          value="auto"
+          options={[{ value: "auto", label: t("languages.auto") }]}
+          disabled
+          floating={floating}
+          onChange={() => undefined}
+        />
+        {(speakerLanguages.length > 0 || microphoneLanguages.length > 0) && (
+          <div className="cloud-transport-hint" role="note">
+            <small>
+              {t("settings.recognition.autoOnlyPreservedHint", {
+                languages: preserved,
+              })}
+            </small>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <RecognitionLanguageSelect
+        label={t("settings.recognition.speakerLanguage")}
+        value={speakerLanguages}
+        mode={mode}
+        model={model}
+        disabled={disabled}
+        floating={floating}
+        supportedLanguages={supportedLanguages}
+        onChange={onChangeSpeaker}
+      />
+      <RecognitionLanguageSelect
+        label={t("settings.recognition.microphoneLanguage")}
+        value={microphoneLanguages}
+        mode={mode}
+        model={model}
+        disabled={disabled}
+        floating={floating}
+        supportedLanguages={supportedLanguages}
+        onChange={onChangeMicrophone}
+      />
+    </>
   );
 }

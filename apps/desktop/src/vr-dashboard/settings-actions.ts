@@ -221,11 +221,14 @@ export function applyVrDashboardAction(settings: Settings, action: VrDashboardAc
       const language = action.set_recognition_language;
       if (!choices.recognition.includes(language)) return settings;
       const next = language === "auto" ? [] : [language];
-      if (settings.asr.preferred_languages.length === next.length
-        && settings.asr.preferred_languages.every((item, index) => item === next[index])) {
+      const matches = (list: string[]) => list.length === next.length && list.every((item, index) => item === next[index]);
+      if (matches(settings.asr.speaker_languages) && matches(settings.asr.microphone_languages)) {
         return settings;
       }
-      return { ...settings, asr: { ...settings.asr, preferred_languages: next } };
+      return {
+        ...settings,
+        asr: { ...settings.asr, speaker_languages: [...next], microphone_languages: [...next] },
+      };
     }
     if ("set_translation_mode" in action) {
       const mode = action.set_translation_mode as Settings["translation"]["mode"];

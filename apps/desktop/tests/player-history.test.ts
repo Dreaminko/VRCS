@@ -45,8 +45,8 @@ test("default hidden languages follow every other-party target and the active la
   const global = translation(["zh-Hans","en","zh-CN","zh-Hant"," en-US "," ","auto"]);
   assert.deepEqual(defaultHiddenSourceLanguages(global), ["zh","en"]);
   assert.deepEqual(defaultHiddenSourceLanguages(global,{kind:"global"}), ["zh","en"]);
-  assert.deepEqual(defaultHiddenSourceLanguages(global,{kind:"override",translation:translation(["ja","de"]),recognition_languages:[],osc_translation_strategy:"all_languages"}), ["ja","de"]);
-  assert.deepEqual(defaultHiddenSourceLanguages(global,{kind:"preset",preset_id:"other-languages",preset_name:"Other languages",translation:translation(["ko","ja"]),recognition_languages:[],osc_translation_strategy:"all_languages"}), ["ko","ja"]);
+  assert.deepEqual(defaultHiddenSourceLanguages(global,{kind:"override",translation:translation(["ja","de"]),speaker_recognition_languages:[],microphone_recognition_languages:[],osc_translation_strategy:"all_languages"}), ["ja","de"]);
+  assert.deepEqual(defaultHiddenSourceLanguages(global,{kind:"preset",preset_id:"other-languages",preset_name:"Other languages",translation:translation(["ko","ja"]),speaker_recognition_languages:[],microphone_recognition_languages:[],osc_translation_strategy:"all_languages"}), ["ko","ja"]);
   assert.deepEqual(defaultHiddenSourceLanguages(), []);
   assert.deepEqual(defaultHiddenSourceLanguages(translation([])), []);
 });

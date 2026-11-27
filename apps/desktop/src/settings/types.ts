@@ -15,7 +15,7 @@ export type ModelDownloadSource = "auto" | "official" | "modelscope";
 export type TranslationBackend = "api" | "plamo_local";
 
 export interface Settings {
-  schema_version: 48;
+  schema_version: 49;
   model_defaults: ModelDefaults;
   learning_ai: LearningAiSettings;
   vrchat_chatbox: VrchatChatboxConfig;
@@ -166,7 +166,8 @@ export type OscTranslationStrategy = "preferred_only" | "round_robin" | "all_lan
 export interface LanguagePreset {
   id: string;
   name: string;
-  recognition_languages: AsrSettings["preferred_languages"];
+  speaker_recognition_languages: AsrSettings["speaker_languages"];
+  microphone_recognition_languages: AsrSettings["microphone_languages"];
   translation_mode: TranslationSettings["mode"];
   speaker_targets: TranslationTargetSettings[];
   microphone_targets: TranslationTargetSettings[];
