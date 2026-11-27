@@ -1,4 +1,4 @@
-//! Silero ONNX 流式 VAD、能量检测回退与语音分段。
+//! Streaming Silero ONNX VAD, energy-based fallback, and speech segmentation.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -551,7 +551,7 @@ impl SpeechSegmenter {
         }
     }
 
-    /// 接收一个 PCM 块，并在达到尾部静音、首选边界或硬上限时返回本次分段样本数。
+    /// Accepts a PCM chunk and returns the segment sample count once trailing silence, a preferred boundary, or the hard limit is reached.
     pub fn push(&mut self, chunk: &[f32], speech: bool) -> Option<usize> {
         if speech {
             if self.candidate_pending {

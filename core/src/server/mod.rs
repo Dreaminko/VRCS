@@ -1,5 +1,5 @@
-//! HTTP/WebSocket 服务层，端点与 JSON 形状对齐 Python 版 `app/main.py`。
-//! 数据面、音频识别管线与管理端点。
+//! HTTP/WebSocket server layer.
+//! Exposes data-plane, audio recognition pipeline, and management endpoints.
 
 mod anki;
 pub(crate) mod capabilities;
@@ -130,7 +130,7 @@ where
     .map_err(|error| AppError::internal(format!("Database task exited unexpectedly: {error}")))?
 }
 
-/// 简单的常时间比较，避免 token 比较的时序侧信道
+/// Constant-time comparison to avoid timing side channels when checking tokens.
 fn token_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
@@ -146,7 +146,7 @@ async fn authenticate(
     request: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    // 浏览器 WebSocket 不能自定义 Authorization 头；/ws 在处理器中校验 query token。
+    // Browser WebSockets cannot send custom `Authorization` headers; `/ws` validates the query token in its handler.
     if request.method() != Method::OPTIONS && request.uri().path() != "/ws" {
         let supplied = request
             .headers()

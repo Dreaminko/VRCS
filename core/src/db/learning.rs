@@ -12,7 +12,7 @@ use crate::models::now_iso8601;
 
 impl Database {
     pub(super) fn initialize_learning_storage(&mut self) -> AppResult<()> {
-        // 单个事务内重建，避免逐条 autocommit 的 fsync 开销，也不会在中断时丢失 keys。
+        // Rebuild in a single transaction to avoid per-row autocommit fsync overhead and prevent losing keys on interruption.
         let transaction = self.conn.transaction()?;
         transaction.execute(
             "UPDATE learning_items

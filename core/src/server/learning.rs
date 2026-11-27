@@ -254,7 +254,7 @@ pub(super) async fn learning_item_export(
             error.message,
         )
     };
-    // 已导出且有待同步修改：覆盖原笔记；原笔记已在 Anki 中被删除时再新建。
+    // Overwrite the existing Anki note if already exported; create a new one if it was deleted in Anki.
     let mut updated_note_id = None;
     if let Some(note_id) = item.anki_note_id
         && anki_service::update_card(&state.integrations.http, &card, &anki_config, note_id)

@@ -80,7 +80,7 @@ pub fn load_config(path: &Path) -> Result<AppConfig, String> {
     Ok(config)
 }
 
-/// 原子写入：先写临时文件再替换，避免崩溃时留下半截配置。
+/// Writes atomically via a temporary file and rename to avoid leaving a partial config on crash.
 pub fn save_config(path: &Path, config: &AppConfig) -> Result<(), String> {
     let mut config = config.clone();
     config.resolve_model_assignments();

@@ -1,4 +1,4 @@
-//! VRCS Core 独立运行入口。
+//! Standalone entrypoint for VRCS Core.
 
 fn main() {
     #[cfg(target_os = "linux")]

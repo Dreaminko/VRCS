@@ -1,4 +1,4 @@
-//! VRCS Rust Core，可由独立二进制或 Tauri 主进程启动。
+//! VRCS Rust Core, runnable either as a standalone binary or embedded in the Tauri host process.
 
 mod anki;
 mod asr;

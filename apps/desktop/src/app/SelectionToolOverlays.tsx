@@ -33,7 +33,7 @@ export function SelectionToolOverlays({
           compact={compact || undefined}
           onBack={selection.lookup ? selection.returnToDictionary : undefined}
           onAddLearning={async () => {
-            // 在点击时捕获当前 target，并且只复用属于同一选区的查词结果。
+            // Capture the current target on click and reuse the lookup only if it belongs to the same selection.
             const target = selection.target;
             if (!target) return null;
             const lookup = selection.lookup

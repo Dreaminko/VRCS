@@ -182,7 +182,7 @@ pub struct LearningExample {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct LearningAnalysis {
-    /// 模型输出可能省略该字段；解析后总会被请求中的任务类型覆盖。
+    /// May be omitted by model output; always overwritten with the requested task type after parsing.
     #[serde(default = "omitted_analysis_task_type")]
     pub task_type: AnalysisTaskType,
     pub summary: String,
@@ -382,7 +382,7 @@ pub struct LearningItem {
     #[serde(default)]
     pub draft_stale: bool,
     pub anki_note_id: Option<i64>,
-    /// 已导出到 Anki 后草稿又被修改，等待重新导出覆盖原笔记。
+    /// Indicates the draft was modified after export and needs re-exporting to overwrite the Anki note.
     #[serde(default)]
     pub anki_sync_pending: bool,
     pub created_at: String,
@@ -394,7 +394,7 @@ impl LearningItem {
         self.analysis.as_ref().filter(|_| !self.analysis_stale)
     }
 
-    /// 已导出条目的草稿发生变化时标记为待同步，保留原 note ID 以便覆盖更新。
+    /// Marks an exported item as pending sync when its draft changes, keeping the original note ID for overwriting.
     pub fn mark_anki_sync_pending_if_changed(&mut self, draft: Option<&LearningCardDraft>) {
         if self.anki_note_id.is_some() && self.draft.as_ref() != draft {
             self.anki_sync_pending = true;
@@ -862,7 +862,7 @@ pub fn generate_draft(
         .or(base_form)
         .unwrap_or(item.working_text.trim());
     let dictionary = select_dictionary_entry(&item.dictionary_entries, selected, base_form);
-    // 句子类条目的 analysis.reading 是整句注音，不能作为单词卡的读音兜底。
+    // For sentence items, `analysis.reading` covers the entire sentence and must not be used as a fallback reading for vocabulary cards.
     let reading = dictionary
         .and_then(|entry| non_empty(entry.reading.as_deref()))
         .or_else(|| {
@@ -988,7 +988,7 @@ fn fill_blank_target(item: &LearningItem) -> Option<(&str, &str)> {
                 .flat_map(|value| value.grammar_points.iter().map(|point| point.form.as_str())),
         )
         .chain(analysis.into_iter().flat_map(|value| {
-            // 只挖空谓语 / 用言，避免把「猫が」这类主语片段当成学习目标。
+            // Only blank predicate/content segments so subject fragments (e.g. a noun with a subject particle) are not chosen as study targets.
             value
                 .segments
                 .iter()
@@ -1012,7 +1012,7 @@ fn is_content_segment_role(role: &str) -> bool {
         .any(|keyword| role.contains(keyword))
 }
 
-/// 读音必须对应挖空的目标词，而不是条目里的第一个词典结果。
+/// Resolves the reading for the blanked target word rather than falling back to the first dictionary entry.
 fn fill_blank_reading(item: &LearningItem, target: &str) -> Option<String> {
     for imported in [true, false] {
         if let Some(reading) = item

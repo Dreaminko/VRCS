@@ -1,5 +1,5 @@
-//! 音频采集公共接口与生命周期管理。
-//! Windows 的设备枚举、WASAPI 采集和 PCM 转换位于 `audio/wasapi/`。
+//! Public audio capture interface and lifecycle management.
+//! Windows device enumeration, WASAPI capture, and PCM conversion live in `audio/wasapi/`.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

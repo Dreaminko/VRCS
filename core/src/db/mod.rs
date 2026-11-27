@@ -1,5 +1,5 @@
-//! SQLite 存储：连接与 schema 初始化。
-//! 字幕历史和词典仓储实现分别位于同名子模块中。
+//! SQLite storage: connection management and schema initialization.
+//! Subtitle history, dictionary, and other repository implementations live in sibling submodules.
 
 use std::cell::Cell;
 use std::path::Path;

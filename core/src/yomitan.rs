@@ -1,5 +1,5 @@
-//! Yomitan 词典包（zip + term_bank_*.json）解析。
-//! 与 Python 版 `app/dictionary.py` 的校验规则和文本抽取逻辑保持一致。
+//! Parser for Yomitan dictionary packages (`zip` + `term_bank_*.json`).
+//! Handles archive validation, metadata parsing, and glossary text extraction.
 
 use std::io::{Cursor, Read};
 
@@ -79,7 +79,7 @@ impl<'a> YomitanImporter<'a> {
             .map_err(|_| "Dictionary file is not a valid ZIP archive".to_string())
     }
 
-    /// 扫描压缩包：定位 index.json 与 term_bank_*.json，并解析元数据。
+    /// Scans the archive to locate `index.json` and `term_bank_*.json`, then parses metadata.
     fn inspect(&mut self) -> Result<(), String> {
         let mut zip = Self::zip_archive(self.archive)?;
         if zip.len() > MAX_FILES {
@@ -116,7 +116,7 @@ impl<'a> YomitanImporter<'a> {
         if indexes.is_empty() {
             return Err("Invalid Yomitan dictionary: index.json is missing".into());
         }
-        // 取路径最浅的 index.json
+        // Pick the shallowest `index.json` path.
         let index_name = indexes
             .into_iter()
             .min_by_key(|name| (name.matches('/').count(), name.len()))
@@ -163,7 +163,7 @@ impl<'a> YomitanImporter<'a> {
         Ok(())
     }
 
-    /// 逐条处理词条，只在内存中保留当前 term bank。
+    /// Processes entries one by one, keeping only the current term bank in memory.
     #[cfg(test)]
     pub fn for_each_entry(
         &self,
@@ -345,14 +345,14 @@ fn read_json(
     if bytes.len() as u64 > max_bytes {
         return Err(format!("{name} exceeds the size limit"));
     }
-    // 容忍 UTF-8 BOM（Python 侧用 utf-8-sig 解码）
+    // Strip a leading UTF-8 BOM if present.
     if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
         bytes.drain(..3);
     }
     serde_json::from_slice(&bytes).map_err(|_| format!("Failed to read {name}"))
 }
 
-/// 词条字段的字符串化（Yomitan 词条首两项恒为字符串，容忍数字兜底）。
+/// Stringifies a term field (the first two Yomitan fields are normally strings, with a fallback for numbers).
 fn json_text(value: &Value) -> String {
     match value {
         Value::String(text) => text.trim().to_owned(),
@@ -377,7 +377,7 @@ fn glossary_text(glossary: &[Value]) -> String {
     output
 }
 
-/// 从 Yomitan 结构化内容中抽取纯文本（图片使用替代文本，br 转换为换行）。
+/// Extracts plain text from Yomitan structured content (uses alt text for images and converts `br` tags to newlines).
 fn append_text_content(value: &Value, output: &mut String) {
     match value {
         Value::String(text) => output.push_str(text.trim()),
@@ -449,7 +449,7 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    /// 构造一个最小合法的 Yomitan 词典包
+    /// Builds a minimal valid Yomitan dictionary archive.
     fn sample_archive() -> Vec<u8> {
         let buffer = Cursor::new(Vec::new());
         let mut writer = zip::ZipWriter::new(buffer);
@@ -482,7 +482,7 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].term, "食べる");
         assert_eq!(records[0].reading, "たべる");
-        // 与 Python 版一致：text_content(br) 产生 "\n"，join 后再叠加换行，strip 只去首尾
+        // `br` emits "\n" in addition to the "\n" separator between glossary items, and only outer whitespace is trimmed.
         assert_eq!(records[0].definition, "吃\n\n\n食用");
         assert_eq!(records[0].score, 5.0);
     }

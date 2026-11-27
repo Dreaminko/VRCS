@@ -186,7 +186,7 @@ pub async fn create_card(
         .ok_or_else(|| AnkiError::protocol("AnkiConnect did not return a valid note ID".into()))
 }
 
-/// 用卡片内容覆盖已导出笔记的字段；笔记已在 Anki 中被删除时返回 `Ok(false)`。
+/// Overwrites an exported note's fields with card content; returns `Ok(false)` if the note was deleted in Anki.
 pub async fn update_card(
     client: &reqwest::Client,
     card: &CardRequest,

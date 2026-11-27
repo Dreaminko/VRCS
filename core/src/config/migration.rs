@@ -760,7 +760,7 @@ fn is_official_provider_base_url(value: &str, host: &str, paths: &[&str]) -> boo
         && paths.contains(&path)
 }
 
-/// v1/v2 迁移共用：避免 Core 端口与 AnkiConnect 默认端口冲突。
+/// Shared by v1/v2 migrations: avoids colliding the Core port with AnkiConnect's default port.
 fn fix_colliding_ports(config: &mut AppConfig) {
     if config.server.port == 8765 {
         config.server.port = 8766;

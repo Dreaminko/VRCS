@@ -45,7 +45,7 @@ fn validate_asr_language_list(languages: &[String], label: &str) -> Result<(), S
 }
 
 impl AppConfig {
-    /// 配置文件与 PUT /api/settings 共用的完整结构校验。
+    /// Full structural validation shared by config file loading and `PUT /api/settings`.
     pub fn validate_settings(&self) -> Result<(), String> {
         validate_runtime(&self.server, &self.storage, &self.external_api, &self.vrcx)?;
         validate_audio(&self.audio, &self.vad)?;

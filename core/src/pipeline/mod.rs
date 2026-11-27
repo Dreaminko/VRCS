@@ -1,4 +1,4 @@
-//! 音频采集 → VAD → ASR → SQLite/WebSocket 字幕发布管线。
+//! Audio capture -> VAD -> ASR -> SQLite/WebSocket subtitle publishing pipeline.
 
 use std::collections::VecDeque;
 use std::path::PathBuf;

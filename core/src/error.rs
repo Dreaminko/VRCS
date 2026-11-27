@@ -1,4 +1,4 @@
-//! Core 领域错误；服务层据此选择 HTTP 状态，而不是解析错误文本。
+//! Core domain errors used by the server layer to map HTTP status codes without parsing error text.
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {

@@ -1,5 +1,4 @@
-//! 服务配置类型、默认值与结构校验。
-//! 与 Python 版 `app/config.py` 行为保持一致。
+//! Service configuration types, defaults, and structural validation.
 
 mod audio;
 mod conversation_titles;

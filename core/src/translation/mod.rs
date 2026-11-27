@@ -1,4 +1,4 @@
-//! 字幕翻译编排。专业翻译 API 在这里适配；通用 LLM 调用委托给 `llm` 模块。
+//! Subtitle translation orchestration. Dedicated translation APIs are adapted here; general LLM calls are delegated to the `llm` module.
 
 use std::sync::Arc;
 use std::time::Duration;

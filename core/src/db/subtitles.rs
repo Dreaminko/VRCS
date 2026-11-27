@@ -96,7 +96,7 @@ impl Database {
         Ok(())
     }
 
-    /// 写入字幕，并在数据库锁内确定当前 active 会话。
+    /// Persists a subtitle, resolving the active conversation while holding the database lock.
     pub fn add_subtitle(&self, subtitle: &Subtitle) -> AppResult<Subtitle> {
         self.add_subtitle_in_scope(subtitle, None, None)
     }
@@ -171,7 +171,7 @@ impl Database {
         Ok(saved)
     }
 
-    /// 历史按 id 倒序返回（最新的在前）。
+    /// Returns subtitle history ordered by `id` descending (newest first).
     pub fn subtitle_history(&self, limit: u32) -> AppResult<Vec<Subtitle>> {
         let mut statement = self.conn.prepare(HISTORY_SQL)?;
         collect_subtitles(&mut statement, [limit])

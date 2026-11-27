@@ -1,4 +1,4 @@
-//! 对外 API 的数据模型，与 Python 版 `app/models.py` 的 JSON 形状保持一致。
+//! Public API data models and JSON payloads.
 
 use serde::{Deserialize, Serialize};
 
@@ -53,7 +53,7 @@ fn default_source() -> String {
     "speaker".into()
 }
 
-/// 音频设备枚举结果，供后续阶段的 /api/audio/devices 使用。
+/// Audio device metadata returned by `GET /api/audio/devices`.
 #[derive(Debug, Clone, Serialize)]
 pub struct AudioDevice {
     pub id: i64,
@@ -89,8 +89,8 @@ pub struct DictionarySource {
     pub imported_at: String,
 }
 
-/// PUT /api/settings 的请求体。
-/// server/storage/audio/asr 为必填，vad/dictionary/anki 可省略。
+/// Request payload for `PUT /api/settings`.
+/// `schema_version`, `features`, `server`, `storage`, `audio`, and `asr` are required; other sections default when omitted.
 #[derive(Debug, Deserialize)]
 pub struct SettingsUpdate {
     pub schema_version: u32,

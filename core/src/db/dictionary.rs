@@ -56,7 +56,7 @@ fn insert_batch(
 }
 
 impl Database {
-    /// 分级查词：精确词条 → 精确读音 → 内置精确 → 词形还原精确 → 词条前缀 → 读音前缀 → 内置前缀 → 截短前缀精确。
+    /// Tiered lookup: exact term -> exact reading -> built-in exact -> deinflected exact -> term prefix -> reading prefix -> built-in prefix -> truncated prefix exact.
     pub fn lookup(&self, term: &str, limit: u32) -> AppResult<Vec<DictionaryEntry>> {
         let query = term.trim();
         if query.is_empty() {
@@ -108,8 +108,8 @@ impl Database {
         Ok((!legacy.is_empty()).then_some(legacy))
     }
 
-    /// 查询导入的 Yomitan 词条；无结果时返回 None 以便进入下一级回退。
-    /// predicate 只允许传入 lookup 中的固定字符串，不做外部拼接。
+    /// Queries imported Yomitan entries; returns `None` when empty so callers fall through to the next tier.
+    /// `predicate` must be a static SQL fragment from `lookup`, never external input.
     fn lookup_imported(
         &self,
         predicate: &str,
@@ -188,8 +188,8 @@ impl Database {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
-    /// 导入 Yomitan 词典包；同名词典整体替换。
-    /// 词条分批写入隐藏的暂存来源，每批只短暂持锁，避免长时间阻塞字幕写入。
+    /// Imports a Yomitan dictionary archive, replacing any existing dictionary with the same title.
+    /// Entries are written in batches to a hidden staged source, holding the lock briefly per batch to avoid blocking subtitle writes.
     pub fn import_yomitan_with_progress(
         db: &Mutex<Database>,
         archive: &[u8],
@@ -259,7 +259,7 @@ impl Database {
         result
     }
 
-    /// 暂存来源的 entry_count 为 0，对查询和列表不可见。
+    /// Staged sources have `entry_count = 0`, keeping them hidden from lookups and listings.
     fn stage_dictionary_source(&self, metadata: &DictionaryMetadata) -> AppResult<i64> {
         self.conn.execute(
             "INSERT INTO dictionary_sources(
@@ -304,7 +304,7 @@ impl Database {
         self.dictionary_source(staged_id)
     }
 
-    /// 清理进程中断时遗留的暂存来源。
+    /// Removes leftover staged sources from interrupted imports.
     pub(super) fn remove_staged_dictionary_sources(&self) -> AppResult<()> {
         self.conn
             .execute("DELETE FROM dictionary_sources WHERE entry_count = 0", [])?;
@@ -369,7 +369,7 @@ fn deinflect_candidates(query: &str) -> Vec<String> {
         }
     };
 
-    // 形容词规则必须排在 った/た/て 之前；去掉后缀的裸词干（如 書き、休み）常是独立名词，放到最后尝试。
+    // Adjective rules must precede `った`/`た`/`て`; bare stems with stripped suffixes are often standalone nouns, so try them last.
     let mut bare_stems = Vec::new();
     for (suffix, replacements) in [
         ("かった", &["い"][..]),
@@ -437,7 +437,7 @@ fn deinflect_candidates(query: &str) -> Vec<String> {
                 && stem.len() >= 2
             {
                 for replacement in replacements {
-                    // glass→glas、makes→mak 这类候选不可能是词条，直接跳过以减少 SQL 查询。
+                    // Skip implausible candidates like `glass` -> `glas` or `makes` -> `mak` to reduce SQL queries.
                     let implausible = match (suffix, *replacement) {
                         ("es", "") => !["s", "x", "z", "ch", "sh", "o"]
                             .iter()
@@ -456,12 +456,12 @@ fn deinflect_candidates(query: &str) -> Vec<String> {
         }
     }
 
-    // 每个候选最多触发 3 次精确查询，限制总量以免未命中时执行数十次 SQL。
+    // Each candidate can trigger up to 3 exact queries; cap the list to avoid dozens of SQL queries on misses.
     candidates.truncate(MAX_DEINFLECT_CANDIDATES);
     candidates
 }
 
-/// 非 ASCII 查询截短后的前缀（最多 3 个），仅在所有前缀搜索都无结果时使用。
+/// Truncated prefixes for non-ASCII queries (up to 3), used only when all prefix searches return no results.
 fn truncated_prefixes(query: &str) -> Vec<String> {
     if query.is_ascii() {
         return Vec::new();
