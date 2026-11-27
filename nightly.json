@@ -1,13 +1,13 @@
 {
-  "version": "0.4.2-nightly.20261125",
-  "notes": "VRCS 0.4.2-nightly.20261125 Nightly (2026-11-25, `5847e96`)\n\n[Full Changelog](https://github.com/Dreaminko/VRCS/compare/0.4.1...5847e9626e51c7daeec7dcc0b0b306288a918739)",
-  "pub_date": "2026-11-26T00:34:30.1264801Z",
+  "version": "0.4.4-nightly.20261126",
+  "notes": "VRCS 0.4.4-nightly.20261126 Nightly (2026-11-26, `ef1673b`)\n\n### Features\n- **core**: capture self VRChat chatbox messages with echo suppression (`9f95e12`)\n- **core**: support UniText manual Chatbox output and unlimited preview (`a03d68d`)\n- **desktop**: add Chatbox output target selector and UniText send status (`fb473a4`)\n- **core**: add standalone network capture standby and lifecycle endpoints (`d71dea2`)\n- **desktop,vr**: add standalone network capture controls across desktop and VR (`8b60d96`)\n- **desktop**: add fixed-player and scrolling display modes to compact captions (`0a55094`)\n- **desktop,vr**: add OS-specific network capture disclaimers and help dialog (`1979cc7`)\n- **core**: add OSC inbound relay, Chatbox preferences, and shared OSCQuery discovery (`03b5e93`)\n- **desktop**: add OSC inbound relay settings UI and Chatbox preferences sync (`bf8b45d`)\n- **desktop**: add compact always-on-top toggle, native resize command, and animated chatbox reveal (`f9366ce`)\n\n### Fixes\n- **core**: harden API auth, credential rollback, read-only queries, and WebSocket backpressure (`4135c2e`)\n- **desktop,vr**: modernize D3D11 readback, isolate surface resets, and fix dashboard routing (`7b1339f`)\n- **desktop**: harden Windows save dialogs, elevation startup, memory status, and region picker (`e5c635d`)\n- **desktop**: harden settings autosave, stream resync, background polling, and updater state (`f082847`)\n- **core**: harden local runtime startup retries, audio capture logging, and player audio sockets (`06f5918`)\n- **core**: harden OSC inbound, OSCQuery discovery, UniText fallback, and chatbox typing (`bc34384`)\n- **core**: harden settings rollback, glossary refresh, cloud credentials, and WebSocket lifecycle (`ad18f53`)\n- **desktop**: harden Tauri window resize, save dialogs, region picker, and boot ID (`53b8599`)\n- **desktop,vr**: harden D3D11 multithread safety, surface paint gating, and dashboard bridge (`6d5cd3b`)\n- **desktop**: harden compact window layout/transitions, dropdown motion, and tooltips (`87f08b0`)\n\n- ...and 7 more changes.\n\n[Full Changelog](https://github.com/Dreaminko/VRCS/compare/5847e9626e51c7daeec7dcc0b0b306288a918739...ef1673b90666576ca4cd2abcb9607837fea624ee)",
+  "pub_date": "2026-11-27T00:47:30.8740721Z",
   "platforms": {
     "windows-x86_64-standard": {
-      "url": "https://github.com/Dreaminko/VRCS/releases/download/nightly-20261125/VRCS-0.4.2-nightly.20261125-windows-x64.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbTR3cjNlaEpZL1d3ZDd1dk1KSzVQWjFpV3Z0b1ZiOG0vaWRJRzBBTHk1YXRzMXNMVGZia1RjUnNOdnBIWXdweEcwSy9XbzhFb0VoSmJvZ1RCWGd4Q1NaampGU21TK2dzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NjUzMjY5CWZpbGU6VlJDU18wLjQuMi1uaWdodGx5LjIwMjYxMTI1X3g2NC1zZXR1cC5leGUKQkpGWFVYbXEyVklZM3RKdTJuUEp3dThoaTVaNWduZHhsVGtVOTZ2cUlGT3FiRVVQb3BvNkZNNFBSZE5kMUJoWFFRdWl6VjZpUGZkTFBlSStEOGdRQ2c9PQo="
+      "url": "https://github.com/Dreaminko/VRCS/releases/download/nightly-20261126/VRCS-0.4.4-nightly.20261126-windows-x64.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbTR3cjNlaEpZL1RGR3FaU0NPOUZLZmV2SjUzbmlEdVZUbU1YUS9nejEwVnVybVlpSFJUTVhkV3puRm0xZG9ySTc2ZXRKZEJCZGxpcEFoelBHRlB1QkpDS1ZtUjBVbGdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NzQwNDUwCWZpbGU6VlJDU18wLjQuNC1uaWdodGx5LjIwMjYxMTI2X3g2NC1zZXR1cC5leGUKTk53UkQ5aHQ5SFBXdWhyZkZyOUFUMXg4TmxXQXlvb0Z6MnF3eWpGMEdZMHdBQmJpamt6aHdNdm5RREhRamxZb29sZFp1aFlmR0UzbDNMZjFnUXhlQXc9PQo="
     }
   },
-  "build_date": "2026-11-25",
-  "source_sha": "5847e9626e51c7daeec7dcc0b0b306288a918739"
+  "build_date": "2026-11-26",
+  "source_sha": "ef1673b90666576ca4cd2abcb9607837fea624ee"
 }
