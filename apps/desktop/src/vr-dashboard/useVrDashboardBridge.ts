@@ -248,6 +248,7 @@ export function useVrDashboardBridge(
       anchor_mode: t("settings.vrOverlay.anchorMode"),
       anchor_world: t("settings.vrOverlay.anchorWorld"),
       follow_view: t("settings.vrOverlay.followView"),
+      wrist_menu: t("settings.vrOverlay.wristMenuEnable"),
     };
   }, [i18n, locale, ocrTargetsKey, playerIdLabel, t]);
 
@@ -343,6 +344,7 @@ export function useVrDashboardBridge(
         position: positionFields("wrist"),
         appearance: appearanceFields("wrist"),
       },
+      wrist_menu: { enabled: overlay.wrist_menu.enabled },
       ocr: {
         enabled: settings.ocr.master_enabled && settings.ocr.enabled,
         backend: t("settings.vrOcr.localModel"),

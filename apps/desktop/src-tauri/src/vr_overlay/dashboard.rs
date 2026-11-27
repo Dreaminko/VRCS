@@ -37,6 +37,8 @@ pub struct DashboardViewModel {
     pub osc_available: bool,
     pub headset: DashboardHeadset,
     pub wrist: DashboardWrist,
+    #[serde(default)]
+    pub wrist_menu: DashboardWristMenu,
     pub ocr: DashboardOcr,
     #[serde(default)]
     pub vision: DashboardVision,
@@ -147,6 +149,8 @@ pub struct DashboardLabels {
     pub anchor_world: String,
     #[serde(default)]
     pub follow_view: String,
+    #[serde(default)]
+    pub wrist_menu: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -293,6 +297,11 @@ pub struct DashboardAppearanceField {
     pub can_increase: bool,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DashboardWristMenu {
+    pub enabled: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DashboardOcr {
     #[serde(default = "available_by_default")]
@@ -337,6 +346,7 @@ pub enum DashboardAction {
     WristOpacityUp,
     PreviewWrist,
     ToggleWristFollowView,
+    ToggleWristMenu,
     ToggleOcr,
     ToggleVision,
     ToggleOcrGesture,
@@ -474,7 +484,7 @@ pub const PICKER_PAGE_SIZE: usize = 15;
 
 #[cfg(any(windows, linux_vr, test))]
 impl DashboardPicker {
-    fn choice(self, view: &DashboardViewModel) -> Option<&DashboardChoice> {
+    pub(crate) fn choice(self, view: &DashboardViewModel) -> Option<&DashboardChoice> {
         Some(match self {
             Self::Recognition => &view.language.recognition,
             Self::Mode => &view.language.mode,
@@ -893,6 +903,7 @@ mod tests {
                 position: vec![],
                 appearance: vec![],
             },
+            wrist_menu: DashboardWristMenu::default(),
             ocr: DashboardOcr {
                 available: true,
                 enabled: true,

@@ -123,6 +123,10 @@
 .vr-dashboard-content-choice > small { margin-left: auto; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .vr-dashboard-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.vr-dashboard-wrist-menu { display: flex; align-items: center; gap: 12px; padding: 10px 20px; flex: none; }
+.vr-dashboard-wrist-menu > svg { color: var(--primary-ink); }
+.vr-dashboard-wrist-menu > h2 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vr-dashboard-wrist-menu > .vr-dashboard-button { flex: none; }
 .vr-dashboard-steppers { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: var(--dash-gap-sm); margin-bottom: 12px; }
 .vr-dashboard-stepper { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--dash-radius-control); background: var(--surface-subtle); }
 .vr-dashboard-stepper > span { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: var(--dash-text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

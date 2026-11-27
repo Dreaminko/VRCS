@@ -158,9 +158,13 @@
     "no_presets": "No saved presets",
     "anchor_mode": "Dialogue panel anchor",
     "anchor_world": "Anchor in space",
-    "follow_view": "Follow view"
+    "follow_view": "Follow view",
+    "wrist_menu": "Wrist quick menu"
   },
   "enabled": true,
+  "wrist_menu": {
+    "enabled": true
+  },
   "capture": {
     "running": false,
     "available": true

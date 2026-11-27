@@ -46,6 +46,7 @@ export type VrDashboardAction =
   | "preview_headset"
   | "toggle_wrist"
   | "toggle_wrist_follow_view"
+  | "toggle_wrist_menu"
   | "cycle_wrist_hand"
   | "cycle_wrist_content"
   | "wrist_width_down"
@@ -276,6 +277,10 @@ export function applyVrDashboardAction(settings: Settings, action: VrDashboardAc
       });
     case "toggle_wrist":
       return patchVrOverlayWrist(settings, { enabled: !settings.vr_overlay.wrist.enabled });
+    case "toggle_wrist_menu":
+      return patchVrOverlay(settings, {
+        wrist_menu: { ...settings.vr_overlay.wrist_menu, enabled: !settings.vr_overlay.wrist_menu.enabled },
+      });
     case "toggle_wrist_follow_view":
       if (settings.vr_overlay.wrist.anchor_mode !== "world") return settings;
       return patchVrOverlayWrist(settings, { follow_view: !settings.vr_overlay.wrist.follow_view });

@@ -1534,6 +1534,7 @@ fn apply_dashboard(view: &mut DashboardViewModel, action: DashboardAction) {
     match action {
         ToggleMaster => view.enabled = !view.enabled,
         ToggleWristFollowView => view.wrist.follow_view = !view.wrist.follow_view,
+        ToggleWristMenu => view.wrist_menu.enabled = !view.wrist_menu.enabled,
         ToggleOcr => view.ocr.enabled = !view.ocr.enabled,
         ToggleVision => view.vision.enabled = !view.vision.enabled,
         ToggleOcrGesture => view.ocr.gesture = !view.ocr.gesture,

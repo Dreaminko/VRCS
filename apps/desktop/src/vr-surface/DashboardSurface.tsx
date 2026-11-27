@@ -210,6 +210,11 @@ export function DashboardSurface({ dashboard: view, ui, hovered, pressed }: {
   </section> : ui.display_editor ? positionEditor(ui.display_editor) : ui.page === "display" ? <>
     <section className="vr-dashboard-content-choice"><span>{labels.content}</span>{segments(view.content, (value) => ({ set_display_content: value }))}<small>{labels.content_hint}</small></section>
     <div className="vr-dashboard-columns">{displayCard("headset")}{displayCard("wrist")}</div>
+    <section className="vr-dashboard-card vr-dashboard-wrist-menu">
+      <SlidersHorizontal />
+      <h2>{labels.wrist_menu || "Wrist quick menu"}</h2>
+      {toggle("toggle_wrist_menu", "", Boolean(view.wrist_menu?.enabled))}
+    </section>
     {(view.ocr_available || view.vision_available) && <section className="vr-dashboard-card vr-dashboard-tools">
       <header><ScanEye /><h2>{labels.tools}</h2></header>
       <div className="vr-dashboard-tools-grid">
