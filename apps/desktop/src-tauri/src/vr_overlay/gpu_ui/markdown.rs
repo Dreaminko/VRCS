@@ -1,4 +1,5 @@
 //! GFM Markdown parser matching `VisionAnswerMarkdown.tsx` & `vision-answer-markdown.css`.
+#![cfg_attr(not(windows), allow(dead_code))]
 
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 

@@ -34,6 +34,7 @@ pub struct SurfaceRuntimeState {
     pub reader_needs_page_sync: bool,
     pub last_scroll_key: Option<SurfaceKey>,
     pub saved_reader_scroll: HashMap<u64, f32>,
+    #[cfg(windows)]
     pub anim_start: Option<Instant>,
 }
 

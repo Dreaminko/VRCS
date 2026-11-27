@@ -1,6 +1,8 @@
 //! Reader (`1024x1024`) and PlayerAudioPrompt (`1024x1024` or embedded inside Dashboard).
 
-use cosmic_text::{Align, Wrap};
+use cosmic_text::Align;
+#[cfg(windows)]
+use cosmic_text::Wrap;
 use taffy::prelude::*;
 
 #[cfg(windows)]

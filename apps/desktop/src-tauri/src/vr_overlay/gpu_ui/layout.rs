@@ -15,7 +15,9 @@ pub(crate) fn percent<T: taffy::style_helpers::FromPercent>(v: f32) -> T {
 
 use super::draw::{DrawList, Instance};
 use super::icons::IconId;
-use super::text::{ShapedText, TextEngine, TextSpan, TextStyle};
+#[cfg(windows)]
+use super::text::TextSpan;
+use super::text::{ShapedText, TextEngine, TextStyle};
 use super::theme::{Color, Theme};
 use crate::vr_overlay::dashboard::DashboardCommand;
 use crate::vr_overlay::surface_protocol::{Panel, Region, SurfaceId, SurfaceKey, SurfaceLayout};

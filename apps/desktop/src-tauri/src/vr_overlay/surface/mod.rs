@@ -84,9 +84,6 @@ pub(super) fn warm_gpu(adapter_index: u32) {
     });
 }
 
-#[cfg(not(windows))]
-pub(super) fn warm_gpu(_adapter_index: u32) {}
-
 struct Entry {
     active: bool,
     generation: u32,

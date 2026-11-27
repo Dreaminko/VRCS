@@ -286,6 +286,7 @@ impl OpenXrBackend {
         self.runtime.end_frame()
     }
 
+    #[cfg(windows)]
     pub fn surface_adapter_index(&self) -> Result<u32, String> {
         Ok(0)
     }

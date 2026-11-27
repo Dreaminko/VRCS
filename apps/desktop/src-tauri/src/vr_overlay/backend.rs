@@ -1416,16 +1416,10 @@ mod platform {
             self.cursor.hide(api)
         }
 
+        #[cfg(windows)]
         pub fn surface_adapter_index(&self) -> Result<u32, String> {
-            #[cfg(windows)]
-            {
-                self.adapter_index
-                    .map_or_else(|| dxgi_adapter_index_from(self.raw_system), Ok)
-            }
-            #[cfg(linux_vr)]
-            {
-                Ok(0)
-            }
+            self.adapter_index
+                .map_or_else(|| dxgi_adapter_index_from(self.raw_system), Ok)
         }
 
         pub fn has_surface_texture(&self, kind: OverlayKind) -> bool {
@@ -2764,6 +2758,7 @@ impl Backend {
 
 #[cfg(any(windows, linux_vr))]
 impl Backend {
+    #[cfg(windows)]
     pub fn surface_adapter_index(&self) -> Result<u32, String> {
         backend_ref!(self, surface_adapter_index())
     }

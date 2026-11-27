@@ -14,6 +14,7 @@ pub enum InstanceKind {
     /// Circular progress arc (`uv.x` = start angle rad, `uv.y` = sweep rad, `uv.z` = stroke px).
     Arc = 3,
     /// Anti-aliased round-cap line segment (`rect` = [x0, y0, x1, y1], `border_width` = thickness).
+    #[cfg(windows)]
     Line = 4,
 }
 
@@ -133,6 +134,7 @@ impl Instance {
         }
     }
 
+    #[cfg(windows)]
     pub fn line(
         p0: [f32; 2],
         p1: [f32; 2],

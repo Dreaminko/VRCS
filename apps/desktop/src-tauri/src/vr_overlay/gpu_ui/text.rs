@@ -268,6 +268,7 @@ pub struct PositionedGlyph {
     pub h: f32,
     pub uv: [f32; 4],
     pub is_rgba: bool,
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub color: Color,
 }
 

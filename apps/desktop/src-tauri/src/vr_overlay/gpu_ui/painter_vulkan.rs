@@ -456,7 +456,6 @@ impl VulkanPainter {
             w,
             h,
             &clear,
-            vk::AttachmentLoadOp::CLEAR,
         );
         let pc_target = DrawParams {
             rt_size: [w as f32, h as f32],
@@ -523,7 +522,6 @@ impl VulkanPainter {
                 SCRATCH_SIZE,
                 SCRATCH_SIZE,
                 &clear,
-                vk::AttachmentLoadOp::CLEAR,
             );
             let pc_scratch = DrawParams {
                 rt_size: [SCRATCH_SIZE as f32, SCRATCH_SIZE as f32],
@@ -1197,7 +1195,6 @@ fn begin_rp(
     w: u32,
     h: u32,
     clear: &[vk::ClearValue],
-    _load_op: vk::AttachmentLoadOp,
 ) {
     let info = vk::RenderPassBeginInfo::default()
         .render_pass(rp)
