@@ -34,19 +34,6 @@ pub enum SurfaceId {
 }
 
 impl SurfaceId {
-    #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
-    pub(crate) const ALL: [Self; 10] = [
-        Self::Menu,
-        Self::Dialogue,
-        Self::Reader,
-        Self::Headset,
-        Self::OcrProgress,
-        Self::Dashboard,
-        Self::DashboardThumbnail,
-        Self::OcrSelection,
-        Self::OcrResult,
-        Self::PlayerAudio,
-    ];
     #[cfg(any(windows, linux_vr))]
     pub(crate) fn index(self) -> usize {
         self as usize
@@ -275,15 +262,6 @@ pub struct SurfaceState {
     pub hovered: Option<u8>,
     pub pressed: Option<u8>,
     pub pointer: Option<[f32; 2]>,
-    pub activity: SurfaceActivity,
-    pub restore_scroll: Option<f64>,
-}
-
-#[cfg(any(windows, linux_vr))]
-#[derive(Clone, Copy, PartialEq, Serialize)]
-pub struct SurfaceActivity {
-    pub active: bool,
-    pub request: u32,
 }
 
 // Matches the fields that reset the reader viewport in VrSurface.tsx.

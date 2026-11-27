@@ -9,7 +9,7 @@ use tauri::{AppHandle, Manager};
 
 use super::backend::{Backend, OverlayKind};
 use super::gpu_ui::{GpuUiEngine, SurfaceRuntimeState};
-use super::surface_protocol::{SurfaceActivity, SurfaceId, SurfaceKey, SurfaceLayout, SurfaceState, SurfaceView};
+use super::surface_protocol::{SurfaceId, SurfaceKey, SurfaceLayout, SurfaceState, SurfaceView};
 
 #[cfg(windows)]
 pub(crate) mod frame {
@@ -149,11 +149,6 @@ impl Entry {
                 hovered,
                 pressed,
                 pointer: self.state.as_ref().and_then(|s| s.pointer),
-                activity: SurfaceActivity {
-                    active: self.active,
-                    request: 0,
-                },
-                restore_scroll: None,
             });
             self.dirty = true;
             key
@@ -219,10 +214,6 @@ impl Default for HubInner {
 pub struct SurfaceHub(Mutex<HubInner>);
 
 impl SurfaceHub {
-    pub(super) fn needs_surface_maintenance(&self) -> bool {
-        false
-    }
-
     pub(super) fn needs_fast_tick(&self) -> bool {
         let now = Instant::now();
         let inner = crate::vr_overlay::runtime::lock_unpoisoned(&self.0);
@@ -234,10 +225,6 @@ impl SurfaceHub {
 
     pub fn generation(&self, surface: SurfaceId) -> u32 {
         crate::vr_overlay::runtime::lock_unpoisoned(&self.0).entries[surface.index()].generation
-    }
-
-    pub(super) fn recovery_failed(&self, _surface: SurfaceId) -> bool {
-        false
     }
 
     pub fn layout(&self, surface: SurfaceId) -> Option<Arc<SurfaceLayout>> {
@@ -288,8 +275,6 @@ impl SurfaceHub {
         Ok(())
     }
 
-    pub(super) fn retry(&self, _app: &AppHandle) {}
-
     pub(super) fn publish(
         &self,
         _app: &AppHandle,
@@ -309,9 +294,6 @@ impl SurfaceHub {
         let entry = &mut inner.entries[surface.index()];
         if entry.active != active {
             entry.active = active;
-            if let Some(state) = &mut entry.state {
-                state.activity.active = active;
-            }
             if active {
                 entry.dirty = true;
             }
@@ -561,7 +543,12 @@ impl SurfaceRenderer {
         self.published_key.is_some()
     }
 
-    pub fn hold_for_fade(&mut self, _app: &AppHandle, backend: &Backend, kind: OverlayKind) -> bool {
+    pub fn hold_for_fade(
+        &mut self,
+        _app: &AppHandle,
+        backend: &Backend,
+        kind: OverlayKind,
+    ) -> bool {
         let ready =
             self.visible_frame && self.retained_key.is_some() && backend.has_surface_texture(kind);
         if ready {
@@ -633,11 +620,6 @@ pub(crate) fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
             hovered: None,
             pressed: None,
             pointer: None,
-            activity: SurfaceActivity {
-                active: true,
-                request: 0,
-            },
-            restore_scroll: None,
         };
         let mut rt = SurfaceRuntimeState::default();
         let (layout, draw) = engine.render_surface(&state, &mut rt, Instant::now());
@@ -663,8 +645,11 @@ pub(crate) fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 return;
             }
         };
-        if !rgba.chunks_exact(4).any(|px| px[3] > 0) {
-            tracing::error!(surface = surface.name(), "Smoke frame had no visible pixels");
+        if !rgba.as_chunks::<4>().0.iter().any(|px| px[3] > 0) {
+            tracing::error!(
+                surface = surface.name(),
+                "Smoke frame had no visible pixels"
+            );
             app.exit(1);
             return;
         }

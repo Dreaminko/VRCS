@@ -234,8 +234,7 @@ fn hand_name(index: usize) -> &'static str {
     if index == 0 { "left" } else { "right" }
 }
 
-/// The Linux WebKit host returns straight-alpha RGBA; OpenXR layer blending
-/// consumes premultiplied colour.
+/// Converts straight-alpha RGBA textures to premultiplied colour for OpenXR layer blending.
 fn premultiply(pixels: &mut [u8]) {
     for pixel in pixels.as_chunks_mut::<4>().0 {
         let alpha = u32::from(pixel[3]);

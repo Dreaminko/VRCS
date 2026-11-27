@@ -67,8 +67,6 @@ ash = "=0.38.0"
 [target.'cfg(windows)'.dependencies]
 webview2-com = "=0.39.1"
 windows = { workspace = true, features = [
-    "Foundation",
-    "System",
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
     "Win32_Graphics_Direct3D11",

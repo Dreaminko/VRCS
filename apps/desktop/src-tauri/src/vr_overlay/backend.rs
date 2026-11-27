@@ -277,7 +277,7 @@ mod platform {
             table: &openvr_sys::VR_IVROverlay_FnTable,
             error: Option<&str>,
         ) -> Result<(), String> {
-            // Keep an error visible while the WebView retries in the background.
+            // Keep an error visible while the dashboard retries in the background.
             if error.is_none() && self.placeholder.is_some() {
                 return Ok(());
             }
@@ -357,7 +357,6 @@ mod platform {
     impl VrBackend {
         #[cfg(windows)]
         pub fn hide_ocr(&mut self) {
-            // Static WGC surfaces may not produce another frame when shown again.
             self.hide(OverlayKind::OcrFrame);
             self.hide(OverlayKind::OcrResult);
         }

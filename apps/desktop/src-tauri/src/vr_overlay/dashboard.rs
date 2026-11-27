@@ -420,7 +420,7 @@ pub enum DashboardPointerEvent {
 }
 
 #[cfg(any(windows, linux_vr, test))]
-/// Commands come from the hit map of the currently submitted React frame.
+/// Commands come from the hit map of the currently rendered Dashboard surface.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum DashboardCommand {

@@ -139,7 +139,7 @@ mod tests {
     use crate::vr_overlay::placement::Mode;
     use crate::vr_overlay::player_audio_ui::{Prompt, Section};
     use crate::vr_overlay::presentation::{CaptionOriginal, MessageSide, WristMessage};
-    use crate::vr_overlay::surface_protocol::{SurfaceActivity, SurfaceId, SurfaceKey, SurfaceState};
+    use crate::vr_overlay::surface_protocol::{SurfaceId, SurfaceKey, SurfaceState};
 
     fn sample_state(view: SurfaceView) -> SurfaceState {
         let key = SurfaceKey {
@@ -153,11 +153,6 @@ mod tests {
             hovered: None,
             pressed: None,
             pointer: None,
-            activity: SurfaceActivity {
-                active: true,
-                request: 0,
-            },
-            restore_scroll: None,
         }
     }
 
@@ -404,9 +399,8 @@ mod tests {
             ],
             excluded: vec![],
         };
-        let laid = ocr_scene::layout_ocr_scene(&scene, &mut |s, sz| {
-            engine.measure_line_width(s, sz, 600)
-        });
+        let laid =
+            ocr_scene::layout_ocr_scene(&scene, &mut |s, sz| engine.measure_line_width(s, sz, 600));
         assert_eq!(laid.cards.len(), 2);
         for card in &laid.cards {
             assert!(ocr_scene::quad_homography(&card.quad, card.width, card.height).is_some());
@@ -456,7 +450,7 @@ mod tests {
                 .readback_rgba(&target, handle, bounds)
                 .unwrap_or_else(|e| panic!("D3D11 readback {} failed: {e}", surface.name()));
             assert!(
-                rgba.chunks_exact(4).any(|px| px[3] > 0),
+                rgba.as_chunks::<4>().0.iter().any(|px| px[3] > 0),
                 "{} produced completely transparent output",
                 surface.name()
             );
@@ -506,7 +500,10 @@ mod tests {
         let now = Instant::now();
         let mut rt = SurfaceRuntimeState::default();
 
-        for (hovered_id, tip_label) in [(0u8, "字幕"), (3u8, "Capture speech and translate it immediately")] {
+        for (hovered_id, tip_label) in [
+            (0u8, "字幕"),
+            (3u8, "Capture speech and translate it immediately"),
+        ] {
             let mut controls = ControlSnapshot::default();
             controls.items[0].available = true;
             controls.items[0].label = tip_label.into();
@@ -530,7 +527,11 @@ mod tests {
                 .rposition(|inst| inst.kind == InstanceKind::Rect as u32)
                 .expect("tooltip background rect");
             let tip_rect = draw.instances[tip_idx].rect;
-            assert!(tip_rect[2] <= 230.5, "menu tooltip exceeds max_width: {:?}", tip_rect);
+            assert!(
+                tip_rect[2] <= 230.5,
+                "menu tooltip exceeds max_width: {:?}",
+                tip_rect
+            );
 
             let glyphs = &draw.instances[tip_idx + 1..];
             assert!(!glyphs.is_empty(), "tooltip emitted no glyph instances");
@@ -540,7 +541,8 @@ mod tests {
             for g in glyphs {
                 assert_eq!(g.kind, InstanceKind::MaskR8 as u32);
                 assert!(
-                    g.rect[0] >= tip_rect[0] + 10.0 && g.rect[0] + g.rect[2] <= tip_rect[0] + tip_rect[2] - 10.0,
+                    g.rect[0] >= tip_rect[0] + 10.0
+                        && g.rect[0] + g.rect[2] <= tip_rect[0] + tip_rect[2] - 10.0,
                     "tooltip glyph {:?} overflowed rect {:?}",
                     g.rect,
                     tip_rect
@@ -647,19 +649,32 @@ mod tests {
         };
         let state = sample_state(view.clone());
         let (_, draw_bottom) = engine.render_surface(&state, &mut rt, now);
-        assert!(rt.scroll_height > rt.client_height, "dialogue did not overflow");
+        assert!(
+            rt.scroll_height > rt.client_height,
+            "dialogue did not overflow"
+        );
         let max_scroll = rt.scroll_height - rt.client_height;
         assert!((rt.scroll_y - max_scroll).abs() < 0.5);
         assert!(rt.dialogue_following);
 
         // Even a gentle <2px upward delta must scroll and disengage auto-follow.
-        assert!(GpuUiEngine::apply_scroll(SurfaceId::Dialogue, -0.001, Some(&view), &mut rt));
+        assert!(GpuUiEngine::apply_scroll(
+            SurfaceId::Dialogue,
+            -0.001,
+            Some(&view),
+            &mut rt
+        ));
         assert!(!rt.dialogue_following);
         let expected_after_gentle = (max_scroll - 0.001 * rt.client_height).max(0.0);
         assert!((rt.scroll_y - expected_after_gentle).abs() < 0.1);
 
         // Typical 90Hz thumbstick upward tick (~1.5 viewport heights/sec * 1/90s ≈ -0.016).
-        assert!(GpuUiEngine::apply_scroll(SurfaceId::Dialogue, -0.016, Some(&view), &mut rt));
+        assert!(GpuUiEngine::apply_scroll(
+            SurfaceId::Dialogue,
+            -0.016,
+            Some(&view),
+            &mut rt
+        ));
         let scrolled_y = rt.scroll_y;
         assert!(scrolled_y < max_scroll - 5.0);
         let (_, draw_scrolled) = engine.render_surface(&state, &mut rt, now);
@@ -670,12 +685,25 @@ mod tests {
             scrolled_y
         );
         assert_ne!(
-            draw_bottom.instances.iter().map(|i| i.rect[1].to_bits()).collect::<Vec<_>>(),
-            draw_scrolled.instances.iter().map(|i| i.rect[1].to_bits()).collect::<Vec<_>>()
+            draw_bottom
+                .instances
+                .iter()
+                .map(|i| i.rect[1].to_bits())
+                .collect::<Vec<_>>(),
+            draw_scrolled
+                .instances
+                .iter()
+                .map(|i| i.rect[1].to_bits())
+                .collect::<Vec<_>>()
         );
 
         // Scrolling down to bottom re-engages auto-follow.
-        assert!(GpuUiEngine::apply_scroll(SurfaceId::Dialogue, 1.0, Some(&view), &mut rt));
+        assert!(GpuUiEngine::apply_scroll(
+            SurfaceId::Dialogue,
+            1.0,
+            Some(&view),
+            &mut rt
+        ));
         assert!((rt.scroll_y - max_scroll).abs() < 0.5);
         assert!(rt.dialogue_following);
 
@@ -706,14 +734,18 @@ mod tests {
             },
         });
         let _ = engine.render_surface(&pa_state, &mut pa_rt, now);
-        assert!(pa_rt.scroll_height > pa_rt.client_height, "player audio did not overflow");
+        assert!(
+            pa_rt.scroll_height > pa_rt.client_height,
+            "player audio did not overflow"
+        );
         assert!(GpuUiEngine::apply_scroll(
             SurfaceId::PlayerAudio,
             0.25,
             Some(&pa_state.view),
             &mut pa_rt,
         ));
-        let expected_pa = (0.25 * pa_rt.client_height).min(pa_rt.scroll_height - pa_rt.client_height);
+        let expected_pa =
+            (0.25 * pa_rt.client_height).min(pa_rt.scroll_height - pa_rt.client_height);
         assert!((pa_rt.scroll_y - expected_pa).abs() < 0.5);
 
         // 3. Reader on page 1: initial page sync applies geom.offset, scrolling back to 0 stays at 0.
@@ -750,8 +782,15 @@ mod tests {
                 opacity: 0.94,
             });
             let _ = engine.render_surface(&r_state, &mut r_rt, now);
-            assert!(r_rt.scroll_height > r_rt.client_height, "reader did not overflow");
-            assert!(r_rt.scroll_y > 10.0, "expected initial page 1 offset > 10px, got {}", r_rt.scroll_y);
+            assert!(
+                r_rt.scroll_height > r_rt.client_height,
+                "reader did not overflow"
+            );
+            assert!(
+                r_rt.scroll_y > 10.0,
+                "expected initial page 1 offset > 10px, got {}",
+                r_rt.scroll_y
+            );
 
             // Scroll all the way back to top via thumbstick and re-render.
             assert!(GpuUiEngine::apply_scroll(
@@ -800,9 +839,13 @@ mod tests {
                 .expect("preset button region missing");
             [r.bounds[0] * w, r.bounds[2] * w]
         };
-        let apply = find_x(&|c| matches!(c, DashboardCommand::Picker(DashboardPicker::ApplyPreset)));
+        let apply =
+            find_x(&|c| matches!(c, DashboardCommand::Picker(DashboardPicker::ApplyPreset)));
         let save = find_x(&|c| {
-            matches!(c, DashboardCommand::Action(DashboardAction::SaveLanguagePreset(_)))
+            matches!(
+                c,
+                DashboardCommand::Action(DashboardAction::SaveLanguagePreset(_))
+            )
         });
         let delete =
             find_x(&|c| matches!(c, DashboardCommand::Picker(DashboardPicker::DeletePreset)));
