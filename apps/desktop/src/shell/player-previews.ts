@@ -20,7 +20,12 @@ export function latestCaptionsByTrack<T extends CaptionTrack>(captions: readonly
   for (const caption of captions) {
     // Manual sends are separate messages, not updates to a speaker lane.
     if (caption.source === "chatbox") messages.push(caption);
-    else lanes.set(`${caption.source ?? "speaker"}:${caption.speaker?.id ?? "unidentified"}`, caption);
+    else lanes.set(
+      caption.source === "microphone"
+        ? "microphone"
+        : `${caption.source ?? "speaker"}:${caption.speaker?.id ?? "unidentified"}`,
+      caption,
+    );
   }
   return [...lanes.values()].sort(compareCaptionTracks).concat(messages.slice(-historyLimit));
 }

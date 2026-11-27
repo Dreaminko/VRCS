@@ -94,7 +94,9 @@ function useCandidateGroups(subtitles: Subtitle[], previews: LiveTranscription[]
       const translation = preview ?? subtitle.translations[0];
       return {
         key: perPlayer && subtitle.source !== "chatbox"
-          ? `track:${subtitle.source ?? "speaker"}:${subtitle.speaker?.id ?? "unidentified"}`
+          ? subtitle.source === "microphone"
+            ? "track:microphone"
+            : `track:${subtitle.source ?? "speaker"}:${subtitle.speaker?.id ?? "unidentified"}`
           : `subtitle:${subtitle.id ?? `${subtitle.source}:${subtitle.created_at}`}`,
         speaker: subtitle.speaker, source: subtitle.source,
         context: subtitle.text,
@@ -113,7 +115,9 @@ function useCandidateGroups(subtitles: Subtitle[], previews: LiveTranscription[]
       const completed = subtitles.find((subtitle) => compactPartialMatchesSubtitle(live, subtitle));
       const group: CompactGroup = {
         key: perPlayer
-          ? `track:${live.source}:${live.speaker?.id ?? "unidentified"}`
+          ? live.source === "microphone"
+            ? "track:microphone"
+            : `track:${live.source}:${live.speaker?.id ?? "unidentified"}`
           : completed
             ? `subtitle:${completed.id ?? `${completed.source}:${completed.created_at}`}`
             : `partial:${live.source}:${live.source_utterance_id ?? live.utterance_id}`,
@@ -272,7 +276,7 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
         ? previous : { groups: currentGroups, latestBudget: undefined, scrollable: true });
       return;
     }
-    if (!currentFrozen && currentPerPlayer && chatboxStart !== 0 && currentGroups.length > 1) {
+    if (!currentFrozen && currentPerPlayer && chatboxStart !== 0 && currentGroups.length > 0) {
       geometryRef.current = geometry;
       measuredSelectionRef.current = currentSelectionTarget;
       const budget = { original: currentPreset.originalLine, translation: currentPreset.translationLine };
@@ -332,7 +336,7 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
 
   const hasChatbox = groups.some((group) => group.source === "chatbox");
   const needsMeasurement = frozen
-    || (!scrollStream && !hasChatbox && !(perPlayer && groups.length > 1));
+    || (!scrollStream && !hasChatbox && !(perPlayer && groups.length > 0));
   const showMeasurements = needsMeasurement && groups.length > 0;
 
   useLayoutEffect(() => {

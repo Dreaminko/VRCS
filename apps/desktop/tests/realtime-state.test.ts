@@ -165,3 +165,20 @@ test("native deltas stay active after the original completes and link to one his
   assert.equal(getLivePartial("speaker"), null);
   clearLivePartials();
 });
+
+test("microphone previews replace the single microphone lane regardless of synthetic speaker ID", () => {
+  clearLivePartials();
+  publishLivePartial({
+    ...partial("mic-1", "first mic"),
+    source: "microphone",
+    speaker: { id: "qwen-s-0", index: 0 },
+  });
+  publishLivePartial({
+    ...partial("mic-2", "second mic"),
+    source: "microphone",
+    speaker: { id: "qwen-s-1", index: 1 },
+  });
+  assert.equal(getLivePartials("microphone").length, 1);
+  assert.equal(getLivePartial("microphone")?.text, "second mic");
+  clearLivePartials();
+});

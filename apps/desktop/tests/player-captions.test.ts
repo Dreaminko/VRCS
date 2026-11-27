@@ -69,6 +69,13 @@ test("a player's remote text and late translation cannot replace their voice cap
   assert.deepEqual(selectPlayerHistory([...samePlayer, row("speaker", 1)], [voice], 1), samePlayer);
 });
 
+test("microphone captions collapse into one lane even when synthetic speaker IDs differ", () => {
+  const first = { ...preview(0), source: "microphone" as const, text: "First mic line", speaker: { id: "qwen-s-0", index: 0 } };
+  const second = { ...preview(1), source: "microphone" as const, text: "Second mic line", speaker: { id: "qwen-s-1", index: 1 } };
+  const player = preview(2);
+  assert.deepEqual(latestCaptionsByTrack([first, player, second]), [player, second]);
+});
+
 test("VR captions keep waiting and failure notices without duplicating key acquisition progress", () => {
   const t = ((key: string) => key) as TFunction;
   const status: PlayerAudioStatus = { phase: "waiting_game", captured_packets: 0, decrypted_packets: 0,
