@@ -618,6 +618,31 @@ fn validate_vr_overlay(config: &VrOverlayConfig) -> Result<(), String> {
     if !["left", "right"].contains(&config.wrist_menu.hand.as_str()) {
         return Err("VR Overlay wrist menu hand must be left or right".into());
     }
+    for (field, value) in [
+        ("offset_x_m", config.wrist_menu.offset_x_m),
+        ("offset_y_m", config.wrist_menu.offset_y_m),
+        ("offset_z_m", config.wrist_menu.offset_z_m),
+    ] {
+        validate_range(&format!("VR Overlay wrist_menu {field}"), value, -0.5, 0.5)?;
+    }
+    for (field, value) in [
+        ("pitch_deg", config.wrist_menu.pitch_deg),
+        ("yaw_deg", config.wrist_menu.yaw_deg),
+        ("roll_deg", config.wrist_menu.roll_deg),
+    ] {
+        validate_range(
+            &format!("VR Overlay wrist_menu {field}"),
+            value,
+            -180.0,
+            180.0,
+        )?;
+    }
+    validate_range(
+        "VR Overlay wrist_menu width_m",
+        config.wrist_menu.width_m,
+        0.12,
+        0.50,
+    )?;
     if !["wrist", "world"].contains(&config.wrist.anchor_mode.as_str()) {
         return Err("VR Overlay wrist anchor_mode must be wrist or world".into());
     }

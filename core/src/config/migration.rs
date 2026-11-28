@@ -905,6 +905,9 @@ fn normalize_asr_preferred_languages(value: &mut serde_json::Value) {
     }
 }
 
+pub(super) const LEGACY_WRIST_MENU_FIELDS: [&str; 3] =
+    ["wrap_angle_deg", "axial_offset_m", "radius_m"];
+
 pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
     let version = config_version(raw)?;
     let mut normalized = raw.clone();
@@ -965,6 +968,14 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
                 .and_then(serde_json::Value::as_object_mut)
             {
                 settings.remove("content_mode");
+            }
+        }
+        if let Some(wrist_menu) = overlay
+            .get_mut("wrist_menu")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            for field in LEGACY_WRIST_MENU_FIELDS {
+                wrist_menu.remove(field);
             }
         }
     }

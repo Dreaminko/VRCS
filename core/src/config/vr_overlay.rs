@@ -25,6 +25,36 @@ pub struct VrOverlayWristMenuConfig {
     pub enabled: bool,
     #[serde(default = "default_wrist_hand")]
     pub hand: String,
+    #[serde(default)]
+    pub offset_x_m: f32,
+    #[serde(default = "default_wrist_menu_offset_y_m")]
+    pub offset_y_m: f32,
+    #[serde(default = "default_wrist_menu_offset_z_m")]
+    pub offset_z_m: f32,
+    #[serde(default = "default_wrist_menu_pitch_deg")]
+    pub pitch_deg: f32,
+    #[serde(default)]
+    pub yaw_deg: f32,
+    #[serde(default)]
+    pub roll_deg: f32,
+    #[serde(default = "default_wrist_menu_width_m")]
+    pub width_m: f32,
+}
+
+fn default_wrist_menu_offset_y_m() -> f32 {
+    0.06
+}
+
+fn default_wrist_menu_offset_z_m() -> f32 {
+    0.18
+}
+
+fn default_wrist_menu_pitch_deg() -> f32 {
+    -90.0
+}
+
+fn default_wrist_menu_width_m() -> f32 {
+    0.225
 }
 
 impl Default for VrOverlayWristMenuConfig {
@@ -32,6 +62,13 @@ impl Default for VrOverlayWristMenuConfig {
         Self {
             enabled: false,
             hand: default_wrist_hand(),
+            offset_x_m: 0.0,
+            offset_y_m: default_wrist_menu_offset_y_m(),
+            offset_z_m: default_wrist_menu_offset_z_m(),
+            pitch_deg: default_wrist_menu_pitch_deg(),
+            yaw_deg: 0.0,
+            roll_deg: 0.0,
+            width_m: default_wrist_menu_width_m(),
         }
     }
 }

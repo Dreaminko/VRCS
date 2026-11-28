@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::migration::{config_from_value, config_version};
+use super::migration::{LEGACY_WRIST_MENU_FIELDS, config_from_value, config_version};
 use super::{AppConfig, SCHEMA_VERSION};
 
 #[cfg(target_os = "linux")]
@@ -57,6 +57,15 @@ pub fn load_config(path: &Path) -> Result<AppConfig, String> {
         .get("vision")
         .and_then(|vision| vision.get("wrist"))
         .is_none_or(serde_json::Value::is_null);
+    let migrate_wrist_menu_legacy = raw
+        .get("vr_overlay")
+        .and_then(|overlay| overlay.get("wrist_menu"))
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(|wrist_menu| {
+            LEGACY_WRIST_MENU_FIELDS
+                .iter()
+                .any(|field| wrist_menu.contains_key(*field))
+        });
     if version != SCHEMA_VERSION as u64 {
         let backup = path.with_extension(format!("v{version}.backup.json"));
         if backup.exists() && !backup.is_file() {
@@ -74,7 +83,11 @@ pub fn load_config(path: &Path) -> Result<AppConfig, String> {
             })?;
         }
         save_config(path, &config)?;
-    } else if migrate_ocr_backend || migrate_ocr_wrist || migrate_vision_wrist {
+    } else if migrate_ocr_backend
+        || migrate_ocr_wrist
+        || migrate_vision_wrist
+        || migrate_wrist_menu_legacy
+    {
         save_config(path, &config)?;
     }
     Ok(config)

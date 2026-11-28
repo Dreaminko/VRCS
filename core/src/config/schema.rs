@@ -418,7 +418,20 @@ mod tests {
                 "yaw_deg",
             ],
         );
-        assert_keys(&value["vr_overlay"]["wrist_menu"], ["enabled", "hand"]);
+        assert_keys(
+            &value["vr_overlay"]["wrist_menu"],
+            [
+                "enabled",
+                "hand",
+                "offset_x_m",
+                "offset_y_m",
+                "offset_z_m",
+                "pitch_deg",
+                "roll_deg",
+                "width_m",
+                "yaw_deg",
+            ],
+        );
         assert_keys(
             &value["vrcx"],
             [

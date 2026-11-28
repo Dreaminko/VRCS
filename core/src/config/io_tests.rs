@@ -421,3 +421,40 @@ fn v45_migrates_to_v46_with_vrchat_context_defaults() {
     assert!(!migrated.osc.inbound.enabled);
     assert_eq!(migrated.osc.inbound.port, 9002);
 }
+
+#[test]
+fn retired_wrist_menu_fields_are_removed_on_load_and_persisted() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["vr_overlay"]["wrist_menu"] = serde_json::json!({
+        "enabled": true,
+        "hand": "right",
+        "wrap_angle_deg": 0.0,
+        "axial_offset_m": 0.18,
+        "radius_m": 0.06,
+        "width_m": 0.25
+    });
+    fs::write(&path, serde_json::to_vec(&raw).unwrap()).unwrap();
+
+    let config = load_config(&path).unwrap();
+    assert!(config.vr_overlay.wrist_menu.enabled);
+    assert_eq!(config.vr_overlay.wrist_menu.hand, "right");
+    assert_eq!(config.vr_overlay.wrist_menu.width_m, 0.25);
+    assert_eq!(config.vr_overlay.wrist_menu.offset_x_m, 0.0);
+    assert_eq!(config.vr_overlay.wrist_menu.offset_y_m, 0.06);
+    assert_eq!(config.vr_overlay.wrist_menu.offset_z_m, 0.18);
+    assert_eq!(config.vr_overlay.wrist_menu.pitch_deg, -90.0);
+    assert_eq!(config.vr_overlay.wrist_menu.yaw_deg, 0.0);
+    assert_eq!(config.vr_overlay.wrist_menu.roll_deg, 0.0);
+
+    let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let wrist_menu = saved["vr_overlay"]["wrist_menu"].as_object().unwrap();
+    for field in ["wrap_angle_deg", "axial_offset_m", "radius_m"] {
+        assert!(!wrist_menu.contains_key(field), "{field}");
+    }
+    assert_eq!(wrist_menu["enabled"], true);
+    assert_eq!(wrist_menu["hand"], "right");
+    assert_eq!(wrist_menu["width_m"], 0.25);
+    assert_eq!(load_config(&path).unwrap(), config);
+}

@@ -1359,3 +1359,38 @@ fn rejects_non_object_and_invalid_schema_version() {
     assert!(config_from_value(&serde_json::json!([])).is_err());
     assert!(config_from_value(&serde_json::json!({"schema_version": "3"})).is_err());
 }
+
+#[test]
+fn retired_wrist_menu_fields_are_stripped_while_preserving_unknown_field_checks() {
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["vr_overlay"]["wrist_menu"] = serde_json::json!({
+        "enabled": true,
+        "hand": "right",
+        "wrap_angle_deg": 0.0,
+        "axial_offset_m": 0.18,
+        "radius_m": 0.06,
+        "width_m": 0.25
+    });
+
+    let config = config_from_value(&raw).unwrap();
+    assert!(config.vr_overlay.wrist_menu.enabled);
+    assert_eq!(config.vr_overlay.wrist_menu.hand, "right");
+    assert_eq!(config.vr_overlay.wrist_menu.width_m, 0.25);
+    assert_eq!(config.vr_overlay.wrist_menu.offset_x_m, 0.0);
+    assert_eq!(config.vr_overlay.wrist_menu.offset_y_m, 0.06);
+    assert_eq!(config.vr_overlay.wrist_menu.offset_z_m, 0.18);
+    assert_eq!(config.vr_overlay.wrist_menu.pitch_deg, -90.0);
+    assert_eq!(config.vr_overlay.wrist_menu.yaw_deg, 0.0);
+    assert_eq!(config.vr_overlay.wrist_menu.roll_deg, 0.0);
+
+    let saved = serde_json::to_value(&config).unwrap();
+    let wrist_menu = saved["vr_overlay"]["wrist_menu"].as_object().unwrap();
+    for field in ["wrap_angle_deg", "axial_offset_m", "radius_m"] {
+        assert!(!wrist_menu.contains_key(field), "{field}");
+    }
+    assert_eq!(config_from_value(&saved).unwrap(), config);
+
+    raw["vr_overlay"]["wrist_menu"]["unrecognized_setting"] = serde_json::json!(true);
+    let error = config_from_value(&raw).unwrap_err();
+    assert!(error.contains("unrecognized_setting"), "{error}");
+}

@@ -433,7 +433,22 @@ fn validates_vr_overlay_boundaries_and_cross_fields() {
     config.vr_overlay.wrist.opacity = 1.0;
     config.vr_overlay.wrist.font_size_px = 72;
     config.vr_overlay.wrist.background_opacity = 1.0;
+    config.vr_overlay.wrist_menu.offset_x_m = -0.5;
+    config.vr_overlay.wrist_menu.offset_y_m = 0.5;
+    config.vr_overlay.wrist_menu.offset_z_m = -0.5;
+    config.vr_overlay.wrist_menu.pitch_deg = -180.0;
+    config.vr_overlay.wrist_menu.yaw_deg = 180.0;
+    config.vr_overlay.wrist_menu.roll_deg = -180.0;
+    config.vr_overlay.wrist_menu.width_m = 0.50;
     assert!(config.validate_settings().is_ok());
+
+    config.vr_overlay.wrist_menu.roll_deg = 181.0;
+    assert!(config.validate_settings().is_err());
+    config.vr_overlay.wrist_menu.roll_deg = 0.0;
+
+    config.vr_overlay.wrist_menu.offset_y_m = 0.6;
+    assert!(config.validate_settings().is_err());
+    config.vr_overlay.wrist_menu.offset_y_m = 0.06;
 
     config.vr_overlay.headset.fade_seconds = 5.1;
     assert!(config.validate_settings().is_err());
