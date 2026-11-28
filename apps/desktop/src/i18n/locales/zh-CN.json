@@ -956,8 +956,8 @@
           "retry": "请重新扫描"
         },
         "wristTitle": "OCR 手腕面板",
-        "wristDescription": "对照阅读原文与译文，以下设置只影响 OCR 面板。",
         "wristPosition": "位置与角度",
+        "wristSharedPositionHint": "固定位置、绑定手与宽度与手腕对话面板共享。",
         "results": "区域译文：{{completed}} 项成功，{{failed}} 项失败",
         "errors": {
           "timeout": "任务已超时，请重新识别。",

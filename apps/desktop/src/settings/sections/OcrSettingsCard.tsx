@@ -7,7 +7,7 @@ import { localizedError } from "../../app/app-utils";
 import type { ApiProfileView } from "../../providers/types";
 import type { OcrExecutionStatus, VrOcrSettings, VrOcrStatus, VrOcrWristSettings } from "../../integrations/types";
 import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
-import { DEFAULT_OCR_WRIST_SETTINGS, isOcrReady, VR_OVERLAY_POSITION_RANGES } from "../vr-overlay-settings";
+import { DEFAULT_OCR_WRIST_SETTINGS, isOcrReady } from "../vr-overlay-settings";
 import { TranslationRouteList } from "../translation/TranslationRouteList";
 import type { DesktopOcrStatus } from "../../ocr/status";
 import { ShortcutField } from "../../shared/ui/ShortcutField";
@@ -190,35 +190,14 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
             {config.display_mode === "wrist" && <section className="ocr-settings-group" aria-labelledby="ocr-wrist-heading">
               <header className="vr-overlay-card-heading">
                 <div><Glasses size={18} /><span><strong id="ocr-wrist-heading">{t("settings.vrOcr.wristTitle")}</strong>
-                  <small>{t("settings.vrOcr.wristDescription")}</small></span></div>
+                  <small>{t("settings.vrOcr.wristSharedPositionHint")}</small></span></div>
               </header>
               <div className="vr-overlay-field-grid">
-                <Select label={t("settings.vrOverlay.hand")} value={wrist.hand}
-                  options={["left", "right", "dominant"].map((value) => ({ value, label: t(`settings.vrOverlay.hands.${value}`) }))}
-                  disabled={disabled} onChange={(hand) => updateWrist({ hand: hand as VrOcrWristSettings["hand"] })} />
-                <Select label={t("settings.vrOverlay.dominantHand")} value={wrist.dominant_hand}
-                  options={["left", "right"].map((value) => ({ value, label: t(`settings.vrOverlay.hands.${value}`) }))}
-                  disabled={disabled || wrist.hand !== "dominant"}
-                  onChange={(dominant_hand) => updateWrist({ dominant_hand: dominant_hand as VrOcrWristSettings["dominant_hand"] })} />
                 <RangeField label={t("settings.vrOverlay.fontSize")} value={wrist.font_size_px} min={18} max={72} step={1}
                   disabled={disabled} formatValue={(value) => `${value}px`} onCommit={(font_size_px) => updateWrist({ font_size_px })} />
-                <RangeField label={t("settings.vrOverlay.width")} value={wrist.width_m} min={0.1} max={1} step={0.01}
-                  disabled={disabled} formatValue={(value) => `${value.toFixed(2)}m`} onCommit={(width_m) => updateWrist({ width_m })} />
                 <RangeField label={t("settings.vrOverlay.opacity")} value={wrist.opacity} min={0.1} max={1} step={0.05}
                   disabled={disabled} formatValue={(value) => `${Math.round(value * 100)}%`} onCommit={(opacity) => updateWrist({ opacity })} />
               </div>
-              <details className="vr-overlay-range-group">
-                <summary>{t("settings.vrOcr.wristPosition")}</summary>
-                <div className="vr-overlay-range-grid">
-                  {([
-                    ["offset_x_m", "horizontal"], ["offset_y_m", "vertical"], ["offset_z_m", "depth"],
-                    ["pitch_deg", "pitch"], ["yaw_deg", "yaw"], ["roll_deg", "roll"],
-                  ] as const).map(([field, label]) => <RangeField key={field} label={t(`settings.vrOverlay.${label}`)}
-                    value={wrist[field]} {...VR_OVERLAY_POSITION_RANGES.wrist[field]} disabled={disabled}
-                    formatValue={(value) => field.startsWith("offset_") ? `${value.toFixed(2)}m` : `${value}°`}
-                    onCommit={(value) => updateWrist({ [field]: value })} />)}
-                </div>
-              </details>
             </section>}
           </SettingsDisclosure>
         </section>}

@@ -421,7 +421,7 @@ impl OcrRuntime {
         let wrist_result = if self.vision.visible() {
             self.wrist_view = None;
             self.vision
-                .render_with_cadence(app, backend, &mut self.reader_surface, business)
+                .render_with_cadence(app, backend, &mut self.reader_surface, wrist, business)
                 .map(|visible| {
                     self.status.wrist_state = if visible {
                         OcrWristState::Visible
@@ -969,10 +969,11 @@ impl OcrRuntime {
             self.status.wrist_error = None;
             return Ok(());
         }
-        let config_wrist = config
-            .wrist
-            .clone()
-            .unwrap_or_else(|| vrcs_core::VrOcrWristConfig::from(subtitle_wrist));
+        let mut config_wrist = vrcs_core::VrOcrWristConfig::from(subtitle_wrist);
+        if let Some(ocr_wrist) = &config.wrist {
+            config_wrist.opacity = ocr_wrist.opacity;
+            config_wrist.font_size_px = ocr_wrist.font_size_px;
+        }
         if !backend.ensure_ocr_wrist(&config_wrist, true)?.available {
             self.status.wrist_state = OcrWristState::DeviceUnavailable;
             self.status.wrist_error = None;

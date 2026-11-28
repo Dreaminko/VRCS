@@ -956,8 +956,8 @@
           "retry": "Try scanning again"
         },
         "wristTitle": "OCR wrist panel",
-        "wristDescription": "Compare original text and translations. These settings apply only to the OCR panel.",
         "wristPosition": "Position and rotation",
+        "wristSharedPositionHint": "Shares position, hand, and width with the wrist conversation overlay.",
         "results": "Region translations: {{completed}} completed, {{failed}} failed",
         "errors": {
           "timeout": "The task timed out. Scan again.",

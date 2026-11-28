@@ -443,13 +443,17 @@ impl VisionRuntime {
         app: &AppHandle,
         backend: &mut Backend,
         surface: &mut SurfaceRenderer,
+        subtitle_wrist: &vrcs_core::VrOverlayWristConfig,
         business: bool,
     ) -> Result<bool, String> {
         let (Some(view), Some(config)) = (&mut self.view, &self.configuration) else {
             return Ok(false);
         };
-        // Use an independent default, never the subtitle or OCR wrist configuration.
-        let wrist = config.wrist.clone().unwrap_or_default();
+        let mut wrist = vrcs_core::VrOcrWristConfig::from(subtitle_wrist);
+        if let Some(vision_wrist) = &config.wrist {
+            wrist.opacity = vision_wrist.opacity;
+            wrist.font_size_px = vision_wrist.font_size_px;
+        }
         // The recording trigger keeps its existing application-local owner.
         if !backend
             .ensure_ocr_wrist(&wrist, self.session.is_none())?

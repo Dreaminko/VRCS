@@ -9,8 +9,8 @@ import { TRANSLATION_LANGUAGE_CODES } from "../../translation/translation-langua
 import { LanguagePicker } from "../../shared/ui/LanguagePicker";
 import { ShortcutField } from "../../shared/ui/ShortcutField";
 import type { VisionSettings } from "../types";
-import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
-import { DEFAULT_OCR_WRIST_SETTINGS, VR_OVERLAY_POSITION_RANGES } from "../vr-overlay-settings";
+import { PreferenceToggle, RangeField } from "../SettingsControls";
+import { DEFAULT_OCR_WRIST_SETTINGS } from "../vr-overlay-settings";
 import { supportsVision, VISION_LIMITS } from "../vision-settings";
 import { formatBytes } from "../settings-derived";
 import { openDesktopVision } from "../../vision/api";
@@ -168,32 +168,13 @@ export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, hi
           <RangeField label={t("settings.vision.display_seconds")} value={config.display_seconds}
             {...VISION_LIMITS.display_seconds} disabled={disabled || !vrAvailable} formatValue={(value) => `${value}s`}
             onCommit={(display_seconds) => onChange({ display_seconds })} />
+          <p className="vision-settings-note">{t("settings.vrOcr.wristSharedPositionHint")}</p>
           <div className="vr-overlay-field-grid">
-            <Select label={t("settings.vrOverlay.hand")} value={wrist.hand} disabled={disabled}
-              options={["left", "right", "dominant"].map((value) => ({ value, label: t(`settings.vrOverlay.hands.${value}`) }))}
-              onChange={(hand) => updateWrist({ hand: hand as VrOcrWristSettings["hand"] })} />
-            <Select label={t("settings.vrOverlay.dominantHand")} value={wrist.dominant_hand} disabled={disabled || wrist.hand !== "dominant"}
-              options={["left", "right"].map((value) => ({ value, label: t(`settings.vrOverlay.hands.${value}`) }))}
-              onChange={(dominant_hand) => updateWrist({ dominant_hand: dominant_hand as VrOcrWristSettings["dominant_hand"] })} />
             <RangeField label={t("settings.vrOverlay.fontSize")} value={wrist.font_size_px} min={18} max={72} step={1}
               disabled={disabled} formatValue={(value) => `${value}px`} onCommit={(font_size_px) => updateWrist({ font_size_px })} />
-            <RangeField label={t("settings.vrOverlay.width")} value={wrist.width_m} min={0.1} max={1} step={0.01}
-              disabled={disabled} formatValue={(value) => `${value.toFixed(2)}m`} onCommit={(width_m) => updateWrist({ width_m })} />
             <RangeField label={t("settings.vrOverlay.opacity")} value={wrist.opacity} min={0.1} max={1} step={0.05}
               disabled={disabled} formatValue={(value) => `${Math.round(value * 100)}%`} onCommit={(opacity) => updateWrist({ opacity })} />
           </div>
-          <details className="vision-settings-details">
-            <summary><span>{t("settings.vrOcr.wristPosition")}</span><ChevronDown size={16} /></summary>
-            <div className="vr-overlay-range-grid">
-              {([
-                ["offset_x_m", "horizontal"], ["offset_y_m", "vertical"], ["offset_z_m", "depth"],
-                ["pitch_deg", "pitch"], ["yaw_deg", "yaw"], ["roll_deg", "roll"],
-              ] as const).map(([field, label]) => <RangeField key={field} label={t(`settings.vrOverlay.${label}`)}
-                value={wrist[field]} {...VR_OVERLAY_POSITION_RANGES.wrist[field]} disabled={disabled}
-                formatValue={(value) => field.startsWith("offset_") ? `${value.toFixed(2)}m` : `${value}°`}
-                onCommit={(value) => updateWrist({ [field]: value })} />)}
-            </div>
-          </details>
         </SettingsDisclosure>
       </section>
     </SettingsDisclosure>

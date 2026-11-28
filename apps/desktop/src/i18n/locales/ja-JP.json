@@ -956,8 +956,8 @@
           "retry": "再スキャンしてください"
         },
         "wristTitle": "OCR 手首パネル",
-        "wristDescription": "原文と訳文を比較できます。この設定は OCR パネルにのみ適用されます。",
         "wristPosition": "位置と角度",
+        "wristSharedPositionHint": "手首会話パネルと位置・装着手・幅を共有します。",
         "results": "領域の翻訳：完了 {{completed}} 件、失敗 {{failed}} 件",
         "errors": {
           "timeout": "処理がタイムアウトしました。再スキャンしてください。",
