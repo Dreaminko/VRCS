@@ -44,9 +44,63 @@ fn validate_asr_language_list(languages: &[String], label: &str) -> Result<(), S
     Ok(())
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingsValidationError {
+    pub code: &'static str,
+    pub detail: String,
+    pub params: Option<serde_json::Value>,
+}
+
+impl SettingsValidationError {
+    fn invalid(detail: impl Into<String>) -> Self {
+        Self {
+            code: "settings.invalid",
+            detail: detail.into(),
+            params: None,
+        }
+    }
+
+    fn coded(code: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            code,
+            detail: detail.into(),
+            params: None,
+        }
+    }
+
+    fn with_params(
+        code: &'static str,
+        params: serde_json::Value,
+        detail: impl Into<String>,
+    ) -> Self {
+        Self {
+            code,
+            detail: detail.into(),
+            params: Some(params),
+        }
+    }
+}
+
+impl From<String> for SettingsValidationError {
+    fn from(detail: String) -> Self {
+        Self::invalid(detail)
+    }
+}
+
+impl From<&str> for SettingsValidationError {
+    fn from(detail: &str) -> Self {
+        Self::invalid(detail)
+    }
+}
+
 impl AppConfig {
     /// Full structural validation shared by config file loading and `PUT /api/settings`.
     pub fn validate_settings(&self) -> Result<(), String> {
+        self.validate_settings_detailed()
+            .map_err(|error| error.detail)
+    }
+
+    pub fn validate_settings_detailed(&self) -> Result<(), SettingsValidationError> {
         validate_runtime(&self.server, &self.storage, &self.external_api, &self.vrcx)?;
         validate_audio(&self.audio, &self.vad)?;
         validate_recognition_options(&self.asr)?;
@@ -93,18 +147,19 @@ impl AppConfig {
                 && name != "model_defaults.translation"
                 && backend != TranslationBackend::Api
             {
-                return Err(format!("{name} does not support the local PLaMo backend"));
+                return Err(format!("{name} does not support the local PLaMo backend").into());
             }
             if profile_id
                 .as_ref()
                 .is_some_and(|id| id.is_empty() || id.len() > 64 || contains_control(id))
             {
-                return Err(format!("Invalid {name}.profile_id"));
+                return Err(format!("Invalid {name}.profile_id").into());
             }
             if model.len() > 200 || contains_control(model) || model.trim() != model {
                 return Err(format!(
                     "{name}.model must be a single-line identifier of at most 200 bytes"
-                ));
+                )
+                .into());
             }
         }
         if self.model_defaults.translation.backend == TranslationBackend::PlamoLocal {
@@ -118,7 +173,8 @@ impl AppConfig {
                 return Err(format!(
                     "model_defaults.translation.model must be {}",
                     crate::translation::MODEL_ID
-                ));
+                )
+                .into());
             }
         }
         if let Some(control) = &self.learning_ai.reasoning_control {
@@ -138,6 +194,7 @@ impl AppConfig {
             &self.language_presets,
             &self.asr.api_profiles,
             &self.asr.backend,
+            self.translation.model_selection.use_default_model,
         )?;
         validate_osc(&self.osc, &self.unitext)?;
         validate_unitext(&self.unitext)?;
@@ -168,16 +225,24 @@ impl AppConfig {
         if ocr.shortcut.trim().is_empty() || ocr.shortcut.len() > 64 {
             return Err("OCR shortcut must contain 1 to 64 characters".into());
         }
-        validate_translation_targets("ocr", &ocr.targets, &self.asr.api_profiles, false, "")?;
+        validate_translation_targets(
+            "ocr",
+            &ocr.targets,
+            &self.asr.api_profiles,
+            false,
+            self.ocr.model_selection.use_default_model,
+            "",
+        )?;
         if let Some(wrist) = &ocr.wrist {
             if !["left", "right", "dominant"].contains(&wrist.hand.as_str()) {
-                return Err(format!("Unsupported OCR wrist hand: {}", wrist.hand));
+                return Err(format!("Unsupported OCR wrist hand: {}", wrist.hand).into());
             }
             if !["left", "right"].contains(&wrist.dominant_hand.as_str()) {
                 return Err(format!(
                     "Unsupported OCR wrist dominant_hand: {}",
                     wrist.dominant_hand
-                ));
+                )
+                .into());
             }
             for (field, value) in [
                 ("offset_x_m", wrist.offset_x_m),
@@ -858,19 +923,18 @@ fn validate_translation(
     translation: &TranslationConfig,
     profiles: &[ApiProfile],
     live_service: &str,
-) -> Result<(), String> {
+) -> Result<(), SettingsValidationError> {
     validate_translation_prompt(&translation.prompt)?;
     if !["disabled", "manual", "automatic"].contains(&translation.mode.as_str()) {
-        return Err(format!(
-            "Unsupported translation mode: {}",
-            translation.mode
-        ));
+        return Err(format!("Unsupported translation mode: {}", translation.mode).into());
     }
+    let use_default_model = translation.model_selection.use_default_model;
     validate_translation_targets(
         "speaker",
         &translation.speaker_targets,
         profiles,
         translation.mode != "disabled",
+        use_default_model,
         if translation.mode == "automatic" {
             live_service
         } else {
@@ -882,6 +946,7 @@ fn validate_translation(
         &translation.microphone_targets,
         profiles,
         translation.mode != "disabled",
+        use_default_model,
         if translation.mode == "automatic" {
             live_service
         } else {
@@ -895,12 +960,13 @@ fn validate_translation_targets(
     targets: &[TranslationTargetConfig],
     profiles: &[ApiProfile],
     require_profile: bool,
+    use_default_model: bool,
     live_service: &str,
-) -> Result<(), String> {
+) -> Result<(), SettingsValidationError> {
     if !(1..=3).contains(&targets.len()) {
-        return Err(format!(
-            "Translation {source} targets must contain between 1 and 3 entries"
-        ));
+        return Err(
+            format!("Translation {source} targets must contain between 1 and 3 entries").into(),
+        );
     }
     let mut languages = HashSet::new();
     for (index, target) in targets.iter().enumerate() {
@@ -908,18 +974,24 @@ fn validate_translation_targets(
             control.validate()?;
         }
         if !languages.insert(target.target_language.to_ascii_lowercase()) {
-            return Err(format!(
-                "Translation {source} target languages must be unique"
-            ));
+            return Err(format!("Translation {source} target languages must be unique").into());
         }
         if providers::is_live_translation(live_service) && index == 0 {
             if !providers::is_valid_translation_language(&target.target_language) {
                 return Err(format!(
                     "Invalid {source} translation target language: {}",
                     target.target_language
-                ));
+                )
+                .into());
             }
-            providers::validate_live_translation_language(live_service, &target.target_language)?;
+            providers::validate_live_translation_language(live_service, &target.target_language)
+                .map_err(|detail| {
+                    SettingsValidationError::with_params(
+                        "settings.translation_language_unsupported",
+                        serde_json::json!({ "language": target.target_language }),
+                        detail,
+                    )
+                })?;
             continue;
         }
         if target.use_default_model && !require_profile {
@@ -931,21 +1003,27 @@ fn validate_translation_targets(
                 return Err(format!(
                     "A local PLaMo translation binding cannot select an API profile for {}",
                     target.target_language
-                ));
+                )
+                .into());
             }
             if target.model != crate::translation::MODEL_ID {
                 return Err(format!(
                     "The local PLaMo translation model must be {}",
                     crate::translation::MODEL_ID
-                ));
+                )
+                .into());
             }
             if target.thinking_enabled || target.reasoning_control.is_some() {
                 return Err("Local PLaMo translation does not support reasoning controls".into());
             }
             if !crate::translation::plamo_supports_language(&target.target_language) {
-                return Err(format!(
-                    "PLaMo does not support target language: {}",
-                    target.target_language
+                return Err(SettingsValidationError::with_params(
+                    "settings.translation_language_unsupported",
+                    serde_json::json!({ "language": target.target_language }),
+                    format!(
+                        "PLaMo does not support target language: {}",
+                        target.target_language
+                    ),
                 ));
             }
             continue;
@@ -954,13 +1032,22 @@ fn validate_translation_targets(
             return Err(format!(
                 "Invalid {source} translation target language: {}",
                 target.target_language
-            ));
+            )
+            .into());
         }
         let Some(profile_id) = target.profile_id.as_deref() else {
             if require_profile {
-                return Err(format!(
-                    "A translation API profile must be selected for {}",
-                    target.target_language
+                let code = if use_default_model {
+                    "settings.translation_default_model_missing"
+                } else {
+                    "settings.translation_profile_missing"
+                };
+                return Err(SettingsValidationError::coded(
+                    code,
+                    format!(
+                        "A translation API profile must be selected for {}",
+                        target.target_language
+                    ),
                 ));
             }
             continue;
@@ -968,18 +1055,33 @@ fn validate_translation_targets(
         let profile = profiles
             .iter()
             .find(|profile| profile.id == profile_id)
-            .ok_or_else(|| "The selected translation API profile does not exist".to_string())?;
+            .ok_or_else(|| {
+                SettingsValidationError::coded(
+                    "settings.translation_profile_unavailable",
+                    "The selected translation API profile does not exist",
+                )
+            })?;
         if !providers::supports_translation(profile) {
-            return Err("The selected API profile does not support translation".into());
+            return Err(SettingsValidationError::coded(
+                "settings.translation_profile_unavailable",
+                "The selected API profile does not support translation",
+            ));
         }
         if !providers::supports_translation_language(profile, &target.target_language) {
-            return Err(format!(
-                "The selected API profile does not support target language: {}",
-                target.target_language
+            return Err(SettingsValidationError::with_params(
+                "settings.translation_language_unsupported",
+                serde_json::json!({ "language": target.target_language }),
+                format!(
+                    "The selected API profile does not support target language: {}",
+                    target.target_language
+                ),
             ));
         }
         if providers::supports_llm_models(profile) && target.model.trim().is_empty() {
-            return Err("The LLM translation model cannot be empty".into());
+            return Err(SettingsValidationError::coded(
+                "settings.translation_model_required",
+                "The LLM translation model cannot be empty",
+            ));
         }
     }
     Ok(())
@@ -1010,7 +1112,8 @@ fn validate_language_presets(
     presets: &[LanguagePreset],
     profiles: &[ApiProfile],
     live_service: &str,
-) -> Result<(), String> {
+    use_default_model: bool,
+) -> Result<(), SettingsValidationError> {
     if presets.len() > 5 {
         return Err("Language presets cannot exceed 5 entries".into());
     }
@@ -1039,13 +1142,15 @@ fn validate_language_presets(
             return Err(format!(
                 "Unsupported preset translation mode: {}",
                 preset.translation_mode
-            ));
+            )
+            .into());
         }
         validate_translation_targets(
             "preset speaker",
             &preset.speaker_targets,
             profiles,
             preset.translation_mode != "disabled",
+            use_default_model,
             if preset.translation_mode == "automatic" {
                 live_service
             } else {
@@ -1057,6 +1162,7 @@ fn validate_language_presets(
             &preset.microphone_targets,
             profiles,
             preset.translation_mode != "disabled",
+            use_default_model,
             if preset.translation_mode == "automatic" {
                 live_service
             } else {
@@ -1069,7 +1175,8 @@ fn validate_language_presets(
             return Err(format!(
                 "Unsupported preset OSC translation strategy: {}",
                 preset.osc_translation_strategy
-            ));
+            )
+            .into());
         }
     }
     Ok(())

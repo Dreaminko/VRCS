@@ -1314,3 +1314,61 @@ fn validates_osc_custom_message_format() {
     config.osc.custom_format = Some("{translation} / {original}".into());
     assert!(config.validate_settings().is_ok());
 }
+
+#[test]
+fn translation_validation_returns_specific_error_codes() {
+    let mut config = AppConfig::default();
+    config.translation.mode = "manual".into();
+    config.resolve_model_assignments();
+    let missing_default = config.validate_settings_detailed().unwrap_err();
+    assert_eq!(
+        missing_default.code,
+        "settings.translation_default_model_missing"
+    );
+
+    config.translation.model_selection.use_default_model = false;
+    config.resolve_model_assignments();
+    let missing_profile = config.validate_settings_detailed().unwrap_err();
+    assert_eq!(missing_profile.code, "settings.translation_profile_missing");
+
+    config.translation.model_selection.profile_id = Some("missing-profile".into());
+    config.resolve_model_assignments();
+    let unavailable_profile = config.validate_settings_detailed().unwrap_err();
+    assert_eq!(
+        unavailable_profile.code,
+        "settings.translation_profile_unavailable"
+    );
+
+    config.asr.api_profiles.push(ApiProfile {
+        id: "openai-profile".into(),
+        name: "OpenAI".into(),
+        provider: "openai".into(),
+        enabled_capabilities: vec!["text_translation".into()],
+        ..ApiProfile::default()
+    });
+    config.translation.model_selection.profile_id = Some("openai-profile".into());
+    config.translation.model_selection.model.clear();
+    config.resolve_model_assignments();
+    let missing_model = config.validate_settings_detailed().unwrap_err();
+    assert_eq!(missing_model.code, "settings.translation_model_required");
+
+    config.asr.api_profiles.push(ApiProfile {
+        id: "deepl-profile".into(),
+        name: "DeepL".into(),
+        provider: "deepl".into(),
+        enabled_capabilities: vec!["text_translation".into()],
+        ..ApiProfile::default()
+    });
+    config.translation.model_selection.profile_id = Some("deepl-profile".into());
+    config.translation.speaker_targets[0].target_language = "tlh-Latn".into();
+    config.resolve_model_assignments();
+    let unsupported_language = config.validate_settings_detailed().unwrap_err();
+    assert_eq!(
+        unsupported_language.code,
+        "settings.translation_language_unsupported"
+    );
+    assert_eq!(
+        unsupported_language.params,
+        Some(serde_json::json!({ "language": "tlh-Latn" }))
+    );
+}

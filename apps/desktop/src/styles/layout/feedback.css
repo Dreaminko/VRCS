@@ -60,8 +60,43 @@
   background: var(--error-soft);
   font-size: 13px;
 }
-.error-banner > span { min-width: 0; overflow-wrap: anywhere; white-space: pre-line; }
+.error-banner > span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; white-space: pre-line; }
+.error-banner-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
 .error-banner button { display: grid; place-items: center; padding: 4px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; }
+.error-banner button.error-banner-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--error-border);
+  border-radius: var(--radius-sm);
+  color: var(--error);
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: border-color 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out;
+}
+.error-banner button.error-banner-action:hover {
+  border-color: var(--error);
+  background: color-mix(in srgb, var(--error-soft) 55%, var(--surface));
+}
+.error-banner button.error-banner-action:active {
+  transform: scale(0.97);
+}
+.error-banner button.error-banner-close {
+  color: var(--error);
+  transition: background-color 120ms ease-out;
+}
+.error-banner button.error-banner-close:hover {
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+}
 
 .fatal-error-screen {
   display: grid;

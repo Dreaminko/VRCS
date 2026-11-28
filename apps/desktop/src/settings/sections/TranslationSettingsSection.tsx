@@ -12,12 +12,17 @@ import type { ApplySettings } from "../settings-types";
 import { LanguagePresetSettings } from "../translation/LanguagePresetSettings";
 import { TranslationEnhancementSettings } from "../translation/TranslationEnhancementSettings";
 import { TranslationRouteList } from "../translation/TranslationRouteList";
+import {
+  liveTranslationOnlyNeedsModelForManualOrExtraTargets,
+  translationModelIssue,
+} from "../translation/translation-readiness";
 import { translationModelSelection, translationPromptBackend } from "../model-selection";
 
-export function TranslationSettingsSection({ draft, apiProfiles, applySettings }: {
+export function TranslationSettingsSection({ draft, apiProfiles, applySettings, onOpenModelAssignments }: {
   draft: Settings;
   apiProfiles: ApiProfileView[];
   applySettings: ApplySettings;
+  onOpenModelAssignments?: () => void;
 }) {
   const { t } = useTranslation();
   const liveService = liveTranslationServiceName(draft.asr.backend);
@@ -27,6 +32,23 @@ export function TranslationSettingsSection({ draft, apiProfiles, applySettings }
   const localConfigured = translationModelSelection(draft).backend === "plamo_local"
     || configuredTargets.some((target) => target.backend === "plamo_local");
   const translationUnavailable = !liveTranslate && !translationProfiles.length && !localConfigured;
+  const modelIssue = translationModelIssue(draft, apiProfiles);
+  const liveCoversSingleAuto = liveTranslationOnlyNeedsModelForManualOrExtraTargets(draft);
+  const modeHintKey = translationUnavailable
+    ? "settings.translation.noProfiles"
+    : modelIssue === null
+      ? null
+      : liveCoversSingleAuto
+        ? "settings.translation.liveTranslateModelOptionalHint"
+        : modelIssue === "default_model_missing"
+          ? "settings.translation.defaultModelMissing"
+          : modelIssue === "profile_missing"
+            ? "settings.translation.profileMissing"
+            : modelIssue === "model_required"
+              ? "settings.translation.modelRequired"
+              : modelIssue === "profile_unavailable"
+                ? "settings.translation.profileUnavailable"
+                : null;
   const nativeFirstRoute = liveTranslate && draft.translation.mode === "automatic";
   const enhancementRoutes = [draft.translation.speaker_targets, draft.translation.microphone_targets]
     .flatMap((targets) => nativeFirstRoute ? targets.slice(1) : targets)
@@ -73,7 +95,20 @@ export function TranslationSettingsSection({ draft, apiProfiles, applySettings }
                 </button>
               ))}
             </div>
-            {translationUnavailable && <small>{t("settings.translation.noProfiles")}</small>}
+            {modeHintKey && (
+              <div className="translation-mode-hint">
+                <small>{t(modeHintKey)}</small>
+                {!translationUnavailable && onOpenModelAssignments && (
+                  <button
+                    className="secondary-button translation-mode-hint-action"
+                    type="button"
+                    onClick={onOpenModelAssignments}
+                  >
+                    {t("settings.translation.goToModelAssignments")}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

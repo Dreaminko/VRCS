@@ -79,6 +79,7 @@ export function useCoreSession(resourcesActive: boolean) {
         ?? runtime.health.value?.vrchat_mute_sync
         ?? null,
       error: errors.error,
+      errorCode: errors.errorCode,
       retry: runtime.retry,
       reportError: errors.reportError,
       clearError: errors.clearError,
