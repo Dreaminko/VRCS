@@ -721,7 +721,6 @@
       "nightlyDescription": "Nightly は動作が不安定な場合があります。",
       "checkNow": "今すぐ確認",
       "availableTitle": "{{version}} を利用できます",
-      "availableDescription": "新しいバージョンをダウンロードしてインストールできます。",
       "downloadAndInstall": "ダウンロードしてインストール",
       "openReleasePage": "リリースページを開く",
       "viewDetails": "更新内容を見る",
@@ -750,18 +749,6 @@
         "installingRestart": "更新をインストールして再起動しています…"
       },
       "errors": {
-        "conversations": {
-          "title_interrupted": "前回の生成が中断されました。再試行してください。",
-          "title_service_failed": "タイトルを生成できませんでした。モデルサービスを確認して再試行してください。",
-          "title_not_configured": "「API とモデル → モデルの割り当て」で会話タイトル用のプロファイル、認証情報、モデルを確認してください。",
-          "title_timeout": "タイトル生成がタイムアウトしました。再試行してください。",
-          "title_empty": "この会話には要約できる字幕原文がありません。",
-          "title_invalid_output": "モデルが有効な1行のタイトルを返しませんでした。再試行してください。",
-          "title_unavailable": "会話を終了し、既定のタイトルに戻してから生成してください。"
-        },
-        "feature": {
-          "disabled": "この機能はオフです。システム設定の機能の選択からオンにできます。"
-        },
         "unavailable": "このビルドには更新機能が設定されていません。",
         "busy": "別の更新操作が実行中です。",
         "no_pending": "もう一度更新を確認してからインストールしてください。",
@@ -795,7 +782,6 @@
         "automatic": "モデルに任せる",
         "unavailable": "保存された思考設定は利用できません。他の値かアプリの既定値を選んでください。",
         "reset": "このモデルの思考強度をアプリの既定値に戻しました。",
-        "remainingTokens": "出力上限内で回答に使用できる残りトークン：{{count}}。",
         "invalidBudget": "対応する範囲内の整数を入力してください。",
         "efforts": {
           "minimal": "最小",
@@ -1314,7 +1300,6 @@
         "restorePrompt": "既定に戻す",
         "previewPrompt": "ローカルプレビュー",
         "promptPreviewTitle": "次の LLM リクエストのシステム指示",
-        "promptInvalidTitle": "プロンプトが無効です",
         "contextPreview": "最近の原文 {{count}} 件、{{chars}} 文字を添付",
         "contextEnabled": "最近の原文を添付",
         "contextSourcesTitle": "原文のソース",
@@ -1520,11 +1505,6 @@
         "storedCredentialAvailable": "システム資格情報にも保存済みキーがあります",
         "removeCredential": "キーを削除",
         "confirmDelete": "「{{name}}」と保存済み API キーを削除しますか？{{impact}}この操作は元に戻せません。",
-        "deleteImpacts": {
-          "transcription": "このプロバイダーの既定選択も解除されます。",
-          "translation": "翻訳設定が解除され、翻訳はオフになります。",
-          "transcriptionAndTranslation": "このプロバイダーの既定選択が解除され、翻訳もオフになります。"
-        },
         "supportLevels": {
           "native": "ネイティブ対応",
           "protocol_compatible": "プロトコル互換",
@@ -1550,40 +1530,6 @@
         "testTranslation": "翻訳をテスト",
         "connectionSucceeded": "接続に成功しました。",
         "connectionFailed": "接続診断で互換性の問題が見つかりました。",
-        "diagnostics": {
-          "checks": {
-            "configuration": "設定",
-            "endpoint": "ネットワークエンドポイント",
-            "authentication": "認証",
-            "models": "モデル一覧",
-            "completion": "通常生成",
-            "streaming": "ストリーミング生成",
-            "recognition": "音声認識"
-          },
-          "status": {
-            "passed": "成功",
-            "warning": "警告",
-            "failed": "失敗",
-            "skipped": "未実行"
-          },
-          "codes": {
-            "llm_timeout": "タイムアウトしました。サービス状態を確認するか時間を延長してください。",
-            "llm_dns_failed": "ホスト名を解決できません。Base URL を確認してください。",
-            "llm_connection_refused": "接続が拒否されました。ローカルサービスとポートを確認してください。",
-            "llm_tls_failed": "TLS 検証に失敗しました。HTTPS アドレスと証明書を確認してください。",
-            "llm_network_failed": "サービスに接続できません。ネットワークと Base URL を確認してください。",
-            "llm_authentication_failed": "認証に失敗しました。API Key または認証方式を確認してください。",
-            "llm_payment_required": "AI サービスの残高または利用上限を確認してください。",
-            "llm_permission_denied": "AI サービスがリクエストを拒否しました。モデルの利用権限、アカウント権限、コンテンツポリシーを確認してください。",
-            "llm_path_not_found": "API パスがありません。Base URL の /v1 パスを確認してください。",
-            "llm_models_unsupported": "モデル一覧を取得できません。モデル名を手動入力して再テストできます。",
-            "llm_model_required": "先にモデル名を入力してください。",
-            "llm_invalid_response": "Chat Completions 互換の JSON 応答ではありません。",
-            "llm_sse_incompatible": "SSE ストリームが Chat Completions 互換ではありません。",
-            "llm_rate_limited": "レート制限に達しました。後でもう一度試してください。",
-            "llm_request_failed": "リクエストが拒否されました。モデルと API 設定を確認してください。"
-          }
-        },
         "refreshModels": "モデルを更新",
         "loadingModels": "利用可能なモデルを取得中…",
         "modelsUnavailable": "利用可能なモデルが返されませんでした。モデル名は手動で入力できます。",
@@ -2169,6 +2115,15 @@
       }
     },
     "errors": {
+      "conversations": {
+        "title_interrupted": "前回の生成が中断されました。再試行してください。",
+        "title_service_failed": "タイトルを生成できませんでした。モデルサービスを確認して再試行してください。",
+        "title_not_configured": "「API とモデル → モデルの割り当て」で会話タイトル用のプロファイル、認証情報、モデルを確認してください。",
+        "title_timeout": "タイトル生成がタイムアウトしました。再試行してください。",
+        "title_empty": "この会話には要約できる字幕原文がありません。",
+        "title_invalid_output": "モデルが有効な1行のタイトルを返しませんでした。再試行してください。",
+        "title_unavailable": "会話を終了し、既定のタイトルに戻してから生成してください。"
+      },
       "unknown": "不明なエラーが発生しました。",
       "operation": "操作に失敗しました。",
       "chatbox": {
@@ -2375,7 +2330,6 @@
         "alibaba_workspace_missing": "先に Alibaba Cloud の Workspace ID を設定してください。",
         "models": "ローカルモデルを読み込めませんでした。",
         "download": "モデルをダウンロードできませんでした。",
-        "delete": "モデルを削除できませんでした。",
         "model": {
           "inspect_failed": "選択したモデルを確認できませんでした。",
           "not_downloaded": "モデル {{model}} は未ダウンロードです。",
@@ -2396,12 +2350,9 @@
         "asr_update_task_failed": "音声認識の更新を開始できませんでした。",
         "asr_update_failed": "音声認識エンジンを更新できませんでした。",
         "asr_preload_failed": "音声認識モデルを事前読み込みできませんでした。",
-        "osc_inbound_reload_failed": "OSC 受信リスナーを開始できませんでした。",
-        "recovery": "{{apply}} 以前の設定を復元する際にもエラーが発生しました：{{recovery}}"
+        "osc_inbound_reload_failed": "OSC 受信リスナーを開始できませんでした。"
       },
       "window": {
-        "warningExpand": "警告ウィンドウのサイズを変更できませんでした。",
-        "compactCollapse": "字幕モードに切り替えられませんでした。",
         "compactToggle": "字幕モードを変更できませんでした。",
         "compactResize": "字幕ウィンドウのサイズを変更できませんでした。",
         "interfaceScale": "表示サイズを変更できませんでした。",

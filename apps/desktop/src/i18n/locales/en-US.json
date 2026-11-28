@@ -721,7 +721,6 @@
       "nightlyDescription": "Nightly builds may be unstable.",
       "checkNow": "Check now",
       "availableTitle": "{{version}} is available",
-      "availableDescription": "A new version of VRCS is ready to install.",
       "downloadAndInstall": "Download and install",
       "openReleasePage": "Open release page",
       "viewDetails": "View release notes",
@@ -750,18 +749,6 @@
         "installingRestart": "Installing update and restarting…"
       },
       "errors": {
-        "conversations": {
-          "title_interrupted": "The previous title request was interrupted. Try again.",
-          "title_service_failed": "Title generation failed. Check the model service and try again.",
-          "title_not_configured": "Check the API profile, credentials, and model in Settings → API and models → Model assignments.",
-          "title_timeout": "Title generation timed out. Try again.",
-          "title_empty": "This conversation has no original transcript to summarize.",
-          "title_invalid_output": "The model did not return a valid single-line title. Try again.",
-          "title_unavailable": "End the conversation and restore its default title before generating a title."
-        },
-        "feature": {
-          "disabled": "This feature is turned off. Turn it on in System settings → Features."
-        },
         "unavailable": "Updates are not configured for this build.",
         "busy": "An update operation is already running.",
         "no_pending": "Check for updates again before installing.",
@@ -795,7 +782,6 @@
         "automatic": "Model automatic",
         "unavailable": "The saved thinking control is unavailable. Choose another value or application default.",
         "reset": "Thinking strength was reset to application default for this model.",
-        "remainingTokens": "Tokens left for the answer within the output limit: {{count}}.",
         "invalidBudget": "Enter a whole number within the supported budget range.",
         "efforts": {
           "minimal": "Minimal",
@@ -1314,7 +1300,6 @@
         "restorePrompt": "Restore default",
         "previewPrompt": "Local preview",
         "promptPreviewTitle": "System instructions for the next LLM request",
-        "promptInvalidTitle": "Invalid prompt",
         "contextPreview": "{{count}} recent source messages, {{chars}} characters",
         "contextEnabled": "Include recent source text",
         "contextSourcesTitle": "Source types",
@@ -1520,11 +1505,6 @@
         "storedCredentialAvailable": "A saved key is also available in the system credential store",
         "removeCredential": "Remove key",
         "confirmDelete": "Delete “{{name}}” and its saved API key? {{impact}}This cannot be undone.",
-        "deleteImpacts": {
-          "transcription": "Its provider-default selection will also be cleared. ",
-          "translation": "Translation will be cleared and turned off. ",
-          "transcriptionAndTranslation": "Its provider-default selection will be cleared, and translation will be turned off. "
-        },
         "supportLevels": {
           "native": "Native support",
           "protocol_compatible": "Protocol compatible",
@@ -1550,40 +1530,6 @@
         "testTranslation": "Test translation",
         "connectionSucceeded": "Connection succeeded.",
         "connectionFailed": "The connection diagnostic found compatibility problems.",
-        "diagnostics": {
-          "checks": {
-            "configuration": "Configuration",
-            "endpoint": "Network endpoint",
-            "authentication": "Authentication",
-            "models": "Model list",
-            "completion": "Standard generation",
-            "streaming": "Streaming generation",
-            "recognition": "Speech recognition"
-          },
-          "status": {
-            "passed": "Passed",
-            "warning": "Warning",
-            "failed": "Failed",
-            "skipped": "Skipped"
-          },
-          "codes": {
-            "llm_timeout": "The request timed out. Check the service or increase the timeout.",
-            "llm_dns_failed": "The host name could not be resolved. Check the Base URL.",
-            "llm_connection_refused": "The connection was refused. Start the local service and check its port.",
-            "llm_tls_failed": "TLS validation failed. Check the HTTPS address and certificate.",
-            "llm_network_failed": "The service could not be reached. Check the network and Base URL.",
-            "llm_authentication_failed": "Authentication failed. Check the API Key or authentication mode.",
-            "llm_payment_required": "The AI service requires available credit. Check your balance and spending limit.",
-            "llm_permission_denied": "The AI service denied this request. Check model access, permissions, and content policy.",
-            "llm_path_not_found": "The endpoint path does not exist. Check that the Base URL includes the correct /v1 path.",
-            "llm_models_unsupported": "The model list is unavailable. Enter a model name manually and test again.",
-            "llm_model_required": "Enter a model name first.",
-            "llm_invalid_response": "The response is not compatible Chat Completions JSON.",
-            "llm_sse_incompatible": "The service SSE stream is not Chat Completions compatible.",
-            "llm_rate_limited": "The service rate limit was reached. Try again later.",
-            "llm_request_failed": "The service rejected the request. Check the model and endpoint configuration."
-          }
-        },
         "refreshModels": "Refresh models",
         "loadingModels": "Loading available models…",
         "modelsUnavailable": "No models were returned; you can still enter a model name manually.",
@@ -2169,6 +2115,15 @@
       }
     },
     "errors": {
+      "conversations": {
+        "title_interrupted": "The previous title request was interrupted. Try again.",
+        "title_service_failed": "Title generation failed. Check the model service and try again.",
+        "title_not_configured": "Check the API profile, credentials, and model in Settings → API and models → Model assignments.",
+        "title_timeout": "Title generation timed out. Try again.",
+        "title_empty": "This conversation has no original transcript to summarize.",
+        "title_invalid_output": "The model did not return a valid single-line title. Try again.",
+        "title_unavailable": "End the conversation and restore its default title before generating a title."
+      },
       "unknown": "An unknown error occurred.",
       "operation": "The operation failed.",
       "chatbox": {
@@ -2375,7 +2330,6 @@
         "alibaba_workspace_missing": "Configure an Alibaba Cloud Workspace ID first.",
         "models": "Could not load local models.",
         "download": "Could not download the model.",
-        "delete": "Could not delete the model.",
         "model": {
           "inspect_failed": "Could not inspect the selected model.",
           "not_downloaded": "Model {{model}} is not downloaded.",
@@ -2396,12 +2350,9 @@
         "asr_update_task_failed": "Could not start the recognition update.",
         "asr_update_failed": "Could not update the recognition engine.",
         "asr_preload_failed": "Could not preload the speech recognition model.",
-        "osc_inbound_reload_failed": "Could not start the OSC inbound listener.",
-        "recovery": "{{apply}} Previous settings were restored with an additional error: {{recovery}}"
+        "osc_inbound_reload_failed": "Could not start the OSC inbound listener."
       },
       "window": {
-        "warningExpand": "Could not resize the warning window.",
-        "compactCollapse": "Could not enter subtitle mode.",
         "compactToggle": "Could not change subtitle mode.",
         "compactResize": "Could not resize the subtitle window.",
         "interfaceScale": "Could not adjust the interface size.",

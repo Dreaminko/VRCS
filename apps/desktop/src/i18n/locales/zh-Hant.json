@@ -721,7 +721,6 @@
       "nightlyDescription": "Nightly 可能不穩定。",
       "checkNow": "立即檢查",
       "availableTitle": "{{version}} 已推出",
-      "availableDescription": "新版本已可下載並安裝。",
       "downloadAndInstall": "下載並安裝",
       "openReleasePage": "開啟發佈頁面",
       "viewDetails": "檢視更新內容",
@@ -750,18 +749,6 @@
         "installingRestart": "正在安裝更新並重新啟動…"
       },
       "errors": {
-        "conversations": {
-          "title_interrupted": "上次生成已中斷，請重試。",
-          "title_service_failed": "無法產生標題，請檢查模型服務後重試。",
-          "title_not_configured": "請在「API 與模型 → 模型分配」中檢查標題產生模型與 API 設定檔。",
-          "title_timeout": "標題生成逾時，請重試。",
-          "title_empty": "此對話沒有可用於摘要的字幕原文。",
-          "title_invalid_output": "模型未傳回有效的單行標題，請重試。",
-          "title_unavailable": "請先結束對話，並還原預設標題後再產生。"
-        },
-        "feature": {
-          "disabled": "此功能已關閉，可在系統設定的功能選項中重新開啟。"
-        },
         "unavailable": "此版本未設定更新功能。",
         "busy": "更新正在進行中。",
         "no_pending": "請重新檢查更新後再安裝。",
@@ -795,7 +782,6 @@
         "automatic": "模型自動",
         "unavailable": "儲存的思考設定暫不可用，請選擇其他值或應用程式預設。",
         "reset": "已為此模型還原應用程式預設思考強度。",
-        "remainingTokens": "輸出上限內剩餘答案額度：{{count}} token。",
         "invalidBudget": "請輸入支援範圍內的整數預算。",
         "efforts": {
           "minimal": "最低",
@@ -1314,7 +1300,6 @@
         "restorePrompt": "還原預設",
         "previewPrompt": "本機預覽",
         "promptPreviewTitle": "下一次 LLM 請求的系統指令",
-        "promptInvalidTitle": "提示詞無效",
         "contextPreview": "最近 {{count}} 則原文，共 {{chars}} 個字元",
         "contextEnabled": "附帶最近原文",
         "contextSourcesTitle": "原文來源",
@@ -1520,11 +1505,6 @@
         "storedCredentialAvailable": "系統認證儲存區中也有已儲存的金鑰",
         "removeCredential": "移除金鑰",
         "confirmDelete": "要刪除「{{name}}」及其已儲存的 API 金鑰嗎？{{impact}}此動作無法復原。",
-        "deleteImpacts": {
-          "transcription": "此供應商的預設選項也會清除。",
-          "translation": "翻譯設定會被清除並關閉。",
-          "transcriptionAndTranslation": "此供應商的預設選項會清除，翻譯功能也會關閉。"
-        },
         "supportLevels": {
           "native": "原生支援",
           "protocol_compatible": "通訊協定相容",
@@ -1550,40 +1530,6 @@
         "testTranslation": "測試翻譯",
         "connectionSucceeded": "連線成功。",
         "connectionFailed": "連線診斷發現相容性問題。",
-        "diagnostics": {
-          "checks": {
-            "configuration": "設定",
-            "endpoint": "網路端點",
-            "authentication": "驗證",
-            "models": "模型清單",
-            "completion": "標準產生",
-            "streaming": "串流產生",
-            "recognition": "語音辨識"
-          },
-          "status": {
-            "passed": "通過",
-            "warning": "警告",
-            "failed": "失敗",
-            "skipped": "未執行"
-          },
-          "codes": {
-            "llm_timeout": "請求逾時，請檢查服務狀態或延長逾時時間。",
-            "llm_dns_failed": "無法解析主機名稱，請檢查 Base URL。",
-            "llm_connection_refused": "連線被拒絕，請確認本機服務已啟動且連線埠正確。",
-            "llm_tls_failed": "TLS 驗證失敗，請檢查 HTTPS 位址和憑證。",
-            "llm_network_failed": "無法連線服務，請檢查網路和 Base URL。",
-            "llm_authentication_failed": "驗證失敗，請檢查 API 金鑰或驗證方式。",
-            "llm_payment_required": "AI 服務餘額不足或已達到消費上限，請檢查帳戶餘額和限額。",
-            "llm_permission_denied": "AI 服務拒絕了此請求，請檢查模型存取權限、帳戶權限和內容政策。",
-            "llm_path_not_found": "API 路徑不存在，請確認 Base URL 包含正確的 /v1 路徑。",
-            "llm_models_unsupported": "模型清單不可用；可手動輸入模型名稱後繼續測試。",
-            "llm_model_required": "請先手動輸入模型名稱。",
-            "llm_invalid_response": "回應不是相容於 Chat Completions 的 JSON。",
-            "llm_sse_incompatible": "服務的 SSE 串流格式與 Chat Completions 不相容。",
-            "llm_rate_limited": "服務觸發了速率限制，請稍後重試。",
-            "llm_request_failed": "服務拒絕了請求，請檢查模型與 API 端點設定。"
-          }
-        },
         "refreshModels": "重新整理模型",
         "loadingModels": "正在載入可用模型…",
         "modelsUnavailable": "未傳回任何模型；你仍可手動輸入模型名稱。",
@@ -2169,6 +2115,15 @@
       }
     },
     "errors": {
+      "conversations": {
+        "title_interrupted": "上次生成已中斷，請重試。",
+        "title_service_failed": "無法產生標題，請檢查模型服務後重試。",
+        "title_not_configured": "請在「API 與模型 → 模型分配」中檢查標題產生模型與 API 設定檔。",
+        "title_timeout": "標題生成逾時，請重試。",
+        "title_empty": "此對話沒有可用於摘要的字幕原文。",
+        "title_invalid_output": "模型未傳回有效的單行標題，請重試。",
+        "title_unavailable": "請先結束對話，並還原預設標題後再產生。"
+      },
       "unknown": "發生未知錯誤。",
       "operation": "操作失敗。",
       "chatbox": {
@@ -2375,7 +2330,6 @@
         "alibaba_workspace_missing": "請先為 Alibaba Cloud 設定 Workspace ID。",
         "models": "無法載入本機模型。",
         "download": "無法下載模型。",
-        "delete": "無法刪除模型。",
         "model": {
           "inspect_failed": "無法檢查所選模型。",
           "not_downloaded": "模型 {{model}} 尚未下載。",
@@ -2396,12 +2350,9 @@
         "asr_update_task_failed": "無法啟動辨識更新。",
         "asr_update_failed": "無法更新辨識引擎。",
         "asr_preload_failed": "無法預載語音辨識模型。",
-        "osc_inbound_reload_failed": "無法啟動 OSC 入站監聽。",
-        "recovery": "{{apply}} 還原先前設定時發生另一個錯誤：{{recovery}}"
+        "osc_inbound_reload_failed": "無法啟動 OSC 入站監聽。"
       },
       "window": {
-        "warningExpand": "無法調整警告視窗大小。",
-        "compactCollapse": "無法進入字幕模式。",
         "compactToggle": "無法切換字幕模式。",
         "compactResize": "無法調整字幕視窗大小。",
         "interfaceScale": "無法調整介面大小。",
@@ -2448,7 +2399,6 @@
       },
       "subtitles": {
         "invalid_limit": "字幕記錄上限無效。",
-        "invalid_range": "對話時間範圍無效。",
         "history_failed": "無法載入字幕記錄。",
         "delete_failed": "無法刪除此對話。"
       },
