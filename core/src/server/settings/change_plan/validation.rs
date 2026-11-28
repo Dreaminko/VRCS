@@ -10,7 +10,8 @@ pub(super) async fn validate_candidate(
     candidate: &mut AppConfig,
     current: &AppConfig,
 ) -> ApiResult<()> {
-    let invalid = |detail| api_error(StatusCode::UNPROCESSABLE_ENTITY, "settings.invalid", detail);
+    let invalid =
+        |detail: String| api_error(StatusCode::UNPROCESSABLE_ENTITY, "settings.invalid", detail);
     if candidate.server != current.server {
         return Err(invalid(
             "The Core address is a startup setting and cannot be changed at runtime".into(),
