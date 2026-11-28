@@ -3,11 +3,14 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager as _};
 use vrcs_core::VrOverlayConfig;
 
-use super::backend::{Backend, BackendKind, CursorTarget, OverlayKind, menu_config};
+use super::backend::{Backend, BackendKind, CursorTarget, OverlayKind, menu_wrist_config};
 use super::control_protocol::{ControlHub, ControlSource};
 use super::interaction::{Hit, Key, Kind, Router, Sample, Surface};
+use super::layout_edit::{
+    EDIT_TOOLBAR_COMMIT_EVENT, EditTarget, EditToolbarAction, GrabTarget, LayoutEditSession,
+};
 use super::ocr_wrist::LaserEvent;
-use super::placement::{Mode, Placement, Request};
+use super::placement::{Mode, Placement, Pose, Request};
 use super::pose::{DeviceId, PointerId, PointerInput, SpaceId};
 use super::surface::{SurfaceHub, SurfaceRenderer};
 use super::surface_protocol::{SurfaceId, SurfaceLayout, SurfaceView};
@@ -27,7 +30,7 @@ struct Pointer {
     panel_width: f32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct UiTick {
     pub reader_revision: u64,
     pub content_owns_input: bool,
@@ -35,6 +38,7 @@ pub(super) struct UiTick {
     pub dialogue_sample: bool,
     pub dialogue_content_active: bool,
     pub dialogue_retention: DialogueRetentionKey,
+    pub menu_edit_overlay: Option<super::surface_protocol::EditSurfaceOverlay>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -45,24 +49,31 @@ pub(super) struct DialogueRetentionKey {
 
 fn pointer_overlay(surface: Surface) -> (OverlayKind, SurfaceId) {
     match surface {
+        Surface::Headset => (OverlayKind::Headset, SurfaceId::Headset),
         Surface::Menu => (OverlayKind::WristMenu, SurfaceId::Menu),
         Surface::Dialogue => (OverlayKind::Wrist, SurfaceId::Dialogue),
         Surface::Reader => (OverlayKind::OcrWrist, SurfaceId::Reader),
+        Surface::EditToolbar => (OverlayKind::EditToolbar, SurfaceId::EditToolbar),
+    }
+}
+
+fn surface_index(surface: Surface) -> usize {
+    match surface {
+        Surface::Menu => 0,
+        Surface::Dialogue => 1,
+        Surface::Reader => 2,
+        Surface::Headset => 3,
+        Surface::EditToolbar => 4,
     }
 }
 
 fn nearest_pointer(
     pointers: impl Iterator<Item = Pointer>,
-    layouts: &[Option<Arc<SurfaceLayout>>; 3],
+    layouts: &[Option<Arc<SurfaceLayout>>; 5],
 ) -> Option<Pointer> {
     pointers
         .filter(|pointer| {
-            let index = match pointer.key.surface {
-                Surface::Menu => 0,
-                Surface::Dialogue => 1,
-                Surface::Reader => 2,
-            };
-            layouts[index]
+            layouts[surface_index(pointer.key.surface)]
                 .as_ref()
                 .is_some_and(|layout| layout.pointer_contains(pointer.point))
         })
@@ -174,6 +185,7 @@ impl UiContext {
 
 pub struct UiRuntime {
     pub placement: Arc<Mutex<Placement>>,
+    pub layout_edit: Arc<Mutex<LayoutEditSession>>,
     router: Router,
     lift: wrist_menu::Visibility,
     dialogue_lift: wrist_menu::Visibility,
@@ -188,6 +200,10 @@ pub struct UiRuntime {
     menu_ui: wrist_menu::Ui,
     pub menu_visible: bool,
     pub dialogue_hover: Option<u8>,
+    pub headset_hover: Option<u8>,
+    pub headset_pressed: Option<u8>,
+    pub toolbar_hover: Option<u8>,
+    pub toolbar_pressed: Option<u8>,
     pub dialogue_visible: bool,
     pub dialogue_revision: Option<u64>,
     pub generation: u64,
@@ -215,9 +231,13 @@ pub struct UiRuntime {
 }
 
 impl UiRuntime {
-    pub fn new(placement: Arc<Mutex<Placement>>) -> Self {
+    pub fn new(
+        placement: Arc<Mutex<Placement>>,
+        layout_edit: Arc<Mutex<LayoutEditSession>>,
+    ) -> Self {
         Self {
             placement,
+            layout_edit,
             router: Router::default(),
             lift: Default::default(),
             dialogue_lift: Default::default(),
@@ -232,6 +252,10 @@ impl UiRuntime {
             menu_ui: Default::default(),
             menu_visible: false,
             dialogue_hover: None,
+            headset_hover: None,
+            headset_pressed: None,
+            toolbar_hover: None,
+            toolbar_pressed: None,
             dialogue_visible: false,
             dialogue_revision: None,
             generation: 1,
@@ -282,10 +306,14 @@ impl UiRuntime {
             || self.dialogue_fade.animating()
             || self.router.active()
             || self.pointer.is_some()
+            || super::runtime::lock_unpoisoned(&self.layout_edit).is_active()
     }
 
     pub fn pointer_fast_tick(&self) -> bool {
-        self.pointer.is_some() || self.menu_visible || self.router.active()
+        self.pointer.is_some()
+            || self.menu_visible
+            || self.router.active()
+            || super::runtime::lock_unpoisoned(&self.layout_edit).is_active()
     }
 
     pub fn reset_dialogue_visibility(&mut self) {
@@ -311,7 +339,12 @@ impl UiRuntime {
         self.pointer = None;
         self.last_input = Instant::now();
         self.pressed = None;
+        self.headset_hover = None;
+        self.headset_pressed = None;
+        self.toolbar_hover = None;
+        self.toolbar_pressed = None;
         super::runtime::lock_unpoisoned(&self.placement).cancel_drag();
+        super::runtime::lock_unpoisoned(&self.layout_edit).cancel_grab();
     }
 
     fn apply_context(
@@ -360,6 +393,10 @@ impl UiRuntime {
         self.origin = None;
         self.current_origin = None;
         self.snapshot_version = None;
+        self.headset_hover = None;
+        self.headset_pressed = None;
+        self.toolbar_hover = None;
+        self.toolbar_pressed = None;
         self.menu_frame = None;
         self.menu_ui = Default::default();
         self.menu_surface.reset();
@@ -418,7 +455,7 @@ impl UiRuntime {
     fn probe_device_pointer(
         &self,
         backend: &Backend,
-        layouts: &[Option<Arc<SurfaceLayout>>; 3],
+        layouts: &[Option<Arc<SurfaceLayout>>; 5],
         device: DeviceId,
         pointer: PointerId,
         scroll_y: f32,
@@ -458,7 +495,7 @@ impl UiRuntime {
     fn sample_pointer(
         &mut self,
         backend: &Backend,
-        layouts: &[Option<Arc<SurfaceLayout>>; 3],
+        layouts: &[Option<Arc<SurfaceLayout>>; 5],
     ) -> Vec<PointerInput> {
         let mut inputs = backend.pointer_inputs();
         let mut pointers = Vec::with_capacity(inputs.len());
@@ -546,6 +583,8 @@ impl UiRuntime {
                 surfaces.pointer_layout(SurfaceId::Menu),
                 surfaces.pointer_layout(SurfaceId::Dialogue),
                 surfaces.pointer_layout(SurfaceId::Reader),
+                surfaces.pointer_layout(SurfaceId::Headset),
+                surfaces.pointer_layout(SurfaceId::EditToolbar),
             ];
             let mut pointers = Vec::with_capacity(self.pointer_devices.len());
             for &(device, pointer) in &self.pointer_devices {
@@ -575,8 +614,10 @@ impl UiRuntime {
             dialogue_sample,
             dialogue_content_active,
             dialogue_retention,
+            menu_edit_overlay,
         } = tick;
         let now = Instant::now();
+        let elapsed = now.saturating_duration_since(self.last_input);
         if business {
             let hub = super::runtime::lock_unpoisoned(controls);
             let version = hub.ui_version();
@@ -627,40 +668,79 @@ impl UiRuntime {
             }
         }
         let head = tracking.map(|t| t.0);
-        let menu_config = menu_config(&config.wrist_menu.hand);
-        let (menu_device, menu_angle) = backend.wrist_device_and_angle(&menu_config, head);
+        let (edit_active, edit_draft, edit_visible, edit_toolbar_pose, edit_grabbing_device, edit_grabbing_target) = {
+            let mut edit = super::runtime::lock_unpoisoned(&self.layout_edit);
+            if edit.is_active() {
+                edit.ensure_toolbar_pose(head);
+            }
+            (
+                edit.is_active(),
+                edit.draft.clone(),
+                edit.visible,
+                edit.toolbar_pose,
+                edit.grabbing_device(),
+                edit.grabbing_target(),
+            )
+        };
+        let active_menu_cfg = edit_draft
+            .as_ref()
+            .map(|d| &d.wrist_menu)
+            .unwrap_or(&config.wrist_menu);
+        let active_wrist_cfg = edit_draft
+            .as_ref()
+            .map(|d| &d.wrist)
+            .unwrap_or(&config.wrist);
+        let menu_wrist = menu_wrist_config(active_menu_cfg);
+        let (menu_device, menu_angle) = backend.wrist_device_and_angle(&menu_wrist, head);
         let menu_angle = menu_angle.filter(|angle| angle.is_finite());
-        if menu_angle.is_none() || !config.wrist_menu.enabled {
+        if !edit_active && (menu_angle.is_none() || !config.wrist_menu.enabled) {
             self.menu_ui = Default::default();
             self.menu_fade.reset();
             self.lift = Default::default();
         }
         self.menu_ui.clamp(players);
-        self.menu_visible =
-            config.wrist_menu.enabled && self.lift.update(menu_angle, self.pressed.is_some(), now);
-        let (dialogue_device, dialogue_angle) = backend.wrist_device_and_angle(&config.wrist, head);
-        let dialogue_angle = dialogue_angle.filter(|angle| angle.is_finite());
-        self.dialogue_available = match placement.display_mode() {
-            Mode::World => placement.absolute_pose().is_some() && tracking.is_some(),
-            Mode::Wrist => dialogue_angle.is_some(),
+        self.menu_visible = if edit_active {
+            edit_visible[2] && menu_device.is_some()
+        } else {
+            config.wrist_menu.enabled && self.lift.update(menu_angle, self.pressed.is_some(), now)
         };
-        self.dialogue_occluded = placement.display_mode() == Mode::Wrist
-            && !dialogue_sample
-            && backend.visible(OverlayKind::OcrWrist)
-            && backend.ocr_wrist_on_same_hand(&config.wrist);
+        let (dialogue_device, dialogue_angle) =
+            backend.wrist_device_and_angle(active_wrist_cfg, head);
+        let dialogue_angle = dialogue_angle.filter(|angle| angle.is_finite());
+        self.dialogue_available = if edit_active {
+            dialogue_device.is_some()
+        } else {
+            match placement.display_mode() {
+                Mode::World => placement.absolute_pose().is_some() && tracking.is_some(),
+                Mode::Wrist => dialogue_angle.is_some(),
+            }
+        };
+        self.dialogue_occluded = if edit_active {
+            false
+        } else {
+            placement.display_mode() == Mode::Wrist
+                && !dialogue_sample
+                && backend.visible(OverlayKind::OcrWrist)
+                && backend.ocr_wrist_on_same_hand(&config.wrist)
+        };
         if !self.dialogue_available {
             self.dialogue_lift = Default::default();
         }
-        let dialogue_lift_visible = placement.display_mode() == Mode::World
+        let dialogue_lift_visible = edit_active
+            || placement.display_mode() == Mode::World
             || self
                 .dialogue_lift
                 .update(dialogue_angle, self.router.active(), now);
-        self.dialogue_visible = config.enabled
-            && config.wrist.enabled
-            && self.dialogue_available
-            && !self.dialogue_occluded
-            && dialogue_content_active
-            && (dialogue_sample || dialogue_lift_visible);
+        self.dialogue_visible = if edit_active {
+            edit_visible[1] && self.dialogue_available
+        } else {
+            config.enabled
+                && config.wrist.enabled
+                && self.dialogue_available
+                && !self.dialogue_occluded
+                && dialogue_content_active
+                && (dialogue_sample || dialogue_lift_visible)
+        };
         let surfaces = app.state::<SurfaceHub>();
         let generation = |surface| {
             let local = match surface {
@@ -684,114 +764,223 @@ impl UiRuntime {
             players: players.clone(),
             ui: self.menu_ui.clone(),
             hold_progress: None,
+            edit_mode: if edit_active {
+                menu_edit_overlay.clone()
+            } else {
+                None
+            },
         });
         let menu_key = Key {
             surface: Surface::Menu,
             generation: generation(SurfaceId::Menu),
-            revision: menu_layout
-                .as_ref()
-                .map_or(0, |layout| u64::from(layout.key.revision)),
+            revision: if edit_active {
+                1
+            } else {
+                menu_layout
+                    .as_ref()
+                    .map_or(0, |layout| u64::from(layout.key.revision))
+            },
         };
         let dialogue_key = Key {
             surface: Surface::Dialogue,
             generation: generation(SurfaceId::Dialogue),
-            revision: placement.revision,
+            revision: if edit_active { 1 } else { placement.revision },
         };
         let reader_key = Key {
             surface: Surface::Reader,
             generation: generation(SurfaceId::Reader),
             revision: reader_revision,
         };
+        let headset_key = Key {
+            surface: Surface::Headset,
+            generation: generation(SurfaceId::Headset),
+            revision: 1,
+        };
+        let toolbar_key = Key {
+            surface: Surface::EditToolbar,
+            generation: generation(SurfaceId::EditToolbar),
+            revision: 1,
+        };
         let mut keys = Vec::new();
         let dialogue_layout = surfaces.layout(SurfaceId::Dialogue);
         let reader_layout = surfaces.layout(SurfaceId::Reader);
+        let headset_layout = surfaces.layout(SurfaceId::Headset);
+        let toolbar_layout = surfaces.layout(SurfaceId::EditToolbar);
         let pointer_layouts = [
             surfaces.pointer_layout(SurfaceId::Menu),
             surfaces.pointer_layout(SurfaceId::Dialogue),
             surfaces.pointer_layout(SurfaceId::Reader),
+            surfaces.pointer_layout(SurfaceId::Headset),
+            surfaces.pointer_layout(SurfaceId::EditToolbar),
         ];
-        let menu_input_ready = self.menu_fade.input_allowed(self.menu_visible);
-        let dialogue_input_ready = self.dialogue_input_allowed(dialogue_retention);
-        if menu_input_ready
-            && menu_layout.is_some()
-            && self.menu_frame.as_ref().is_some_and(|frame| {
-                menu_view
-                    .as_ref()
-                    .is_none_or(|view| frame.same_layout(view))
-            })
-        {
-            keys.push(menu_key);
-        }
-        if dialogue_input_ready
-            && backend.visible(OverlayKind::Wrist)
-            && self.dialogue_revision == Some(placement.revision)
-            && (dialogue_layout.is_some() || placement.dragging().is_some())
-        {
-            keys.push(dialogue_key);
-        }
-        if backend.visible(OverlayKind::OcrWrist) && reader_layout.is_some() {
-            keys.push(reader_key);
+        let menu_input_ready = if edit_active {
+            self.menu_visible
+        } else {
+            self.menu_fade.input_allowed(self.menu_visible)
+        };
+        let dialogue_input_ready = if edit_active {
+            self.dialogue_visible
+        } else {
+            self.dialogue_input_allowed(dialogue_retention)
+        };
+        if edit_active {
+            if self.menu_visible && backend.visible(OverlayKind::WristMenu) && menu_layout.is_some()
+            {
+                keys.push(menu_key);
+            }
+            if self.dialogue_visible
+                && backend.visible(OverlayKind::Wrist)
+                && dialogue_layout.is_some()
+            {
+                keys.push(dialogue_key);
+            }
+            if edit_visible[0]
+                && backend.visible(OverlayKind::Headset)
+                && headset_layout.is_some()
+            {
+                keys.push(headset_key);
+            }
+            if edit_toolbar_pose.is_some()
+                && backend.visible(OverlayKind::EditToolbar)
+                && toolbar_layout.is_some()
+            {
+                keys.push(toolbar_key);
+            }
+        } else {
+            if menu_input_ready
+                && menu_layout.is_some()
+                && self.menu_frame.as_ref().is_some_and(|frame| {
+                    menu_view
+                        .as_ref()
+                        .is_none_or(|view| frame.same_layout(view))
+                })
+            {
+                keys.push(menu_key);
+            }
+            if dialogue_input_ready
+                && backend.visible(OverlayKind::Wrist)
+                && self.dialogue_revision == Some(placement.revision)
+                && (dialogue_layout.is_some() || placement.dragging().is_some())
+            {
+                keys.push(dialogue_key);
+            }
+            if backend.visible(OverlayKind::OcrWrist) && reader_layout.is_some() {
+                keys.push(reader_key);
+            }
         }
         let input_allowed = !dashboard && !content_owns_input && owner_active && tracking.is_some();
         if !input_allowed {
             keys.clear();
         }
-        let pointer_visible = [
-            menu_input_ready && backend.visible(OverlayKind::WristMenu),
-            dialogue_input_ready
-                && backend.visible(OverlayKind::Wrist)
-                && self.dialogue_revision == Some(placement.revision),
-            backend.visible(OverlayKind::OcrWrist),
-        ];
-        self.pointer_targets = [
-            (
-                OverlayKind::WristMenu,
-                menu_key,
-                menu_device.map(|device| device.0),
-            ),
-            (
-                OverlayKind::Wrist,
-                dialogue_key,
-                (placement.display_mode() == Mode::Wrist)
-                    .then_some(dialogue_device)
-                    .flatten()
-                    .map(|device| device.0),
-            ),
-            (OverlayKind::OcrWrist, reader_key, None),
-        ]
-        .into_iter()
-        .enumerate()
-        .filter(|(index, _)| {
-            input_allowed && pointer_visible[*index] && pointer_layouts[*index].is_some()
-        })
-        .map(|(_, target)| target)
-        .collect();
-        let can_recenter =
-            placement.display_mode() == Mode::World && !placement.busy() && view.items[0].requested;
+        self.pointer_targets = if edit_active {
+            [
+                (OverlayKind::WristMenu, menu_key, menu_device.map(|d| d.0)),
+                (
+                    OverlayKind::Wrist,
+                    dialogue_key,
+                    dialogue_device.map(|d| d.0),
+                ),
+                (OverlayKind::Headset, headset_key, None),
+                (OverlayKind::EditToolbar, toolbar_key, None),
+            ]
+            .into_iter()
+            .filter(|(kind, key, _)| {
+                let idx = surface_index(key.surface);
+                input_allowed && backend.visible(*kind) && pointer_layouts[idx].is_some()
+            })
+            .collect()
+        } else {
+            let pointer_visible = [
+                menu_input_ready && backend.visible(OverlayKind::WristMenu),
+                dialogue_input_ready
+                    && backend.visible(OverlayKind::Wrist)
+                    && self.dialogue_revision == Some(placement.revision),
+                backend.visible(OverlayKind::OcrWrist),
+            ];
+            [
+                (
+                    OverlayKind::WristMenu,
+                    menu_key,
+                    menu_device.map(|device| device.0),
+                ),
+                (
+                    OverlayKind::Wrist,
+                    dialogue_key,
+                    (placement.display_mode() == Mode::Wrist)
+                        .then_some(dialogue_device)
+                        .flatten()
+                        .map(|device| device.0),
+                ),
+                (OverlayKind::OcrWrist, reader_key, None),
+            ]
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| {
+                input_allowed && pointer_visible[*index] && pointer_layouts[*index].is_some()
+            })
+            .map(|(_, target)| target)
+            .collect()
+        };
+        let can_recenter = !edit_active
+            && placement.display_mode() == Mode::World
+            && !placement.busy()
+            && view.items[0].requested;
         // The placement guard is needed again for action dispatch, after pointer sampling.
         drop(placement);
         let inputs = self.sample_pointer(backend, &pointer_layouts);
         let pointer = self.pointer;
-        let active_slider = self.pressed.filter(|&region| {
-            menu_layout.as_ref().is_some_and(|layout| {
-                matches!(
-                    layout.menu_command(region),
-                    Some(wrist_menu::Command::Slider(_))
-                )
+        let active_slider = if edit_active {
+            None
+        } else {
+            self.pressed.filter(|&region| {
+                menu_layout.as_ref().is_some_and(|layout| {
+                    matches!(
+                        layout.menu_command(region),
+                        Some(wrist_menu::Command::Slider(_))
+                    )
+                })
             })
-        });
+        };
         let samples: Vec<_> = inputs
-            .into_iter()
+            .iter()
             .map(|input| {
                 let hit = pointer
                     .filter(|p| p.device == input.device.0)
                     .and_then(|p| {
-                        let region = match p.key.surface {
-                            Surface::Menu => {
-                                active_slider.or_else(|| menu_layout.as_ref()?.hit(p.point))?
+                        let region = if edit_active {
+                            match p.key.surface {
+                                Surface::Menu => match menu_layout.as_ref()?.hit(p.point) {
+                                    Some(60) => 60,
+                                    _ => 0,
+                                },
+                                Surface::Dialogue => {
+                                    if dialogue_layout.as_ref()?.hit(p.point) == Some(1) {
+                                        1
+                                    } else {
+                                        0
+                                    }
+                                }
+                                Surface::Headset => {
+                                    if headset_layout.as_ref()?.hit(p.point) == Some(1) {
+                                        1
+                                    } else {
+                                        0
+                                    }
+                                }
+                                Surface::EditToolbar => {
+                                    toolbar_layout.as_ref()?.hit(p.point).unwrap_or(0)
+                                }
+                                Surface::Reader => return None,
                             }
-                            Surface::Dialogue => dialogue_layout.as_ref()?.hit(p.point)?,
-                            Surface::Reader => reader_layout.as_ref()?.hit(p.point)?,
+                        } else {
+                            match p.key.surface {
+                                Surface::Menu => {
+                                    active_slider.or_else(|| menu_layout.as_ref()?.hit(p.point))?
+                                }
+                                Surface::Dialogue => dialogue_layout.as_ref()?.hit(p.point)?,
+                                Surface::Reader => reader_layout.as_ref()?.hit(p.point)?,
+                                Surface::Headset | Surface::EditToolbar => return None,
+                            }
                         };
                         Some(Hit {
                             key: p.key,
@@ -809,7 +998,7 @@ impl UiRuntime {
             })
             .collect();
         let was_active = self.router.active();
-        let mut output = self.router.step(&samples, &keys);
+        let mut output = self.router.step_mode(&samples, &keys, edit_active);
         let now = Instant::now();
         if can_recenter && let Some(event) = self.router.long_press(now) {
             output.events.push(event);
@@ -827,7 +1016,14 @@ impl UiRuntime {
             .hover
             .filter(|(_, h)| h.key.surface == Surface::Dialogue)
             .map(|(_, h)| h.region);
-        let elapsed = now.saturating_duration_since(self.last_input);
+        self.headset_hover = output
+            .hover
+            .filter(|(_, h)| h.key.surface == Surface::Headset)
+            .map(|(_, h)| h.region);
+        self.toolbar_hover = output
+            .hover
+            .filter(|(_, h)| h.key.surface == Surface::EditToolbar)
+            .map(|(_, h)| h.region);
         self.last_input = now;
         if let Some(pointer) =
             pointer.filter(|p| p.key.surface == Surface::Reader && keys.contains(&p.key))
@@ -858,76 +1054,262 @@ impl UiRuntime {
         }
         let mut save = None;
         let mut action = None;
-        let mut placement = super::runtime::lock_unpoisoned(&self.placement);
-        for event in output.events {
-            match event.hit.key.surface {
-                Surface::Menu => match event.kind {
-                    Kind::Down => self.pressed = Some(event.hit.region),
-                    Kind::LongPress => {
-                        save = placement.set_mode(
-                            Mode::World,
-                            tracking.map(|(head, _, _)| dialogue::in_front(head)),
+        if edit_active {
+            let menu_anchor = menu_device.and_then(|d| backend.controller_pose(d).map(|p| p.pose));
+            let wrist_anchor =
+                dialogue_device.and_then(|d| backend.controller_pose(d).map(|p| p.pose));
+            let mut commit_req = None;
+            {
+                let mut edit = super::runtime::lock_unpoisoned(&self.layout_edit);
+                if let Some(grab_dev) = edit_grabbing_device {
+                    if let Some(ctrl) = backend.controller_pose(DeviceId(grab_dev)).map(|p| p.pose)
+                    {
+                        let input = inputs.iter().find(|i| i.device.0 == grab_dev);
+                        let ray = input
+                            .and_then(|i| backend.pointer_pose(i.pointer))
+                            .map(|p| p.pose);
+                        let scroll = input.map_or(0.0, |i| i.scroll_y);
+                        let anchor = match edit_grabbing_target {
+                            Some(GrabTarget::Component(EditTarget::Wrist)) => wrist_anchor,
+                            Some(GrabTarget::Component(EditTarget::WristMenu)) => menu_anchor,
+                            _ => None,
+                        };
+                        edit.update_drag(
+                            grab_dev,
+                            ctrl,
+                            ray,
+                            head,
+                            anchor,
+                            scroll,
+                            elapsed.as_secs_f32(),
                         );
+                    } else {
+                        edit.cancel_grab();
                     }
-                    Kind::Up => {
-                        self.pressed = None;
-                        action = menu_layout.as_ref().and_then(|layout| {
-                            layout.menu_action(event.hit.region, event.hit.point)
-                        });
-                    }
-                    _ => self.pressed = None,
-                },
-                Surface::Dialogue => match event.kind {
-                    Kind::Grab if !placement.busy() => {
-                        if let (Some(controller), Some(panel)) = (
-                            backend
-                                .controller_pose(DeviceId(event.device))
-                                .map(|pose| pose.pose),
-                            placement
-                                .absolute_pose()
-                                .or_else(|| backend.wrist_pose(&config.wrist)),
-                        ) {
-                            placement.grab(event.device, controller, panel);
+                }
+                for event in output.events {
+                    let ray_pose = |device: u32| -> Option<Pose> {
+                        inputs
+                            .iter()
+                            .find(|i| i.device.0 == device)
+                            .and_then(|i| backend.pointer_pose(i.pointer))
+                            .map(|p| p.pose)
+                    };
+                    let ctrl_pose = |device: u32| -> Option<Pose> {
+                        backend.controller_pose(DeviceId(device)).map(|p| p.pose)
+                    };
+                    match event.kind {
+                        Kind::Grab => match (event.hit.key.surface, event.hit.region) {
+                            (Surface::Headset, 1) => {
+                                self.headset_pressed = Some(1);
+                                if let (Some(ray), Some(panel)) =
+                                    (ray_pose(event.device), head.and_then(|h| edit.headset_world_pose(h)))
+                                {
+                                    edit.begin_resize(EditTarget::Headset, event.device, ray, panel);
+                                }
+                            }
+                            (Surface::Headset, _) => {
+                                self.headset_pressed = Some(0);
+                                if let (Some(ctrl), Some(panel)) = (
+                                    ctrl_pose(event.device),
+                                    head.and_then(|h| edit.headset_world_pose(h)),
+                                ) {
+                                    edit.begin_move(
+                                        GrabTarget::Component(EditTarget::Headset),
+                                        event.device,
+                                        ctrl,
+                                        panel,
+                                    );
+                                }
+                            }
+                            (Surface::Dialogue, 1) => {
+                                if let (Some(ray), Some(panel)) = (
+                                    ray_pose(event.device),
+                                    wrist_anchor.and_then(|a| edit.wrist_world_pose(a)),
+                                ) {
+                                    edit.begin_resize(EditTarget::Wrist, event.device, ray, panel);
+                                }
+                            }
+                            (Surface::Dialogue, _) => {
+                                if let (Some(ctrl), Some(panel)) = (
+                                    ctrl_pose(event.device),
+                                    wrist_anchor.and_then(|a| edit.wrist_world_pose(a)),
+                                ) {
+                                    edit.begin_move(
+                                        GrabTarget::Component(EditTarget::Wrist),
+                                        event.device,
+                                        ctrl,
+                                        panel,
+                                    );
+                                }
+                            }
+                            (Surface::Menu, 60) => {
+                                self.pressed = Some(60);
+                                if let (Some(ray), Some(panel)) = (
+                                    ray_pose(event.device),
+                                    menu_anchor.and_then(|a| edit.wrist_menu_world_pose(a)),
+                                ) {
+                                    edit.begin_resize(
+                                        EditTarget::WristMenu,
+                                        event.device,
+                                        ray,
+                                        panel,
+                                    );
+                                }
+                            }
+                            (Surface::Menu, _) => {
+                                self.pressed = Some(0);
+                                if let (Some(ctrl), Some(panel)) = (
+                                    ctrl_pose(event.device),
+                                    menu_anchor.and_then(|a| edit.wrist_menu_world_pose(a)),
+                                ) {
+                                    edit.begin_move(
+                                        GrabTarget::Component(EditTarget::WristMenu),
+                                        event.device,
+                                        ctrl,
+                                        panel,
+                                    );
+                                }
+                            }
+                            (Surface::EditToolbar, _) => {
+                                self.toolbar_pressed = Some(0);
+                                if let (Some(ctrl), Some(panel)) =
+                                    (ctrl_pose(event.device), edit.toolbar_pose)
+                                {
+                                    edit.begin_move(
+                                        GrabTarget::Toolbar,
+                                        event.device,
+                                        ctrl,
+                                        panel,
+                                    );
+                                }
+                            }
+                            _ => {}
+                        },
+                        Kind::Release => {
+                            self.pressed = None;
+                            self.headset_pressed = None;
+                            self.toolbar_pressed = None;
+                            edit.end_grab(event.device, head);
                         }
-                    }
-                    Kind::Release => save = placement.release(event.device),
-                    Kind::Cancel => placement.cancel_drag(),
-                    Kind::Up if !placement.busy() => match event.hit.region {
-                        1 => save = placement.set_mode(Mode::Wrist, None),
-                        2 => {
-                            let pose = placement
-                                .absolute_pose()
-                                .or_else(|| backend.wrist_pose(&config.wrist));
-                            save = placement.set_mode(Mode::World, pose);
+                        Kind::Cancel => {
+                            self.pressed = None;
+                            self.headset_pressed = None;
+                            self.toolbar_pressed = None;
+                            if edit.grabbing_device() == Some(event.device) {
+                                edit.cancel_grab();
+                            }
                         }
-                        3 => {
-                            let enabled = !placement.follow_view();
-                            save = placement.set_follow_view(enabled);
+                        Kind::Down if event.hit.key.surface == Surface::EditToolbar => {
+                            self.toolbar_pressed = Some(event.hit.region);
+                        }
+                        Kind::Up if event.hit.key.surface == Surface::EditToolbar => {
+                            self.toolbar_pressed = None;
+                            let act = match event.hit.region {
+                                1 => Some(EditToolbarAction::ToggleAutoLevel),
+                                2 => Some(EditToolbarAction::ToggleFaceHead),
+                                3 => Some(EditToolbarAction::ToggleVisible(EditTarget::Headset)),
+                                4 => Some(EditToolbarAction::ToggleVisible(EditTarget::Wrist)),
+                                5 => Some(EditToolbarAction::ToggleVisible(EditTarget::WristMenu)),
+                                6 => Some(EditToolbarAction::ResetSelected),
+                                7 => Some(EditToolbarAction::ResetAll),
+                                8 => Some(EditToolbarAction::Cancel),
+                                9 => Some(EditToolbarAction::Save),
+                                _ => None,
+                            };
+                            match act {
+                                Some(EditToolbarAction::Save) => {
+                                    if let Ok(req) = edit.begin_commit(view.owner_epoch) {
+                                        commit_req = req;
+                                    }
+                                }
+                                Some(other) => edit.apply_toolbar_action(other),
+                                None => {}
+                            }
                         }
                         _ => {}
+                    }
+                }
+            }
+            if let Some(req) = commit_req {
+                let req_id = req.id;
+                if let Err(error) = app.emit_to("main", EDIT_TOOLBAR_COMMIT_EVENT, req) {
+                    super::runtime::lock_unpoisoned(&self.layout_edit)
+                        .resolve_commit(req_id, Some(error.to_string()));
+                }
+            }
+        } else {
+            let mut placement = super::runtime::lock_unpoisoned(&self.placement);
+            for event in output.events {
+                match event.hit.key.surface {
+                    Surface::Menu => match event.kind {
+                        Kind::Down => self.pressed = Some(event.hit.region),
+                        Kind::LongPress => {
+                            save = placement.set_mode(
+                                Mode::World,
+                                tracking.map(|(head, _, _)| dialogue::in_front(head)),
+                            );
+                        }
+                        Kind::Up => {
+                            self.pressed = None;
+                            action = menu_layout.as_ref().and_then(|layout| {
+                                layout.menu_action(event.hit.region, event.hit.point)
+                            });
+                        }
+                        _ => self.pressed = None,
                     },
-                    _ => {}
-                },
-                Surface::Reader => {
-                    let point = event
-                        .hit
-                        .point
-                        .map(|v| v * SurfaceId::Reader.size().0 as f32);
-                    events.push(match event.kind {
-                        Kind::Down => LaserEvent::Down {
-                            device: event.device,
-                            point,
+                    Surface::Dialogue => match event.kind {
+                        Kind::Grab if !placement.busy() => {
+                            if let (Some(controller), Some(panel)) = (
+                                backend
+                                    .controller_pose(DeviceId(event.device))
+                                    .map(|pose| pose.pose),
+                                placement
+                                    .absolute_pose()
+                                    .or_else(|| backend.wrist_pose(&config.wrist)),
+                            ) {
+                                placement.grab(event.device, controller, panel);
+                            }
+                        }
+                        Kind::Release => save = placement.release(event.device),
+                        Kind::Cancel => placement.cancel_drag(),
+                        Kind::Up if !placement.busy() => match event.hit.region {
+                            1 => save = placement.set_mode(Mode::Wrist, None),
+                            2 => {
+                                let pose = placement
+                                    .absolute_pose()
+                                    .or_else(|| backend.wrist_pose(&config.wrist));
+                                save = placement.set_mode(Mode::World, pose);
+                            }
+                            3 => {
+                                let enabled = !placement.follow_view();
+                                save = placement.set_follow_view(enabled);
+                            }
+                            _ => {}
                         },
-                        Kind::Up => LaserEvent::Up {
-                            device: event.device,
-                            point,
-                        },
-                        _ => LaserEvent::Leave,
-                    });
+                        _ => {}
+                    },
+                    Surface::Reader => {
+                        let point = event
+                            .hit
+                            .point
+                            .map(|v| v * SurfaceId::Reader.size().0 as f32);
+                        events.push(match event.kind {
+                            Kind::Down => LaserEvent::Down {
+                                device: event.device,
+                                point,
+                            },
+                            Kind::Up => LaserEvent::Up {
+                                device: event.device,
+                                point,
+                            },
+                            _ => LaserEvent::Leave,
+                        });
+                    }
+                    Surface::Headset | Surface::EditToolbar => {}
                 }
             }
         }
-        drop(placement);
         if let Some(request) = save {
             dispatch_placement(app, view.owner_epoch, &self.placement, request);
         }
@@ -951,6 +1333,7 @@ impl UiRuntime {
                         tracing::debug!(%error, "VR settings toggle unavailable");
                     }
                 }
+                wrist_menu::Command::EditResize => {}
                 navigation => {
                     self.menu_ui.apply(&navigation, players);
                 }
@@ -959,14 +1342,15 @@ impl UiRuntime {
         // Push the cursor pose to SteamVR before rebuilding any panel textures.
         self.sync_cursor(app, backend);
         let result = (|| -> Result<(), String> {
-            let ready = if self.menu_visible && business {
+            let ready = if self.menu_visible && (business || edit_active) {
                 let frame = SurfaceView::Menu {
                     controls: menu_controls.clone(),
                     players: players.clone(),
                     ui: self.menu_ui.clone(),
                     hold_progress,
+                    edit_mode: if edit_active { menu_edit_overlay } else { None },
                 };
-                backend.ensure_wrist_menu(&config.wrist_menu.hand)?;
+                backend.ensure_wrist_menu(active_menu_cfg)?;
                 let ready = self.menu_surface.present(
                     app,
                     backend,
@@ -992,8 +1376,11 @@ impl UiRuntime {
             };
             let ready = ready && (self.menu_fade.active() || self.menu_surface.current_frame(app));
             let fade = self.menu_fade.advance(self.menu_visible, ready, now);
-            if ready && (fade.factor > 0.0 || fade.animating) {
-                backend.set_opacity(OverlayKind::WristMenu, fade.factor)?;
+            if ready && (edit_active || fade.factor > 0.0 || fade.animating) {
+                backend.set_opacity(
+                    OverlayKind::WristMenu,
+                    if edit_active { 1.0 } else { fade.factor },
+                )?;
                 backend.show(OverlayKind::WristMenu)?;
             } else {
                 backend.hide(OverlayKind::WristMenu);
@@ -1027,7 +1414,10 @@ mod tests {
 
     #[test]
     fn dialogue_input_survives_content_updates_but_not_policy_or_visibility_changes() {
-        let mut ui = UiRuntime::new(Arc::new(Mutex::new(Placement::default())));
+        let mut ui = UiRuntime::new(
+            Arc::new(Mutex::new(Placement::default())),
+            Arc::new(Mutex::new(LayoutEditSession::default())),
+        );
         let now = Instant::now();
         let key = DialogueRetentionKey {
             content: 1,
@@ -1107,6 +1497,8 @@ mod tests {
             Some(Arc::new(layout.clone())),
             None,
             Some(Arc::new(reader_layout)),
+            None,
+            None,
         ];
         let selected = nearest_pointer([menu, reader].into_iter(), &layouts).unwrap();
         assert_eq!(selected.key.surface, Surface::Menu);
@@ -1123,8 +1515,8 @@ mod tests {
             let selected = nearest_pointer([outside, reader].into_iter(), &layouts).unwrap();
             assert_eq!(selected.key.surface, Surface::Reader);
         }
-        assert!(nearest_pointer([menu].into_iter(), &[None, None, None]).is_none());
-        assert!(nearest_pointer([reader].into_iter(), &[None, None, None]).is_none());
+        assert!(nearest_pointer([menu].into_iter(), &[None, None, None, None, None]).is_none());
+        assert!(nearest_pointer([reader].into_iter(), &[None, None, None, None, None]).is_none());
         layout.regions.clear();
         layouts[0] = Some(Arc::new(layout));
         assert!(nearest_pointer([menu].into_iter(), &layouts).is_some());
@@ -1172,7 +1564,13 @@ mod tests {
             "page_count": 1
         }))
         .unwrap();
-        let layouts = [None, Some(Arc::new(layout)), Some(Arc::new(reader_layout))];
+        let layouts = [
+            None,
+            Some(Arc::new(layout)),
+            Some(Arc::new(reader_layout)),
+            None,
+            None,
+        ];
         for point in [[0.005, 0.5], [0.5, 0.135], [0.011, 0.011], [0.021, 0.146]] {
             let front = Pointer { point, ..dialogue };
             let selected = nearest_pointer([front, reader].into_iter(), &layouts).unwrap();
@@ -1204,7 +1602,10 @@ mod tests {
     fn suspended_input_keeps_submitted_placement_until_its_receipt() {
         for success in [false, true] {
             let placement = Arc::new(Mutex::new(Placement::default()));
-            let mut runtime = UiRuntime::new(placement.clone());
+            let mut runtime = UiRuntime::new(
+                placement.clone(),
+                Arc::new(Mutex::new(LayoutEditSession::default())),
+            );
             let pose = super::super::transform::matrix(0., 20., 0., [1., 1., -2.]);
             let request = placement
                 .lock()
@@ -1230,7 +1631,10 @@ mod tests {
     #[test]
     fn context_changes_reset_only_the_affected_surface() {
         let placement = Arc::new(Mutex::new(Placement::default()));
-        let mut runtime = UiRuntime::new(placement.clone());
+        let mut runtime = UiRuntime::new(
+            placement.clone(),
+            Arc::new(Mutex::new(LayoutEditSession::default())),
+        );
         let mut config = VrOverlayConfig {
             enabled: true,
             ..Default::default()

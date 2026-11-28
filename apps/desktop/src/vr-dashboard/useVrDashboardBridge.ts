@@ -246,7 +246,6 @@ export function useVrDashboardBridge(
       unitext_preserve_original: t("settings.unitext.preserveOriginal"),
       unitext_port_conflict: t("settings.oscInbound.portConflictUniText"),
       close: t("common.close"),
-      content_hint: t("settings.vrDashboard.contentHint"),
       headset_hint: t("settings.vrDashboard.headsetHint"),
       tools: t("settings.vrDashboard.tools"),
       vision_unconfigured: t("settings.vrDashboard.visionUnconfigured"),
@@ -268,6 +267,16 @@ export function useVrDashboardBridge(
       anchor_world: t("settings.vrOverlay.anchorWorld"),
       follow_view: t("settings.vrOverlay.followView"),
       wrist_menu: t("settings.vrOverlay.wristMenuEnable"),
+      layout_edit: t("settings.vrDashboard.layoutEdit"),
+      layout_edit_enter: t("settings.vrDashboard.layoutEditEnter"),
+      layout_edit_waiting: t("settings.vrDashboard.layoutEditWaiting"),
+      layout_edit_save: t("settings.vrDashboard.layoutEditSave"),
+      layout_edit_cancel: t("settings.vrDashboard.layoutEditCancel"),
+      layout_edit_reset: t("settings.vrDashboard.layoutEditReset"),
+      layout_edit_reset_selected: t("settings.vrDashboard.layoutEditResetSelected"),
+      layout_edit_auto_level: t("settings.vrDashboard.layoutEditAutoLevel"),
+      layout_edit_face_head: t("settings.vrDashboard.layoutEditFaceHead"),
+      layout_edit_shared_wrist: t("settings.vrDashboard.layoutEditSharedWrist"),
     };
   }, [i18n, locale, ocrTargetsKey, playerIdLabel, t]);
 

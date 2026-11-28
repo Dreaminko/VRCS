@@ -202,7 +202,7 @@ fn menu_progress_changed(a: &SurfaceView, b: &SurfaceView) -> bool {
 }
 
 struct HubInner {
-    entries: [Entry; 10],
+    entries: [Entry; 11],
     engine: GpuUiEngine,
 }
 

@@ -35,3 +35,35 @@ export interface ControlSnapshot {
 }
 
 export interface PlacementRequest { owner_epoch: number; id: number; mode: "wrist" | "world"; follow_view: boolean }
+
+export interface LayoutEditCommitRequest {
+  owner_epoch: number;
+  id: number;
+  headset?: {
+    offset_x_m: number;
+    offset_y_m: number;
+    distance_m: number;
+    pitch_deg: number;
+    yaw_deg: number;
+    roll_deg: number;
+    width_m: number;
+  };
+  wrist?: {
+    offset_x_m: number;
+    offset_y_m: number;
+    offset_z_m: number;
+    pitch_deg: number;
+    yaw_deg: number;
+    roll_deg: number;
+    width_m: number;
+  };
+  wrist_menu?: {
+    offset_x_m: number;
+    offset_y_m: number;
+    offset_z_m: number;
+    pitch_deg: number;
+    yaw_deg: number;
+    roll_deg: number;
+    width_m: number;
+  };
+}

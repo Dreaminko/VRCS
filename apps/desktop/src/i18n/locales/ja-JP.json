@@ -885,7 +885,6 @@
         "connecting": "SteamVR に接続中",
         "saveFailed": "設定を保存できませんでした。デスクトップアプリで再試行してください。",
         "actionFailed": "SteamVR の操作に失敗しました。接続を確認してください。",
-        "contentHint": "ヘッドセットと手首に共通",
         "headsetHint": "字幕のサイズ・不透明度・位置を調整",
         "tools": "視覚ツール",
         "visionUnconfigured": "デスクトップでモデルを設定",
@@ -907,7 +906,17 @@
         "recognitionLocked": "ライブ翻訳サービスが自動管理",
         "translationOffHint": "翻訳モードがオフのため、翻訳先言語は適用されません。",
         "deletePresetTitle": "言語プリセットを削除",
-        "noPresets": "保存済みのプリセットはありません"
+        "noPresets": "保存済みのプリセットはありません",
+        "layoutEdit": "レイアウト編集モード",
+        "layoutEditEnter": "レイアウト編集",
+        "layoutEditWaiting": "VR ダッシュボードを閉じると、オーバーレイを直接掴んで配置できます",
+        "layoutEditSave": "保存して終了",
+        "layoutEditCancel": "キャンセル",
+        "layoutEditReset": "すべてリセット",
+        "layoutEditResetSelected": "選択をリセット",
+        "layoutEditAutoLevel": "自動水平",
+        "layoutEditFaceHead": "正面に向ける",
+        "layoutEditSharedWrist": "OCR / 視覚Q&Aと共有"
       },
       "ocr": {
         "enable": "OCR を有効にする",
@@ -2399,7 +2408,6 @@
       },
       "subtitles": {
         "invalid_limit": "履歴の上限が無効です。",
-        "invalid_range": "会話の時間範囲が無効です。",
         "history_failed": "字幕履歴を読み込めませんでした。",
         "delete_failed": "この会話を削除できませんでした。"
       },

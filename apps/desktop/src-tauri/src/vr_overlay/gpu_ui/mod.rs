@@ -207,6 +207,7 @@ mod tests {
                         ..Default::default()
                     },
                     hold_progress: Some(0.65),
+                    edit_mode: None,
                 },
             ),
             (
@@ -229,6 +230,7 @@ mod tests {
                     error: None,
                     font_size: 26,
                     opacity: 0.94,
+                    edit_mode: None,
                 },
             ),
             (
@@ -244,6 +246,7 @@ mod tests {
                     lines_per_language: 2,
                     font_size: 28,
                     opacity: 0.92,
+                    edit_mode: None,
                 },
             ),
             (
@@ -517,6 +520,7 @@ mod tests {
                 ui: Default::default(),
                 controls,
                 hold_progress: None,
+                edit_mode: None,
             });
             state.hovered = Some(hovered_id);
 
@@ -649,6 +653,7 @@ mod tests {
             error: None,
             font_size: 26,
             opacity: 0.94,
+            edit_mode: None,
         };
         let state = sample_state(view.clone());
         let (_, draw_bottom) = engine.render_surface(&state, &mut rt, now);
@@ -1046,5 +1051,111 @@ mod tests {
             }),
             "ToggleUnitext should be disabled on port conflict when turned off"
         );
+    }
+
+    #[test]
+    fn layout_edit_surfaces_validate_cleanly() {
+        let mut engine = GpuUiEngine::new();
+        let mut rt = SurfaceRuntimeState::default();
+        let now = Instant::now();
+        let overlay = crate::vr_overlay::surface_protocol::EditSurfaceOverlay {
+            title: "Edit".into(),
+            scale_label: "1.0x".into(),
+            selected: true,
+            active_grab: false,
+            active_resize: false,
+            shared_hint: None,
+        };
+        let toolbar_state = sample_state(SurfaceView::EditToolbar {
+            dark: false,
+            toolbar: crate::vr_overlay::surface_protocol::EditToolbarView {
+                title: "Layout Edit".into(),
+                target_label: "Headset".into(),
+                status_label: "Unsaved".into(),
+                auto_level: false,
+                face_head: false,
+                show_headset: true,
+                show_wrist: true,
+                show_wrist_menu: true,
+                dirty: true,
+                saving: false,
+                error: None,
+                label_auto_level: "Level".into(),
+                label_face_head: "Face HMD".into(),
+                label_headset: "Headset".into(),
+                label_wrist: "Wrist".into(),
+                label_wrist_menu: "Menu".into(),
+                label_reset_selected: "Reset Selected".into(),
+                label_reset_all: "Reset All".into(),
+                label_cancel: "Cancel".into(),
+                label_save: "Save".into(),
+            },
+        });
+        let (toolbar_layout, _) = engine.render_surface(&toolbar_state, &mut rt, now);
+        toolbar_layout.validate(SurfaceId::EditToolbar).unwrap();
+        for id in 0..=9 {
+            assert!(
+                toolbar_layout.regions.iter().any(|r| r.id == id),
+                "missing EditToolbar region {id}"
+            );
+        }
+
+        let headset_state = sample_state(SurfaceView::Headset {
+            visibility: CaptionVisibility::default(),
+            max_visible_players: None,
+            dark: false,
+            messages: Vec::new(),
+            notice: None,
+            notice_error: false,
+            labels: CaptionLabels::default(),
+            lines_per_language: 2,
+            font_size: 28,
+            opacity: 0.9,
+            edit_mode: Some(overlay.clone()),
+        });
+        let (headset_layout, _) = engine.render_surface(&headset_state, &mut rt, now);
+        headset_layout.validate(SurfaceId::Headset).unwrap();
+        assert_eq!(headset_layout.regions.len(), 1);
+        assert_eq!(headset_layout.regions[0].id, 1);
+        let [hl, ht, hr, hb] = headset_layout.regions[0].bounds;
+        assert!(headset_layout.pointer_contains([(hl + hr) * 0.5, (ht + hb) * 0.5]));
+
+        let dialogue_state = sample_state(SurfaceView::Dialogue {
+            visibility: CaptionVisibility::default(),
+            max_visible_players: None,
+            max_entries: 12,
+            controls: ControlSnapshot::default(),
+            messages: Vec::new(),
+            notice: None,
+            notice_error: false,
+            labels: CaptionLabels::default(),
+            mode: Mode::Wrist,
+            follow_view: true,
+            busy: false,
+            error: None,
+            font_size: 26,
+            opacity: 0.94,
+            edit_mode: Some(overlay.clone()),
+        });
+        let (dialogue_layout, _) = engine.render_surface(&dialogue_state, &mut rt, now);
+        dialogue_layout.validate(SurfaceId::Dialogue).unwrap();
+        assert_eq!(dialogue_layout.regions.len(), 1);
+        assert_eq!(dialogue_layout.regions[0].id, 1);
+        let [dl, dt, dr, db] = dialogue_layout.regions[0].bounds;
+        assert!(dialogue_layout.pointer_contains([(dl + dr) * 0.5, (dt + db) * 0.5]));
+
+        let menu_state = sample_state(SurfaceView::Menu {
+            players: Default::default(),
+            ui: Default::default(),
+            controls: ControlSnapshot::default(),
+            hold_progress: None,
+            edit_mode: Some(overlay),
+        });
+        let (menu_layout, _) = engine.render_surface(&menu_state, &mut rt, now);
+        menu_layout.validate(SurfaceId::Menu).unwrap();
+        assert_eq!(menu_layout.regions.len(), 1);
+        assert_eq!(menu_layout.regions[0].id, 60);
+        let [ml, mt, mr, mb] = menu_layout.regions[0].bounds;
+        assert!(menu_layout.pointer_contains([(ml + mr) * 0.5, (mt + mb) * 0.5]));
     }
 }

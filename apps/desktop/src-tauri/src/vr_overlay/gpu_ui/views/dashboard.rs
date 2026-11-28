@@ -1014,6 +1014,159 @@ pub fn render_dashboard(
         );
     }
 
+    if dash_ui.edit_active || dash_ui.edit_waiting_close {
+        let banner_bg = if dash_ui.edit_active {
+            theme.primary_soft
+        } else {
+            theme.warning_soft
+        };
+        let banner_border = if dash_ui.edit_active {
+            theme.primary
+        } else {
+            theme.warning_border
+        };
+        let banner_fg = if dash_ui.edit_active {
+            theme.primary_ink
+        } else {
+            theme.warning
+        };
+        let b = ui.add_box(
+            main,
+            Style {
+                min_size: Size {
+                    width: length(0.0),
+                    height: length(56.0),
+                },
+                flex_direction: FlexDirection::Row,
+                align_items: Some(AlignItems::Center),
+                gap: Size {
+                    width: length(10.0),
+                    height: length(0.0),
+                },
+                padding: Rect {
+                    left: length(16.0),
+                    right: length(12.0),
+                    top: length(6.0),
+                    bottom: length(6.0),
+                },
+                ..Default::default()
+            },
+            BoxPaint::new()
+                .bg(banner_bg)
+                .border(1.5, banner_border)
+                .radius(16.0),
+        );
+        ui.add_icon(b, IconId::Maximize2, 22.0, 1.9, banner_fg);
+        let msg = if let Some(err) = dash_ui.edit_error.as_deref().filter(|s| !s.is_empty()) {
+            err
+        } else if dash_ui.edit_waiting_close {
+            if labels.layout_edit_waiting.is_empty() {
+                "Close the VR dashboard to grab and arrange overlays"
+            } else {
+                &labels.layout_edit_waiting
+            }
+        } else if labels.layout_edit.is_empty() {
+            "Layout edit mode active"
+        } else {
+            &labels.layout_edit
+        };
+        let msg_color = if dash_ui.edit_error.as_deref().is_some_and(|s| !s.is_empty()) {
+            theme.error
+        } else {
+            banner_fg
+        };
+        ui.add_text(
+            b,
+            msg,
+            Style {
+                flex_grow: 1.0,
+                min_size: Size {
+                    width: length(0.0),
+                    height: auto(),
+                },
+                ..Default::default()
+            },
+            single_line_style(18.0, 600, msg_color, Align::Left),
+        );
+        let btn_style = Style {
+            min_size: Size {
+                width: length(96.0),
+                height: length(40.0),
+            },
+            padding: Rect {
+                left: length(14.0),
+                right: length(14.0),
+                top: length(0.0),
+                bottom: length(0.0),
+            },
+            align_items: Some(AlignItems::Center),
+            justify_content: Some(JustifyContent::Center),
+            ..Default::default()
+        };
+        let (cbtn, cfg) = add_btn(
+            ui,
+            b,
+            DashboardCommand::Action(DashboardAction::CancelLayoutEdit),
+            btn_style.clone(),
+            BtnOpts::default(),
+            &mut region_seq,
+        );
+        ui.add_text(
+            cbtn,
+            if labels.layout_edit_cancel.is_empty() {
+                &labels.cancel
+            } else {
+                &labels.layout_edit_cancel
+            },
+            Style::default(),
+            single_line_style(18.0, 600, cfg, Align::Center),
+        );
+        if dash_ui.edit_active {
+            let (rbtn, rfg) = add_btn(
+                ui,
+                b,
+                DashboardCommand::Action(DashboardAction::ResetLayoutEdit),
+                btn_style.clone(),
+                BtnOpts::default(),
+                &mut region_seq,
+            );
+            ui.add_text(
+                rbtn,
+                if labels.layout_edit_reset.is_empty() {
+                    &labels.reset_position
+                } else {
+                    &labels.layout_edit_reset
+                },
+                Style::default(),
+                single_line_style(18.0, 600, rfg, Align::Center),
+            );
+            let (sbtn, sfg) = add_btn(
+                ui,
+                b,
+                DashboardCommand::Action(DashboardAction::CommitLayoutEdit),
+                btn_style,
+                BtnOpts {
+                    primary: true,
+                    disabled: dash_ui.edit_saving,
+                    ..Default::default()
+                },
+                &mut region_seq,
+            );
+            ui.add_text(
+                sbtn,
+                if dash_ui.edit_saving {
+                    &labels.saving
+                } else if labels.layout_edit_save.is_empty() {
+                    &labels.saved
+                } else {
+                    &labels.layout_edit_save
+                },
+                Style::default(),
+                single_line_style(18.0, 600, sfg, Align::Center),
+            );
+        }
+    }
+
     let show_master_off = view.error.is_none()
         && dash_ui.page == DashboardPage::Display
         && !view.enabled
@@ -2673,18 +2826,49 @@ pub fn render_dashboard(
                     },
                     BoxPaint::new(),
                 );
-                ui.add_text(
-                    cbox,
-                    &labels.content_hint,
-                    Style {
-                        max_size: Size {
-                            width: length(340.0),
-                            height: auto(),
+                if !dash_ui.edit_active && !dash_ui.edit_waiting_close {
+                    let (ebtn, efg) = add_btn(
+                        ui,
+                        cbox,
+                        DashboardCommand::Action(DashboardAction::EnterLayoutEdit),
+                        Style {
+                            min_size: Size {
+                                width: length(148.0),
+                                height: length(42.0),
+                            },
+                            flex_direction: FlexDirection::Row,
+                            align_items: Some(AlignItems::Center),
+                            justify_content: Some(JustifyContent::Center),
+                            gap: Size {
+                                width: length(8.0),
+                                height: length(0.0),
+                            },
+                            padding: Rect {
+                                left: length(14.0),
+                                right: length(14.0),
+                                top: length(0.0),
+                                bottom: length(0.0),
+                            },
+                            ..Default::default()
                         },
-                        ..Default::default()
-                    },
-                    single_line_style(18.0, 400, theme.text_secondary, Align::Right),
-                );
+                        BtnOpts {
+                            primary: true,
+                            ..Default::default()
+                        },
+                        &mut region_seq,
+                    );
+                    ui.add_icon(ebtn, IconId::Maximize2, 18.0, 1.9, efg);
+                    ui.add_text(
+                        ebtn,
+                        if labels.layout_edit_enter.is_empty() {
+                            "Edit Layout"
+                        } else {
+                            &labels.layout_edit_enter
+                        },
+                        Style::default(),
+                        single_line_style(18.0, 600, efg, Align::Center),
+                    );
+                }
 
                 let cols = ui.add_box(
                     main,

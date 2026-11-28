@@ -31,6 +31,7 @@ pub enum SurfaceId {
     OcrSelection,
     OcrResult,
     PlayerAudio,
+    EditToolbar,
 }
 
 impl SurfaceId {
@@ -54,6 +55,7 @@ impl SurfaceId {
             Self::OcrSelection => "ocr_selection",
             Self::OcrResult => "ocr_result",
             Self::PlayerAudio => "player_audio",
+            Self::EditToolbar => "edit_toolbar",
         }
     }
     pub fn size(self) -> (u32, u32) {
@@ -68,6 +70,7 @@ impl SurfaceId {
             Self::Dashboard => (1440, 900),
             Self::DashboardThumbnail | Self::OcrSelection => (256, 256),
             Self::OcrResult => (2048, 2048),
+            Self::EditToolbar => (960, 260),
         }
     }
     pub(crate) fn region_count(self) -> usize {
@@ -77,8 +80,9 @@ impl SurfaceId {
             Self::Reader => 8,
             Self::PlayerAudio => 4,
             Self::Dashboard => 192,
-            Self::Headset
-            | Self::OcrProgress
+            Self::Headset => 2,
+            Self::EditToolbar => 16,
+            Self::OcrProgress
             | Self::DashboardThumbnail
             | Self::OcrSelection
             | Self::OcrResult => 0,
@@ -94,6 +98,42 @@ pub struct SurfaceKey {
 }
 
 #[cfg(any(windows, linux_vr))]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct EditSurfaceOverlay {
+    pub title: String,
+    pub scale_label: String,
+    pub selected: bool,
+    pub active_grab: bool,
+    pub active_resize: bool,
+    pub shared_hint: Option<String>,
+}
+
+#[cfg(any(windows, linux_vr))]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct EditToolbarView {
+    pub title: String,
+    pub target_label: String,
+    pub status_label: String,
+    pub auto_level: bool,
+    pub face_head: bool,
+    pub show_headset: bool,
+    pub show_wrist: bool,
+    pub show_wrist_menu: bool,
+    pub dirty: bool,
+    pub saving: bool,
+    pub error: Option<String>,
+    pub label_auto_level: String,
+    pub label_face_head: String,
+    pub label_headset: String,
+    pub label_wrist: String,
+    pub label_wrist_menu: String,
+    pub label_reset_selected: String,
+    pub label_reset_all: String,
+    pub label_cancel: String,
+    pub label_save: String,
+}
+
+#[cfg(any(windows, linux_vr))]
 #[derive(Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SurfaceView {
@@ -106,6 +146,7 @@ pub enum SurfaceView {
         players: super::player_display::View,
         ui: super::wrist_menu::Ui,
         hold_progress: Option<f32>,
+        edit_mode: Option<EditSurfaceOverlay>,
     },
     Dialogue {
         visibility: super::dashboard::CaptionVisibility,
@@ -122,6 +163,7 @@ pub enum SurfaceView {
         error: Option<String>,
         font_size: u32,
         opacity: f32,
+        edit_mode: Option<EditSurfaceOverlay>,
     },
     #[cfg(windows)]
     Reader {
@@ -142,6 +184,7 @@ pub enum SurfaceView {
         lines_per_language: u32,
         font_size: u32,
         opacity: f32,
+        edit_mode: Option<EditSurfaceOverlay>,
     },
     #[cfg(windows)]
     OcrProgress {
@@ -152,6 +195,10 @@ pub enum SurfaceView {
         dark: bool,
         dashboard: Arc<DashboardViewModel>,
         ui: DashboardUi,
+    },
+    EditToolbar {
+        dark: bool,
+        toolbar: EditToolbarView,
     },
     #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
     DashboardThumbnail { dark: bool },
@@ -231,17 +278,20 @@ impl SurfaceView {
                     controls: a,
                     players: ap,
                     ui: au,
+                    edit_mode: ae,
                     ..
                 },
                 Self::Menu {
                     controls: b,
                     players: bp,
                     ui: bu,
+                    edit_mode: be,
                     ..
                 },
             ) => {
                 a == b
                     && au == bu
+                    && ae == be
                     && if au.page == super::wrist_menu::Page::Home {
                         ap.labels.get("title") == bp.labels.get("title")
                     } else {
@@ -384,7 +434,11 @@ impl SurfaceLayout {
         }
         let panel_limit = match surface {
             SurfaceId::Dialogue => 2,
-            SurfaceId::Menu | SurfaceId::Reader | SurfaceId::PlayerAudio => 1,
+            SurfaceId::Menu
+            | SurfaceId::Reader
+            | SurfaceId::PlayerAudio
+            | SurfaceId::Headset
+            | SurfaceId::EditToolbar => 1,
             _ => 0,
         };
         if self.panels.len() > panel_limit {
@@ -474,7 +528,9 @@ impl SurfaceLayout {
     }
 
     pub fn pointer_contains(&self, point: [f32; 2]) -> bool {
-        self.menu_contains(point) || self.panels.iter().any(|panel| panel.contains(point))
+        self.menu_contains(point)
+            || self.panels.iter().any(|panel| panel.contains(point))
+            || self.hit(point).is_some()
     }
 
     pub fn hit(&self, [x, y]: [f32; 2]) -> Option<u8> {
@@ -764,7 +820,6 @@ mod tests {
             revision: 1,
         };
         for name in [
-            "headset",
             "ocr_progress",
             "dashboard_thumbnail",
             "ocr_selection",
@@ -820,6 +875,7 @@ mod tests {
             ui: Default::default(),
             controls,
             hold_progress: None,
+            edit_mode: None,
         };
         assert!(view(shown.clone()).same_layout(&view(shown.clone())));
         assert!(!view(shown).same_layout(&view(hidden)));

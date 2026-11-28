@@ -216,6 +216,7 @@ pub struct Manager {
     app: AppHandle,
     pub(super) controls: Arc<Mutex<ControlHub>>,
     pub(super) placement: Arc<Mutex<Placement>>,
+    pub(super) layout_edit: Arc<Mutex<super::layout_edit::LayoutEditSession>>,
     status: Arc<Mutex<VrOverlayStatus>>,
     event_sender: Mutex<Option<SyncSender<PresentationEvent>>>,
     pending_control: Arc<Mutex<PendingControl>>,
@@ -236,12 +237,16 @@ impl Manager {
     pub fn revoke_controls(&self) {
         lock_unpoisoned(&self.controls).revoke();
         lock_unpoisoned(&self.placement).cancel();
+        lock_unpoisoned(&self.layout_edit).cancel();
     }
     pub fn new(app: AppHandle) -> Self {
         Self {
             app,
             controls: Arc::new(Mutex::new(ControlHub::default())),
             placement: Arc::new(Mutex::new(Placement::default())),
+            layout_edit: Arc::new(Mutex::new(
+                super::layout_edit::LayoutEditSession::default(),
+            )),
             status: Arc::new(Mutex::new(VrOverlayStatus::initial())),
             event_sender: Mutex::new(None),
             pending_control: Arc::new(Mutex::new(PendingControl::default())),
@@ -302,6 +307,7 @@ impl Manager {
         let latest_dashboard = self.latest_dashboard.clone();
         let controls = self.controls.clone();
         let placement = self.placement.clone();
+        let layout_edit = self.layout_edit.clone();
         let wakeup = self.wakeup.clone();
         self.wakeup.store(false, Ordering::Release);
         let worker = std::thread::Builder::new()
@@ -316,6 +322,7 @@ impl Manager {
                     latest_dashboard,
                     controls,
                     placement,
+                    layout_edit,
                     stopping,
                     wakeup,
                     initial_config,
@@ -469,6 +476,8 @@ struct HeadsetPublishCache {
     headset_revision: u64,
     config_revision: u64,
     dashboard_revision: u64,
+    edit_revision: u64,
+    edit_active: bool,
     sample: bool,
     dark: bool,
     draft: Option<String>,
@@ -483,6 +492,8 @@ struct DialoguePublishCache {
     wrist_revision: u64,
     config_revision: u64,
     dashboard_revision: u64,
+    edit_revision: u64,
+    edit_active: bool,
     controls_version: u64,
     sample: bool,
     notice: Option<String>,
@@ -508,6 +519,9 @@ struct WorkerState {
     controls: Arc<Mutex<ControlHub>>,
     #[cfg(any(windows, linux_vr))]
     ui: super::ui_runtime::UiRuntime,
+    layout_edit: Arc<Mutex<super::layout_edit::LayoutEditSession>>,
+    #[cfg(any(windows, linux_vr))]
+    edit_toolbar_surface: super::surface::SurfaceRenderer,
     #[cfg(any(windows, linux_vr))]
     dialogue_policy: u64,
     #[cfg(any(windows, linux_vr))]
@@ -565,6 +579,8 @@ impl WorkerState {
     #[cfg(any(windows, linux_vr))]
     fn reset_ui(&mut self) {
         self.ui.reset();
+        #[cfg(any(windows, linux_vr))]
+        self.edit_toolbar_surface.reset();
         #[cfg(any(windows, linux_vr))]
         self.player_audio.reset();
         self.dialogue_cache = None;
@@ -787,6 +803,7 @@ fn evaluate_probe(
 }
 
 fn reset_detached_state(state: &mut WorkerState) {
+    lock_unpoisoned(&state.layout_edit).cancel_grab();
     if let Some(mut backend) = state.backend.take() {
         backend.hide_all();
         if state.config.backend == "auto" {
@@ -882,6 +899,7 @@ fn worker_loop(
     latest_dashboard: Arc<Mutex<Option<Arc<DashboardViewModel>>>>,
     controls: Arc<Mutex<ControlHub>>,
     placement: Arc<Mutex<Placement>>,
+    layout_edit: Arc<Mutex<super::layout_edit::LayoutEditSession>>,
     stopping: Arc<AtomicBool>,
     wakeup: Arc<AtomicBool>,
     config: (VrOverlayConfig, VrOcrConfig),
@@ -915,7 +933,12 @@ fn worker_loop(
         caption_status: Default::default(),
         controls,
         #[cfg(any(windows, linux_vr))]
-        ui: super::ui_runtime::UiRuntime::new(placement),
+        ui: super::ui_runtime::UiRuntime::new(placement, layout_edit.clone()),
+        layout_edit,
+        #[cfg(any(windows, linux_vr))]
+        edit_toolbar_surface: super::surface::SurfaceRenderer::new(
+            super::surface_protocol::SurfaceId::EditToolbar,
+        ),
         #[cfg(any(windows, linux_vr))]
         dialogue_policy: 1,
         #[cfg(any(windows, linux_vr))]
@@ -996,6 +1019,10 @@ fn worker_loop(
                 .stop(&app, state.backend.as_mut(), OverlayKind::Dashboard);
             #[cfg(any(windows, linux_vr))]
             state.ui.stop_surfaces(&app, state.backend.as_mut());
+            #[cfg(any(windows, linux_vr))]
+            state
+                .edit_toolbar_surface
+                .stop(&app, state.backend.as_mut(), OverlayKind::EditToolbar);
             #[cfg(any(windows, linux_vr))]
             state
                 .player_audio
@@ -1306,6 +1333,9 @@ fn worker_loop(
             state
                 .headset_surface
                 .finish_tick(&app, state.backend.as_mut(), OverlayKind::Headset);
+            state
+                .edit_toolbar_surface
+                .finish_tick(&app, state.backend.as_mut(), OverlayKind::EditToolbar);
             state.ui.finish_surfaces(&app, state.backend.as_mut());
             state.dashboard_surface.finish_tick(
                 &app,
@@ -1397,6 +1427,7 @@ fn worker_loop(
             #[cfg(any(windows, linux_vr))]
             {
                 state.headset_surface.confirm_frame(&app, accepted);
+                state.edit_toolbar_surface.confirm_frame(&app, accepted);
                 state.dashboard_surface.confirm_frame(&app, accepted);
                 state.ui.confirm_frames(&app, accepted);
                 state.player_audio.confirm_frames(&app, accepted);
@@ -1415,6 +1446,7 @@ fn recover_from_panic(state: &mut WorkerState, status: &mut VrOverlayStatus) {
     }
     #[cfg(linux_vr)]
     state.reset_ui();
+    lock_unpoisoned(&state.layout_edit).cancel_grab();
     state.backend = None;
     if state.config.backend == "auto" {
         state.selected_backend = None;
@@ -1724,6 +1756,30 @@ fn tick(
     let modal = state
         .player_audio
         .tick(app, &mut backend, &state.controls, business);
+    #[cfg(any(windows, linux_vr))]
+    let (edit_active, menu_edit_overlay) = {
+        let head = backend.ocr_tracking().ok().map(|t| t.0);
+        let dash_open = backend.system_dashboard_visible();
+        let mut edit = lock_unpoisoned(&state.layout_edit);
+        edit.on_dashboard_visibility(dash_open, head);
+        state.dashboard.ui.edit_active = edit.is_active();
+        state.dashboard.ui.edit_waiting_close = matches!(
+            edit.phase,
+            super::layout_edit::EditPhase::WaitingForDashboardClose
+        );
+        state.dashboard.ui.edit_dirty = edit.is_dirty();
+        state.dashboard.ui.edit_saving = edit.is_saving();
+        state.dashboard.ui.edit_error = edit.error.clone();
+        let labels = state
+            .dashboard_view
+            .as_ref()
+            .map(|view| view.labels.clone())
+            .unwrap_or_default();
+        (
+            edit.is_active(),
+            edit.surface_overlay(super::layout_edit::EditTarget::WristMenu, &labels),
+        )
+    };
     #[cfg(windows)]
     {
         if let Err(error) = state.ocr.prepare_input(&mut backend) {
@@ -1735,7 +1791,7 @@ fn tick(
         }
         let tick = super::ui_runtime::UiTick {
             reader_revision: state.ocr.input_revision(),
-            content_owns_input: state.ocr.owns_input() || modal,
+            content_owns_input: !edit_active && (state.ocr.owns_input() || modal),
             business,
             dialogue_sample: state.wrist_sample,
             dialogue_content_active: state.wrist_sample
@@ -1745,32 +1801,51 @@ fn tick(
                         .idle_expired(Instant::now(), &state.config.wrist)
                 || active_caption_notice(state, Instant::now()).0.is_some(),
             dialogue_retention: dialogue_retention(state),
+            menu_edit_overlay,
         };
         let (events, focused) =
             state
                 .ui
                 .tick_with_cadence(app, &mut backend, &state.config, &state.controls, tick);
-        state.ocr.pointer_input(events, focused || modal);
-        if business {
-            state.player_progress = lock_unpoisoned(&state.controls)
-                .player_audio()
-                .progress
-                .clone();
+        if edit_active {
+            let ocr_active = state.ocr.owns_input()
+                || state.ocr.vision.visible()
+                || state.ocr.needs_fast_tick()
+                || [
+                    OverlayKind::OcrWrist,
+                    OverlayKind::OcrProgress,
+                    OverlayKind::OcrFrame,
+                    OverlayKind::OcrResult,
+                ]
+                .into_iter()
+                .any(|kind| backend.visible(kind));
+            if ocr_active {
+                state.ocr.clear();
+                backend.hide_ocr();
+            }
+        } else {
+            state.ocr.pointer_input(events, focused || modal);
+            if business {
+                state.player_progress = lock_unpoisoned(&state.controls)
+                    .player_audio()
+                    .progress
+                    .clone();
+            }
+            state.ocr.tick_with_cadence(
+                app,
+                &mut backend,
+                &state.ocr_config,
+                &state.config.wrist,
+                state.player_progress.as_ref(),
+                business,
+            );
         }
-        state.ocr.tick_with_cadence(
-            app,
-            &mut backend,
-            &state.ocr_config,
-            &state.config.wrist,
-            state.player_progress.as_ref(),
-            business,
-        );
     }
     #[cfg(linux_vr)]
     {
         let tick = super::ui_runtime::UiTick {
             reader_revision: 0,
-            content_owns_input: modal,
+            content_owns_input: !edit_active && modal,
             business,
             dialogue_sample: state.wrist_sample,
             dialogue_content_active: state.wrist_sample
@@ -1780,12 +1855,17 @@ fn tick(
                         .idle_expired(Instant::now(), &state.config.wrist)
                 || active_caption_notice(state, Instant::now()).0.is_some(),
             dialogue_retention: dialogue_retention(state),
+            menu_edit_overlay,
         };
         let _ = state
             .ui
             .tick_with_cadence(app, &mut backend, &state.config, &state.controls, tick);
     }
-    if business {
+    #[cfg(any(windows, linux_vr))]
+    let edit_active = lock_unpoisoned(&state.layout_edit).is_active();
+    #[cfg(not(any(windows, linux_vr)))]
+    let edit_active = false;
+    if business || edit_active {
         update_headset(app, state, status, &mut backend);
         update_wrist(app, state, status, &mut backend);
     } else {
@@ -1829,6 +1909,8 @@ fn tick(
             refresh_wrist(app, state, status, &mut backend);
         }
     }
+    #[cfg(any(windows, linux_vr))]
+    update_edit_toolbar(app, state, &mut backend);
     update_dashboard(app, state, status, &mut backend, business);
     let headset_failed =
         state.config.headset.enabled && status.headset.state == ResourceState::Error;
@@ -2167,21 +2249,62 @@ fn update_dashboard(
 fn dispatch_dashboard_action(
     app: &AppHandle,
     state: &mut WorkerState,
-    backend: &Backend,
+    backend: &mut Backend,
     action: super::dashboard::DashboardAction,
 ) {
     use super::dashboard::DashboardAction;
-    if matches!(
-        action,
-        DashboardAction::RecenterDialogue | DashboardAction::AttachDialogue
-    ) {
-        let mode = if action == DashboardAction::RecenterDialogue {
-            Mode::World
-        } else {
-            Mode::Wrist
-        };
-        state.ui.place(app, backend, &state.controls, mode);
-        return;
+    match action {
+        DashboardAction::EnterLayoutEdit => {
+            let head = backend.ocr_tracking().ok().map(|t| t.0);
+            {
+                let mut edit = lock_unpoisoned(&state.layout_edit);
+                edit.enter(&state.config, backend.system_dashboard_visible(), head);
+            }
+            backend.close_dashboard();
+            {
+                let mut edit = lock_unpoisoned(&state.layout_edit);
+                edit.on_dashboard_visibility(backend.system_dashboard_visible(), head);
+            }
+            state.dashboard.ui.display_editor = None;
+            state.dashboard.ui.picker = None;
+            return;
+        }
+        DashboardAction::CommitLayoutEdit => {
+            let owner_epoch = lock_unpoisoned(&state.controls).snapshot().owner_epoch;
+            let req = lock_unpoisoned(&state.layout_edit).begin_commit(owner_epoch);
+            match req {
+                Ok(Some(payload)) => {
+                    let req_id = payload.id;
+                    if let Err(error) =
+                        app.emit_to("main", super::layout_edit::EDIT_TOOLBAR_COMMIT_EVENT, payload)
+                    {
+                        lock_unpoisoned(&state.layout_edit)
+                            .resolve_commit(req_id, Some(error.to_string()));
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => tracing::warn!(%error, "Layout edit commit unavailable"),
+            }
+            return;
+        }
+        DashboardAction::CancelLayoutEdit => {
+            lock_unpoisoned(&state.layout_edit).cancel();
+            return;
+        }
+        DashboardAction::ResetLayoutEdit => {
+            lock_unpoisoned(&state.layout_edit).reset_all();
+            return;
+        }
+        DashboardAction::RecenterDialogue | DashboardAction::AttachDialogue => {
+            let mode = if action == DashboardAction::RecenterDialogue {
+                Mode::World
+            } else {
+                Mode::Wrist
+            };
+            state.ui.place(app, backend, &state.controls, mode);
+            return;
+        }
+        _ => {}
     }
     let control = {
         let hub = lock_unpoisoned(&state.controls);
@@ -2248,9 +2371,43 @@ fn update_headset(
     let question_draft = state.ocr.vision.draft();
     #[cfg(not(windows))]
     let question_draft: Option<String> = None;
+    #[cfg(any(windows, linux_vr))]
+    let (edit_active, edit_revision, edit_visible, headset_cfg, world_override, edit_overlay) = {
+        let edit = lock_unpoisoned(&state.layout_edit);
+        let active = edit.is_active();
+        let labels = state
+            .dashboard_view
+            .as_ref()
+            .map(|view| view.labels.clone())
+            .unwrap_or_default();
+        (
+            active,
+            edit.revision,
+            edit.component_visible(super::layout_edit::EditTarget::Headset),
+            edit.draft
+                .as_ref()
+                .map(|draft| draft.headset.clone())
+                .unwrap_or_else(|| state.config.headset.clone()),
+            edit.headset_world_override,
+            edit.surface_overlay(super::layout_edit::EditTarget::Headset, &labels),
+        )
+    };
+    #[cfg(not(any(windows, linux_vr)))]
+    let (edit_active, edit_visible, headset_cfg) =
+        (false, true, state.config.headset.clone());
     // A held visual question temporarily owns the subtitle surface, without
     // changing subtitle history or requiring the subtitle display to be enabled.
-    if question_draft.is_none() && (!state.config.enabled || !state.config.headset.enabled) {
+    if edit_active && !edit_visible {
+        backend.hide(OverlayKind::Headset);
+        #[cfg(any(windows, linux_vr))]
+        {
+            state.headset_cache = None;
+        }
+        status.headset.state = ResourceState::ReadyHidden;
+        status.headset.last_error_code = None;
+        return;
+    }
+    if !edit_active && question_draft.is_none() && (!state.config.enabled || !headset_cfg.enabled) {
         backend.reset(OverlayKind::Headset);
         state.reset_headset();
         status.headset.state = ResourceState::Disabled;
@@ -2258,7 +2415,15 @@ fn update_headset(
         return;
     }
     status.headset.state = ResourceState::Creating;
-    if let Err(error) = backend.ensure_headset(&state.config.headset) {
+    #[cfg(any(windows, linux_vr))]
+    let absolute_override = if edit_active {
+        world_override.and_then(|pose| backend.ocr_tracking().ok().map(|t| (pose, t.2)))
+    } else {
+        None
+    };
+    #[cfg(not(any(windows, linux_vr)))]
+    let absolute_override = None;
+    if let Err(error) = backend.ensure_headset(&headset_cfg, absolute_override) {
         backend.reset(OverlayKind::Headset);
         state.reset_headset();
         resource_error(
@@ -2282,6 +2447,8 @@ fn update_headset(
             cache.headset_revision == headset_revision
                 && cache.config_revision == state.config_revision
                 && cache.dashboard_revision == state.dashboard_caption_revision
+                && cache.edit_active == edit_active
+                && (!edit_active || cache.edit_revision == edit_revision)
                 && cache.sample == state.headset_sample
                 && cache.dark == dark
                 && cache.draft.as_deref() == draft
@@ -2296,15 +2463,23 @@ fn update_headset(
                 status.headset.last_error_code = None;
                 return Ok(None);
             };
-            let visible =
-                state
-                    .headset_surface
-                    .refresh(app, backend, OverlayKind::Headset, None)?;
+            let feedback =
+                edit_active.then_some((state.ui.headset_hover, state.ui.headset_pressed, None));
+            let visible = state.headset_surface.refresh(
+                app,
+                backend,
+                OverlayKind::Headset,
+                feedback,
+            )?;
             let shown = backend
                 .set_opacity(
                     OverlayKind::Headset,
-                    state.config.headset.opacity
-                        * if notice.is_some() { 1.0 } else { frame_opacity },
+                    headset_cfg.opacity
+                        * if edit_active || notice.is_some() {
+                            1.0
+                        } else {
+                            frame_opacity
+                        },
                 )
                 .and_then(|()| {
                     if visible {
@@ -2321,7 +2496,7 @@ fn update_headset(
             return Ok(Some((visible, frame_opacity)));
         }
 
-        let frame = if let Some(ref draft) = question_draft {
+        let frame = if !edit_active && let Some(ref draft) = question_draft {
             Some(question_draft_frame(draft))
         } else if state.headset_sample {
             Some(PresentationFrame::headset(
@@ -2331,26 +2506,34 @@ fn update_headset(
         } else {
             state.headset.frame_with_translation_display(
                 now,
-                &state.config.headset,
+                &headset_cfg,
                 &state.config.translation_display,
             )
         };
-        let frame = frame.or_else(|| {
-            notice.as_ref().map(|_| PresentationFrame {
-                content: PresentationContent::Headset(Vec::new()),
-                opacity: 1.0,
+        let frame = frame
+            .or_else(|| {
+                notice.as_ref().map(|_| PresentationFrame {
+                    content: PresentationContent::Headset(Vec::new()),
+                    opacity: 1.0,
+                })
             })
-        });
-        let next_change = if draft.is_some() || state.headset_sample {
+            .or_else(|| {
+                edit_active.then(|| {
+                    PresentationFrame::headset("VRCS Headset Overlay Sample / 视野字幕预览", 1.0)
+                })
+            });
+        let next_change = if edit_active || draft.is_some() || state.headset_sample {
             None
         } else {
-            state.headset.next_change(now, &state.config.headset)
+            state.headset.next_change(now, &headset_cfg)
         };
         let Some(frame) = frame else {
             state.headset_cache = Some(HeadsetPublishCache {
                 headset_revision,
                 config_revision: state.config_revision,
                 dashboard_revision: state.dashboard_caption_revision,
+                edit_revision,
+                edit_active,
                 sample: state.headset_sample,
                 dark,
                 draft: None,
@@ -2392,17 +2575,23 @@ fn update_headset(
                     .as_ref()
                     .map(|view| view.labels.captions.clone())
                     .unwrap_or_default(),
-                lines_per_language: state.config.headset.lines_per_language,
-                font_size: state.config.headset.font_size_px,
-                opacity: state.config.headset.background_opacity,
+                lines_per_language: headset_cfg.lines_per_language,
+                font_size: headset_cfg.font_size_px,
+                opacity: headset_cfg.background_opacity,
+                edit_mode: edit_overlay,
             },
-            None,
-            None,
+            state.ui.headset_hover,
+            state.ui.headset_pressed,
         )?;
         let shown = backend
             .set_opacity(
                 OverlayKind::Headset,
-                state.config.headset.opacity * if notice.is_some() { 1.0 } else { frame_opacity },
+                headset_cfg.opacity
+                    * if edit_active || notice.is_some() {
+                        1.0
+                    } else {
+                        frame_opacity
+                    },
             )
             .and_then(|()| {
                 if visible {
@@ -2424,6 +2613,8 @@ fn update_headset(
                     headset_revision,
                     config_revision: state.config_revision,
                     dashboard_revision: state.dashboard_caption_revision,
+                    edit_revision,
+                    edit_active,
                     sample: state.headset_sample,
                     dark,
                     draft: question_draft,
@@ -2494,6 +2685,56 @@ fn update_wrist(
 }
 
 #[cfg(any(windows, linux_vr))]
+fn update_edit_toolbar(
+    app: &AppHandle,
+    state: &mut WorkerState,
+    backend: &mut Backend,
+) {
+    use super::surface_protocol::SurfaceView;
+    let labels = state
+        .dashboard_view
+        .as_ref()
+        .map(|view| view.labels.clone())
+        .unwrap_or_default();
+    let (pose, view) = {
+        let edit = lock_unpoisoned(&state.layout_edit);
+        (edit.toolbar_pose, edit.toolbar_view(&labels))
+    };
+    let origin = backend.ocr_tracking().ok().map(|t| t.2);
+    let (Some(pose), Some(toolbar), Some(origin)) = (pose, view, origin) else {
+        backend.hide(OverlayKind::EditToolbar);
+        state
+            .edit_toolbar_surface
+            .stop(app, Some(backend), OverlayKind::EditToolbar);
+        return;
+    };
+    let dark = lock_unpoisoned(&state.controls).dark();
+    let result = (|| -> Result<(), String> {
+        backend.ensure_edit_toolbar(pose, origin)?;
+        let ready = state.edit_toolbar_surface.present(
+            app,
+            backend,
+            OverlayKind::EditToolbar,
+            SurfaceView::EditToolbar { dark, toolbar },
+            state.ui.toolbar_hover,
+            state.ui.toolbar_pressed,
+        )?;
+        if ready {
+            backend.set_opacity(OverlayKind::EditToolbar, 1.0)?;
+            backend.show(OverlayKind::EditToolbar)?;
+        } else {
+            backend.hide(OverlayKind::EditToolbar);
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        tracing::warn!(%error, "VR layout edit toolbar unavailable");
+        backend.reset(OverlayKind::EditToolbar);
+        state.edit_toolbar_surface.reset();
+    }
+}
+
+#[cfg(any(windows, linux_vr))]
 fn render_wrist(
     app: &AppHandle,
     state: &mut WorkerState,
@@ -2503,7 +2744,33 @@ fn render_wrist(
 ) {
     use super::surface_protocol::SurfaceView;
     let now = Instant::now();
-    if !state.config.enabled || !state.config.wrist.enabled {
+    let (edit_active, edit_revision, edit_visible, wrist_cfg, edit_overlay) = {
+        let edit = lock_unpoisoned(&state.layout_edit);
+        let labels = state
+            .dashboard_view
+            .as_ref()
+            .map(|view| view.labels.clone())
+            .unwrap_or_default();
+        (
+            edit.is_active(),
+            edit.revision,
+            edit.component_visible(super::layout_edit::EditTarget::Wrist),
+            edit.draft
+                .as_ref()
+                .map(|draft| draft.wrist.clone())
+                .unwrap_or_else(|| state.config.wrist.clone()),
+            edit.surface_overlay(super::layout_edit::EditTarget::Wrist, &labels),
+        )
+    };
+    if edit_active && !edit_visible {
+        backend.hide(OverlayKind::Wrist);
+        state.dialogue_cache = None;
+        state.ui.reset_dialogue_visibility();
+        status.wrist.state = ResourceState::ReadyHidden;
+        status.wrist.last_error_code = None;
+        return;
+    }
+    if !edit_active && (!state.config.enabled || !wrist_cfg.enabled) {
         backend.reset(OverlayKind::Wrist);
         state.dialogue_cache = None;
         state.ui.reset_dialogue_visibility();
@@ -2524,7 +2791,11 @@ fn render_wrist(
     let (mode, pose, relative, follow_view, busy, error, revision) = {
         let placement = lock_unpoisoned(&state.ui.placement);
         (
-            placement.display_mode(),
+            if edit_active {
+                Mode::Wrist
+            } else {
+                placement.display_mode()
+            },
             placement.absolute_pose(),
             placement.head_relative_pose(),
             placement.follow_view(),
@@ -2537,7 +2808,7 @@ fn render_wrist(
         status.wrist.bound_role = None;
         match (pose, state.ui.current_origin()) {
             (Some(pose), Some(origin)) => {
-                backend.ensure_world_wrist(&state.config.wrist, pose, origin, relative)
+                backend.ensure_world_wrist(&wrist_cfg, pose, origin, relative)
             }
             _ => {
                 backend.hide(OverlayKind::Wrist);
@@ -2548,9 +2819,9 @@ fn render_wrist(
                 return;
             }
         }
-    } else if business {
+    } else if business || edit_active {
         backend
-            .ensure_wrist(&state.config.wrist)
+            .ensure_wrist(&wrist_cfg)
             .and_then(|binding| {
                 status.wrist.bound_role = binding.role;
                 if binding.available {
@@ -2589,7 +2860,7 @@ fn render_wrist(
         return;
     }
     let target = state.ui.dialogue_visible;
-    if !business && target && state.ui.dialogue_pending.is_none() {
+    if !business && !edit_active && target && state.ui.dialogue_pending.is_none() {
         backend.hide(OverlayKind::Wrist);
         return;
     }
@@ -2603,7 +2874,7 @@ fn render_wrist(
                         .ui
                         .dialogue_surface
                         .hold_for_fade(app, backend, OverlayKind::Wrist)
-            } else if !business {
+            } else if !business && !edit_active {
                 state.ui.dialogue_surface.refresh(
                     app,
                     backend,
@@ -2618,6 +2889,8 @@ fn render_wrist(
                     cache.wrist_revision == wrist_revision
                         && cache.config_revision == state.config_revision
                         && cache.dashboard_revision == state.dashboard_caption_revision
+                        && cache.edit_active == edit_active
+                        && (!edit_active || cache.edit_revision == edit_revision)
                         && cache.controls_version == controls_version
                         && cache.sample == state.wrist_sample
                         && cache.notice.as_deref() == notice.as_deref()
@@ -2645,8 +2918,8 @@ fn render_wrist(
                         Some((state.ui.dialogue_hover, None, None)),
                     )?
                 } else {
-                    let frame = if state.wrist_sample {
-                        Some(PresentationFrame::wrist(vec![
+                    let sample_frame = || {
+                        PresentationFrame::wrist(vec![
                             WristMessage {
                                 original: None,
                                 speaker: None,
@@ -2659,29 +2932,36 @@ fn render_wrist(
                                 text: "Conversation stays on your wrist or in front of you.".into(),
                                 side: MessageSide::Right,
                             },
-                        ]))
+                        ])
+                    };
+                    let frame = if state.wrist_sample {
+                        Some(sample_frame())
                     } else {
                         state.wrist.frame_with_translation_display(
                             now,
-                            &state.config.wrist,
+                            &wrist_cfg,
                             &state.config.translation_display,
                         )
                     };
-                    let frame = frame.or_else(|| {
-                        notice
-                            .as_ref()
-                            .map(|_| PresentationFrame::wrist(Vec::new()))
-                    });
-                    let idle_expires_at = if state.wrist_sample {
+                    let frame = frame
+                        .or_else(|| {
+                            notice
+                                .as_ref()
+                                .map(|_| PresentationFrame::wrist(Vec::new()))
+                        })
+                        .or_else(|| edit_active.then(sample_frame));
+                    let idle_expires_at = if edit_active || state.wrist_sample {
                         None
                     } else {
-                        state.wrist.idle_expires_at(&state.config.wrist)
+                        state.wrist.idle_expires_at(&wrist_cfg)
                     };
                     let Some(frame) = frame else {
                         state.dialogue_cache = Some(DialoguePublishCache {
                             wrist_revision,
                             config_revision: state.config_revision,
                             dashboard_revision: state.dashboard_caption_revision,
+                            edit_revision,
+                            edit_active,
                             controls_version,
                             sample: state.wrist_sample,
                             notice,
@@ -2718,7 +2998,7 @@ fn render_wrist(
                                 .dashboard_view
                                 .as_ref()
                                 .and_then(|view| view.max_visible_players),
-                            max_entries: state.config.wrist.max_entries.clamp(3, 10) as usize,
+                            max_entries: wrist_cfg.max_entries.clamp(3, 10) as usize,
                             controls,
                             messages,
                             notice: notice.clone(),
@@ -2732,8 +3012,9 @@ fn render_wrist(
                             follow_view,
                             busy,
                             error: error.clone(),
-                            font_size: state.config.wrist.font_size_px,
-                            opacity: state.config.wrist.background_opacity,
+                            font_size: wrist_cfg.font_size_px,
+                            opacity: wrist_cfg.background_opacity,
+                            edit_mode: edit_overlay,
                         },
                         state.ui.dialogue_hover,
                         None,
@@ -2744,6 +3025,8 @@ fn render_wrist(
                             wrist_revision,
                             config_revision: state.config_revision,
                             dashboard_revision: state.dashboard_caption_revision,
+                            edit_revision,
+                            edit_active,
                             controls_version,
                             sample: state.wrist_sample,
                             notice,
@@ -2768,9 +3051,10 @@ fn render_wrist(
                 || state.ui.dialogue_retention == Some(retention));
         let fade = state.ui.dialogue_fade.advance(target, ready, now);
         state.ui.dialogue_active = target || fade.animating;
-        state.ui.dialogue_revision = ready.then_some(revision);
-        if ready && (fade.factor > 0.0 || fade.animating) {
-            backend.set_opacity(OverlayKind::Wrist, state.config.wrist.opacity * fade.factor)?;
+        state.ui.dialogue_revision = ready.then_some(if edit_active { 1 } else { revision });
+        if ready && (edit_active || fade.factor > 0.0 || fade.animating) {
+            let alpha = if edit_active { 1.0 } else { fade.factor };
+            backend.set_opacity(OverlayKind::Wrist, wrist_cfg.opacity * alpha)?;
             backend.show(OverlayKind::Wrist)?;
         } else {
             backend.hide(OverlayKind::Wrist);

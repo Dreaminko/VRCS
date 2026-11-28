@@ -24,6 +24,8 @@ pub enum IconId {
     #[cfg(windows)]
     KeyRound,
     Languages,
+    Level,
+    Maximize2,
     MessageSquare,
     MessageSquareOff,
     Mic,
@@ -103,6 +105,12 @@ impl IconId {
             }
             Self::Languages => {
                 r#"<path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/>"#
+            }
+            Self::Level => {
+                r#"<rect width="20" height="8" x="2" y="8" rx="3"/><path d="M9 8v8"/><path d="M15 8v8"/><circle cx="12" cy="12" r="1"/>"#
+            }
+            Self::Maximize2 => {
+                r#"<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" x2="14" y1="3" y2="10"/><line x1="3" x2="10" y1="21" y2="14"/>"#
             }
             Self::MessageSquare => {
                 r#"<path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/>"#

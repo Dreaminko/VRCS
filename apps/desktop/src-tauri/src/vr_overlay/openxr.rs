@@ -9,7 +9,9 @@ use std::time::{Duration, Instant};
 use openxr as xr;
 use vrcs_core::{VrOverlayHeadsetConfig, VrOverlayWristConfig};
 
-use super::backend::{ControllerBinding, CursorTarget, OverlayKind, RayHit, menu_config};
+use super::backend::{
+    ControllerBinding, CursorTarget, OverlayKind, RayHit, menu_wrist_config,
+};
 use super::dashboard::{DASHBOARD_HEIGHT, DASHBOARD_WIDTH, DashboardPointerEvent};
 use super::pose::{
     DeviceId, PointerId, PointerInput, Pose, SpaceId, TrackedPose, pose_from_quaternion,
@@ -115,6 +117,7 @@ fn panel(kind: OverlayKind) -> PanelId {
         OverlayKind::Headset => PanelId::Headset,
         OverlayKind::Wrist => PanelId::Wrist,
         OverlayKind::WristMenu => PanelId::WristMenu,
+        OverlayKind::EditToolbar => PanelId::EditToolbar,
         OverlayKind::OcrWrist => PanelId::OcrWrist,
         OverlayKind::OcrProgress => PanelId::OcrProgress,
         OverlayKind::OcrFrame => PanelId::OcrFrame,
@@ -123,11 +126,12 @@ fn panel(kind: OverlayKind) -> PanelId {
     }
 }
 
-const ALL_KINDS: [OverlayKind; 9] = [
+const ALL_KINDS: [OverlayKind; 10] = [
     OverlayKind::PlayerAudio,
     OverlayKind::Headset,
     OverlayKind::Wrist,
     OverlayKind::WristMenu,
+    OverlayKind::EditToolbar,
     OverlayKind::OcrWrist,
     OverlayKind::OcrProgress,
     OverlayKind::OcrFrame,
@@ -291,13 +295,23 @@ impl OpenXrBackend {
         Ok(0)
     }
 
-    pub fn ensure_headset(&mut self, config: &VrOverlayHeadsetConfig) -> Result<(), String> {
-        self.runtime.set_panel_width(
-            PanelId::Headset,
-            PanelSpace::View,
-            xr_pose(transform::headset(config)),
-            config.width_m,
-        );
+    pub fn ensure_headset(
+        &mut self,
+        config: &VrOverlayHeadsetConfig,
+        absolute_override: Option<(Pose, SpaceId)>,
+    ) -> Result<(), String> {
+        let (space, pose) = match absolute_override {
+            Some((pose, _)) => (PanelSpace::Stage, xr_pose(pose)),
+            None => (PanelSpace::View, xr_pose(transform::headset(config))),
+        };
+        self.runtime
+            .set_panel_width(PanelId::Headset, space, pose, config.width_m);
+        Ok(())
+    }
+
+    pub fn ensure_edit_toolbar(&mut self, pose: Pose, _space: SpaceId) -> Result<(), String> {
+        self.runtime
+            .set_panel_width(PanelId::EditToolbar, PanelSpace::Stage, xr_pose(pose), 0.64);
         Ok(())
     }
 
@@ -318,14 +332,17 @@ impl OpenXrBackend {
         })
     }
 
-    pub fn ensure_wrist_menu(&mut self, hand: &str) -> Result<(), String> {
-        let config = menu_config(hand);
-        let index = usize::from(hand == "right");
+    pub fn ensure_wrist_menu(
+        &mut self,
+        config: &vrcs_core::VrOverlayWristMenuConfig,
+    ) -> Result<(), String> {
+        let wrist = menu_wrist_config(config);
+        let index = usize::from(config.hand == "right");
         self.runtime.set_panel_width(
             PanelId::WristMenu,
             PanelSpace::Grip(index),
-            xr_pose(transform::wrist(&config)),
-            config.width_m,
+            xr_pose(transform::wrist_menu(config)),
+            wrist.width_m,
         );
         Ok(())
     }

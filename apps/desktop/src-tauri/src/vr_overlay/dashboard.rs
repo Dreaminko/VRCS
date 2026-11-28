@@ -140,7 +140,6 @@ pub struct DashboardLabels {
     #[serde(default)]
     pub unitext_port_conflict: String,
     pub close: String,
-    pub content_hint: String,
     pub headset_hint: String,
     pub tools: String,
     pub vision_unconfigured: String,
@@ -173,6 +172,26 @@ pub struct DashboardLabels {
     pub follow_view: String,
     #[serde(default)]
     pub wrist_menu: String,
+    #[serde(default)]
+    pub layout_edit: String,
+    #[serde(default)]
+    pub layout_edit_enter: String,
+    #[serde(default)]
+    pub layout_edit_waiting: String,
+    #[serde(default)]
+    pub layout_edit_save: String,
+    #[serde(default)]
+    pub layout_edit_cancel: String,
+    #[serde(default)]
+    pub layout_edit_reset: String,
+    #[serde(default)]
+    pub layout_edit_reset_selected: String,
+    #[serde(default)]
+    pub layout_edit_auto_level: String,
+    #[serde(default)]
+    pub layout_edit_face_head: String,
+    #[serde(default)]
+    pub layout_edit_shared_wrist: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -479,6 +498,10 @@ pub enum DashboardAction {
     ResetDisplayPosition(DisplayKind),
     RecenterDialogue,
     AttachDialogue,
+    EnterLayoutEdit,
+    CommitLayoutEdit,
+    CancelLayoutEdit,
+    ResetLayoutEdit,
 }
 
 #[cfg(any(windows, linux_vr))]
@@ -592,6 +615,11 @@ pub struct DashboardUi {
     pub display_editor: Option<DisplayKind>,
     pub recognition_editor: Option<TargetGroup>,
     pub confirmation: Option<DashboardConfirmation>,
+    pub edit_active: bool,
+    pub edit_waiting_close: bool,
+    pub edit_dirty: bool,
+    pub edit_saving: bool,
+    pub edit_error: Option<String>,
 }
 
 #[derive(Debug)]
@@ -814,6 +842,14 @@ impl DashboardState {
     #[cfg(any(windows, linux_vr, test))]
     fn action_allowed(&self, action: &DashboardAction, view: &DashboardViewModel) -> bool {
         use DashboardAction::*;
+        if matches!(action, CommitLayoutEdit | CancelLayoutEdit | ResetLayoutEdit) {
+            return (self.ui.edit_active || self.ui.edit_waiting_close)
+                && !matches!(
+                    (action, self.ui.edit_active, self.ui.edit_saving),
+                    (CommitLayoutEdit | ResetLayoutEdit, false, _)
+                        | (CommitLayoutEdit, _, true)
+                );
+        }
         let page = match action {
             ToggleMaster => return true,
             ToggleCapture => return view.capture.available,
@@ -963,6 +999,7 @@ impl DashboardState {
                 self.ui.display_editor == Some(DisplayKind::Wrist)
                     && view.wrist.anchor_mode == "world"
             }
+            EnterLayoutEdit => !self.ui.edit_active && !self.ui.edit_waiting_close,
             _ => true,
         }
     }

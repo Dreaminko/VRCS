@@ -4,6 +4,7 @@ import type {
   VrOcrWristSettings,
   VrOverlayHeadsetSettings,
   VrOverlaySettings,
+  VrOverlayWristMenuSettings,
   VrOverlayWristSettings,
 } from "../integrations/types";
 import type { Settings } from "./types";
@@ -160,8 +161,20 @@ export const DEFAULT_OCR_SETTINGS: VrOcrSettings = {
   wrist: { ...DEFAULT_OCR_WRIST_SETTINGS },
 };
 
+export const DEFAULT_VR_OVERLAY_WRIST_MENU_SETTINGS: VrOverlayWristMenuSettings = {
+  enabled: false,
+  hand: "left",
+  offset_x_m: 0,
+  offset_y_m: 0.06,
+  offset_z_m: 0.18,
+  pitch_deg: -90,
+  yaw_deg: 0,
+  roll_deg: 0,
+  width_m: 0.225,
+};
+
 export const DEFAULT_VR_OVERLAY_SETTINGS: VrOverlaySettings = {
-  wrist_menu: { enabled: false, hand: "left" },
+  wrist_menu: { ...DEFAULT_VR_OVERLAY_WRIST_MENU_SETTINGS },
   enabled: false,
   backend: "auto",
   translation_display: "all_languages",

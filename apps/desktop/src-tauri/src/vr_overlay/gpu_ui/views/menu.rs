@@ -43,6 +43,7 @@ pub fn render_menu(
         players,
         ui: menu_ui,
         hold_progress,
+        edit_mode,
     } = &state.view
     else {
         unreachable!();
@@ -53,18 +54,24 @@ pub fn render_menu(
     let mut ui = UiBuilder::new(text, theme, w, h);
     let root = ui.root();
 
-    if menu_ui.page != Page::Home {
+    if edit_mode.is_none() && menu_ui.page != Page::Home {
         build_player_display_panel(&mut ui, root, state, players, menu_ui);
     }
 
     // Bottom forearm capsule (`left: 16, right: 16, bottom: 8, height: 240`).
+    let capsule_border = match edit_mode {
+        Some(ov) if ov.selected || ov.active_grab || ov.active_resize => theme.primary,
+        Some(_) => theme.primary.with_alpha(0.65),
+        None => theme.border,
+    };
+    let capsule_edge = if edit_mode.is_some() { 26.0 } else { 16.0 };
     let capsule = ui.add_box(
         root,
         Style {
             position: Position::Absolute,
             inset: Rect {
-                left: length(16.0),
-                right: length(16.0),
+                left: length(capsule_edge),
+                right: length(capsule_edge),
                 bottom: length(8.0),
                 top: auto(),
             },
@@ -85,7 +92,7 @@ pub fn render_menu(
         },
         BoxPaint::new()
             .bg(theme.surface)
-            .border(2.0, theme.border)
+            .border(if edit_mode.is_some() { 3.0 } else { 2.0 }, capsule_border)
             .radius(120.0),
     );
     ui.mark_menu_capsule(capsule);
@@ -142,18 +149,20 @@ pub fn render_menu(
                 },
                 BoxPaint::new().bg(bg).radius(80.0),
             );
-            ui.set_region(
-                btn,
-                RegionPayload::Menu(
-                    4,
-                    true,
-                    Command::Page(if menu_ui.page == Page::Home {
-                        Page::Players
-                    } else {
-                        Page::Home
-                    }),
-                ),
-            );
+            if edit_mode.is_none() {
+                ui.set_region(
+                    btn,
+                    RegionPayload::Menu(
+                        4,
+                        true,
+                        Command::Page(if menu_ui.page == Page::Home {
+                            Page::Players
+                        } else {
+                            Page::Home
+                        }),
+                    ),
+                );
+            }
             if hovered {
                 let tip = players
                     .labels
@@ -261,7 +270,7 @@ pub fn render_menu(
             },
             paint,
         );
-        if !disabled {
+        if !disabled && edit_mode.is_none() {
             ui.set_region(
                 btn,
                 RegionPayload::Menu(id, true, Command::Control(actions[index])),
@@ -352,7 +361,9 @@ pub fn render_menu(
             },
             BoxPaint::new().bg(bg).radius(80.0),
         );
-        ui.set_region(btn, RegionPayload::Menu(31, true, Command::Dashboard));
+        if edit_mode.is_none() {
+            ui.set_region(btn, RegionPayload::Menu(31, true, Command::Dashboard));
+        }
         if hovered {
             let tip = controls
                 .labels
@@ -366,6 +377,26 @@ pub fn render_menu(
         if pressed && let Some(meta) = ui.tree.get_node_context_mut(ic) {
             meta.paint.scale = 0.95;
         }
+    }
+
+    if let Some(ov) = edit_mode {
+        super::add_edit_chrome(
+            &mut ui,
+            capsule,
+            state,
+            ov,
+            60,
+            RegionPayload::Menu(60, false, Command::EditResize),
+            super::CornerHandleSpec {
+                panel_radius: 120.0,
+                gap: 12.0,
+                stroke_idle: 7.0,
+                stroke_active: 10.0,
+                start_rad: -std::f32::consts::FRAC_PI_2 + 0.14,
+                sweep_rad: 0.92,
+                hit_size: 118.0,
+            },
+        );
     }
 
     ui.compute_layout();

@@ -29,7 +29,7 @@ mod platform {
     use vrcs_core::VrOcrWristConfig;
     use vrcs_core::{VrOverlayHeadsetConfig, VrOverlayWristConfig};
 
-    use super::{ControllerBinding, CursorTarget, OverlayKind, RayHit, menu_config};
+    use super::{ControllerBinding, CursorTarget, OverlayKind, RayHit};
     #[cfg(windows)]
     use crate::vr_overlay::d3d11_texture::{Device, Readback};
     use crate::vr_overlay::dashboard::{
@@ -117,6 +117,7 @@ mod platform {
         headset: Option<OverlayHandle>,
         wrist: Option<OverlayHandle>,
         wrist_menu: Option<OverlayHandle>,
+        edit_toolbar: Option<OverlayHandle>,
         tracking_reset: bool,
         ocr_wrist: Option<OverlayHandle>,
         #[cfg(windows)]
@@ -128,12 +129,12 @@ mod platform {
         #[cfg(windows)]
         ocr_result: Option<OverlayHandle>,
         dashboard: DashboardOverlay,
-        states: [SubmittedState; 9],
+        states: [SubmittedState; 10],
         ocr_input: Option<ocr_input::OcrInput>,
         cursor: cursor::CursorOverlay,
         cursor_interval: Duration,
         // The backend also owns submitted textures, even if a caller resets its renderer.
-        surface_captures: [Option<Rc<RefCell<SurfaceCapture>>>; 9],
+        surface_captures: [Option<Rc<RefCell<SurfaceCapture>>>; 10],
     }
 
     #[cfg(windows)]
@@ -814,6 +815,7 @@ mod platform {
                 headset: None,
                 wrist: None,
                 wrist_menu: None,
+                edit_toolbar: None,
                 tracking_reset: false,
                 ocr_wrist: None,
                 #[cfg(windows)]
@@ -918,12 +920,17 @@ mod platform {
             Ok(events)
         }
 
-        pub fn ensure_headset(&mut self, config: &VrOverlayHeadsetConfig) -> Result<(), String> {
+        pub fn ensure_headset(
+            &mut self,
+            config: &VrOverlayHeadsetConfig,
+            absolute_override: Option<([[f32; 4]; 3], i32)>,
+        ) -> Result<(), String> {
             if self.headset.is_none() {
                 let handle = self
                     .overlay
                     .create_overlay(HEADSET_KEY, HEADSET_NAME)
                     .map_err(|error| format!("Create headset overlay failed: {error:?}"))?;
+                configure_ocr_wrist_input(unsafe { &*self.raw_overlay }, handle)?;
                 self.headset = Some(handle);
             }
             let handle = self.headset.expect("headset overlay exists");
@@ -933,19 +940,69 @@ mod platform {
                     .map_err(|error| format!("Configure headset overlay failed: {error:?}"))?;
                 self.state_mut(OverlayKind::Headset).width_m = Some(config.width_m);
             }
-            let raw_matrix = transform::headset(config);
-            let target_transform =
-                OverlayTransform::DeviceRelative(tracked_device_index::HMD.0, raw_matrix);
-            if self.state(OverlayKind::Headset).transform != Some(target_transform) {
-                let matrix = Matrix3x4(raw_matrix);
+            if let Some((pose, origin)) = absolute_override {
+                let target_transform = OverlayTransform::Absolute(origin, pose);
+                if self.state(OverlayKind::Headset).transform != Some(target_transform) {
+                    let mut matrix = openvr_sys::HmdMatrix34_t { m: pose };
+                    check_wrist_input(unsafe {
+                        (*self.raw_overlay)
+                            .SetOverlayTransformAbsolute
+                            .ok_or("Absolute overlays unavailable")?(
+                            handle.0, origin as _, &mut matrix
+                        )
+                    })?;
+                    self.state_mut(OverlayKind::Headset).transform = Some(target_transform);
+                }
+            } else {
+                let raw_matrix = transform::headset(config);
+                let target_transform =
+                    OverlayTransform::DeviceRelative(tracked_device_index::HMD.0, raw_matrix);
+                if self.state(OverlayKind::Headset).transform != Some(target_transform) {
+                    let matrix = Matrix3x4(raw_matrix);
+                    self.overlay
+                        .set_transform_tracked_device_relative(
+                            handle,
+                            tracked_device_index::HMD,
+                            &matrix,
+                        )
+                        .map_err(|error| format!("Position headset overlay failed: {error:?}"))?;
+                    self.state_mut(OverlayKind::Headset).transform = Some(target_transform);
+                }
+            }
+            Ok(())
+        }
+
+        pub fn ensure_edit_toolbar(
+            &mut self,
+            pose: [[f32; 4]; 3],
+            origin: i32,
+        ) -> Result<(), String> {
+            if self.edit_toolbar.is_none() {
+                let handle = self
+                    .overlay
+                    .create_overlay("org.vrcs.overlay.edit.toolbar\0", "VRCS Layout Edit\0")
+                    .map_err(|e| format!("Create layout edit toolbar failed: {e:?}"))?;
+                configure_ocr_wrist_input(unsafe { &*self.raw_overlay }, handle)?;
+                self.edit_toolbar = Some(handle);
+            }
+            let handle = self.edit_toolbar.expect("edit toolbar overlay");
+            if self.state(OverlayKind::EditToolbar).width_m != Some(0.64) {
                 self.overlay
-                    .set_transform_tracked_device_relative(
-                        handle,
-                        tracked_device_index::HMD,
-                        &matrix,
+                    .set_width(handle, 0.64)
+                    .map_err(|e| format!("Set edit toolbar width failed: {e:?}"))?;
+                self.state_mut(OverlayKind::EditToolbar).width_m = Some(0.64);
+            }
+            let target_transform = OverlayTransform::Absolute(origin, pose);
+            if self.state(OverlayKind::EditToolbar).transform != Some(target_transform) {
+                let mut matrix = openvr_sys::HmdMatrix34_t { m: pose };
+                check_wrist_input(unsafe {
+                    (*self.raw_overlay)
+                        .SetOverlayTransformAbsolute
+                        .ok_or("Absolute overlays unavailable")?(
+                        handle.0, origin as _, &mut matrix
                     )
-                    .map_err(|error| format!("Position headset overlay failed: {error:?}"))?;
-                self.state_mut(OverlayKind::Headset).transform = Some(target_transform);
+                })?;
+                self.state_mut(OverlayKind::EditToolbar).transform = Some(target_transform);
             }
             Ok(())
         }
@@ -1076,7 +1133,7 @@ mod platform {
             &mut self,
             config: &VrOverlayWristConfig,
         ) -> Result<ControllerBinding, String> {
-            self.ensure_controller_overlay(OverlayKind::Wrist, config)
+            self.ensure_controller_overlay(OverlayKind::Wrist, config, transform::wrist(config))
         }
 
         #[cfg(windows)]
@@ -1085,8 +1142,12 @@ mod platform {
             config: &VrOcrWristConfig,
             interactive: bool,
         ) -> Result<ControllerBinding, String> {
-            let binding =
-                self.ensure_controller_overlay(OverlayKind::OcrWrist, &config.overlay_config())?;
+            let wrist_cfg = config.overlay_config();
+            let binding = self.ensure_controller_overlay(
+                OverlayKind::OcrWrist,
+                &wrist_cfg,
+                transform::wrist(&wrist_cfg),
+            )?;
             if binding.available {
                 if self.state(OverlayKind::OcrWrist).interactive.is_none() {
                     configure_ocr_wrist_input(
@@ -1109,6 +1170,7 @@ mod platform {
             &mut self,
             kind: OverlayKind,
             config: &VrOverlayWristConfig,
+            raw_matrix: [[f32; 4]; 3],
         ) -> Result<ControllerBinding, String> {
             let (role_name, role) = controller_role(config);
             let Some(device) = self.system.tracked_device_index_for_controller_role(role) else {
@@ -1159,7 +1221,6 @@ mod platform {
                     .map_err(|error| format!("Configure wrist overlay failed: {error:?}"))?;
                 self.state_mut(kind).width_m = Some(config.width_m);
             }
-            let raw_matrix = transform::wrist(config);
             let target_transform = OverlayTransform::DeviceRelative(device.0, raw_matrix);
             if self.state(kind).transform != Some(target_transform) {
                 let matrix = Matrix3x4(raw_matrix);
@@ -1288,9 +1349,16 @@ mod platform {
             (Some(device.0), angle)
         }
 
-        pub fn ensure_wrist_menu(&mut self, hand: &str) -> Result<(), String> {
+        pub fn ensure_wrist_menu(
+            &mut self,
+            config: &vrcs_core::VrOverlayWristMenuConfig,
+        ) -> Result<(), String> {
             if self
-                .ensure_controller_overlay(OverlayKind::WristMenu, &menu_config(hand))?
+                .ensure_controller_overlay(
+                    OverlayKind::WristMenu,
+                    &super::menu_wrist_config(config),
+                    transform::wrist_menu(config),
+                )?
                 .available
             {
                 Ok(())
@@ -1377,10 +1445,12 @@ mod platform {
             let handle = self.handle(kind)?;
             let (pose, origin) = ray;
             let size = match kind {
+                OverlayKind::Headset => SurfaceId::Headset.size(),
                 OverlayKind::WristMenu => SurfaceId::Menu.size(),
                 OverlayKind::Wrist => SurfaceId::Dialogue.size(),
                 OverlayKind::OcrWrist => SurfaceId::Reader.size(),
                 OverlayKind::PlayerAudio => SurfaceId::PlayerAudio.size(),
+                OverlayKind::EditToolbar => SurfaceId::EditToolbar.size(),
                 _ => return None,
             };
             wrist_ray_hit(unsafe { &*self.raw_overlay }, handle, origin, pose, size)
@@ -1569,6 +1639,7 @@ mod platform {
                 OverlayKind::Headset,
                 OverlayKind::Wrist,
                 OverlayKind::WristMenu,
+                OverlayKind::EditToolbar,
                 OverlayKind::OcrWrist,
                 OverlayKind::OcrProgress,
                 OverlayKind::PlayerAudio,
@@ -1602,6 +1673,7 @@ mod platform {
                 OverlayKind::Headset => self.headset,
                 OverlayKind::Wrist => self.wrist,
                 OverlayKind::WristMenu => self.wrist_menu,
+                OverlayKind::EditToolbar => self.edit_toolbar,
                 OverlayKind::OcrWrist => self.ocr_wrist,
                 OverlayKind::PlayerAudio => self.player_audio,
                 OverlayKind::Dashboard => self.dashboard.main(),
@@ -1633,6 +1705,7 @@ mod platform {
                 OverlayKind::Headset => self.headset.take(),
                 OverlayKind::Wrist => self.wrist.take(),
                 OverlayKind::WristMenu => self.wrist_menu.take(),
+                OverlayKind::EditToolbar => self.edit_toolbar.take(),
                 OverlayKind::OcrWrist => {
                     self.ocr_wrist_device = None;
                     self.ocr_wrist.take()
@@ -1674,6 +1747,7 @@ mod platform {
             self.destroy(OverlayKind::Headset);
             self.destroy(OverlayKind::Wrist);
             self.destroy(OverlayKind::WristMenu);
+            self.destroy(OverlayKind::EditToolbar);
             self.destroy(OverlayKind::OcrWrist);
             self.destroy(OverlayKind::OcrProgress);
             self.destroy(OverlayKind::PlayerAudio);
@@ -2539,7 +2613,11 @@ mod platform {
         pub fn connect() -> Result<Self, String> {
             Err("VR Overlay is not available on this platform".into())
         }
-        pub fn ensure_headset(&mut self, _: &VrOverlayHeadsetConfig) -> Result<(), String> {
+        pub fn ensure_headset(
+            &mut self,
+            _: &VrOverlayHeadsetConfig,
+            _: Option<([[f32; 4]; 3], i32)>,
+        ) -> Result<(), String> {
             Err("VR Overlay is not available on this platform".into())
         }
         pub fn hide(&mut self, _: OverlayKind) {}
@@ -2707,8 +2785,24 @@ impl Backend {
     pub fn ensure_headset(
         &mut self,
         config: &vrcs_core::VrOverlayHeadsetConfig,
+        absolute_override: Option<(Pose, SpaceId)>,
     ) -> Result<(), String> {
-        backend_mut!(self, ensure_headset(config))
+        #[cfg(any(windows, linux_vr))]
+        {
+            match &mut self.inner {
+                Inner::Vr(vr) => vr.ensure_headset(
+                    config,
+                    absolute_override.map(|(pose, space)| (pose, space.0 as i32)),
+                ),
+                #[cfg(all(linux_vr, target_arch = "x86_64"))]
+                Inner::Xr(xr) => xr.ensure_headset(config, absolute_override),
+            }
+        }
+        #[cfg(all(not(windows), not(linux_vr)))]
+        {
+            let _ = absolute_override;
+            backend_mut!(self, ensure_headset(config, None))
+        }
     }
 
     pub fn hide(&mut self, kind: OverlayKind) {
@@ -2770,8 +2864,19 @@ impl Backend {
         backend_mut!(self, ensure_wrist(config))
     }
 
-    pub fn ensure_wrist_menu(&mut self, hand: &str) -> Result<(), String> {
-        backend_mut!(self, ensure_wrist_menu(hand))
+    pub fn ensure_wrist_menu(
+        &mut self,
+        config: &vrcs_core::VrOverlayWristMenuConfig,
+    ) -> Result<(), String> {
+        backend_mut!(self, ensure_wrist_menu(config))
+    }
+
+    pub fn ensure_edit_toolbar(&mut self, pose: Pose, space: SpaceId) -> Result<(), String> {
+        match &mut self.inner {
+            Inner::Vr(vr) => vr.ensure_edit_toolbar(pose, space.0 as i32),
+            #[cfg(all(linux_vr, target_arch = "x86_64"))]
+            Inner::Xr(xr) => xr.ensure_edit_toolbar(pose, space),
+        }
     }
 
     pub fn ensure_world_wrist(
@@ -3066,17 +3171,20 @@ impl Backend {
 }
 
 #[cfg(any(windows, linux_vr))]
-pub fn menu_config(hand: &str) -> vrcs_core::VrOverlayWristConfig {
+pub fn menu_wrist_config(
+    config: &vrcs_core::VrOverlayWristMenuConfig,
+) -> vrcs_core::VrOverlayWristConfig {
+    let (pitch_deg, yaw_deg, roll_deg, translation) =
+        super::transform::decompose(super::transform::wrist_menu(config));
     vrcs_core::VrOverlayWristConfig {
-        hand: hand.into(),
-        width_m: 0.225,
-        // Keep the bottom capsule at its original anchor as the texture extends upward.
-        offset_x_m: 0.0,
-        offset_y_m: 0.06,
-        offset_z_m: 0.09,
-        pitch_deg: -90.0,
-        yaw_deg: 0.0,
-        roll_deg: 0.0,
+        hand: config.hand.clone(),
+        width_m: config.width_m,
+        offset_x_m: translation[0],
+        offset_y_m: translation[1],
+        offset_z_m: translation[2],
+        pitch_deg,
+        yaw_deg,
+        roll_deg,
         ..Default::default()
     }
 }
@@ -3085,14 +3193,17 @@ pub fn menu_config(hand: &str) -> vrcs_core::VrOverlayWristConfig {
 #[test]
 fn expanded_menu_keeps_quick_buttons_at_the_original_wrist_anchor() {
     for hand in ["left", "right"] {
-        let config = menu_config(hand);
+        let config = menu_wrist_config(&vrcs_core::VrOverlayWristMenuConfig {
+            hand: hand.into(),
+            ..Default::default()
+        });
         assert_eq!(config.hand, hand);
         assert_eq!(config.pitch_deg, -90.0);
         assert!((config.width_m / 1280.0 - 0.18 / 1024.0).abs() < 0.000001);
         // Overlay -Y maps to controller +Z at pitch -90 degrees.
         let capsule_z = config.offset_z_m + (1152.0 - 640.0) * config.width_m / 1280.0;
         assert!((capsule_z - 0.18).abs() < 0.000001);
-        assert_eq!(config.offset_y_m, 0.06);
+        assert!((config.offset_y_m - 0.06).abs() < 0.000001);
     }
 }
 
@@ -3103,6 +3214,7 @@ pub enum OverlayKind {
     Headset,
     Wrist,
     WristMenu,
+    EditToolbar,
     OcrWrist,
     OcrProgress,
     OcrFrame,

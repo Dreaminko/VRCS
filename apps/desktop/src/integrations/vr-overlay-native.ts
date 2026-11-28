@@ -114,7 +114,6 @@ export interface VrDashboardViewModel {
     unitext_preserve_original?: string;
     unitext_port_conflict?: string;
     close: string;
-    content_hint: string;
     headset_hint: string;
     tools: string;
     vision_unconfigured: string;
@@ -136,6 +135,16 @@ export interface VrDashboardViewModel {
     anchor_world?: string;
     follow_view?: string;
     wrist_menu?: string;
+    layout_edit?: string;
+    layout_edit_enter?: string;
+    layout_edit_waiting?: string;
+    layout_edit_save?: string;
+    layout_edit_cancel?: string;
+    layout_edit_reset?: string;
+    layout_edit_reset_selected?: string;
+    layout_edit_auto_level?: string;
+    layout_edit_face_head?: string;
+    layout_edit_shared_wrist?: string;
   };
   enabled: boolean;
   capture: { running: boolean; available: boolean };

@@ -39,6 +39,7 @@ const COMMANDS: &[&str] = &[
     "vr_overlay_control_result",
     "vr_overlay_control_release",
     "vr_overlay_placement_result",
+    "vr_overlay_layout_edit_result",
     "vr_overlay_place_dialogue",
     "set_shortcut_recording",
     "desktop_ocr_status",

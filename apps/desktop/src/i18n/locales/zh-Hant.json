@@ -885,7 +885,6 @@
         "connecting": "正在連線 SteamVR",
         "saveFailed": "設定儲存失敗，請在桌面端重試。",
         "actionFailed": "SteamVR 操作失敗，請檢查連線。",
-        "contentHint": "同時套用至頭顯與手腕",
         "headsetHint": "調整字幕大小、透明度與空間位置",
         "tools": "視覺工具",
         "visionUnconfigured": "請先在桌面端設定模型",
@@ -907,7 +906,17 @@
         "recognitionLocked": "由即時翻譯服務自動辨識",
         "translationOffHint": "目前翻譯模式為關閉，目標語言暫不生效。",
         "deletePresetTitle": "刪除語言預設",
-        "noPresets": "尚無已儲存預設"
+        "noPresets": "尚無已儲存預設",
+        "layoutEdit": "介面版面編輯模式",
+        "layoutEditEnter": "編輯版面",
+        "layoutEditWaiting": "請先關閉 VR 儀表板，即可直接抓取並調整各介面位置與縮放",
+        "layoutEditSave": "儲存並離開",
+        "layoutEditCancel": "取消",
+        "layoutEditReset": "全部重設",
+        "layoutEditResetSelected": "重設目前項",
+        "layoutEditAutoLevel": "自動水平",
+        "layoutEditFaceHead": "面向視野",
+        "layoutEditSharedWrist": "OCR / 視覺問答共享位置"
       },
       "ocr": {
         "enable": "啟用 OCR",

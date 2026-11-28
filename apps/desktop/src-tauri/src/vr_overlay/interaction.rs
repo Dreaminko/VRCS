@@ -6,9 +6,17 @@ const LONG_PRESS: Duration = Duration::from_millis(650);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Surface {
+    Headset,
     Menu,
     Dialogue,
     Reader,
+    EditToolbar,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GrabButton {
+    Trigger,
+    Grip,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +69,7 @@ pub struct Output {
 pub struct Router {
     previous: HashMap<u32, (Option<bool>, Option<bool>)>,
     owner: Option<Event>,
+    grab_button: Option<GrabButton>,
     pressed_at: Option<Instant>,
     hover_device: Option<u32>,
 }
@@ -113,6 +122,10 @@ impl Router {
     }
 
     pub fn step(&mut self, samples: &[Sample], keys: &[Key]) -> Output {
+        self.step_mode(samples, keys, false)
+    }
+
+    pub fn step_mode(&mut self, samples: &[Sample], keys: &[Key], edit_mode: bool) -> Output {
         let mut output = Output::default();
         let valid_hit = |hit: Hit| {
             keys.contains(&hit.key)
@@ -145,7 +158,10 @@ impl Router {
             let sample = samples.iter().find(|s| s.device == owner.device);
             let state = sample.and_then(|s| {
                 if owner.kind == Kind::Grab {
-                    s.grip
+                    match self.grab_button {
+                        Some(GrabButton::Trigger) => s.trigger,
+                        _ => s.grip,
+                    }
                 } else {
                     s.trigger
                 }
@@ -176,6 +192,7 @@ impl Router {
                     ..owner
                 });
                 self.owner = None;
+                self.grab_button = None;
                 self.pressed_at = None;
             }
             // A release cannot become a press on another surface in the same sample.
@@ -185,20 +202,36 @@ impl Router {
                 .find(|s| s.device == device)
                 .expect("hover sample");
             let previous = self.previous.get(&device).copied().unwrap_or_default();
-            let kind = if hit.key.surface == Surface::Dialogue
-                && hit.region == 0
-                && sample.grip == Some(true)
-                && previous.1 == Some(false)
-            {
-                Some(Kind::Grab)
-            } else if sample.trigger == Some(true) && previous.0 == Some(false) {
-                Some(Kind::Down)
+            let trigger_down = sample.trigger == Some(true) && previous.0 == Some(false);
+            let grip_down = sample.grip == Some(true) && previous.1 == Some(false);
+            let (kind, grab_btn) = if edit_mode {
+                if hit.key.surface == Surface::EditToolbar && hit.region >= 1 {
+                    (trigger_down.then_some(Kind::Down), None)
+                } else if matches!(
+                    hit.key.surface,
+                    Surface::Headset | Surface::Dialogue | Surface::Menu | Surface::EditToolbar
+                ) {
+                    if trigger_down {
+                        (Some(Kind::Grab), Some(GrabButton::Trigger))
+                    } else if grip_down {
+                        (Some(Kind::Grab), Some(GrabButton::Grip))
+                    } else {
+                        (None, None)
+                    }
+                } else {
+                    (None, None)
+                }
+            } else if hit.key.surface == Surface::Dialogue && hit.region == 0 && grip_down {
+                (Some(Kind::Grab), Some(GrabButton::Grip))
+            } else if trigger_down {
+                (Some(Kind::Down), None)
             } else {
-                None
+                (None, None)
             };
             if let Some(kind) = kind {
                 let event = Event { device, hit, kind };
                 self.owner = Some(event);
+                self.grab_button = grab_btn;
                 self.pressed_at = (kind == Kind::Down).then(Instant::now);
                 output.events.push(event);
             }
@@ -216,6 +249,7 @@ impl Router {
         self.previous.clear();
         self.hover_device = None;
         self.pressed_at = None;
+        self.grab_button = None;
         self.owner.take().map(|event| Event {
             kind: Kind::Cancel,
             ..event
@@ -228,6 +262,7 @@ impl Router {
             .is_some_and(|event| event.hit.key.surface == surface)
         {
             self.pressed_at = None;
+            self.grab_button = None;
             self.owner.take().map(|event| Event {
                 kind: Kind::Cancel,
                 ..event

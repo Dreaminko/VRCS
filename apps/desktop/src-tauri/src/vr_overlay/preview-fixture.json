@@ -148,7 +148,6 @@
     "unitext_preserve_original": "Keep original text in output",
     "unitext_port_conflict": "Listen port conflicts with the UniText OSC port.",
     "close": "Close",
-    "content_hint": "Applies to headset and wrist",
     "headset_hint": "Adjust subtitle size, opacity and position",
     "tools": "Visual tools",
     "vision_unconfigured": "Set up a model on desktop",

@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import type { Settings } from "../settings/types";
 import { createControlExecutor, photoGestureControlState } from "./actions";
-import type { ControlRequest, ControlSnapshot, PlacementRequest } from "./protocol";
+import type { ControlRequest, ControlSnapshot, LayoutEditCommitRequest, PlacementRequest } from "./protocol";
 import type { PlayerAudioStart } from "../capture/usePlayerAudioStart";
 import type { ChatboxStatus, PlayerAudioStatus } from "../core-client/types";
 import { playerAudioProgress, playerAudioPrompt, type PlayerAudioDecision } from "../capture/player-audio-vr";
@@ -166,6 +166,32 @@ export function useVrControlBridge(options: VrControlBridgeOptions) {
         })().catch((error) => console.warn("VR placement result failed", error));
       };
       stops.push(await listen<PlacementRequest>("vr-overlay-placement-request", ({ payload }) => place(payload)));
+      const commitLayoutEdit = (request: LayoutEditCommitRequest) => {
+        if (!owner && !disposed) { waiting.push(() => commitLayoutEdit(request)); return; }
+        if (disposed || request.owner_epoch !== owner || request.id <= (seen.get("layout_edit") ?? 0)) return;
+        seen.set("layout_edit", request.id);
+        void (async () => {
+          let error: string | null = null;
+          try {
+            await current.current.update((settings) => ({
+              ...settings,
+              vr_overlay: {
+                ...settings.vr_overlay,
+                headset: request.headset ? { ...settings.vr_overlay.headset, ...request.headset } : settings.vr_overlay.headset,
+                wrist: request.wrist ? { ...settings.vr_overlay.wrist, ...request.wrist } : settings.vr_overlay.wrist,
+                wrist_menu: request.wrist_menu
+                  ? { ...settings.vr_overlay.wrist_menu, ...request.wrist_menu }
+                  : settings.vr_overlay.wrist_menu,
+              },
+            }));
+          } catch (reason) {
+            error = reason instanceof Error ? reason.message : String(reason);
+          }
+          if (disposed || owner !== request.owner_epoch) return;
+          await invoke("vr_overlay_layout_edit_result", { epoch: owner, id: request.id, error });
+        })().catch((error) => console.warn("VR layout edit result failed", error));
+      };
+      stops.push(await listen<LayoutEditCommitRequest>("vr-overlay-layout-edit-commit", ({ payload }) => commitLayoutEdit(payload)));
       stops.push(await listen<PlayerAudioDecision>("vr-overlay-player-audio-decision", ({ payload }) => {
         if (!disposed && owner && payload.owner_epoch === owner) {
           current.current.playerAudioStart.decide(payload.accepted, payload.request_id);

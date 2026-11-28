@@ -82,6 +82,7 @@ pub enum Command {
     Display(Action),
     Slider(Slider),
     Dashboard,
+    EditResize,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,7 +116,11 @@ impl Ui {
             }
             Command::PlayerPage(page) => self.player_page = *page,
             Command::LanguagePage(page) => self.language_page = *page,
-            Command::Control(_) | Command::Display(_) | Command::Slider(_) | Command::Dashboard => {
+            Command::Control(_)
+            | Command::Display(_)
+            | Command::Slider(_)
+            | Command::Dashboard
+            | Command::EditResize => {
                 return false;
             }
         }

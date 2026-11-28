@@ -850,6 +850,7 @@ pub fn run() {
             vr_overlay::vr_overlay_control_result,
             vr_overlay::vr_overlay_control_release,
             vr_overlay::vr_overlay_placement_result,
+            vr_overlay::vr_overlay_layout_edit_result,
             vr_overlay::vr_overlay_place_dialogue,
 
 

@@ -12,6 +12,8 @@ mod dialogue;
 pub(crate) mod gpu_ui;
 #[cfg(any(windows, linux_vr, test))]
 mod interaction;
+#[cfg(any(windows, linux_vr, test))]
+mod layout_edit;
 #[cfg(windows)]
 pub(crate) mod ocr_capture;
 #[cfg(windows)]
@@ -88,6 +90,11 @@ pub fn vr_overlay_control_ready(
     require_control_owner(&window)?;
     manager
         .placement
+        .lock()
+        .map_err(|e| e.to_string())?
+        .cancel();
+    manager
+        .layout_edit
         .lock()
         .map_err(|e| e.to_string())?
         .cancel();
@@ -211,6 +218,26 @@ pub fn vr_overlay_placement_result(
         .lock()
         .map_err(|e| e.to_string())?
         .resolve(id, error.is_none(), error))
+}
+
+#[tauri::command]
+pub fn vr_overlay_layout_edit_result(
+    window: tauri::WebviewWindow,
+    epoch: u32,
+    id: u64,
+    error: Option<String>,
+    manager: State<'_, Manager>,
+) -> Result<bool, String> {
+    require_control_owner(&window)?;
+    let hub = manager.controls.lock().map_err(|e| e.to_string())?;
+    if !hub.active() || hub.snapshot().owner_epoch != epoch {
+        return Ok(false);
+    }
+    Ok(manager
+        .layout_edit
+        .lock()
+        .map_err(|e| e.to_string())?
+        .resolve_commit(id, error))
 }
 
 #[tauri::command]

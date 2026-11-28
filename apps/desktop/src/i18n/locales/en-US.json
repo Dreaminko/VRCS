@@ -885,7 +885,6 @@
         "connecting": "Connecting to SteamVR",
         "saveFailed": "Could not save settings. Try again in the desktop app.",
         "actionFailed": "The SteamVR action failed. Check the connection.",
-        "contentHint": "Applies to headset and wrist",
         "headsetHint": "Adjust subtitle size, opacity and position",
         "tools": "Visual tools",
         "visionUnconfigured": "Set up a model on desktop",
@@ -907,7 +906,17 @@
         "recognitionLocked": "Managed by live service",
         "translationOffHint": "Translation mode is off.",
         "deletePresetTitle": "Delete language preset",
-        "noPresets": "No saved presets"
+        "noPresets": "No saved presets",
+        "layoutEdit": "Layout Edit Mode",
+        "layoutEditEnter": "Edit Layout",
+        "layoutEditWaiting": "Close the VR Dashboard to move & scale overlays directly",
+        "layoutEditSave": "Save & Exit",
+        "layoutEditCancel": "Cancel",
+        "layoutEditReset": "Reset All",
+        "layoutEditResetSelected": "Reset Item",
+        "layoutEditAutoLevel": "Auto Level",
+        "layoutEditFaceHead": "Face HMD",
+        "layoutEditSharedWrist": "OCR / Vision shared"
       },
       "ocr": {
         "enable": "Enable OCR",
@@ -2399,7 +2408,6 @@
       },
       "subtitles": {
         "invalid_limit": "The history limit is invalid.",
-        "invalid_range": "The conversation time range is invalid.",
         "history_failed": "Could not load subtitle history.",
         "delete_failed": "Could not delete this conversation."
       },

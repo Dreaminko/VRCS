@@ -17,7 +17,7 @@ const WIDTH: u32 = 1024;
 const PANEL_Z: f32 = -1.2;
 const MAX_TEXTURE: u32 = 2048;
 const HEIGHT: u32 = 256;
-const PANEL_COUNT: usize = 10;
+const PANEL_COUNT: usize = 11;
 
 /// Quad layer slots exposed by the runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +25,7 @@ pub enum PanelId {
     Headset,
     Wrist,
     WristMenu,
+    EditToolbar,
     OcrWrist,
     OcrProgress,
     PlayerAudio,
@@ -1940,6 +1941,7 @@ mod tests {
             PanelId::Headset,
             PanelId::Wrist,
             PanelId::WristMenu,
+            PanelId::EditToolbar,
             PanelId::OcrWrist,
             PanelId::OcrProgress,
             PanelId::PlayerAudio,

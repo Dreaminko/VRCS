@@ -28,7 +28,9 @@ use crate::vr_overlay::ocr_plane::OcrScene;
 #[cfg(windows)]
 use crate::vr_overlay::ocr_progress::{ProgressTask, ProgressView, Stage};
 use crate::vr_overlay::presentation::{MessageSide, WristMessage};
-use crate::vr_overlay::surface_protocol::{SurfaceId, SurfaceKey, SurfaceLayout};
+use crate::vr_overlay::surface_protocol::{
+    EditSurfaceOverlay, SurfaceId, SurfaceKey, SurfaceLayout, SurfaceState,
+};
 
 #[cfg(windows)]
 pub fn render_ocr_selection(
@@ -353,9 +355,10 @@ pub fn render_ocr_progress(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub fn render_headset(
     text: &mut TextEngine,
-    key: SurfaceKey,
+    state: &SurfaceState,
     dark: bool,
     messages: &[WristMessage],
     visibility: &CaptionVisibility,
@@ -366,15 +369,16 @@ pub fn render_headset(
     lines_per_language: u32,
     font_size: u32,
     opacity: f32,
+    edit_mode: Option<&EditSurfaceOverlay>,
 ) -> (SurfaceLayout, DrawList) {
     let (w, h) = surface_size(SurfaceId::Headset);
     let theme = Theme::of(dark);
     let visible = visible_caption_messages(true, messages, visibility, max_visible_players, 10);
     let has_notice = notice.is_some_and(|n| !n.is_empty());
-    if visible.is_empty() && !has_notice {
+    if visible.is_empty() && !has_notice && edit_mode.is_none() {
         let mut ui = UiBuilder::new(text, theme, w, h);
         ui.compute_layout();
-        return ui.emit(SurfaceId::Headset, key, 1);
+        return ui.emit(SurfaceId::Headset, state.key, 1);
     }
 
     let lines = lines_per_language.clamp(1, 4) as usize;
@@ -443,6 +447,7 @@ pub fn render_headset(
         fitted_cards.push((*msg, fitted_langs));
     }
 
+    let pad = if edit_mode.is_some() { 24.0 } else { 16.0 };
     let mut ui = UiBuilder::new(text, theme, w, h);
     ui.set_root_style(Style {
         size: Size {
@@ -450,10 +455,10 @@ pub fn render_headset(
             height: length(h as f32),
         },
         padding: Rect {
-            left: length(16.0),
-            right: length(16.0),
-            top: length(16.0),
-            bottom: length(16.0),
+            left: length(pad),
+            right: length(pad),
+            top: length(pad),
+            bottom: length(pad),
         },
         align_items: Some(AlignItems::Center),
         justify_content: Some(JustifyContent::Center),
@@ -461,28 +466,51 @@ pub fn render_headset(
     });
 
     let root = ui.root();
-    let panel = ui.add_box(
+    let wrapper = ui.add_box(
         root,
         Style {
             size: Size {
-                width: percent(1.0),
+                width: percent(1.0_f32),
                 height: auto(),
+            },
+            ..Default::default()
+        },
+        BoxPaint::new(),
+    );
+    let panel_border = match edit_mode {
+        Some(ov) if ov.selected || ov.active_grab || ov.active_resize => theme.primary,
+        Some(_) => theme.primary.with_alpha(0.65),
+        None => theme.border,
+    };
+    let panel = ui.add_box(
+        wrapper,
+        Style {
+            size: Size {
+                width: percent(1.0_f32),
+                height: auto(),
+            },
+            min_size: Size {
+                width: auto(),
+                height: length(if edit_mode.is_some() { 200.0 } else { 0.0 }),
             },
             flex_direction: FlexDirection::Column,
             align_items: Some(AlignItems::Center),
             padding: Rect {
                 left: length(24.0),
                 right: length(24.0),
-                top: length(16.0),
+                top: length(if edit_mode.is_some() { 76.0 } else { 16.0 }),
                 bottom: length(16.0),
             },
             ..Default::default()
         },
         BoxPaint::new()
             .bg(theme.panel_bg(opacity))
-            .border(2.0, theme.border)
+            .border(if edit_mode.is_some() { 3.0 } else { 2.0 }, panel_border)
             .radius(32.0),
     );
+    if edit_mode.is_some() {
+        ui.mark_panel(panel);
+    }
     ui.mark_clip(panel);
 
     if let Some(n) = notice.filter(|n| !n.is_empty()) {
@@ -641,8 +669,28 @@ pub fn render_headset(
         }
     }
 
+    if let Some(ov) = edit_mode {
+        super::add_edit_chrome(
+            &mut ui,
+            wrapper,
+            state,
+            ov,
+            1,
+            crate::vr_overlay::gpu_ui::layout::RegionPayload::Simple(1, false),
+            super::CornerHandleSpec {
+                panel_radius: 32.0,
+                gap: 10.0,
+                stroke_idle: 5.0,
+                stroke_active: 7.5,
+                start_rad: -std::f32::consts::FRAC_PI_2,
+                sweep_rad: std::f32::consts::FRAC_PI_2,
+                hit_size: 72.0,
+            },
+        );
+    }
+
     ui.compute_layout();
-    ui.emit(SurfaceId::Headset, key, 1)
+    ui.emit(SurfaceId::Headset, state.key, 1)
 }
 
 #[cfg(windows)]

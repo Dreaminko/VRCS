@@ -993,6 +993,7 @@ impl Preview {
                 players: self.players.clone(),
                 ui: self.menu_ui.clone(),
                 hold_progress: self.hold_progress,
+                edit_mode: None,
             },
             1 => SurfaceView::Dashboard {
                 dark: self.controls.dark,
@@ -1036,6 +1037,7 @@ impl Preview {
                     error: p.error.clone(),
                     font_size: 28,
                     opacity: 0.94,
+                    edit_mode: None,
                 }
             }
             3 => SurfaceView::Headset {
@@ -1070,6 +1072,7 @@ impl Preview {
                 lines_per_language: 2,
                 font_size: 38,
                 opacity: 0.65,
+                edit_mode: None,
             },
             4 | 5 | 9 => {
                 let mut reader = if self.panel == 4 {

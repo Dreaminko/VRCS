@@ -82,8 +82,20 @@ export interface VrOverlayWristSettings {
   background_opacity: number;
 }
 
+export interface VrOverlayWristMenuSettings {
+  enabled: boolean;
+  hand: VrOverlayControllerHand;
+  offset_x_m: number;
+  offset_y_m: number;
+  offset_z_m: number;
+  pitch_deg: number;
+  yaw_deg: number;
+  roll_deg: number;
+  width_m: number;
+}
+
 export interface VrOverlaySettings {
-  wrist_menu: { enabled: boolean; hand: VrOverlayControllerHand };
+  wrist_menu: VrOverlayWristMenuSettings;
   enabled: boolean;
   backend: VrOverlayBackend;
   translation_display: VrOverlayTranslationDisplay;

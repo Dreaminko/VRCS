@@ -36,6 +36,7 @@ pub fn render_dialogue(
         error,
         font_size,
         opacity,
+        edit_mode,
     } = &state.view
     else {
         unreachable!();
@@ -58,20 +59,25 @@ pub fn render_dialogue(
     let mut ui = UiBuilder::new(text, theme, w, h);
     let root = ui.root();
 
-    // Top capsule toolbar (`top: 8, left: 8, right: 8, height: 88`).
+    // Top capsule toolbar (`top: 8, left: 8, right: 8, height: 88`; inset in edit mode).
+    let (tb_edge, tb_top, tb_height, tb_radius) = if edit_mode.is_some() {
+        (20.0, 20.0, 80.0, 40.0)
+    } else {
+        (8.0, 8.0, 88.0, 44.0)
+    };
     let toolbar = ui.add_box(
         root,
         Style {
             position: Position::Absolute,
             inset: Rect {
-                left: length(8.0),
-                top: length(8.0),
-                right: length(8.0),
+                left: length(tb_edge),
+                top: length(tb_top),
+                right: length(tb_edge),
                 bottom: auto(),
             },
             size: Size {
                 width: auto(),
-                height: length(88.0),
+                height: length(tb_height),
             },
             flex_direction: FlexDirection::Row,
             align_items: Some(AlignItems::Center),
@@ -90,7 +96,7 @@ pub fn render_dialogue(
         BoxPaint::new()
             .bg(theme.surface)
             .border(2.0, theme.border)
-            .radius(44.0),
+            .radius(tb_radius),
     );
     ui.mark_panel(toolbar);
 
@@ -152,7 +158,7 @@ pub fn render_dialogue(
         },
         grip_paint,
     );
-    if !*busy {
+    if !*busy && edit_mode.is_none() {
         ui.set_region(grip, RegionPayload::Simple(0, false));
     }
     if grip_hover {
@@ -211,6 +217,7 @@ pub fn render_dialogue(
         BoxPaint::new().bg(theme.border),
     );
 
+    let action_disabled = *busy || edit_mode.is_some();
     add_circle_button(
         &mut ui,
         toolbar,
@@ -222,7 +229,7 @@ pub fn render_dialogue(
         1.8,
         *mode == Mode::Wrist,
         false,
-        *busy,
+        action_disabled,
         Some((lbl(&controls.labels, "anchorWrist", "Wrist"), true)),
         RegionPayload::Simple(1, true),
     );
@@ -237,7 +244,7 @@ pub fn render_dialogue(
         1.8,
         *mode == Mode::World && *follow_view,
         false,
-        *busy || *mode != Mode::World,
+        action_disabled || *mode != Mode::World,
         Some((lbl(&controls.labels, "followView", "Follow view"), true)),
         RegionPayload::Simple(3, true),
     );
@@ -252,12 +259,17 @@ pub fn render_dialogue(
         1.8,
         *mode == Mode::World,
         false,
-        *busy,
+        action_disabled,
         Some((lbl(&controls.labels, "anchorWorld", "World"), true)),
         RegionPayload::Simple(2, true),
     );
 
     // Body panel (`top: 112, right: 16, bottom: 16, left: 16`).
+    let body_border = match edit_mode {
+        Some(ov) if ov.selected || ov.active_grab || ov.active_resize => theme.primary,
+        Some(_) => theme.primary.with_alpha(0.65),
+        None => theme.border,
+    };
     let body = ui.add_box(
         root,
         Style {
@@ -280,7 +292,7 @@ pub fn render_dialogue(
         },
         BoxPaint::new()
             .bg(theme.panel_bg(*opacity))
-            .border(2.0, theme.border)
+            .border(if edit_mode.is_some() { 3.0 } else { 2.0 }, body_border)
             .radius(32.0),
     );
     ui.mark_panel(body);
@@ -531,6 +543,26 @@ pub fn render_dialogue(
             runtime.scroll_y = runtime.scroll_y.clamp(0.0, max_scroll);
         }
         ui.set_scroll_y(runtime.scroll_y);
+    }
+    if let Some(ov) = edit_mode {
+        super::add_edit_chrome(
+            &mut ui,
+            toolbar,
+            state,
+            ov,
+            1,
+            RegionPayload::Simple(1, false),
+            super::CornerHandleSpec {
+                panel_radius: 40.0,
+                gap: 8.0,
+                stroke_idle: 4.5,
+                stroke_active: 6.5,
+                start_rad: -std::f32::consts::FRAC_PI_2 + 0.04,
+                sweep_rad: std::f32::consts::FRAC_PI_2 - 0.08,
+                hit_size: 74.0,
+            },
+        );
+        ui.compute_layout();
     }
     ui.emit(SurfaceId::Dialogue, key_for(state), 1)
 }

@@ -65,6 +65,7 @@
     "allow-vr-overlay-control-result",
     "allow-vr-overlay-control-release",
     "allow-vr-overlay-placement-result",
+    "allow-vr-overlay-layout-edit-result",
     "allow-vr-overlay-place-dialogue",
     "allow-set-shortcut-recording",
     "allow-desktop-ocr-status",

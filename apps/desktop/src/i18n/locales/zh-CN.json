@@ -885,7 +885,6 @@
         "connecting": "正在连接 SteamVR",
         "saveFailed": "设置保存失败，请在桌面端重试。",
         "actionFailed": "SteamVR 操作失败，请检查连接。",
-        "contentHint": "同时应用于头显和手腕",
         "headsetHint": "调整字幕大小、不透明度与空间位置",
         "tools": "视觉工具",
         "visionUnconfigured": "请先在桌面端配置模型",
@@ -907,7 +906,17 @@
         "recognitionLocked": "由实时翻译服务自动识别",
         "translationOffHint": "当前翻译模式为关闭，目标语言暂不生效。",
         "deletePresetTitle": "删除语言预设",
-        "noPresets": "暂无已保存预设"
+        "noPresets": "暂无已保存预设",
+        "layoutEdit": "界面布局编辑模式",
+        "layoutEditEnter": "编辑布局",
+        "layoutEditWaiting": "请先关闭 VR 仪表盘，即可直接抓取并调整各界面位置与缩放",
+        "layoutEditSave": "保存并退出",
+        "layoutEditCancel": "取消",
+        "layoutEditReset": "全部重置",
+        "layoutEditResetSelected": "重置当前",
+        "layoutEditAutoLevel": "自动水平",
+        "layoutEditFaceHead": "面向视野",
+        "layoutEditSharedWrist": "OCR / 视觉问答共享位置"
       },
       "ocr": {
         "enable": "启用 OCR",
@@ -2399,7 +2408,6 @@
       },
       "subtitles": {
         "invalid_limit": "历史记录上限无效。",
-        "invalid_range": "对话时间范围无效。",
         "history_failed": "无法加载字幕历史。",
         "delete_failed": "无法删除此对话。"
       },
