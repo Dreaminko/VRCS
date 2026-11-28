@@ -55,7 +55,9 @@ pub use translation::{
     LocalTranslationConfig, ReasoningSetting, TranslationBackend, TranslationConfig,
     TranslationPromptConfig, TranslationTargetConfig,
 };
-pub use validation::{validate_glossary_source_url, validate_translation_prompt};
+pub use validation::{
+    SettingsValidationError, validate_glossary_source_url, validate_translation_prompt,
+};
 pub use vr_overlay::{
     VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig, VrOverlayWristMenuConfig,
 };

@@ -17,6 +17,8 @@ import { useConversationTransition } from "../conversations/useConversationTrans
 import { useLiveConversationScroll } from "../conversations/useLiveConversationScroll";
 
 import type { SettingsCategory } from "../settings/settings-types";
+import type { ApiSettingsTab } from "../settings/sections/ApiSettingsSection";
+import { errorRequiresTranslationModelSettings } from "../settings/translation/translation-readiness";
 import { BottomDock } from "../shell/BottomDock";
 import { WindowChrome } from "../shell/WindowChrome";
 import { LiveView, TopStatus } from "../subtitles/components/SubtitleViews";
@@ -152,6 +154,11 @@ export function DesktopShell({
       && profile.capabilities.supports_text_generation));
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const [visionOpenError, setVisionOpenError] = useState(false);
+  const [settingsNavigation, setSettingsNavigation] = useState<{
+    category: SettingsCategory;
+    apiTab?: ApiSettingsTab;
+    token: number;
+  } | null>(null);
   const openVision = useCallback(() => {
     setVisionOpenError(false);
     void openDesktopVision().catch(() => setVisionOpenError(true));
@@ -162,9 +169,22 @@ export function DesktopShell({
     shellRef.current?.style.setProperty("--conversation-sidebar-width", `${width}px`);
   }, []);
   const openTitleSettings = useCallback(() => {
+    setSettingsNavigation(null);
     setSettingsInitialCategory("api");
     setPage("settings");
   }, [setPage, setSettingsInitialCategory]);
+  const openModelAssignments = useCallback(() => {
+    selection.clear();
+    runtime.clearErrorFrom("settings");
+    setSettingsInitialCategory("api");
+    setSettingsNavigation((current) => ({
+      category: "api",
+      apiTab: "models",
+      token: (current?.token ?? 0) + 1,
+    }));
+    setPage("settings");
+  }, [runtime.clearErrorFrom, selection.clear, setPage, setSettingsInitialCategory]);
+  const showModelAssignmentsAction = errorRequiresTranslationModelSettings(runtime.errorCode);
   const handlePlayerSource = useCallback(
     (action: Parameters<typeof applyPlayerSourceAction>[1], speaker: Parameters<typeof applyPlayerSourceAction>[2]) =>
       settings.update(current => applyPlayerSourceAction(current, action, speaker)),
@@ -331,6 +351,8 @@ export function DesktopShell({
                 error={runtime.error}
                 retryable={runtime.startupFailed}
                 onRetry={() => void runtime.retry()}
+                actionLabel={showModelAssignmentsAction ? t("settings.translation.goToModelAssignments") : undefined}
+                onAction={showModelAssignmentsAction ? openModelAssignments : undefined}
                 onClose={runtime.clearError}
               />
             )}
@@ -419,6 +441,7 @@ export function DesktopShell({
               <Suspense fallback={<PageLoading />}>
                 <LiveSettingsPanel
                   initialCategory={settingsInitialCategory}
+                  navigationTarget={settingsNavigation}
                   settings={settings.value}
                   playerAudioStart={capture.playerAudioStart}
                   interfaceScale={settings.interfaceScale}
@@ -487,7 +510,10 @@ export function DesktopShell({
         chatboxButtonRef={chatboxButtonRef}
         onPageChange={(next) => {
           selection.clear();
-          if (next === "settings") setSettingsInitialCategory("system");
+          if (next === "settings") {
+            setSettingsNavigation(null);
+            setSettingsInitialCategory("system");
+          }
           setPage(next);
         }}
         onPageIntent={preloadPage}

@@ -37,7 +37,9 @@ pub(super) async fn validate_candidate(
     candidate.resolve_model_assignments();
     candidate.clear_changed_inherited_reasoning(current);
     candidate.vrchat_player_id = candidate.vrchat_player_id.trim().to_owned();
-    candidate.validate_settings().map_err(invalid)?;
+    candidate
+        .validate_settings_detailed()
+        .map_err(super::validation_api_error)?;
     if candidate.features.external_api
         && candidate.external_api.enabled
         && candidate.external_api.require_token

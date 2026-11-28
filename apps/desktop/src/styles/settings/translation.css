@@ -7,6 +7,26 @@
 .translation-mode-row .translation-mode-options { max-width: 100%; justify-self: end; }
 .translation-mode-row .translation-mode-options button { min-width: 0; white-space: normal; }
 .translation-mode-options button:disabled { opacity: 0.5; cursor: not-allowed; }
+.translation-mode-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 10px;
+  justify-self: end;
+  text-align: right;
+}
+.translation-mode-hint small {
+  color: var(--text-quiet);
+  font-size: var(--settings-text-caption);
+  line-height: var(--settings-leading-copy);
+}
+.translation-mode-hint-action {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: var(--settings-text-caption);
+  white-space: nowrap;
+}
 .translation-route-groups,
 .translation-route-list,
 .translation-preset-settings,

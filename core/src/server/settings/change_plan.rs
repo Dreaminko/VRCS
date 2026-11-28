@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::config::AppConfig;
 
-use super::super::{ApiResult, SettingsContext, api_error};
+use super::super::{ApiResult, SettingsContext, api_error, api_error_with_params};
 
 mod capture;
 mod external_api;
@@ -305,6 +305,18 @@ fn api_detail(error: &ApiError) -> String {
         .to_string()
 }
 
+fn validation_api_error(error: crate::config::SettingsValidationError) -> ApiError {
+    match error.params {
+        Some(params) => api_error_with_params(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            error.code,
+            params,
+            error.detail,
+        ),
+        None => api_error(StatusCode::UNPROCESSABLE_ENTITY, error.code, error.detail),
+    }
+}
+
 fn validate_effective_candidate(
     language_session: &crate::language_session::ActiveLanguageSession,
     candidate: &AppConfig,
@@ -317,9 +329,9 @@ fn validate_effective_candidate(
             crate::language_session::ActiveLanguageSession::Global
         ))
     {
-        effective.validate_settings().map_err(|detail| {
-            api_error(StatusCode::UNPROCESSABLE_ENTITY, "settings.invalid", detail)
-        })?;
+        effective
+            .validate_settings_detailed()
+            .map_err(validation_api_error)?;
     }
     Ok(effective)
 }

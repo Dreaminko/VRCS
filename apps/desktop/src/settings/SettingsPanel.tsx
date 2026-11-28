@@ -36,6 +36,7 @@ import { usePlatformCapabilities } from "../core-client/capabilities";
 
 export function SettingsPanel({
   initialCategory = "system",
+  navigationTarget = null,
   settings,
   health,
   playerAudioStart,
@@ -61,6 +62,11 @@ export function SettingsPanel({
   updater,
 }: {
   initialCategory?: SettingsCategory;
+  navigationTarget?: {
+    category: SettingsCategory;
+    apiTab?: ApiSettingsTab;
+    token: number;
+  } | null;
   settings: Settings;
   health: Health | null;
   playerAudioStart?: PlayerAudioStart;
@@ -97,6 +103,11 @@ export function SettingsPanel({
   useEffect(() => {
     if (activeCategory !== requestedCategory) setActiveCategory(activeCategory);
   }, [activeCategory, requestedCategory]);
+  useEffect(() => {
+    if (!navigationTarget) return;
+    setActiveCategory(navigationTarget.category);
+    if (navigationTarget.apiTab) setApiTab(navigationTarget.apiTab);
+  }, [navigationTarget]);
   const apiProfileCatalog = useApiProfileCatalog();
   const draftController = useSettingsDraft(settings, onSave);
   const desktop = useDesktopPreferences();
@@ -133,6 +144,10 @@ export function SettingsPanel({
   };
   const openLocalModels = () => {
     setApiTab("local");
+    setActiveCategory("api");
+  };
+  const openModelAssignments = () => {
+    setApiTab("models");
     setActiveCategory("api");
   };
   const anki = useAnkiSettings({
@@ -240,6 +255,7 @@ export function SettingsPanel({
           draft={draft}
           apiProfiles={apiProfileCatalog.profiles}
           applySettings={applySettings}
+          onOpenModelAssignments={openModelAssignments}
         />
       )}
 
