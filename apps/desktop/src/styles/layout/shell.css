@@ -1,6 +1,3 @@
-body { zoom: var(--interface-scale, 1); }
-.compact-root { zoom: var(--interface-scale-inverse, 1); }
-
 /* Keep the outer corners transparent when the main shell is visible so it and modal backdrops share window rounding. */
 html:has(.app-shell:not([hidden])),
 html:has(.app-shell:not([hidden])) body {

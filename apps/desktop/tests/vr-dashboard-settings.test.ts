@@ -281,9 +281,9 @@ test("dashboard OSC settings preserve the endpoint and cycle all translation str
     assert.equal(next.translation, settings.translation);
     assert.equal(next.vr_overlay, settings.vr_overlay);
   }
-  const roundRobin = applyVrDashboardAction(settings, "cycle_osc_strategy");
-  const all = applyVrDashboardAction(roundRobin, "cycle_osc_strategy");
-  const preferred = applyVrDashboardAction(all, "cycle_osc_strategy");
+  const roundRobin = applyVrDashboardAction(settings, { set_osc_strategy: "round_robin" });
+  const all = applyVrDashboardAction(roundRobin, { set_osc_strategy: "all_languages" });
+  const preferred = applyVrDashboardAction(all, { set_osc_strategy: "preferred_only" });
   assert.equal(roundRobin.osc.translation_strategy, "round_robin");
   assert.equal(all.osc.translation_strategy, "all_languages");
   assert.deepEqual(preferred.osc, settings.osc);
@@ -298,16 +298,14 @@ test("dashboard master action changes only the VR Overlay master switch", () => 
     (settings as unknown as { untouched: object }).untouched);
 });
 
-test("dashboard content actions cycle the shared translation display", () => {
-  for (const action of ["cycle_headset_content", "cycle_wrist_content"] as const) {
-    const preferredOnly = applyVrDashboardAction(settings, action);
-    const allLanguages = applyVrDashboardAction(preferredOnly, action);
+test("dashboard content actions update the shared translation display", () => {
+  const allLanguages = applyVrDashboardAction(settings, { set_display_content: "all_languages" });
+  const preferredOnly = applyVrDashboardAction(allLanguages, { set_display_content: "preferred_only" });
 
-    assert.equal(allLanguages.vr_overlay.translation_display, "all_languages");
-    assert.equal(preferredOnly.vr_overlay.translation_display, "preferred_only");
-    assert.equal(preferredOnly.vr_overlay.headset, settings.vr_overlay.headset);
-    assert.equal(preferredOnly.vr_overlay.wrist, settings.vr_overlay.wrist);
-  }
+  assert.equal(allLanguages.vr_overlay.translation_display, "all_languages");
+  assert.equal(preferredOnly.vr_overlay.translation_display, "preferred_only");
+  assert.equal(preferredOnly.vr_overlay.headset, settings.vr_overlay.headset);
+  assert.equal(preferredOnly.vr_overlay.wrist, settings.vr_overlay.wrist);
 });
 
 test("dashboard numeric steps clamp to desktop control limits", () => {
@@ -389,10 +387,10 @@ test("restoring VR position preserves visibility, appearance, sources and the ot
   }
 });
 
-test("dashboard wrist hand action cycles without changing headset settings", () => {
-  const right = applyVrDashboardAction(settings, "cycle_wrist_hand");
-  const dominant = applyVrDashboardAction(right, "cycle_wrist_hand");
-  const left = applyVrDashboardAction(dominant, "cycle_wrist_hand");
+test("dashboard wrist hand action sets hand without changing headset settings", () => {
+  const right = applyVrDashboardAction(settings, { set_wrist_hand: "right" });
+  const dominant = applyVrDashboardAction(right, { set_wrist_hand: "dominant" });
+  const left = applyVrDashboardAction(dominant, { set_wrist_hand: "left" });
 
   assert.equal(right.vr_overlay.wrist.hand, "right");
   assert.equal(dominant.vr_overlay.wrist.hand, "dominant");
@@ -468,7 +466,7 @@ test("dashboard actions cannot reactivate unavailable modules", () => {
   for (const action of ["toggle_ocr", "toggle_ocr_gesture"] as const) {
     assert.equal(applyVrDashboardAction(disabledModules, action), disabledModules);
   }
-  for (const action of ["toggle_osc", "toggle_osc_mute_sync", "cycle_osc_strategy"] as const) {
+  for (const action of ["toggle_osc", "toggle_osc_mute_sync", { set_osc_strategy: "all_languages" }] as const) {
     assert.notEqual(applyVrDashboardAction(disabledModules, action), disabledModules);
   }
   assert.notEqual(applyVrDashboardAction(disabledModules, "toggle_headset"), disabledModules);

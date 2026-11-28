@@ -45,7 +45,6 @@ export type VrDashboardAction =
   | "toggle_capture"
   | "toggle_network_capture"
   | "toggle_headset"
-  | "cycle_headset_content"
   | "headset_width_down"
   | "headset_width_up"
   | "headset_opacity_down"
@@ -54,8 +53,6 @@ export type VrDashboardAction =
   | "toggle_wrist"
   | "toggle_wrist_follow_view"
   | "toggle_wrist_menu"
-  | "cycle_wrist_hand"
-  | "cycle_wrist_content"
   | "wrist_width_down"
   | "wrist_width_up"
   | "wrist_opacity_down"
@@ -68,7 +65,6 @@ export type VrDashboardAction =
   | "toggle_osc"
   | "toggle_osc_original"
   | "toggle_osc_mute_sync"
-  | "cycle_osc_strategy"
   | "toggle_unitext"
   | "toggle_unitext_include_microphone"
   | "toggle_unitext_mute_sync"
@@ -92,7 +88,6 @@ export type VrDashboardAction =
   | { adjust_display_appearance: { kind: VrOverlayDisplayKind; field: VrOverlayAppearanceField; direction: number; coarse?: boolean } }
   | { reset_display_position: VrOverlayDisplayKind };
 
-export const RECOGNITION_LANGUAGES: string[] = ["auto", ...ASR_LANGUAGE_CODES];
 const TRANSLATION_MODES: Settings["translation"]["mode"][] = ["disabled", "manual", "automatic"];
 const OSC_STRATEGIES: Settings["osc"]["translation_strategy"][] = ["preferred_only", "round_robin", "all_languages"];
 
@@ -164,11 +159,6 @@ export function dashboardLanguageChoices(
 
 const TRANSLATION_DISPLAYS: VrOverlayTranslationDisplay[] = ["preferred_only", "all_languages"];
 const HANDS: VrOverlayHand[] = ["left", "right", "dominant"];
-
-function cycle<T>(values: readonly T[], current: T): T {
-  const index = values.indexOf(current);
-  return values[(index + 1) % values.length];
-}
 
 function step(value: number, delta: number, minimum: number, maximum: number): number {
   const stepped = Math.min(maximum, Math.max(minimum, value + delta));
@@ -349,8 +339,6 @@ export function applyVrDashboardAction(
       }[action] as "enabled" | "preserve_original_text" | "mute_sync_enabled";
       return { ...settings, osc: { ...settings.osc, [key]: !settings.osc[key] } };
     }
-    case "cycle_osc_strategy":
-      return { ...settings, osc: { ...settings.osc, translation_strategy: cycle(OSC_STRATEGIES, settings.osc.translation_strategy) } };
     case "toggle_unitext":
       if (!settings.unitext.enabled && hasUniTextPortConflict(settings)) return settings;
       return { ...settings, unitext: { ...settings.unitext, enabled: !settings.unitext.enabled } };
@@ -366,10 +354,6 @@ export function applyVrDashboardAction(
       return patchVrOverlay(settings, { enabled: !settings.vr_overlay.enabled });
     case "toggle_headset":
       return patchVrOverlayHeadset(settings, { enabled: !settings.vr_overlay.headset.enabled });
-    case "cycle_headset_content":
-      return patchVrOverlay(settings, {
-        translation_display: cycle(TRANSLATION_DISPLAYS, settings.vr_overlay.translation_display),
-      });
     case "headset_width_down":
     case "headset_width_up":
       return patchVrOverlayHeadset(settings, {
@@ -391,14 +375,6 @@ export function applyVrDashboardAction(
     case "toggle_wrist_follow_view":
       if (settings.vr_overlay.wrist.anchor_mode !== "world") return settings;
       return patchVrOverlayWrist(settings, { follow_view: !settings.vr_overlay.wrist.follow_view });
-    case "cycle_wrist_hand":
-      return patchVrOverlayWrist(settings, {
-        hand: cycle(HANDS, settings.vr_overlay.wrist.hand),
-      });
-    case "cycle_wrist_content":
-      return patchVrOverlay(settings, {
-        translation_display: cycle(TRANSLATION_DISPLAYS, settings.vr_overlay.translation_display),
-      });
     case "wrist_width_down":
     case "wrist_width_up":
       return patchVrOverlayWrist(settings, {

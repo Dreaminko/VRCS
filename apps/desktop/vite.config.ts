@@ -9,9 +9,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
-        ...(process.env.TAURI_ENV_DEBUG === "true"
-          ? { smoke: fileURLToPath(new URL("./tests/vr-player-display.smoke.html", import.meta.url)) }
-          : {}),
       },
       output: {
         manualChunks(id) {

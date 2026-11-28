@@ -4,7 +4,7 @@ import type { PlayerSourceMode } from "../capture/types";
 import { playerUserId } from "../capture/player-selection.ts";
 import { sourceLanguageKey, type PlayerHistoryPreferences } from "../subtitles/player-history.ts";
 import { applyPlayerProximity, applyPlayerSourceAction, applyPlayerSourceMode, applyPlayerViewPriority, applyPlayerVisibilityAction, isPlayerProximityAction, isPlayerSourceAction, isPlayerSourceModeAction, isPlayerViewPriorityAction, sourceMode, type PlayerDisplayAction } from "../subtitles/player-controls.ts";
-import type { ControlAction, ControlSource } from "./protocol";
+import type { ControlSource } from "./protocol";
 
 export interface PlayerDisplayRow {
   track_id: string | null;
@@ -41,30 +41,6 @@ export interface PlayerDisplayView {
   busy: boolean;
   error: string | null;
 }
-
-export interface WristMenuUi {
-  page: "home" | "players" | "rules" | "languages";
-  group: "current" | "history";
-  player_page: number;
-  language_page: number;
-}
-
-export interface SliderCommand {
-  action: "proximity_radius" | "view_horizontal_fov";
-  min: number;
-  max: number;
-  step: number;
-}
-
-export type WristMenuCommand =
-  | { control: ControlAction }
-  | { page: WristMenuUi["page"] }
-  | { group: WristMenuUi["group"] }
-  | { player_page: number }
-  | { language_page: number }
-  | { slider: SliderCommand }
-  | { display: PlayerDisplayAction }
-  | "dashboard";
 
 export interface PlayerDisplayRequest {
   owner_epoch: number;
