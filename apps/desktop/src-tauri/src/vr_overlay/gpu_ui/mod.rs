@@ -62,7 +62,7 @@ impl GpuUiEngine {
         now: Instant,
     ) -> (SurfaceLayout, DrawList) {
         if let SurfaceView::Dashboard { dashboard, .. } = &state.view {
-            self.text.set_locale(&dashboard.locale);
+            let _ = self.text.set_locale(&dashboard.locale);
         }
         if runtime.last_scroll_key != Some(state.scroll_key) {
             runtime.last_scroll_key = Some(state.scroll_key);

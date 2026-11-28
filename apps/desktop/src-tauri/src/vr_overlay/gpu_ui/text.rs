@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use cosmic_text::{
-    Align, Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style as FontStyle,
-    SwashCache, SwashContent, Weight, Wrap,
+    Align, Attrs, Buffer, CacheKey, CacheKeyFlags, Family, FontSystem, Metrics, Shaping, Stretch,
+    Style as FontStyle, SwashCache, SwashContent, Weight, Wrap, fontdb,
 };
 
 use super::draw::{DrawList, Instance};
@@ -389,11 +389,170 @@ fn wrap_tag(wrap: Wrap) -> u8 {
     }
 }
 
+fn canonical_fallback_locale(locale: &str) -> &'static str {
+    let lower = locale.trim().to_ascii_lowercase();
+    if lower.starts_with("zh-hk") || lower.starts_with("zh-mo") {
+        "zh-HK"
+    } else if lower.starts_with("zh-hant") || lower.starts_with("zh-tw") {
+        "zh-TW"
+    } else if lower.starts_with("ja") {
+        "ja"
+    } else if lower.starts_with("ko") {
+        "ko"
+    } else {
+        "zh-CN"
+    }
+}
+
+#[cfg(windows)]
+fn font_families_for_locale(
+    _db: &fontdb::Database,
+    locale: &str,
+) -> (Family<'static>, bool, Option<&'static str>) {
+    let lower = locale.trim().to_ascii_lowercase();
+    if lower.starts_with("zh-hant")
+        || lower.starts_with("zh-tw")
+        || lower.starts_with("zh-hk")
+        || lower.starts_with("zh-mo")
+    {
+        (
+            Family::Name("Microsoft JhengHei UI"),
+            true,
+            Some("Microsoft JhengHei UI"),
+        )
+    } else if lower.starts_with("zh") {
+        (
+            Family::Name("Microsoft YaHei UI"),
+            true,
+            Some("Microsoft YaHei UI"),
+        )
+    } else if lower.starts_with("ja") {
+        (Family::Name("Yu Gothic UI"), true, Some("Yu Gothic"))
+    } else if lower.starts_with("ko") {
+        (Family::Name("Malgun Gothic"), true, Some("Malgun Gothic"))
+    } else {
+        (Family::Name("Segoe UI"), false, Some("Microsoft YaHei UI"))
+    }
+}
+
+#[cfg(not(windows))]
+fn first_installed_family(
+    db: &fontdb::Database,
+    candidates: &[&'static str],
+) -> Option<&'static str> {
+    candidates.iter().copied().find(|candidate| {
+        db.faces()
+            .any(|face| face.families.iter().any(|(name, _)| name == candidate))
+    })
+}
+
+#[cfg(not(windows))]
+fn font_families_for_locale(
+    db: &fontdb::Database,
+    locale: &str,
+) -> (Family<'static>, bool, Option<&'static str>) {
+    let lower = locale.trim().to_ascii_lowercase();
+    let (is_cjk, candidates): (bool, &[&'static str]) =
+        if lower.starts_with("zh-hk") || lower.starts_with("zh-mo") {
+            (
+                true,
+                &[
+                    "Noto Sans CJK HK",
+                    "Noto Sans HK",
+                    "Source Han Sans HK",
+                    "Noto Sans CJK TC",
+                ],
+            )
+        } else if lower.starts_with("zh-hant") || lower.starts_with("zh-tw") {
+            (
+                true,
+                &[
+                    "Noto Sans CJK TC",
+                    "Noto Sans TC",
+                    "Source Han Sans TC",
+                    "Noto Sans CJK SC",
+                ],
+            )
+        } else if lower.starts_with("ja") {
+            (
+                true,
+                &["Noto Sans CJK JP", "Noto Sans JP", "Source Han Sans JP"],
+            )
+        } else if lower.starts_with("ko") {
+            (
+                true,
+                &["Noto Sans CJK KR", "Noto Sans KR", "Source Han Sans KR"],
+            )
+        } else {
+            (
+                lower.starts_with("zh"),
+                &[
+                    "Noto Sans CJK SC",
+                    "Noto Sans SC",
+                    "Source Han Sans SC",
+                    "WenQuanYi Micro Hei",
+                ],
+            )
+        };
+    let han = first_installed_family(db, candidates);
+    match (is_cjk, han) {
+        (true, Some(name)) => (Family::Name(name), true, Some(name)),
+        _ => (Family::SansSerif, false, han),
+    }
+}
+
+fn collect_family_normal_weights(db: &fontdb::Database, family_name: &str) -> Vec<u16> {
+    let mut weights: Vec<u16> = db
+        .faces()
+        .filter(|face| {
+            face.stretch == Stretch::Normal
+                && face.style == FontStyle::Normal
+                && face.families.iter().any(|(name, _)| name == family_name)
+        })
+        .map(|face| face.weight.0)
+        .collect();
+    weights.sort_unstable();
+    weights.dedup();
+    weights
+}
+
+fn family_has_italic(db: &fontdb::Database, family_name: &str) -> bool {
+    db.faces().any(|face| {
+        face.stretch == Stretch::Normal
+            && face.style == FontStyle::Italic
+            && face.families.iter().any(|(name, _)| name == family_name)
+    })
+}
+
+fn snap_weight(available: &[u16], requested: u16) -> u16 {
+    if available.is_empty() {
+        return if requested >= 550 { 700 } else { 400 };
+    }
+    let prefer_heavy = requested >= 550;
+    *available
+        .iter()
+        .min_by_key(|&&w| {
+            let diff = w.abs_diff(requested);
+            let tie = if prefer_heavy {
+                u16::from(w < requested)
+            } else {
+                u16::from(w > requested)
+            };
+            (diff, tie, w)
+        })
+        .expect("non-empty weights")
+}
+
 pub struct TextEngine {
     pub font_system: FontSystem,
     pub swash_cache: SwashCache,
     pub atlas: GlyphAtlas,
     locale: String,
+    primary_sans: Family<'static>,
+    primary_sans_is_cjk: bool,
+    primary_weights: Vec<u16>,
+    han_weights: Vec<u16>,
+    can_use_native_italic: bool,
     scratch: Buffer,
     shape_cache: HashMap<ShapeKey, Arc<ShapedText>>,
     measure_cache: HashMap<MeasureKey, f32>,
@@ -408,19 +567,56 @@ impl TextEngine {
             font_system.db_mut().set_sans_serif_family("Segoe UI");
             font_system.db_mut().set_monospace_family("Cascadia Mono");
         }
+        let sys_locale = font_system.locale().to_owned();
+        let fallback = canonical_fallback_locale(&sys_locale);
+        if font_system.locale() != fallback {
+            let (_, db) = font_system.into_locale_and_db();
+            font_system = FontSystem::new_with_locale_and_db(fallback.to_owned(), db);
+        }
         let scratch = Buffer::new(&mut font_system, Metrics::new(20.0, 27.0));
         let atlas = GlyphAtlas::new();
         let cache_reset_gens = (atlas.r8_reset_gen, atlas.rgba_reset_gen);
-        Self {
+        let mut engine = Self {
             font_system,
             swash_cache: SwashCache::new(),
             atlas,
-            locale: String::new(),
+            locale: sys_locale,
+            primary_sans: Family::SansSerif,
+            primary_sans_is_cjk: false,
+            primary_weights: Vec::new(),
+            han_weights: Vec::new(),
+            can_use_native_italic: false,
             scratch,
             shape_cache: HashMap::new(),
             measure_cache: HashMap::new(),
             cache_reset_gens,
-        }
+        };
+        engine.refresh_font_profile();
+        engine
+    }
+
+    fn refresh_font_profile(&mut self) {
+        let db = self.font_system.db();
+        let (primary_sans, primary_sans_is_cjk, han_family) =
+            font_families_for_locale(db, &self.locale);
+        let primary_weights = match primary_sans {
+            Family::Name(name) => collect_family_normal_weights(db, name),
+            _ => Vec::new(),
+        };
+        let han_weights = han_family
+            .map(|name| collect_family_normal_weights(db, name))
+            .unwrap_or_default();
+        let primary_has_italic = match primary_sans {
+            Family::Name(name) => family_has_italic(db, name),
+            _ => true,
+        };
+        let han_has_italic = han_family.is_some_and(|name| family_has_italic(db, name));
+
+        self.primary_sans = primary_sans;
+        self.primary_sans_is_cjk = primary_sans_is_cjk;
+        self.primary_weights = primary_weights;
+        self.han_weights = han_weights;
+        self.can_use_native_italic = primary_has_italic && han_has_italic;
     }
 
     fn sync_cache_generation(&mut self) {
@@ -431,13 +627,26 @@ impl TextEngine {
         }
     }
 
-    pub fn set_locale(&mut self, locale: &str) {
-        if self.locale != locale {
-            self.locale = locale.to_owned();
+    pub fn set_locale(&mut self, locale: &str) -> bool {
+        let trimmed = locale.trim();
+        if trimmed.is_empty() || self.locale == trimmed {
+            return false;
         }
+        self.locale = trimmed.to_owned();
+        let fallback = canonical_fallback_locale(&self.locale);
+        if self.font_system.locale() != fallback {
+            let (_, db) = std::mem::replace(
+                &mut self.font_system,
+                FontSystem::new_with_locale_and_db(String::new(), fontdb::Database::new()),
+            )
+            .into_locale_and_db();
+            self.font_system = FontSystem::new_with_locale_and_db(fallback.to_owned(), db);
+        }
+        self.refresh_font_profile();
+        true
     }
 
-    fn attrs_for(locale: &str, style: &TextStyle) -> Attrs<'static> {
+    fn attrs_for(&self, style: &TextStyle) -> Attrs<'static> {
         let family = if style.mono {
             #[cfg(windows)]
             {
@@ -448,53 +657,31 @@ impl TextEngine {
                 Family::Monospace
             }
         } else {
-            #[cfg(windows)]
-            {
-                let lower = locale.to_ascii_lowercase();
-                if lower.starts_with("zh-hant")
-                    || lower.starts_with("zh-tw")
-                    || lower.starts_with("zh-hk")
-                {
-                    Family::Name("Microsoft JhengHei UI")
-                } else if lower.starts_with("zh") {
-                    Family::Name("Microsoft YaHei UI")
-                } else if lower.starts_with("ja") {
-                    Family::Name("Yu Gothic UI")
-                } else if lower.starts_with("ko") {
-                    Family::Name("Malgun Gothic")
-                } else {
-                    Family::Name("Segoe UI")
-                }
-            }
-            #[cfg(not(windows))]
-            {
-                let _ = locale;
-                Family::SansSerif
-            }
+            self.primary_sans
         };
-        let weight = if style.weight >= 650 {
-            700
-        } else if style.weight >= 550 {
-            600
-        } else if style.weight >= 450 {
-            500
+        let weight = if !style.mono && self.primary_sans_is_cjk {
+            snap_weight(&self.primary_weights, style.weight)
         } else {
-            400
+            snap_weight(&self.han_weights, style.weight)
         };
-        Attrs::new()
-            .family(family)
-            .weight(Weight(weight))
-            .style(if style.italic {
-                FontStyle::Italic
+        let mut attrs =
+            Attrs::new()
+                .family(family)
+                .weight(Weight(weight))
+                .color(cosmic_text::Color::rgba(
+                    (style.color.r * 255.0).round() as u8,
+                    (style.color.g * 255.0).round() as u8,
+                    (style.color.b * 255.0).round() as u8,
+                    (style.color.a * 255.0).round() as u8,
+                ));
+        if style.italic {
+            if self.can_use_native_italic {
+                attrs = attrs.style(FontStyle::Italic);
             } else {
-                FontStyle::Normal
-            })
-            .color(cosmic_text::Color::rgba(
-                (style.color.r * 255.0).round() as u8,
-                (style.color.g * 255.0).round() as u8,
-                (style.color.b * 255.0).round() as u8,
-                (style.color.a * 255.0).round() as u8,
-            ))
+                attrs = attrs.cache_key_flags(CacheKeyFlags::FAKE_ITALIC);
+            }
+        }
+        attrs
     }
 
     pub fn measure_line_width(&mut self, text: &str, font_size: f32, weight: u16) -> f32 {
@@ -517,7 +704,7 @@ impl TextEngine {
             wrap: Wrap::None,
             ..Default::default()
         };
-        let attrs = Self::attrs_for(&self.locale, &style);
+        let attrs = self.attrs_for(&style);
         self.scratch.set_metrics(
             &mut self.font_system,
             Metrics::new(style.font_size.max(1.0), style.line_height.max(1.0)),
@@ -610,12 +797,12 @@ impl TextEngine {
         self.scratch
             .set_size(&mut self.font_system, width_limit, None);
 
-        let default_attrs = Self::attrs_for(&self.locale, &base);
+        let default_attrs = self.attrs_for(&base);
         let rich: Vec<(&str, Attrs<'_>)> = spans
             .iter()
             .filter(|s| !s.text.is_empty())
             .map(|s| {
-                let attrs = Self::attrs_for(&self.locale, &s.style);
+                let attrs = self.attrs_for(&s.style);
                 (s.text, attrs)
             })
             .collect();
@@ -783,5 +970,106 @@ impl TextEngine {
         });
         self.atlas.glyphs.insert(key, region);
         region
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_locale_normalizes_fallback_and_ignores_empty() {
+        let mut engine = TextEngine::new();
+        assert!(!engine.set_locale(""));
+        assert!(!engine.set_locale("   "));
+
+        let _ = engine.set_locale("zh-TW");
+        assert_eq!(engine.font_system.locale(), "zh-TW");
+        let _ = engine.set_locale("ja-JP");
+        assert_eq!(engine.font_system.locale(), "ja");
+        let _ = engine.set_locale("zh-CN");
+        assert_eq!(engine.font_system.locale(), "zh-CN");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn zh_cn_han_glyphs_stay_on_single_sc_family() {
+        let mut engine = TextEngine::new();
+        let sample = "头显字幕设置开关：测试中文简体字形不统一，他们说这里很好";
+
+        for locale in ["zh-CN", "en-US"] {
+            let _ = engine.set_locale(locale);
+            for (weight, italic, mono) in [
+                (400, false, false),
+                (500, false, false),
+                (600, false, false),
+                (700, false, false),
+                (400, true, false),
+                (600, true, false),
+                (600, false, true),
+            ] {
+                let style = TextStyle {
+                    font_size: 24.0,
+                    line_height: 32.0,
+                    weight,
+                    italic,
+                    mono,
+                    ..Default::default()
+                };
+                let attrs = engine.attrs_for(&style);
+                engine
+                    .scratch
+                    .set_metrics(&mut engine.font_system, Metrics::new(24.0, 32.0));
+                engine
+                    .scratch
+                    .set_wrap(&mut engine.font_system, Wrap::WordOrGlyph);
+                engine
+                    .scratch
+                    .set_size(&mut engine.font_system, Some(800.0), None);
+                engine
+                    .scratch
+                    .set_text(&mut engine.font_system, sample, &attrs, Shaping::Advanced);
+                engine
+                    .scratch
+                    .shape_until_scroll(&mut engine.font_system, false);
+
+                let families: Vec<(usize, String)> = engine
+                    .scratch
+                    .layout_runs()
+                    .flat_map(|run| {
+                        run.glyphs.iter().filter_map(move |g| {
+                            let slice = &run.text[g.start..g.end];
+                            if !slice.chars().any(|c| ('\u{4E00}'..='\u{9FFF}').contains(&c)) {
+                                return None;
+                            }
+                            let phys = g.physical((0.0, 0.0), 1.0);
+                            Some((phys.cache_key.font_id, g.glyph_id))
+                        })
+                    })
+                    .map(|(font_id, glyph_id)| {
+                        assert_ne!(
+                            glyph_id, 0,
+                            "missing Han glyph for locale={locale}, weight={weight}, italic={italic}, mono={mono}"
+                        );
+                        let name = engine
+                            .font_system
+                            .db()
+                            .face(font_id)
+                            .and_then(|f| f.families.first())
+                            .map(|(n, _)| n.clone())
+                            .unwrap_or_default();
+                        (glyph_id as usize, name)
+                    })
+                    .collect();
+
+                assert!(!families.is_empty());
+                for (_, fam) in &families {
+                    assert_eq!(
+                        fam, "Microsoft YaHei UI",
+                        "expected Microsoft YaHei UI for locale={locale}, weight={weight}, italic={italic}, mono={mono}, got {fam}"
+                    );
+                }
+            }
+        }
     }
 }

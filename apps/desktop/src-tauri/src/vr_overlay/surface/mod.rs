@@ -280,6 +280,17 @@ impl SurfaceHub {
         Ok(())
     }
 
+    pub(super) fn set_locale(&self, locale: &str) {
+        let mut inner = crate::vr_overlay::runtime::lock_unpoisoned(&self.0);
+        if inner.engine.text.set_locale(locale) {
+            for entry in &mut inner.entries {
+                if entry.active {
+                    entry.dirty = true;
+                }
+            }
+        }
+    }
+
     pub(super) fn publish(
         &self,
         _app: &AppHandle,

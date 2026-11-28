@@ -200,6 +200,8 @@ impl Preview {
         let mut dashboard = DashboardState::new();
         dashboard.update_view(&view);
         dashboard.set_interactive(true);
+        let mut engine = GpuUiEngine::new();
+        let _ = engine.text.set_locale(&view.locale);
         let mut preview = Self {
             session: 0,
             live,
@@ -208,7 +210,7 @@ impl Preview {
             generation: 1,
             revision: 1,
             dirty: true,
-            engine: GpuUiEngine::new(),
+            engine,
             runtime: SurfaceRuntimeState::default(),
             draw_list: None,
             frame_id: 0,
@@ -909,6 +911,7 @@ impl Preview {
 
     fn sync_dashboard_view(&mut self, view: DashboardViewModel) -> Result<(), String> {
         if view != self.view {
+            let _ = self.engine.text.set_locale(&view.locale);
             self.view = view;
             if self.panel == 1 {
                 self.layout_changed();

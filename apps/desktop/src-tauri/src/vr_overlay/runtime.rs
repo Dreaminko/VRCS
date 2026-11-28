@@ -1206,6 +1206,9 @@ fn worker_loop(
                 state
                     .caption_status
                     .update(view.caption_notice.clone(), Instant::now());
+                #[cfg(any(windows, linux_vr))]
+                app.state::<super::surface::SurfaceHub>()
+                    .set_locale(&view.locale);
                 state.dashboard.update_view(&view);
                 state.dashboard_view = Some(view);
             }
