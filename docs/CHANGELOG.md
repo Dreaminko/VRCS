@@ -6,6 +6,38 @@
 
 # Changelog
 
+## [0.4.4] - 2026-11-28
+
+#### Features & Improvements
+
+- **Native GPU UI renderer for VR overlays**: Replaced WebView2/WGC and Linux WebKitGTK VR surface capture with a direct GPU UI renderer (`vr_overlay::gpu_ui`, powered by `taffy`, `cosmic-text`, `resvg`, `pulldown-cmark`, and D3D11/Vulkan painters). Removed legacy VR surface webview hosts, recovery loops, and smoke/webview surface code, and updated `vr-preview` to render directly via the native GPU UI.
+- **Interactive VR layout edit mode & 6DoF wrist menu placement**: Added an in-VR **Layout Edit Mode** launched from the VR Dashboard with a floating edit toolbar (**Auto Level**, **Face HMD**, overlay visibility toggles, **Reset Item**, **Reset All**, **Save & Exit**, **Cancel**), direct controller grabbing/pushing, and corner-handle uniform scaling for Headset, Wrist, and Wrist Menu overlays. Added full 6DoF pose and width configuration (`offset_x_m`, `offset_y_m`, `offset_z_m`, `pitch_deg`, `yaw_deg`, `roll_deg`, `width_m`) for the wrist menu with automatic legacy field cleanup on config load.
+- **Independent speaker & microphone preferred ASR languages**: Expanded ASR recognition language selection into ordered multi-language lists (up to 4 preferred languages, schema v48 → v49), separated speaker and microphone language settings and presets across Core, desktop UI, and the VR Dashboard, and added smooth list/chip transitions.
+- **UniText player ID toggle & VR Dashboard controls**: Added a `show_player_id` option for UniText output in player audio mode across Core, desktop settings, and the VR Dashboard, along with unified OSC/UniText dashboard controls and a wrist quick-menu toggle on the VR Display settings page.
+
+#### Bug Fixes & Improvements
+
+- **GPU UI CJK font consistency & locale syncing**: Stabilized CJK font family selection, weight snapping, and italic fallback in the GPU UI text engine, and synchronized dashboard locale updates to active VR surfaces.
+- **Shared wrist placement & microphone single-lane captions**: Unified OCR and Vision wrist overlays to share the wrist conversation overlay's position, bound hand, and width (keeping independent opacity and font size). Forced single-speaker ASR and collapsed microphone captions into a single lane without speaker metadata.
+- **Localization & frontend cleanup**: Relocated `errors.conversations` i18n keys out of updater errors, pruned unused translation keys, and removed leftover CSS zoom rules and obsolete VR control/smoke test artifacts.
+
+---
+
+#### 新功能与体验优化
+
+- **VR 覆盖层原生 GPU UI 渲染器**：使用直接 GPU 渲染器（`vr_overlay::gpu_ui`，基于 `taffy`、`cosmic-text`、`resvg`、`pulldown-cmark` 及 D3D11/Vulkan 绘制管线）取代 Windows WebView2/WGC 与 Linux WebKitGTK 表面捕获；移除旧版 VR Webview 宿主、恢复逻辑与兼容表面代码，并让 `vr-preview` 直接使用原生 GPU UI 渲染。
+- **VR 交互式布局编辑模式与手腕菜单 6DoF 定位**：在 VR 仪表盘新增 **编辑布局** 入口与悬浮编辑工具栏（支持 **自动水平**、**面向视野**、各面板显隐开关、**重置当前**、**全部重置**、**保存并退出** 与 **取消**），支持在 VR 中直接抓取、推拉及拖拽角标等比缩放头显字幕、手腕对话与手腕菜单面板；为手腕菜单新增完整 6DoF 位置/旋转/宽度配置，并在配置加载时自动清理已废弃的旧字段。
+- **独立的扬声器与麦克风多选 ASR 识别语言**：将 ASR 首选识别语言扩展为最多 4 项的有序语言列表（配置架构升级至 v48 → v49），在核心服务、桌面设置与 VR 仪表盘中将扬声器与麦克风的识别语言及语言预设彻底拆分为独立配置，并优化列表与语言标签的过渡动画。
+- **UniText 玩家 ID 开关与 VR 仪表盘控制**：在玩家音频模式下为 UniText 输出新增 **显示玩家 ID**（`show_player_id`）开关，覆盖核心配置、桌面设置与 VR 仪表盘，并在 VR 仪表盘中整合 OSC/UniText 设置与手腕快捷菜单开关。
+
+#### 问题修复与体验改进
+
+- **GPU UI 中日韩字体一致性与语言同步**：修复并稳定 GPU UI 文本引擎的中日韩字体族选择、字重对齐与斜体回退逻辑，并在界面语言变更时同步刷新活跃 VR 表面。
+- **共享手腕面板位置与麦克风单栏字幕**：统一 OCR 与视觉问答手腕面板复用手腕对话面板的绑定手、位置、角度与宽度（仅保留各自字号与不透明度）；为麦克风强制单人识别并剥离发言人元数据，将麦克风字幕合并为单栏展示。
+- **本地化与前端清理**：将 `errors.conversations` 翻译键从更新器错误分组迁出并清理未使用的翻译键，同时移除残留的 CSS `zoom` 规则与已废弃的 VR 烟雾测试及协议类型。
+
+**Full Changelog / 完整变更** · [0.4.3...0.4.4](https://github.com/Dreaminko/VRCS/compare/0.4.3...0.4.4)
+
 ## [0.4.3] - 2026-11-26
 
 #### Features & Improvements

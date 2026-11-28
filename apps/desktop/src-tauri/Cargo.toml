@@ -1,6 +1,6 @@
 [package]
 name = "vrcs-desktop"
-version = "0.4.3"
+version = "0.4.4"
 description = "VRCS desktop subtitle client"
 authors.workspace = true
 license.workspace = true
