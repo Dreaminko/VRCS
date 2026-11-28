@@ -28,8 +28,10 @@ use crate::vr_overlay::ocr_plane::OcrScene;
 #[cfg(windows)]
 use crate::vr_overlay::ocr_progress::{ProgressTask, ProgressView, Stage};
 use crate::vr_overlay::presentation::{MessageSide, WristMessage};
+#[cfg(windows)]
+use crate::vr_overlay::surface_protocol::SurfaceKey;
 use crate::vr_overlay::surface_protocol::{
-    EditSurfaceOverlay, SurfaceId, SurfaceKey, SurfaceLayout, SurfaceState,
+    EditSurfaceOverlay, SurfaceId, SurfaceLayout, SurfaceState,
 };
 
 #[cfg(windows)]
