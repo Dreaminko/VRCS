@@ -668,7 +668,14 @@ impl UiRuntime {
             }
         }
         let head = tracking.map(|t| t.0);
-        let (edit_active, edit_draft, edit_visible, edit_toolbar_pose, edit_grabbing_device, edit_grabbing_target) = {
+        let (
+            edit_active,
+            edit_draft,
+            edit_visible,
+            edit_toolbar_pose,
+            edit_grabbing_device,
+            edit_grabbing_target,
+        ) = {
             let mut edit = super::runtime::lock_unpoisoned(&self.layout_edit);
             if edit.is_active() {
                 edit.ensure_toolbar_pose(head);
@@ -834,9 +841,7 @@ impl UiRuntime {
             {
                 keys.push(dialogue_key);
             }
-            if edit_visible[0]
-                && backend.visible(OverlayKind::Headset)
-                && headset_layout.is_some()
+            if edit_visible[0] && backend.visible(OverlayKind::Headset) && headset_layout.is_some()
             {
                 keys.push(headset_key);
             }
@@ -1102,10 +1107,16 @@ impl UiRuntime {
                         Kind::Grab => match (event.hit.key.surface, event.hit.region) {
                             (Surface::Headset, 1) => {
                                 self.headset_pressed = Some(1);
-                                if let (Some(ray), Some(panel)) =
-                                    (ray_pose(event.device), head.and_then(|h| edit.headset_world_pose(h)))
-                                {
-                                    edit.begin_resize(EditTarget::Headset, event.device, ray, panel);
+                                if let (Some(ray), Some(panel)) = (
+                                    ray_pose(event.device),
+                                    head.and_then(|h| edit.headset_world_pose(h)),
+                                ) {
+                                    edit.begin_resize(
+                                        EditTarget::Headset,
+                                        event.device,
+                                        ray,
+                                        panel,
+                                    );
                                 }
                             }
                             (Surface::Headset, _) => {
@@ -1176,12 +1187,7 @@ impl UiRuntime {
                                 if let (Some(ctrl), Some(panel)) =
                                     (ctrl_pose(event.device), edit.toolbar_pose)
                                 {
-                                    edit.begin_move(
-                                        GrabTarget::Toolbar,
-                                        event.device,
-                                        ctrl,
-                                        panel,
-                                    );
+                                    edit.begin_move(GrabTarget::Toolbar, event.device, ctrl, panel);
                                 }
                             }
                             _ => {}

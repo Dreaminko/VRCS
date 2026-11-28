@@ -9,9 +9,7 @@ use std::time::{Duration, Instant};
 use openxr as xr;
 use vrcs_core::{VrOverlayHeadsetConfig, VrOverlayWristConfig};
 
-use super::backend::{
-    ControllerBinding, CursorTarget, OverlayKind, RayHit, menu_wrist_config,
-};
+use super::backend::{ControllerBinding, CursorTarget, OverlayKind, RayHit, menu_wrist_config};
 use super::dashboard::{DASHBOARD_HEIGHT, DASHBOARD_WIDTH, DashboardPointerEvent};
 use super::pose::{
     DeviceId, PointerId, PointerInput, Pose, SpaceId, TrackedPose, pose_from_quaternion,

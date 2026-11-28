@@ -438,6 +438,7 @@ impl LayoutEditSession {
         true
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update_drag(
         &mut self,
         device: u32,
@@ -515,7 +516,11 @@ impl LayoutEditSession {
                                 0.0,
                                 0.0,
                                 0.0,
-                                [0.0, -WRIST_MENU_CAPSULE_OFFSET * draft.wrist_menu.width_m, 0.0],
+                                [
+                                    0.0,
+                                    -WRIST_MENU_CAPSULE_OFFSET * draft.wrist_menu.width_m,
+                                    0.0,
+                                ],
                             ),
                         );
                         apply_wrist_menu_local(&mut draft.wrist_menu, local_capsule);
@@ -691,7 +696,7 @@ impl LayoutEditSession {
         Ok(Some(EditCommitRequest {
             owner_epoch,
             id,
-            headset: headset_changed.then(|| EditHeadsetPatch {
+            headset: headset_changed.then_some(EditHeadsetPatch {
                 offset_x_m: draft.headset.offset_x_m,
                 offset_y_m: draft.headset.offset_y_m,
                 distance_m: draft.headset.distance_m,
@@ -700,7 +705,7 @@ impl LayoutEditSession {
                 roll_deg: draft.headset.roll_deg,
                 width_m: draft.headset.width_m,
             }),
-            wrist: wrist_changed.then(|| EditWristPatch {
+            wrist: wrist_changed.then_some(EditWristPatch {
                 offset_x_m: draft.wrist.offset_x_m,
                 offset_y_m: draft.wrist.offset_y_m,
                 offset_z_m: draft.wrist.offset_z_m,
@@ -709,7 +714,7 @@ impl LayoutEditSession {
                 roll_deg: draft.wrist.roll_deg,
                 width_m: draft.wrist.width_m,
             }),
-            wrist_menu: menu_changed.then(|| EditWristMenuPatch {
+            wrist_menu: menu_changed.then_some(EditWristMenuPatch {
                 offset_x_m: draft.wrist_menu.offset_x_m,
                 offset_y_m: draft.wrist_menu.offset_y_m,
                 offset_z_m: draft.wrist_menu.offset_z_m,
@@ -929,12 +934,7 @@ mod tests {
 
         let panel = compose(anchor, wrist_menu(&cfg.wrist_menu));
         let ctrl = matrix(0.0, 0.0, 0.0, [0.0, 1.06, -0.12]);
-        assert!(session.begin_move(
-            GrabTarget::Component(EditTarget::WristMenu),
-            2,
-            ctrl,
-            panel
-        ));
+        assert!(session.begin_move(GrabTarget::Component(EditTarget::WristMenu), 2, ctrl, panel));
         // Freely translate and rotate wrist menu relative to controller anchor.
         let moved_ctrl = matrix(15.0, 30.0, 45.0, [-0.08, 1.02, -0.06]);
         assert!(session.update_drag(2, moved_ctrl, None, None, Some(anchor), 0.0, 0.016));
@@ -945,7 +945,11 @@ mod tests {
                 0.0,
                 0.0,
                 0.0,
-                [0.0, -WRIST_MENU_CAPSULE_OFFSET * cfg.wrist_menu.width_m, 0.0],
+                [
+                    0.0,
+                    -WRIST_MENU_CAPSULE_OFFSET * cfg.wrist_menu.width_m,
+                    0.0,
+                ],
             ),
         );
         let actual_capsule = compose(
@@ -954,7 +958,11 @@ mod tests {
                 0.0,
                 0.0,
                 0.0,
-                [0.0, -WRIST_MENU_CAPSULE_OFFSET * cfg.wrist_menu.width_m, 0.0],
+                [
+                    0.0,
+                    -WRIST_MENU_CAPSULE_OFFSET * cfg.wrist_menu.width_m,
+                    0.0,
+                ],
             ),
         );
         for row in 0..3 {

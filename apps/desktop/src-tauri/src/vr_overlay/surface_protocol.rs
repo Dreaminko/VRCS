@@ -82,10 +82,9 @@ impl SurfaceId {
             Self::Dashboard => 192,
             Self::Headset => 2,
             Self::EditToolbar => 16,
-            Self::OcrProgress
-            | Self::DashboardThumbnail
-            | Self::OcrSelection
-            | Self::OcrResult => 0,
+            Self::OcrProgress | Self::DashboardThumbnail | Self::OcrSelection | Self::OcrResult => {
+                0
+            }
         }
     }
 }

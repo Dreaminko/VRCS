@@ -842,12 +842,14 @@ impl DashboardState {
     #[cfg(any(windows, linux_vr, test))]
     fn action_allowed(&self, action: &DashboardAction, view: &DashboardViewModel) -> bool {
         use DashboardAction::*;
-        if matches!(action, CommitLayoutEdit | CancelLayoutEdit | ResetLayoutEdit) {
+        if matches!(
+            action,
+            CommitLayoutEdit | CancelLayoutEdit | ResetLayoutEdit
+        ) {
             return (self.ui.edit_active || self.ui.edit_waiting_close)
                 && !matches!(
                     (action, self.ui.edit_active, self.ui.edit_saving),
-                    (CommitLayoutEdit | ResetLayoutEdit, false, _)
-                        | (CommitLayoutEdit, _, true)
+                    (CommitLayoutEdit | ResetLayoutEdit, false, _) | (CommitLayoutEdit, _, true)
                 );
         }
         let page = match action {

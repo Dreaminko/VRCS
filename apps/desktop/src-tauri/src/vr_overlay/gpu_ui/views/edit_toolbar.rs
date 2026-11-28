@@ -10,7 +10,9 @@ use crate::vr_overlay::gpu_ui::icons::IconId;
 use crate::vr_overlay::gpu_ui::layout::{BoxPaint, RegionPayload, UiBuilder};
 use crate::vr_overlay::gpu_ui::text::TextEngine;
 use crate::vr_overlay::gpu_ui::theme::{Color, Theme};
-use crate::vr_overlay::surface_protocol::{EditToolbarView, SurfaceId, SurfaceLayout, SurfaceState};
+use crate::vr_overlay::surface_protocol::{
+    EditToolbarView, SurfaceId, SurfaceLayout, SurfaceState,
+};
 
 #[allow(clippy::too_many_arguments)]
 fn add_pill_button(
@@ -110,7 +112,12 @@ fn add_pill_button(
             },
             ..Default::default()
         },
-        single_line_style(21.0, if primary || active { 600 } else { 500 }, fg, Align::Center),
+        single_line_style(
+            21.0,
+            if primary || active { 600 } else { 500 },
+            fg,
+            Align::Center,
+        ),
     );
 }
 
@@ -202,7 +209,13 @@ pub fn render_edit_toolbar(
         },
         BoxPaint::new(),
     );
-    ui.add_icon(left_header, IconId::GripHorizontal, 24.0, 2.0, theme.primary_ink);
+    ui.add_icon(
+        left_header,
+        IconId::GripHorizontal,
+        24.0,
+        2.0,
+        theme.primary_ink,
+    );
     ui.add_text(
         left_header,
         &toolbar.title,

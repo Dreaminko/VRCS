@@ -244,9 +244,7 @@ impl Manager {
             app,
             controls: Arc::new(Mutex::new(ControlHub::default())),
             placement: Arc::new(Mutex::new(Placement::default())),
-            layout_edit: Arc::new(Mutex::new(
-                super::layout_edit::LayoutEditSession::default(),
-            )),
+            layout_edit: Arc::new(Mutex::new(super::layout_edit::LayoutEditSession::default())),
             status: Arc::new(Mutex::new(VrOverlayStatus::initial())),
             event_sender: Mutex::new(None),
             pending_control: Arc::new(Mutex::new(PendingControl::default())),
@@ -1333,9 +1331,11 @@ fn worker_loop(
             state
                 .headset_surface
                 .finish_tick(&app, state.backend.as_mut(), OverlayKind::Headset);
-            state
-                .edit_toolbar_surface
-                .finish_tick(&app, state.backend.as_mut(), OverlayKind::EditToolbar);
+            state.edit_toolbar_surface.finish_tick(
+                &app,
+                state.backend.as_mut(),
+                OverlayKind::EditToolbar,
+            );
             state.ui.finish_surfaces(&app, state.backend.as_mut());
             state.dashboard_surface.finish_tick(
                 &app,
@@ -2275,9 +2275,11 @@ fn dispatch_dashboard_action(
             match req {
                 Ok(Some(payload)) => {
                     let req_id = payload.id;
-                    if let Err(error) =
-                        app.emit_to("main", super::layout_edit::EDIT_TOOLBAR_COMMIT_EVENT, payload)
-                    {
+                    if let Err(error) = app.emit_to(
+                        "main",
+                        super::layout_edit::EDIT_TOOLBAR_COMMIT_EVENT,
+                        payload,
+                    ) {
                         lock_unpoisoned(&state.layout_edit)
                             .resolve_commit(req_id, Some(error.to_string()));
                     }
@@ -2393,8 +2395,7 @@ fn update_headset(
         )
     };
     #[cfg(not(any(windows, linux_vr)))]
-    let (edit_active, edit_visible, headset_cfg) =
-        (false, true, state.config.headset.clone());
+    let (edit_active, edit_visible, headset_cfg) = (false, true, state.config.headset.clone());
     // A held visual question temporarily owns the subtitle surface, without
     // changing subtitle history or requiring the subtitle display to be enabled.
     if edit_active && !edit_visible {
@@ -2465,12 +2466,10 @@ fn update_headset(
             };
             let feedback =
                 edit_active.then_some((state.ui.headset_hover, state.ui.headset_pressed, None));
-            let visible = state.headset_surface.refresh(
-                app,
-                backend,
-                OverlayKind::Headset,
-                feedback,
-            )?;
+            let visible =
+                state
+                    .headset_surface
+                    .refresh(app, backend, OverlayKind::Headset, feedback)?;
             let shown = backend
                 .set_opacity(
                     OverlayKind::Headset,
@@ -2685,11 +2684,7 @@ fn update_wrist(
 }
 
 #[cfg(any(windows, linux_vr))]
-fn update_edit_toolbar(
-    app: &AppHandle,
-    state: &mut WorkerState,
-    backend: &mut Backend,
-) {
+fn update_edit_toolbar(app: &AppHandle, state: &mut WorkerState, backend: &mut Backend) {
     use super::surface_protocol::SurfaceView;
     let labels = state
         .dashboard_view
@@ -2820,16 +2815,14 @@ fn render_wrist(
             }
         }
     } else if business || edit_active {
-        backend
-            .ensure_wrist(&wrist_cfg)
-            .and_then(|binding| {
-                status.wrist.bound_role = binding.role;
-                if binding.available {
-                    Ok(())
-                } else {
-                    Err("Controller tracking unavailable".into())
-                }
-            })
+        backend.ensure_wrist(&wrist_cfg).and_then(|binding| {
+            status.wrist.bound_role = binding.role;
+            if binding.available {
+                Ok(())
+            } else {
+                Err("Controller tracking unavailable".into())
+            }
+        })
     } else {
         Ok(())
     };

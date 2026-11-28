@@ -355,7 +355,6 @@ pub fn render_ocr_progress(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 pub fn render_headset(
     text: &mut TextEngine,
     state: &SurfaceState,

@@ -948,7 +948,9 @@ mod platform {
                         (*self.raw_overlay)
                             .SetOverlayTransformAbsolute
                             .ok_or("Absolute overlays unavailable")?(
-                            handle.0, origin as _, &mut matrix
+                            handle.0,
+                            origin as _,
+                            &mut matrix,
                         )
                     })?;
                     self.state_mut(OverlayKind::Headset).transform = Some(target_transform);
