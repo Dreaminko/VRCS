@@ -1,6 +1,6 @@
 # Localization contributions
 
-VRCS currently ships with Simplified Chinese (`zh-CN`), Japanese (`ja-JP`), and English (`en-US`). Locale files are discovered automatically, so a new translation normally changes only one JSON file.
+VRCS currently ships with English (`en-US`), Simplified Chinese (`zh-CN`), Traditional Chinese (`zh-Hant`), and Japanese (`ja-JP`). Locale files are discovered automatically, so adding a new translation only requires creating a locale file and registering its metadata.
 
 ## Add a language
 
@@ -17,7 +17,7 @@ Use a canonical [BCP 47](https://www.rfc-editor.org/rfc/bcp/bcp47.txt) locale an
 npm run i18n:new -- ar "العربية" rtl
 ```
 
-The command creates `apps/desktop/src/i18n/locales/<locale>.json` with the current English key structure and empty values. Translate every value before submitting. No TypeScript registration is required.
+The command creates `apps/desktop/src/i18n/locales/<locale>.json` with the current English key structure and empty values, and registers its metadata in `apps/desktop/src/i18n/locales-meta.json`. Translate every value before submitting; no TypeScript code changes are required.
 
 ## Locale file contract
 
@@ -47,7 +47,7 @@ Requirements:
 - `_meta.direction` must be `ltr` or `rtl`.
 - `_meta.status` must be `complete` before the file is submitted.
 - Keep every key from `en-US.json`; do not add or rename keys in a translation-only change.
-- Translate values only. Keep product names such as VRCS, VRChat, Whisper, CUDA, Anki, and AnkiConnect unchanged unless the target community has an established spelling.
+- Translate values only. Keep product and technical names such as VRCS, VRChat, Qwen3 ASR, PLaMo, UniText, Anki, and AnkiConnect unchanged unless the target community has an established spelling.
 - Preserve interpolation variables exactly, including both braces: `{{count}}`, `{{name}}`, `{{port}}`, and so on.
 - Keep JSON UTF-8 encoded and do not add comments or trailing commas.
 - Translate for the interface context rather than word for word. Prefer short labels and direct error messages.
@@ -68,6 +68,7 @@ npm run build:frontend
 
 - valid JSON and locale metadata;
 - matching filename and locale;
+- `apps/desktop/src/i18n/locales-meta.json` kept in sync with locale `_meta` entries;
 - exact key parity with English;
 - non-empty translations;
 - matching interpolation variables;

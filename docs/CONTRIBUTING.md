@@ -70,8 +70,9 @@ Please keep commits focused and do not include generated build output.
 
 ### Linux development (initial adaptation)
 
-VRCS includes native Linux `x86_64` desktop adaptation (ARM64 is deferred for
-now), though Linux packages are not yet a published or fully accepted release.
+VRCS publishes native Linux `x86_64` desktop packages (`.deb`, `.rpm`, and
+`AppImage`) on GitHub Releases (ARM64 remains deferred for now), while full
+hardware and desktop-session acceptance across all milestones is still ongoing.
 `npm run dev` and `npm run dev:vulkan` dispatch through Node: Windows retains
 PowerShell preparation; Linux does not stage Windows DLLs.
 `npm run dev:vulkan` enables managed Qwen GPU recognition through the pinned native
@@ -171,7 +172,9 @@ Implemented boundaries:
   ARM64 PLaMo remains disabled (ARM64 releases are deferred).
   PipeWire captures microphone, system output, and VRChat process audio. Linux
   x86_64 VR subtitles, wrist overlays, dashboard, and controller input
-  (OpenXR/OpenVR) are enabled by default, while VR scene capture
+  (OpenXR/OpenVR) are enabled by default and render directly through the native
+  GPU UI renderer (`vr_overlay::gpu_ui`, without requiring a WebKitGTK VR
+  surface host), while VR scene capture
   (`vr.scene_capture`, for VR OCR and VR visual question answering) remains
   disabled on Linux pending upstream OpenXR/Monado scene-capture APIs. Desktop
   OCR and desktop visual question answering via `org.freedesktop.portal.Screenshot`
@@ -239,7 +242,7 @@ otherwise stated):
 | Qwen Vulkan / Linux GNU x86_64 | Pinned Vulkan runtime download, verification, installation and device enumeration passed; Intel HD Graphics P630 / Mesa 26.2.6 transcribed the JFK sample on both channels, then recovered after forced exit; the combined CPU/GPU lifecycle test passed in 45.15 s (not per-request latency) | ARM64 execution, AMD/NVIDIA drivers, sustained real-time performance and GPU-startup fallback hardware acceptance |
 | PLaMo CPU / Linux GNU x86_64 | Actual revision-bound license consent, 573 MB download/SHA verification and translation preview API: en→ja 3.262 s cold (includes startup), ja→en 0.189 s, zh-Hans→zh-Hant 0.408 s; 16 translations alongside the real dual-channel Qwen recovery test, max 0.421 s; unload/reload, SIGKILL recovery, directory migration, corrupt-destination rollback and restart with unreachable download proxy passed; active child reaped on Core shutdown | ARM64 remains disabled; other CPUs and long-text throughput are not established |
 | ONNX CPU | Silero v6.2.1 and Smart Turn prediction; PP-OCR multilingual two-image inference, cold 3.413 s / warm 1.617 s | ARM64 inference and performance |
-| WebKit VR host experiment | Real offscreen React reader: 16 accepted layout/paint-matched snapshots, pin click, 2 hidden updates, pause/resume and reload; CJK glyphs and transparent edges inspected; mean 6.240 ms / max 20.075 ms per snapshot | OpenVR submissions, headset visual quality, controller input and production VR |
+| WebKit VR host experiment *(historical; replaced in 0.4.4 by the native GPU UI renderer)* | Real offscreen React reader: 16 accepted layout/paint-matched snapshots, pin click, 2 hidden updates, pause/resume and reload; CJK glyphs and transparent edges inspected; mean 6.240 ms / max 20.075 ms per snapshot | OpenVR submissions, headset visual quality, controller input and production VR |
 | Ubuntu 24.04 x86_64 deb/AppImage | Both native packages built, extracted, dependencies resolved and first-start Silero session self-test passed; unsigned manifests; metadata signature/architecture rejection tests 10/10 passed | Clean-machine graphical install/upgrade, ARM64 package, signed publication; application ELF requires up to GLIBC_2.39 (AppImage does not remove this baseline) |
 | ScreenCast Portal / niri 26.04 | Actual source authorization, linear DMA-BUF freeze, in-app region selection and local OCR completed; scan 2.560 s (including 2.005 s model load); capture closed before selection; authorization cancel/reopen and frozen-picker cancel removed the window and re-enabled capture | Cloud visual-question response, GNOME/KDE sessions, mixed displays/rotation, ARM64 and remaining cancellation matrix |
 | GlobalShortcuts Portal / niri | Interface v2 was present, but actual authorization returned unavailable; the UI reported the limitation and screenshot buttons remained usable | Real binding/activation/replacement on a supported desktop backend |
@@ -316,10 +319,11 @@ first stable build that exposes the Nightly switch.
 
 ## Player audio development
 
-The [player audio guide](docs/experimental-player-audio.md) describes setup,
-player selection, subtitle visibility, and the main modules. The capture module
-produces independent 16 kHz mono PCM streams; each stream enters the shared
-recognition and translation pipeline with its own identity and lifecycle.
+Experimental per-player audio capture and Chatbox network reception share the
+network capture modules in `core/src/player_audio/` and
+`crates/player-audio-scan/`. The capture module produces independent 16 kHz mono
+PCM streams; each stream enters the shared recognition and translation pipeline
+with its own identity and lifecycle.
 
 Run the standard development checks above for native or pipeline changes.
 The player-audio browser fixtures cover the audio settings, permission flow,

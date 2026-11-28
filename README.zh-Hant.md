@@ -36,7 +36,7 @@
 - **即時音訊直譯**：透過 Qwen Live Translate、Gemini Live Translate 與 OpenAI Realtime Translation，直接同步產生即時原文與譯文。
 - **上下文與術語管理**：支援自訂提示詞、本機與訂閱術語表、房間及字幕上下文（可透過本機 VRChat 日誌或網路擷取取得），並可串接 [VRCX-0](https://vrcx-0.dev/) 的世界與成員資訊，透過語言預設一次切換辨識、翻譯與 Chatbox 設定。
 - **對話管理**：可為已結束的對話產生 AI 摘要標題，並依標題搜尋歷史記錄。此功能預設關閉，可在「設定 › 系統 › 對話管理」與「設定 › API 與模型」設定模型與自動產生，或從歷史對話選單手動產生與重新產生；自訂名稱始終優先。
-- **VRChat OSC Chatbox 輸出**：將麥克風字幕與譯文傳送至 VRChat Chatbox，支援快速輸入、翻譯預覽、多語言輸出及可選的 OSCQuery 靜音同步。
+- **VRChat OSC Chatbox 輸出與接管**：將麥克風字幕與譯文傳送至 VRChat Chatbox，支援快速輸入、翻譯預覽、多語言輸出、可選的 OSCQuery 靜音同步，並可透過 OSC 輸入接管攔截並翻譯第三方 OSC 應用傳送的 Chatbox 訊息。
 - **UniText 道具輸出**：將麥克風字幕、他人字幕與譯文傳送至 Avatar 上掛載的 [UniText](https://github.com/Dreaminko/UniText) 道具，支援透過 OSCQuery 自動偵測與 OSC 傳送、參數檔位選擇、可選保留原文、麥克風靜音同步及閒置自動清屏。
 - **VR 字幕疊層（SteamVR / OpenXR & OpenVR）**：在頭戴裝置內或手腕面板閱讀多語言字幕，並透過 VR 儀表板直接調整字幕版面、目標語言與 Chatbox 設定，支援 Windows 與 Linux（`x86_64`）。
 - **OCR 翻譯**：在桌面（Windows 與 Linux 經由 Screenshot Portal）或 VR（Windows）中框選文字進行辨識與翻譯，採用本機 PP-OCRv6（CPU，Windows 另支援 DirectML GPU），結果可顯示於桌面視窗、手腕面板或 VR 中的原文位置。

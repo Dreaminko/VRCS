@@ -36,17 +36,17 @@ schema 43 在此基础上迁移为按账号控制语音／Chatbox 来源；升�
 
 | 能力 | 状态 |
 |---|---|
-| 配置读写、schema v1→v29 迁移 | 已实现（`src/config.rs`） |
-| 字幕历史存储与裁剪（SQLite） | 已实现（`src/db.rs`） |
-| 词典查询、Yomitan 词典包导入/删除 | 已实现（`src/db.rs`、`src/yomitan.rs`） |
-| AnkiConnect 状态探测与制卡 | 已实现（`src/anki.rs`） |
-| HTTP API、WebSocket 字幕推送、Bearer 鉴权、CORS | 已实现（`src/server.rs`） |
-| 音频设备枚举（回环+麦克风）与设置校验 | 已实现（`src/audio.rs`、`/api/audio/devices`） |
-| 音频采集（系统回环/进程回环/麦克风，`AudioCapture`） | 已实现并接入管线（`src/audio.rs`） |
+| 配置读写、schema v1→v49 迁移 | 已实现（`src/config/`） |
+| 字幕历史存储与裁剪（SQLite） | 已实现（`src/db/`） |
+| 词典查询、Yomitan 词典包导入/删除 | 已实现（`src/db/dictionary.rs`、`src/yomitan.rs`） |
+| AnkiConnect 状态探测与制卡 | 已实现（`src/anki/`） |
+| HTTP API、WebSocket 字幕推送、Bearer 鉴权、CORS | 已实现（`src/server/`） |
+| 音频设备枚举（回环+麦克风）与设置校验 | 已实现（`src/audio/`、`/api/audio/devices`） |
+| 音频采集（系统回环/进程回环/麦克风，`AudioCapture`） | 已实现并接入管线（`src/audio/`） |
 | VAD | 已实现 Silero ONNX、能量检测回退与流式语音分段（`src/vad.rs`） |
-| ASR | 已实现应用管理的本地 Qwen3 ASR、外部本机 Qwen HTTP 服务，以及云端 Qwen3 ASR / Fun-ASR / OpenAI WebSocket 流式适配（`src/asr.rs`） |
-| 识别管线与 `/api/capture/start` `/api/capture/stop` | 已实现双音源采集、VAD 上传门控、增量事件、最终结果 SQLite 写入与 WebSocket 发布（`src/pipeline.rs`） |
-| OSC Chatbox / Mute Sync | 已实现麦克风最终字幕与译文的本机 UDP 输出、限长、限速、静音发送门，以及通过 OSCQuery 同步 VRChat 麦克风静音状态（`src/osc.rs`、`src/vrchat_mute_sync.rs`） |
+| ASR | 已实现应用管理的本地 Qwen3 ASR、外部本机 Qwen HTTP 服务，以及云端 Qwen3 ASR / Fun-ASR / OpenAI / Gemini / Groq / OpenRouter / Xiaomi MiMo 与实时音频直译适配（`src/asr/`） |
+| 识别管线与 `/api/capture/start` `/api/capture/stop` | 已实现双音源采集、VAD 上传门控、增量事件、最终结果 SQLite 写入与 WebSocket 发布（`src/pipeline/`） |
+| OSC Chatbox / UniText / Mute Sync | 已实现麦克风字幕与译文的本机 UDP 输出、限长、限速、静音发送门、UniText 道具输出（`src/unitext/`）、OSC 输入接管中继（`src/osc/inbound.rs`），以及通过 OSCQuery 发现并同步 VRChat 麦克风静音状态（`src/osc/`、`src/vrchat_mute_sync.rs`） |
 
 SQLite DDL 与 Python 版完全一致，可直接打开已有的 `vrcs.db`。配置文件格式、环境变量（`VRCS_CONFIG` / `VRCS_HOST` / `VRCS_PORT` / `VRCS_SESSION_TOKEN`）与 Python 版一致。回环监听未设置 token 时会自动生成临时 token；监听非回环地址时必须显式设置非空的 `VRCS_SESSION_TOKEN`。Yomitan 压缩包上限为 128 MiB，并额外限制解压大小、压缩比、单文件大小和词条文本总量。
 
@@ -69,7 +69,7 @@ Linux GNU x86_64 的 Vulkan 构建下载对应的固定 Vulkan 运行包，包�
 
 Windows 构建的本地 PP-OCRv6 small 支持 ONNX Runtime DirectML，无需 CUDA 或 Vulkan SDK。`ocr.device` 默认为 `cpu`，设为 `directml` 时会优先选择高性能兼容 GPU；模型加载或推理失败后回退 CPU。回退后的 CPU 会话保持使用，直到切换推理设备或重新启动服务。`GET /api/ocr/runtime` 返回最近请求的设备、实际加载的设备和回退原因。其他平台会回退 CPU。
 
-Linux GNU x86_64 的 PLaMo 使用固定 `plamo-3-translate-0.8b-Q4_K_M.gguf`
+Windows x64 与 Linux GNU x86_64 上的本地 PLaMo 翻译使用固定 `plamo-3-translate-0.8b-Q4_K_M.gguf`
 （revision `dbeb0856cb0b004b484f190bb71dd65876297013`，573,123,200 字节），
 下载后验证 SHA-256 与许可证文件；使用前须确认对应 revision 的 PLaMo Community License。
 在 API 和模型设置中下载共享 llama.cpp 运行组件与 PLaMo 模型，将翻译模型设为 Local PLaMo。
@@ -151,7 +151,7 @@ cargo run --manifest-path core/Cargo.toml --no-default-features
 
 ## 音频实现要点
 
-- `AudioCapture`（`src/audio.rs`）替代 Python 版 PyAudioWPatch 封装与 `vrcs-process-audio` 子进程：采集线程内完成 COM 初始化、事件驱动读取、原生 PCM/Float→f32、多声道混平均与线性插值重采样，按 512 采样块经 channel 交给下游。
+- `AudioCapture`（`src/audio/`）替代 Python 版 PyAudioWPatch 封装与 `vrcs-process-audio` 子进程：采集线程内完成 COM 初始化、事件驱动读取、原生 PCM/Float→f32、多声道混平均与线性插值重采样，按 512 采样块经 channel 交给下游。
 - 系统回环/麦克风按**设备混音格式**打开（共享模式回环不支持 autoconvert，已实测验证）；进程回环保留 autoconvert 直接请求 16 kHz 单声道（原 helper 方案）。
 - 设备 id 为 WASAPI 端点 ID 的 FNV-1a 散列，跨重启稳定（Python 版的 PortAudio 序号重启后可能变化）。**迁移注意**：Python 时代配置里存的数值型 device_id 在 Rust Core 下会校验失败，用户在设置页重新选择一次即可。
 - `GetNextPacketSize == 0` 表示无排队包（wasapi 映射为 `Some(0)`），drain 循环必须显式退出。
